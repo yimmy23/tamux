@@ -1,11 +1,14 @@
 import type React from "react";
 
+export const DEFAULT_PAGE_SIZE = 5;
+export const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
+
 export function MetricRibbon({ items }: { items: Array<{ label: string; value: string; accent?: string }> }) {
     return (
         <div
             style={{
                 display: "grid",
-                gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${Math.min(2, items.length)}, minmax(0, 1fr))`,
                 gap: "var(--space-3)",
                 marginBottom: "var(--space-4)",
             }}
@@ -64,7 +67,7 @@ export function EmptyPanel({ message }: { message: string }) {
     );
 }
 
-export function ContextCard({ label, value }: { label: string; value: string }) {
+export function ContextCard({ label, value, href }: { label: string; value: string; href?: string }) {
     return (
         <div
             style={{
@@ -75,31 +78,62 @@ export function ContextCard({ label, value }: { label: string; value: string }) 
             }}
         >
             <div className="amux-panel-title">{label}</div>
-            <div style={{ fontSize: "var(--text-sm)", marginTop: "var(--space-1)", wordBreak: "break-word" }}>{value}</div>
+            {href ? (
+                <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                        display: "block",
+                        fontSize: "var(--text-sm)",
+                        marginTop: "var(--space-1)",
+                        wordBreak: "break-word",
+                        color: "var(--accent)",
+                        textDecoration: "underline",
+                        textUnderlineOffset: 2,
+                    }}
+                >
+                    {value}
+                </a>
+            ) : (
+                <div style={{ fontSize: "var(--text-sm)", marginTop: "var(--space-1)", wordBreak: "break-word" }}>{value}</div>
+            )}
         </div>
     );
 }
 
-export function ActionButton({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+export function ActionButton({
+    children,
+    onClick,
+    disabled = false,
+}: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+}) {
     return (
         <button
             type="button"
             onClick={onClick}
+            disabled={disabled}
             style={{
                 padding: "var(--space-2) var(--space-3)",
                 borderRadius: "var(--radius-md)",
                 border: "1px solid var(--border)",
                 background: "var(--bg-tertiary)",
-                color: "var(--text-secondary)",
+                color: disabled ? "var(--text-muted)" : "var(--text-secondary)",
                 fontSize: "var(--text-xs)",
-                cursor: "pointer",
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.6 : 1,
                 transition: "all var(--transition-fast)",
             }}
             onMouseEnter={(e) => {
+                if (disabled) return;
                 e.currentTarget.style.borderColor = "var(--border-strong)";
                 e.currentTarget.style.color = "var(--text-primary)";
             }}
             onMouseLeave={(e) => {
+                if (disabled) return;
                 e.currentTarget.style.borderColor = "var(--border)";
                 e.currentTarget.style.color = "var(--text-secondary)";
             }}
@@ -144,3 +178,74 @@ export const inputStyle: React.CSSProperties = {
     padding: "var(--space-2) var(--space-3)",
     fontSize: "var(--text-sm)",
 };
+
+export function PageSizeSelect({
+    value,
+    onChange,
+    label = "Per page",
+}: {
+    value: number;
+    onChange: (value: number) => void;
+    label?: string;
+}) {
+    return (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+            <span>{label}</span>
+            <select
+                value={value}
+                onChange={(event) => onChange(Number(event.target.value))}
+                style={{
+                    ...inputStyle,
+                    flex: "0 0 auto",
+                    width: 88,
+                    padding: "6px 8px",
+                    fontSize: "var(--text-xs)",
+                }}
+            >
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                ))}
+            </select>
+        </label>
+    );
+}
+
+export function PaginationControls({
+    page,
+    pageSize,
+    totalItems,
+    onPageChange,
+}: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    onPageChange: (page: number) => void;
+}) {
+    const totalPages = Math.max(1, Math.ceil(totalItems / Math.max(1, pageSize)));
+    const isPrevDisabled = page <= 1;
+    const isNextDisabled = page >= totalPages;
+
+    if (totalItems <= pageSize) {
+        return (
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                {totalItems} item{totalItems === 1 ? "" : "s"}
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)", flexWrap: "wrap" }}>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                Page {page} of {totalPages} · {totalItems} items
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                <ActionButton onClick={isPrevDisabled ? undefined : () => onPageChange(page - 1)} disabled={isPrevDisabled}>
+                    Prev
+                </ActionButton>
+                <ActionButton onClick={isNextDisabled ? undefined : () => onPageChange(page + 1)} disabled={isNextDisabled}>
+                    Next
+                </ActionButton>
+            </div>
+        </div>
+    );
+}

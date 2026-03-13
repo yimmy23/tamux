@@ -14,6 +14,9 @@ import { useHotkeys } from "./hooks/useHotkeys";
 import { saveSession, startAutoSave } from "./lib/sessionPersistence";
 import { sendChatCompletion, messagesToApiFormat } from "./lib/agentClient";
 import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./lib/agentTools";
+import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
+
+const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
 
 const CommandPalette = lazy(() => import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette })));
 const NotificationPanel = lazy(() => import("./components/NotificationPanel").then((module) => ({ default: module.NotificationPanel })));
@@ -74,24 +77,11 @@ export default function App() {
   const symbolHits = useAgentMissionStore((s) => s.symbolHits);
   const toggleAgentPanel = useWorkspaceStore((s) => s.toggleAgentPanel);
   const toggleSessionVault = useWorkspaceStore((s) => s.toggleSessionVault);
-  const gatewayThreadMapRef = useRef<Record<string, string>>((() => {
-    try {
-      const raw = localStorage.getItem("amux_gateway_thread_map");
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed as Record<string, string> : {};
-    } catch {
-      return {};
-    }
-  })());
+  const gatewayThreadMapRef = useRef<Record<string, string>>({});
   const gatewayInFlightRef = useRef<Set<string>>(new Set());
 
   const persistGatewayThreadMap = useCallback(() => {
-    try {
-      localStorage.setItem("amux_gateway_thread_map", JSON.stringify(gatewayThreadMapRef.current));
-    } catch {
-      // Ignore storage failures.
-    }
+    scheduleJsonWrite(GATEWAY_THREAD_MAP_FILE, gatewayThreadMapRef.current, 100);
   }, []);
 
   const traceCount = cognitiveEvents.length;
@@ -113,6 +103,14 @@ export default function App() {
   }, []);
 
   useEffect(() => startAutoSave(30_000), []);
+
+  useEffect(() => {
+    void readPersistedJson<Record<string, string>>(GATEWAY_THREAD_MAP_FILE).then((persisted) => {
+      if (persisted && typeof persisted === "object") {
+        gatewayThreadMapRef.current = persisted;
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -417,6 +415,23 @@ export default function App() {
       let apiMessages = messagesToApiFormat(useAgentStore.getState().getThreadMessages(threadId).slice(0, -1));
       const controller = new AbortController();
       setThreadAbortController(threadId, controller);
+      let lastPersistedReasoning: string | null = null;
+
+      const persistReasoningTrace = (reasoning: string) => {
+        const normalized = reasoning.trim();
+        if (!normalized) return;
+        if (normalized === lastPersistedReasoning) return;
+
+        const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+        useAgentMissionStore.getState().recordCognitiveOutput({
+          paneId: thread?.paneId ?? `gateway:${provider}:${channelId}`,
+          workspaceId: thread?.workspaceId ?? null,
+          surfaceId: thread?.surfaceId ?? null,
+          sessionId: null,
+          text: `<INNER_MONOLOGUE>\n${normalized}\n</INNER_MONOLOGUE>`,
+        });
+        lastPersistedReasoning = normalized;
+      };
 
       try {
         while (loopCount < maxToolLoops) {
@@ -452,6 +467,8 @@ export default function App() {
                 accumulatedReasoning = chunk.reasoning;
               }
 
+              persistReasoningTrace(accumulatedReasoning);
+
               const elapsedSeconds = Math.max(0.001, (Date.now() - responseStartedAt) / 1000);
               const outputTokens = Number(chunk.outputTokens ?? 0);
               const inputTokens = Number(chunk.inputTokens ?? 0);
@@ -483,6 +500,8 @@ export default function App() {
               if (chunk.content) {
                 accumulated = chunk.content;
               }
+
+              persistReasoningTrace(accumulatedReasoning);
               agentState.updateLastAssistantMessage(threadId, accumulated || "Calling tools...", false, {
                 reasoning: accumulatedReasoning || undefined,
                 inputTokens: Number(chunk.inputTokens ?? 0),

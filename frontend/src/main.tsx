@@ -10,7 +10,8 @@ import { hydrateSettingsStore } from "./lib/settingsStore";
 import { hydrateAgentStore } from "./lib/agentStore";
 import { hydrateTranscriptStore } from "./lib/transcriptStore";
 import { hydrateFileManagerStore } from "./lib/fileManagerStore";
-import { isCDUIEnabled } from "./lib/cduiMode";
+import { hydrateCDUIPreference, isCDUIEnabled } from "./lib/cduiMode";
+import { hydrateSnippetStore } from "./lib/snippetStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
 import "./styles/global.css";
 
@@ -23,17 +24,22 @@ const renderRoot = (useCDUI: boolean): void => {
 };
 
 async function bootstrap() {
-  const useCDUI = isCDUIEnabled();
+  await Promise.all([
+    hydrateCDUIPreference(),
+    hydrateSettingsStore(),
+  ]);
 
   await Promise.all([
-    hydrateSettingsStore(),
     hydrateAgentStore(),
     hydrateCommandLogStore(),
     hydrateAgentMissionStore(),
     hydrateKeybindStore(),
     hydrateTranscriptStore(),
     hydrateFileManagerStore(),
+    hydrateSnippetStore(),
   ]);
+
+  const useCDUI = isCDUIEnabled();
 
   const persistedSession = await loadSession();
   if (persistedSession) {
