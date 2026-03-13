@@ -338,13 +338,12 @@ const normalizeViewNode = (
     ...node.builder,
     editable: node.builder?.editable ?? Boolean(children?.length),
   });
+  const propsWithFallbacks = applyBuilderRuntimePropFallbacks(node.props, node.builder);
 
   return {
     nodeId,
     type: node.type,
-    ...(applyBuilderRuntimePropFallbacks(node.props, node.builder)
-      ? { props: applyBuilderRuntimePropFallbacks(node.props, node.builder) }
-      : {}),
+    ...(propsWithFallbacks ? { props: propsWithFallbacks } : {}),
     ...(node.command ? { command: node.command } : {}),
     ...(children ? { children } : {}),
     ...(builder ? { builder } : {}),

@@ -27,6 +27,9 @@ async function bootstrap() {
   await Promise.all([
     hydrateCDUIPreference(),
     hydrateSettingsStore(),
+  ]);
+
+  await Promise.all([
     hydrateAgentStore(),
     hydrateCommandLogStore(),
     hydrateAgentMissionStore(),

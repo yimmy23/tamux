@@ -20,7 +20,11 @@ export function TraceView({
 
     const matchesDate = (timestamp: number) => {
         if (!dateFilter) return true;
-        return new Date(timestamp).toISOString().slice(0, 10) === dateFilter;
+        const date = new Date(timestamp);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}` === dateFilter;
     };
 
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -104,8 +108,12 @@ export function TraceView({
 
             <SectionTitle title="Operational Timeline" subtitle="Execution events" />
 
-            {visibleOperationalEvents.length === 0 ? (
+            {operationalEvents.length === 0 ? (
                 <EmptyPanel message="No operational events captured yet." />
+            ) : filteredOperationalEvents.length === 0 ? (
+                <EmptyPanel message="No operational events match your current filters." />
+            ) : visibleOperationalEvents.length === 0 ? (
+                <EmptyPanel message="No operational events on this page. Try a previous page or adjust filters." />
             ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
                     {visibleOperationalEvents.map((event) => (

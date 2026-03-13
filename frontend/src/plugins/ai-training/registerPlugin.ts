@@ -105,7 +105,7 @@ export function registerAITrainingPlugin() {
                 type: "function",
                 function: {
                     name: "ai_training_launch",
-                    description: "Launch a supported AI training workflow in a selected terminal pane.",
+                    description: "Prepare a supported AI training workflow in a selected terminal pane for user-initiated launch.",
                     parameters: {
                         type: "object",
                         properties: {

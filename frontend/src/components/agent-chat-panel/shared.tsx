@@ -102,26 +102,38 @@ export function ContextCard({ label, value, href }: { label: string; value: stri
     );
 }
 
-export function ActionButton({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+export function ActionButton({
+    children,
+    onClick,
+    disabled = false,
+}: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+}) {
     return (
         <button
             type="button"
             onClick={onClick}
+            disabled={disabled}
             style={{
                 padding: "var(--space-2) var(--space-3)",
                 borderRadius: "var(--radius-md)",
                 border: "1px solid var(--border)",
                 background: "var(--bg-tertiary)",
-                color: "var(--text-secondary)",
+                color: disabled ? "var(--text-muted)" : "var(--text-secondary)",
                 fontSize: "var(--text-xs)",
-                cursor: "pointer",
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.6 : 1,
                 transition: "all var(--transition-fast)",
             }}
             onMouseEnter={(e) => {
+                if (disabled) return;
                 e.currentTarget.style.borderColor = "var(--border-strong)";
                 e.currentTarget.style.color = "var(--text-primary)";
             }}
             onMouseLeave={(e) => {
+                if (disabled) return;
                 e.currentTarget.style.borderColor = "var(--border)";
                 e.currentTarget.style.color = "var(--text-secondary)";
             }}
@@ -210,6 +222,8 @@ export function PaginationControls({
     onPageChange: (page: number) => void;
 }) {
     const totalPages = Math.max(1, Math.ceil(totalItems / Math.max(1, pageSize)));
+    const isPrevDisabled = page <= 1;
+    const isNextDisabled = page >= totalPages;
 
     if (totalItems <= pageSize) {
         return (
@@ -225,10 +239,10 @@ export function PaginationControls({
                 Page {page} of {totalPages} · {totalItems} items
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <ActionButton onClick={page > 1 ? () => onPageChange(page - 1) : undefined}>
+                <ActionButton onClick={isPrevDisabled ? undefined : () => onPageChange(page - 1)} disabled={isPrevDisabled}>
                     Prev
                 </ActionButton>
-                <ActionButton onClick={page < totalPages ? () => onPageChange(page + 1) : undefined}>
+                <ActionButton onClick={isNextDisabled ? undefined : () => onPageChange(page + 1)} disabled={isNextDisabled}>
                     Next
                 </ActionButton>
             </div>

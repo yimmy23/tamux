@@ -2431,8 +2431,8 @@ function createWindow() {
     });
 
     const isDev = !app.isPackaged;
-    if (isDev) mainWindow.loadURL('http://localhost:5173/?cdui=1');
-    else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { cdui: '1' } });
+    if (isDev) mainWindow.loadURL('http://localhost:5173');
+    else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (/^https?:\/\//i.test(url)) {

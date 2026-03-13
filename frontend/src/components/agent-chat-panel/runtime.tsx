@@ -247,10 +247,12 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             let loopCount = 0;
             let allCurrentMessages = useAgentStore.getState().getThreadMessages(currentThreadId);
             let apiMessages = messagesToApiFormat(allCurrentMessages.slice(0, -1));
+            let lastPersistedReasoning: string | null = null;
 
             const persistReasoningTrace = (reasoning: string) => {
                 const normalized = reasoning.trim();
                 if (!normalized) return;
+                if (normalized === lastPersistedReasoning) return;
 
                 const thread = useAgentStore.getState().threads.find((entry) => entry.id === currentThreadId);
                 const paneId = thread?.paneId ?? useWorkspaceStore.getState().activePaneId() ?? "agent";
@@ -264,6 +266,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                     sessionId: null,
                     text: `<INNER_MONOLOGUE>\n${normalized}\n</INNER_MONOLOGUE>`,
                 });
+                lastPersistedReasoning = normalized;
             };
 
             while (loopCount < maxToolLoops) {

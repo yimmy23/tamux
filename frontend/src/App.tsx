@@ -415,10 +415,12 @@ export default function App() {
       let apiMessages = messagesToApiFormat(useAgentStore.getState().getThreadMessages(threadId).slice(0, -1));
       const controller = new AbortController();
       setThreadAbortController(threadId, controller);
+      let lastPersistedReasoning: string | null = null;
 
       const persistReasoningTrace = (reasoning: string) => {
         const normalized = reasoning.trim();
         if (!normalized) return;
+        if (normalized === lastPersistedReasoning) return;
 
         const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
         useAgentMissionStore.getState().recordCognitiveOutput({
@@ -428,6 +430,7 @@ export default function App() {
           sessionId: null,
           text: `<INNER_MONOLOGUE>\n${normalized}\n</INNER_MONOLOGUE>`,
         });
+        lastPersistedReasoning = normalized;
       };
 
       try {

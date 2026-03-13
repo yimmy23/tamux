@@ -99,7 +99,7 @@ export function registerCodingAgentsPlugin() {
                 type: "function",
                 function: {
                     name: "coding_agents_launch",
-                    description: "Launch a discovered coding-agent CLI in a selected terminal pane. Accepts optional workspace, surface, and pane by id or name.",
+                    description: "Prepare a discovered coding-agent CLI in a selected terminal pane for user-initiated launch. Accepts optional workspace, surface, and pane by id or name.",
                     parameters: {
                         type: "object",
                         properties: {
