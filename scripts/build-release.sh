@@ -14,7 +14,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-OUT_DIR="$PROJECT_ROOT/dist-release"
 
 SIGN=0
 SKIP_RUST=0
@@ -34,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 step=0
-total=5
+total=6
 
 step_msg() {
     step=$((step + 1))
@@ -50,12 +49,104 @@ warn_msg() {
     echo "  WARNING: $1"
 }
 
+APP_VERSION="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' "$PROJECT_ROOT/frontend/package.json" | head -1)"
+if [[ -z "$APP_VERSION" ]]; then
+    APP_VERSION="0.0.0"
+fi
+
+ARCH="$(uname -m)"
+
+checksum_file() {
+    local file="$1"
+    if command -v sha256sum &>/dev/null; then
+        sha256sum "$file" | awk '{print $1}'
+    elif command -v shasum &>/dev/null; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    else
+        python3 - "$file" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+    fi
+}
+
+generate_release_notes_if_missing() {
+    local notes_file="$1"
+    shift
+    local artifacts=("$@")
+
+    [[ -f "$notes_file" ]] && return 0
+
+    {
+        echo "# tamux ${APP_VERSION} Release Notes"
+        echo ""
+        echo "Built on $(date -u +"%Y-%m-%d %H:%M UTC") for ${OS} (${ARCH})."
+        echo ""
+        echo "## Highlights"
+        echo ""
+        echo "- Rebrand alignment across runtime, packaging, and release artifacts."
+        echo "- Updated release packaging flow with zipped bundles and SHA-256 manifests."
+        echo "- Browser panel layout and resize fixes in the Electron frontend."
+        echo ""
+        echo "## Included Artifacts"
+        echo ""
+        for artifact in "${artifacts[@]}"; do
+            echo "- ${artifact}"
+        done
+    } > "$notes_file"
+}
+
+write_checksums_file() {
+    local output_file="$1"
+    shift
+    local artifacts=("$@")
+
+    : > "$output_file"
+    for artifact in "${artifacts[@]}"; do
+        local hash
+        hash="$(checksum_file "$OUT_DIR/$artifact")"
+        printf "%s  %s\n" "$hash" "$artifact" >> "$output_file"
+    done
+}
+
+create_bundle_zip() {
+    local zip_path="$1"
+    shift
+    local files=("$@")
+
+    python3 - "$zip_path" "$OUT_DIR" "${files[@]}" <<'PY'
+import os
+import pathlib
+import sys
+import zipfile
+
+zip_path = pathlib.Path(sys.argv[1])
+base_dir = pathlib.Path(sys.argv[2])
+files = sys.argv[3:]
+
+with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for relative in files:
+        file_path = base_dir / relative
+        archive.write(file_path, arcname=relative)
+PY
+}
+
 # Detect platform
 OS="$(uname -s)"
 EXE=""
+PLATFORM_DIR="linux"
 if [[ "$OS" == *MINGW* ]] || [[ "$OS" == *MSYS* ]] || [[ "$OS" == *CYGWIN* ]]; then
     EXE=".exe"
+    PLATFORM_DIR="windows"
+elif [[ "$OS" == "Darwin" ]]; then
+    PLATFORM_DIR="macos"
 fi
+
+OUT_DIR="$PROJECT_ROOT/dist-release/$PLATFORM_DIR"
 
 echo ""
 echo "============================================================"
@@ -96,7 +187,7 @@ fi
 # -----------------------------------------------------------
 step_msg "Collecting artifacts..."
 mkdir -p "$OUT_DIR"
-find "$OUT_DIR" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" -o -name "*.asc" \) -delete 2>/dev/null || true
+find "$OUT_DIR" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" -o -name "*.asc" -o -name "SHA256SUMS*.txt" -o -name "RELEASE_NOTES*.md" \) -delete 2>/dev/null || true
 
 if [[ -n "$TARGET" ]]; then
     TARGET_DIR="$PROJECT_ROOT/target/$TARGET/release"
@@ -210,6 +301,37 @@ else
             ok_msg "Electron: $(basename "$f")"
         done
     fi
+fi
+
+# -----------------------------------------------------------
+# Step 6: Package bundle + checksums + notes
+# -----------------------------------------------------------
+step_msg "Packaging release bundle..."
+
+bundle_artifacts=()
+for file in "$OUT_DIR"/*; do
+    [[ -f "$file" ]] || continue
+    base_name="$(basename "$file")"
+    case "$base_name" in
+        *.zip|SHA256SUMS*.txt|RELEASE_NOTES*.md) continue ;;
+    esac
+    bundle_artifacts+=("$base_name")
+done
+
+if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
+    notes_file="$OUT_DIR/RELEASE_NOTES.md"
+    checksums_file="$OUT_DIR/SHA256SUMS.txt"
+    bundle_file="$OUT_DIR/tamux-${APP_VERSION}-${OS,,}-${ARCH}.zip"
+
+    generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"
+    write_checksums_file "$checksums_file" "${bundle_artifacts[@]}"
+    create_bundle_zip "$bundle_file" "${bundle_artifacts[@]}" "$(basename "$checksums_file")" "$(basename "$notes_file")"
+
+    ok_msg "Created $(basename "$checksums_file")"
+    ok_msg "Created $(basename "$notes_file")"
+    ok_msg "Created $(basename "$bundle_file")"
+else
+    warn_msg "No release artifacts available to package"
 fi
 
 # -----------------------------------------------------------

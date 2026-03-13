@@ -12,9 +12,11 @@
 
 **Terminal Agentic Multiplexer** -- a terminal multiplexer built for the age of AI agents.
 
-Official website: `https://tamux.app`
+Official website: [https://tamux.app](https://tamux.app)
+
 
 tamux combines tmux-like session management with first-class AI agent integration, structured safety infrastructure, and a modern React-based UI. The backend is written in Rust for performance and reliability; the frontend is a React/TypeScript application rendered inside an Electron shell.
+
 
 ---
 
@@ -34,6 +36,11 @@ Key design principles:
 ---
 
 ## Key Features
+
+
+<center>
+  <img src="frontend/assets/og_image.jpg" width=620/>
+</center>
 
 ### Terminal Management
 
@@ -289,9 +296,65 @@ This produces platform packages in `frontend/release/`:
 
 Use the platform-specific release scripts when you want upload-ready artifacts gathered under `dist-release/`.
 
+If you want to rebuild the full production release layout from scratch after deleting `dist-release/`, use the wrapper below. This is the exact entrypoint for recreating the same release folder structure that was previously generated during release work.
+
+```bash
+# Recreate dist-release/ from scratch
+./scripts/build-production-releases.sh
+```
+
+On a Linux host, that wrapper:
+
+- deletes and recreates `dist-release/`
+- runs the native Linux production build into `dist-release/linux/`
+- runs the Windows cross-build into `dist-release/windows/` when `mingw-w64` is installed
+- preserves the per-platform bundle structure:
+  - raw Rust binaries
+  - Electron packages/installers
+  - `SHA256SUMS.txt`
+  - `RELEASE_NOTES.md`
+  - one zip bundle per platform
+
+Current output layout after a successful Linux + Windows rebuild:
+
+```text
+dist-release/
+  linux/
+    tamux
+    tamux-daemon
+    tamux-gateway
+    tamux-mcp
+    tamux-<version>.AppImage
+    tamux_<version>_amd64.deb
+    tamux-<version>-linux-x86_64.zip
+    SHA256SUMS.txt
+    RELEASE_NOTES.md
+  windows/
+    tamux.exe
+    tamux-daemon.exe
+    tamux-gateway.exe
+    tamux-mcp.exe
+    tamux-portable.exe
+    tamux Setup <version>.exe
+    tamux-<version>-windows-x64.zip
+    SHA256SUMS.txt
+    RELEASE_NOTES.md
+```
+
+Wrapper options:
+
+- `--native-only` builds only the native platform release.
+- `--windows-only` builds only the Windows cross-release.
+- `--skip-rust`, `--skip-frontend`, and `--skip-electron` are passed through to the native release script.
+- `--target <triple>` is passed through to the native release script.
+- `--sign` enables signing in child scripts.
+
 ```bash
 # Linux native release bundle (Rust binaries + frontend + Linux Electron packages)
 ./scripts/build-release.sh
+
+# Rebuild the full production release layout in dist-release/
+./scripts/build-production-releases.sh
 
 # Native macOS release bundle (run on macOS)
 ./scripts/build-release-macos.sh
@@ -307,9 +370,26 @@ scripts\build-release.bat
 Host/platform expectations:
 
 - **Linux host:** can build Linux Rust binaries and Linux Electron artifacts.
-- **Linux/WSL host:** can also cross-compile Windows Rust binaries when `mingw-w64` is installed.
+- **Linux/WSL host:** can also cross-compile Windows Rust binaries and package Windows Electron artifacts when `mingw-w64` is installed.
 - **macOS host:** required for signed macOS app bundles, DMGs, and notarization.
 - **Windows host:** required for the most reliable signed Windows installers.
+
+Recommended prerequisites for `./scripts/build-production-releases.sh` on Linux:
+
+```bash
+sudo apt update
+sudo apt install -y mingw-w64
+cargo build --release
+cd frontend && npm ci && cd ..
+```
+
+For a clean end-to-end rebuild, you typically only need to run:
+
+```bash
+./scripts/build-production-releases.sh
+```
+
+If `mingw-w64` is not installed, the wrapper still produces the native Linux release and skips the Windows cross-release with a clear message.
 
 Useful options:
 
