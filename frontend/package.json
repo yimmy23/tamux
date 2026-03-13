@@ -1,5 +1,5 @@
 {
-  "name": "amux",
+  "name": "tamux",
   "private": true,
   "version": "0.1.1",
   "type": "module",
@@ -43,19 +43,19 @@
     "vite": "^6.0.0"
   },
   "build": {
-    "appId": "com.amux.terminal",
-    "productName": "amux",
+    "appId": "app.tamux.desktop",
+    "productName": "tamux",
     "directories": {
       "output": "release"
     },
     "extraResources": [
       {
-        "from": "dist/amux-daemon.exe",
-        "to": "bin/amux-daemon.exe"
+        "from": "dist/tamux-daemon.exe",
+        "to": "bin/tamux-daemon.exe"
       },
       {
-        "from": "dist/amux.exe",
-        "to": "bin/amux-cli.exe"
+        "from": "dist/tamux.exe",
+        "to": "bin/tamux.exe"
       }
     ],
     "files": [
@@ -77,7 +77,7 @@
       "icon": "assets/icon.ico"
     },
     "portable": {
-      "artifactName": "amux-portable.exe"
+      "artifactName": "tamux-portable.exe"
     }
   }
 }
