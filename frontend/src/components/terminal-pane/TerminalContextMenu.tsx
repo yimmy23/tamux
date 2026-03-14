@@ -33,7 +33,7 @@ export function TerminalContextMenu({
                 left: x,
                 width: 220,
                 background: "var(--bg-secondary)",
-                border: "1px solid var(--border-color)",
+                border: "1px solid var(--border)",
                 boxShadow: "var(--shadow-sm)",
                 borderRadius: 0,
                 padding: 6,
