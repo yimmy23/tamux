@@ -127,23 +127,36 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     // Buffer gateway messages that arrive before thread_created
     const pendingGatewayMessagesRef = useRef<Array<{ role: "user"; content: string; inputTokens: number; outputTokens: number; totalTokens: number; isCompactionSummary: boolean }>>([]);
 
+    // Reset daemon thread refs when backend changes to avoid stale event routing
+    useEffect(() => {
+        daemonThreadIdRef.current = null;
+        daemonLocalThreadRef.current = null;
+    }, [agentSettings.agentBackend]);
+
     // Sync provider config to daemon whenever settings change in daemon mode
     useEffect(() => {
-        if (agentSettings.agentBackend !== "daemon") return;
+        // Sync config for daemon and external agent backends (not legacy)
+        if (agentSettings.agentBackend === "legacy") return;
         const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.agentSetConfig) return;
 
         const providerKey = agentSettings.activeProvider;
         const pc = agentSettings[providerKey] as { baseUrl: string; model: string; apiKey: string } | undefined;
-        if (!pc?.baseUrl) return;
+
+        // For external agents, provider config may not be needed (agent uses its own),
+        // but we still sync agent_backend and gateway settings
+        const isExternalAgent = agentSettings.agentBackend === "openclaw" || agentSettings.agentBackend === "hermes";
+
+        if (!isExternalAgent && !pc?.baseUrl) return;
 
         const appSettings = useSettingsStore.getState().settings;
         void amux.agentSetConfig({
             enabled: true,
+            agent_backend: agentSettings.agentBackend,
             provider: providerKey,
-            base_url: pc.baseUrl,
-            model: pc.model,
-            api_key: pc.apiKey,
+            base_url: pc?.baseUrl || "",
+            model: pc?.model || "",
+            api_key: pc?.apiKey || "",
             system_prompt: agentSettings.systemPrompt,
             max_tool_loops: agentSettings.maxToolLoops,
             tools: {
@@ -165,9 +178,9 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         });
     }, [agentSettings]);
 
-    // Subscribe to daemon agent events when in daemon mode
+    // Subscribe to daemon agent events when in daemon or external agent mode
     useEffect(() => {
-        if (agentSettings.agentBackend !== "daemon") return;
+        if (agentSettings.agentBackend === "legacy") return;
 
         const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.onAgentEvent) return;
@@ -239,11 +252,12 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                         isCompactionSummary: false,
                     });
                     // Add new streaming assistant message for the next LLM turn
+                    const isExtAgent = agentSettings.agentBackend === "openclaw" || agentSettings.agentBackend === "hermes";
                     addMessage(tid, {
                         role: "assistant",
                         content: "",
-                        provider: "daemon",
-                        model: "daemon",
+                        provider: isExtAgent ? agentSettings.agentBackend : agentSettings.activeProvider,
+                        model: isExtAgent ? agentSettings.agentBackend : ((agentSettings[agentSettings.activeProvider] as any)?.model || ""),
                         inputTokens: 0,
                         outputTokens: 0,
                         totalTokens: 0,
@@ -447,8 +461,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     function sendMessage(text: string) {
         if (!text) return;
 
-        // Daemon mode: send to daemon agent engine via IPC
-        if (agentSettings.agentBackend === "daemon") {
+        // Daemon mode (including external agents): send to daemon agent engine via IPC
+        if (agentSettings.agentBackend !== "legacy") {
             const amux = (window as any).tamux ?? (window as any).amux;
             if (!amux?.agentSendMessage) {
                 sendMessageLegacy(text);
@@ -479,11 +493,12 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 isCompactionSummary: false,
             });
 
+            const isExternalAgent = agentSettings.agentBackend === "openclaw" || agentSettings.agentBackend === "hermes";
             addMessage(threadId, {
                 role: "assistant",
                 content: "",
-                provider: agentSettings.activeProvider,
-                model: (agentSettings[agentSettings.activeProvider] as any)?.model || "unknown",
+                provider: isExternalAgent ? agentSettings.agentBackend : agentSettings.activeProvider,
+                model: isExternalAgent ? agentSettings.agentBackend : ((agentSettings[agentSettings.activeProvider] as any)?.model || "unknown"),
                 inputTokens: 0,
                 outputTokens: 0,
                 totalTokens: 0,

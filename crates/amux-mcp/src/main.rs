@@ -218,6 +218,56 @@ fn tool_definitions() -> Value {
                 "properties": {},
                 "required": []
             }
+        },
+        {
+            "name": "get_terminal_content",
+            "description": "Read the scrollback buffer (visible content) of a terminal session. Use this to see what is currently displayed in a user's terminal pane.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "UUID of the terminal session to read"
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return from the tail (default: 100)"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        },
+        {
+            "name": "type_in_terminal",
+            "description": "Send keystrokes/input to a terminal session. Use this to type commands or interact with running programs in the user's terminal.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "UUID of the terminal session"
+                    },
+                    "input": {
+                        "type": "string",
+                        "description": "Text to type into the terminal. Use \\n for Enter key."
+                    }
+                },
+                "required": ["session_id", "input"]
+            }
+        },
+        {
+            "name": "get_git_status",
+            "description": "Get git status for a working directory, showing modified, staged, and untracked files.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the git repository"
+                    }
+                },
+                "required": ["path"]
+            }
         }
     ])
 }
@@ -295,6 +345,9 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         "scrub_sensitive" => tool_scrub_sensitive(args).await,
         "list_sessions" => tool_list_sessions(args).await,
         "verify_integrity" => tool_verify_integrity(args).await,
+        "get_terminal_content" => tool_get_terminal_content(args).await,
+        "type_in_terminal" => tool_type_in_terminal(args).await,
+        "get_git_status" => tool_get_git_status(args).await,
         _ => anyhow::bail!("unknown tool: {name}"),
     }
 }
@@ -576,6 +629,140 @@ async fn tool_verify_integrity(_args: &Value) -> Result<Value> {
     }
 }
 
+async fn tool_get_terminal_content(args: &Value) -> Result<Value> {
+    let session_id: uuid::Uuid = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: session_id"))?
+        .parse()
+        .context("invalid session_id UUID")?;
+
+    let max_lines = args
+        .get("max_lines")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+
+    let resp = daemon_roundtrip(ClientMessage::GetScrollback {
+        id: session_id,
+        max_lines: Some(max_lines.unwrap_or(100)),
+    })
+    .await?;
+
+    match resp {
+        DaemonMessage::Scrollback { id, data } => {
+            let text = String::from_utf8_lossy(&data);
+            // Strip ANSI escape sequences for cleaner output
+            let clean = strip_ansi_basic(&text);
+            Ok(serde_json::json!({
+                "session_id": id.to_string(),
+                "content": clean,
+                "lines": clean.lines().count(),
+            }))
+        }
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+async fn tool_type_in_terminal(args: &Value) -> Result<Value> {
+    let session_id: uuid::Uuid = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: session_id"))?
+        .parse()
+        .context("invalid session_id UUID")?;
+
+    let input = args
+        .get("input")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: input"))?;
+
+    // Convert escape sequences
+    let data = input
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+        .into_bytes();
+
+    let mut framed = connect_daemon().await?;
+    framed
+        .send(ClientMessage::Input {
+            id: session_id,
+            data: data.clone(),
+        })
+        .await
+        .context("failed to send input to daemon")?;
+
+    Ok(serde_json::json!({
+        "session_id": session_id.to_string(),
+        "bytes_sent": data.len(),
+        "status": "ok",
+    }))
+}
+
+async fn tool_get_git_status(args: &Value) -> Result<Value> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: path"))?
+        .to_string();
+
+    let resp = daemon_roundtrip(ClientMessage::GetGitStatus { path }).await?;
+
+    match resp {
+        DaemonMessage::GitStatus { path: repo_path, info } => Ok(serde_json::json!({
+            "path": repo_path,
+            "branch": info.branch,
+            "is_dirty": info.is_dirty,
+            "ahead": info.ahead,
+            "behind": info.behind,
+            "untracked": info.untracked,
+            "modified": info.modified,
+            "staged": info.staged,
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+/// Basic ANSI escape sequence stripping for terminal scrollback output.
+fn strip_ansi_basic(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if ('\x40'..='\x7e').contains(&next) {
+                        break;
+                    }
+                }
+            } else if chars.peek() == Some(&']') {
+                chars.next();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next == '\x07' {
+                        break;
+                    }
+                    if next == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+            } else {
+                chars.next();
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 // ---------------------------------------------------------------------------
 // MCP protocol method handlers
 // ---------------------------------------------------------------------------
@@ -641,10 +828,12 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
 /// \r\n
 /// <n bytes of JSON>
 /// ```
+/// Read a JSON-RPC message from stdin.
+///
+/// Auto-detects framing format:
+/// - If a line starts with `{`, it's newline-delimited JSON (Python `mcp` SDK style)
+/// - If a line starts with `Content-Length:`, it's LSP-style content-length framing
 async fn read_message(reader: &mut BufReader<tokio::io::Stdin>) -> Result<Option<String>> {
-    // Read headers until we find the blank line separator.
-    let mut content_length: Option<usize> = None;
-
     loop {
         let mut line = String::new();
         let n = reader
@@ -653,50 +842,74 @@ async fn read_message(reader: &mut BufReader<tokio::io::Stdin>) -> Result<Option
             .context("failed to read from stdin")?;
 
         if n == 0 {
-            // EOF
-            return Ok(None);
+            return Ok(None); // EOF
         }
 
         let trimmed = line.trim();
-
         if trimmed.is_empty() {
-            // End of headers.
-            break;
+            continue; // Skip blank lines
         }
 
+        // Newline-delimited JSON: line starts with '{' — it's a complete message
+        if trimmed.starts_with('{') {
+            return Ok(Some(trimmed.to_string()));
+        }
+
+        // Content-Length framing: read headers, then body
         if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-            content_length = Some(
-                value
-                    .trim()
-                    .parse::<usize>()
-                    .context("invalid Content-Length value")?,
-            );
+            let length: usize = value
+                .trim()
+                .parse()
+                .context("invalid Content-Length value")?;
+
+            // Read remaining headers until blank line
+            loop {
+                let mut header_line = String::new();
+                let hn = reader
+                    .read_line(&mut header_line)
+                    .await
+                    .context("failed to read header")?;
+                if hn == 0 || header_line.trim().is_empty() {
+                    break;
+                }
+            }
+
+            let mut body = vec![0u8; length];
+            tokio::io::AsyncReadExt::read_exact(reader, &mut body)
+                .await
+                .context("failed to read message body")?;
+
+            let text = String::from_utf8(body).context("message body is not valid UTF-8")?;
+            return Ok(Some(text));
         }
-        // Ignore other headers (e.g. Content-Type).
+
+        // Skip unknown header lines
     }
-
-    let length = content_length.ok_or_else(|| anyhow::anyhow!("missing Content-Length header"))?;
-
-    let mut body = vec![0u8; length];
-    tokio::io::AsyncReadExt::read_exact(reader, &mut body)
-        .await
-        .context("failed to read message body")?;
-
-    let text = String::from_utf8(body).context("message body is not valid UTF-8")?;
-    Ok(Some(text))
 }
 
-/// Write a JSON-RPC response to stdout with content-length framing.
+/// Write a JSON-RPC response to stdout.
+///
+/// Supports two framing modes based on an environment variable:
+/// - `TAMUX_MCP_FRAMING=content-length` — Content-Length header framing (LSP-style)
+/// - Default — newline-delimited JSON (one JSON object per line, as used by the
+///   Python `mcp` SDK's stdio transport)
 fn write_message(msg: &JsonRpcResponse) -> Result<()> {
     let body = serde_json::to_string(msg).context("failed to serialize response")?;
-    let header = format!("Content-Length: {}\r\n\r\n", body.len());
 
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
-    out.write_all(header.as_bytes())?;
-    out.write_all(body.as_bytes())?;
-    out.flush()?;
 
+    if std::env::var("TAMUX_MCP_FRAMING").as_deref() == Ok("content-length") {
+        let header = format!("Content-Length: {}\r\n\r\n", body.len());
+        out.write_all(header.as_bytes())?;
+        out.write_all(body.as_bytes())?;
+    } else {
+        // Newline-delimited JSON — compatible with Python mcp SDK
+        out.write_all(body.as_bytes())?;
+        out.write_all(b"\n")?;
+    }
+
+    out.flush()?;
     Ok(())
 }
 
@@ -761,7 +974,7 @@ async fn main() -> Result<()> {
 
         let response = match request.method.as_str() {
             "initialize" => Some(handle_initialize(request.id)),
-            "initialized" => {
+            "initialized" | "notifications/initialized" => {
                 // Notification — no response needed.
                 debug!("received initialized notification");
                 None

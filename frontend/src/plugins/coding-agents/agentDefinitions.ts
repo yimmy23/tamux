@@ -89,6 +89,7 @@ export const KNOWN_CODING_AGENT_DEFINITIONS: CodingAgentDefinition[] = [
                 description: "Run a single task through Hermes with an inline prompt.",
                 requiresPrompt: true,
                 promptPlaceholder: "Analyze this repository, propose a fix, or execute a coding task.",
+                args: ["chat"],
                 promptArgs: ["-q", "{prompt}"],
             },
             {

@@ -7,6 +7,7 @@
 //! - Heartbeat system for periodic checks
 //! - Persistent identity (SOUL.md, MEMORY.md, USER.md)
 
+pub mod external_runner;
 pub mod gateway;
 pub mod llm_client;
 pub mod tool_executor;
@@ -50,12 +51,23 @@ pub struct AgentEngine {
     gateway_slack_channels: RwLock<Vec<String>>,
     /// Maps gateway channel IDs to daemon thread IDs for conversation continuity.
     gateway_threads: RwLock<HashMap<String, String>>,
+    /// External agent runners for openclaw/hermes backends.
+    external_runners: RwLock<HashMap<String, external_runner::ExternalAgentRunner>>,
 }
 
 impl AgentEngine {
     pub fn new(session_manager: Arc<SessionManager>, config: AgentConfig) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(256);
         let data_dir = agent_data_dir();
+
+        // Pre-initialize external agent runners for discovery
+        let mut runners = HashMap::new();
+        for agent_type in &["openclaw", "hermes"] {
+            runners.insert(
+                agent_type.to_string(),
+                external_runner::ExternalAgentRunner::new(agent_type, event_tx.clone()),
+            );
+        }
 
         Arc::new(Self {
             config: RwLock::new(config),
@@ -72,6 +84,7 @@ impl AgentEngine {
             gateway_discord_channels: RwLock::new(Vec::new()),
             gateway_slack_channels: RwLock::new(Vec::new()),
             gateway_threads: RwLock::new(HashMap::new()),
+            external_runners: RwLock::new(runners),
         })
     }
 
@@ -422,11 +435,17 @@ impl AgentEngine {
                     }
                 }
                 _ = gateway_tick.tick() => {
-                    self.poll_gateway_messages().await;
+                    // Skip built-in gateway polling when using an external agent
+                    // — the external agent handles its own gateway connections
+                    let backend = self.config.read().await.agent_backend.clone();
+                    if backend != "openclaw" && backend != "hermes" {
+                        self.poll_gateway_messages().await;
+                    }
                 }
                 _ = shutdown.changed() => {
                     tracing::info!("agent background loop shutting down");
                     self.stop_gateway().await;
+                    self.stop_external_agents().await;
                     break;
                 }
             }
@@ -648,6 +667,16 @@ impl AgentEngine {
         content: &str,
     ) -> Result<String> {
         let config = self.config.read().await.clone();
+
+        // Route through external agent if backend is "openclaw" or "hermes"
+        match config.agent_backend.as_str() {
+            "openclaw" | "hermes" => {
+                return self
+                    .send_message_external(&config, thread_id, content)
+                    .await;
+            }
+            _ => {} // Fall through to built-in daemon LLM client
+        }
 
         // Resolve provider config
         let provider_config = self.resolve_provider_config(&config)?;
@@ -1185,6 +1214,138 @@ impl AgentEngine {
     }
 
     // -----------------------------------------------------------------------
+    // External agent backends (openclaw / hermes)
+    // -----------------------------------------------------------------------
+
+    /// Route a message through an external agent process.
+    async fn send_message_external(
+        &self,
+        config: &AgentConfig,
+        thread_id: Option<&str>,
+        content: &str,
+    ) -> Result<String> {
+        let tid = {
+            let given_id = thread_id.map(|s| s.to_string());
+            let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
+            let title = content.chars().take(50).collect::<String>();
+
+            let mut threads = self.threads.write().await;
+            if !threads.contains_key(&id) {
+                threads.insert(
+                    id.clone(),
+                    AgentThread {
+                        id: id.clone(),
+                        title: title.clone(),
+                        messages: Vec::new(),
+                        created_at: now_millis(),
+                        updated_at: now_millis(),
+                        total_input_tokens: 0,
+                        total_output_tokens: 0,
+                    },
+                );
+                let _ = self.event_tx.send(AgentEvent::ThreadCreated {
+                    thread_id: id.clone(),
+                    title,
+                });
+            }
+            drop(threads);
+            id
+        };
+
+        // Add user message
+        {
+            let mut threads = self.threads.write().await;
+            if let Some(thread) = threads.get_mut(&tid) {
+                thread.messages.push(AgentMessage {
+                    role: MessageRole::User,
+                    content: content.into(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    reasoning: None,
+                    timestamp: now_millis(),
+                });
+                thread.updated_at = now_millis();
+            }
+        }
+
+        // Ensure tamux-mcp is configured in the external agent's MCP settings
+        {
+            let runners = self.external_runners.read().await;
+            if let Some(runner) = runners.get(&config.agent_backend) {
+                if !runner.has_tamux_mcp() {
+                    external_runner::ensure_tamux_mcp_configured(&config.agent_backend);
+                }
+            }
+        }
+
+        // Only inject tamux context on the first message in a thread
+        // (subsequent messages in the same thread don't need the preamble
+        // repeated — the external agent session carries the context)
+        let is_first_message = {
+            let threads = self.threads.read().await;
+            threads
+                .get(&tid)
+                .map(|t| t.messages.len() <= 1) // 1 = just the user message we added above
+                .unwrap_or(true)
+        };
+
+        let enriched_prompt = if is_first_message {
+            let memory = self.memory.read().await;
+            build_external_agent_prompt(config, &memory, content)
+        } else {
+            content.to_string()
+        };
+
+        // Run through external agent
+        let runners = self.external_runners.read().await;
+        let runner = runners.get(&config.agent_backend).ok_or_else(|| {
+            anyhow::anyhow!(
+                "No external agent runner for backend '{}'",
+                config.agent_backend
+            )
+        })?;
+
+        let response = runner.send_message(&tid, &enriched_prompt).await?;
+
+        // Store assistant response in thread
+        self.add_assistant_message(&tid, &response, 0, 0, None).await;
+        self.persist_threads().await;
+
+        Ok(tid)
+    }
+
+    /// Get the availability status of an external agent.
+    pub async fn external_agent_status(
+        &self,
+        agent_type: &str,
+    ) -> Option<external_runner::ExternalAgentStatus> {
+        let runners = self.external_runners.read().await;
+        runners.get(agent_type).map(|r| r.status())
+    }
+
+    /// Start gateway mode for an external agent.
+    pub async fn start_external_gateway(&self) -> Result<()> {
+        let config = self.config.read().await.clone();
+        let runners = self.external_runners.read().await;
+        if let Some(runner) = runners.get(&config.agent_backend) {
+            runner.start_gateway().await
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Stop any running external agent processes.
+    pub async fn stop_external_agents(&self) {
+        let runners = self.external_runners.read().await;
+        for runner in runners.values() {
+            runner.stop().await;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
@@ -1286,6 +1447,93 @@ fn now_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// Build an enriched prompt for external agents (hermes/openclaw) that includes
+/// tamux context: system identity, available tools, gateway config, and memory.
+fn build_external_agent_prompt(
+    config: &AgentConfig,
+    memory: &AgentMemory,
+    user_message: &str,
+) -> String {
+    let mut context_parts = Vec::new();
+
+    // Environment context — do NOT override the agent's own identity
+    context_parts.push(
+        "[ENVIRONMENT: tamux]\n\
+         You are being invoked through tamux — an agentic terminal multiplexer app.\n\
+         Keep your own identity and personality. Do NOT call yourself tamux.\n\
+         \n\
+         About tamux:\n\
+         - tamux is a desktop app with workspaces, surfaces (tab groups), and panes (terminals)\n\
+         - The user sees your response in tamux's agent chat panel (a sidebar)\n\
+         - The user has terminal panes open next to this chat\n\
+         - tamux's daemon manages your process lifecycle and relays your responses to the UI\n\
+         \n\
+         tamux tools via MCP:\n\
+         tamux-mcp has been configured in your MCP servers. You should have access to \
+         these tools — use them when the user asks about terminals, sessions, or history:\n\
+         - list_sessions: list active terminal sessions (IDs, CWD, dimensions)\n\
+         - get_terminal_content: read what's displayed in a terminal pane (scrollback)\n\
+         - type_in_terminal: send keystrokes/input to a terminal session\n\
+         - execute_command: run managed commands inside tamux terminal sessions\n\
+         - search_history: full-text search of command/transcript history\n\
+         - find_symbol: semantic code symbol search using tree-sitter\n\
+         - get_git_status: git status for a working directory\n\
+         - list_snapshots / restore_snapshot: workspace checkpoint management\n\
+         - scrub_sensitive: redact secrets from text\n"
+            .to_string(),
+    );
+
+    // Operator's instructions for this session
+    if !config.system_prompt.is_empty() {
+        context_parts.push(format!(
+            "Operator instructions: {}\n",
+            config.system_prompt
+        ));
+    }
+
+    // Gateway info — the agent can use its own gateway tools if it has them
+    let gw = &config.gateway;
+    if gw.enabled {
+        let mut platforms = Vec::new();
+        if !gw.slack_token.is_empty() {
+            platforms.push("Slack");
+        }
+        if !gw.discord_token.is_empty() {
+            platforms.push("Discord");
+        }
+        if !gw.telegram_token.is_empty() {
+            platforms.push("Telegram");
+        }
+        if !platforms.is_empty() {
+            context_parts.push(format!(
+                "Connected chat platforms: {}. Use your own messaging tools to reach them.\n",
+                platforms.join(", ")
+            ));
+        }
+    }
+
+    // Memory context from tamux's persistent files
+    if !memory.soul.is_empty() {
+        context_parts.push(format!("Operator identity notes:\n{}\n", memory.soul));
+    }
+    if !memory.memory.is_empty() {
+        context_parts.push(format!("Session memory:\n{}\n", memory.memory));
+    }
+    if !memory.user_profile.is_empty() {
+        context_parts.push(format!("Operator profile:\n{}\n", memory.user_profile));
+    }
+
+    if context_parts.is_empty() {
+        return user_message.to_string();
+    }
+
+    format!(
+        "{}\n[USER MESSAGE]\n{}",
+        context_parts.join(""),
+        user_message
+    )
 }
 
 fn build_system_prompt(base: &str, memory: &AgentMemory) -> String {

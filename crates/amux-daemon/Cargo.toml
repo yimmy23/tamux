@@ -34,6 +34,7 @@ walkdir = "2"
 base64 = "0.22"
 reqwest = { workspace = true }
 tokio-stream = { workspace = true }
+which = "7"
 
 [target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }

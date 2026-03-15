@@ -73,6 +73,15 @@ function normalizeAgentProviderId(value: unknown): AgentProviderId {
   return AGENT_PROVIDER_IDS.includes(normalized) ? normalized : "openai";
 }
 
+const VALID_AGENT_BACKENDS = ["daemon", "openclaw", "hermes", "legacy"] as const;
+
+function normalizeAgentBackend(value: unknown): AgentSettings["agentBackend"] {
+  if (typeof value === "string" && (VALID_AGENT_BACKENDS as readonly string[]).includes(value)) {
+    return value as AgentSettings["agentBackend"];
+  }
+  return "daemon";
+}
+
 export interface AgentProviderConfig {
   baseUrl: string;
   model: string;
@@ -158,8 +167,9 @@ export interface AgentSettings {
   compactThresholdPercent: number;
   keepRecentOnCompaction: number;
 
-  // Agent backend: "daemon" runs LLM in tamux-daemon, "legacy" uses frontend
-  agentBackend: "daemon" | "legacy";
+  // Agent backend: "daemon" runs LLM in tamux-daemon, "openclaw"/"hermes" route
+  // through external agent processes, "legacy" uses frontend
+  agentBackend: "daemon" | "openclaw" | "hermes" | "legacy";
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -516,6 +526,7 @@ export async function hydrateAgentStore(): Promise<void> {
       ...DEFAULT_AGENT_SETTINGS,
       ...diskState,
       activeProvider: normalizeAgentProviderId(diskState.activeProvider),
+      agentBackend: normalizeAgentBackend(diskState.agentBackend),
       featherless: { ...DEFAULT_AGENT_SETTINGS.featherless, ...(diskState.featherless ?? {}) },
       openai: { ...DEFAULT_AGENT_SETTINGS.openai, ...(diskState.openai ?? {}) },
       anthropic: { ...DEFAULT_AGENT_SETTINGS.anthropic, ...(diskState.anthropic ?? {}) },

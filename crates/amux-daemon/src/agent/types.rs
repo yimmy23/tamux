@@ -33,6 +33,9 @@ pub struct AgentConfig {
     /// Gateway configuration for chat platform connections.
     #[serde(default)]
     pub gateway: GatewayConfig,
+    /// Agent backend: "daemon" (built-in LLM), "openclaw", "hermes", or "legacy".
+    #[serde(default = "default_agent_backend")]
+    pub agent_backend: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -64,6 +67,9 @@ fn default_task_poll_secs() -> u64 {
 fn default_heartbeat_mins() -> u64 {
     30
 }
+fn default_agent_backend() -> String {
+    "daemon".into()
+}
 
 impl Default for AgentConfig {
     fn default() -> Self {
@@ -80,6 +86,7 @@ impl Default for AgentConfig {
             tools: ToolsConfig::default(),
             providers: HashMap::new(),
             gateway: GatewayConfig::default(),
+            agent_backend: default_agent_backend(),
         }
     }
 }
