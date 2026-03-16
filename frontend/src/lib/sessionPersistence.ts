@@ -4,7 +4,7 @@ import {
   PersistedSurface,
   PersistedPane,
 } from "./types";
-import { allLeafIds } from "./bspTree";
+import { allLeafIds, findLeaf } from "./bspTree";
 import { useWorkspaceStore } from "./workspaceStore";
 import {
   deletePersistedPath,
@@ -13,6 +13,7 @@ import {
 } from "./persistence";
 
 const SESSION_FILE = "session.json";
+const TOPOLOGY_FILE = "workspace-topology.json";
 const VERSION = 1;
 
 /** Serialize the current workspace state into a PersistedSession blob. */
@@ -38,7 +39,7 @@ export function captureSession(): PersistedSession {
         accentColor: ws.accentColor,
         cwd: ws.cwd,
         browser: (() => {
-          const defaultUrl = "https://example.com";
+          const defaultUrl = "https://google.com";
           const fallbackUrl = ws.id === state.activeWorkspaceId ? state.webBrowserUrl : defaultUrl;
           const fallbackHistory = ws.id === state.activeWorkspaceId
             ? state.webBrowserHistory
@@ -87,6 +88,7 @@ export function captureSession(): PersistedSession {
               ? sf.canvasPanels.map((panel) => ({
                 id: panel.id,
                 paneId: panel.paneId,
+                panelType: panel.panelType,
                 title: panel.title,
                 icon: panel.icon,
                 x: panel.x,
@@ -95,6 +97,7 @@ export function captureSession(): PersistedSession {
                 height: panel.height,
                 status: panel.status,
                 sessionId: panel.sessionId,
+                url: panel.url,
                 lastActivityAt: panel.lastActivityAt,
               }))
               : undefined,
@@ -115,10 +118,59 @@ export function captureSession(): PersistedSession {
   };
 }
 
+/** Capture workspace topology for the daemon's `list_terminals` tool. */
+function captureWorkspaceTopology() {
+  const state = useWorkspaceStore.getState();
+  return {
+    workspaces: state.workspaces.map((ws) => {
+      const isActiveWorkspace = ws.id === state.activeWorkspaceId;
+      return {
+        workspace_id: ws.id,
+        workspace_name: ws.name,
+        surfaces: ws.surfaces.map((sf) => {
+          const isActiveSurface = sf.id === ws.activeSurfaceId;
+          const canvasPanelMap = new Map(
+            sf.canvasPanels?.map((p) => [p.paneId, p]) ?? [],
+          );
+          const paneIds = allLeafIds(sf.layout);
+          return {
+            surface_id: sf.id,
+            surface_name: sf.name,
+            layout_mode: sf.layoutMode,
+            is_active: isActiveWorkspace && isActiveSurface,
+            panes: paneIds.map((paneId) => {
+              const canvasPanel = canvasPanelMap.get(paneId);
+              const panelType = canvasPanel?.panelType ?? "terminal";
+              const leaf = findLeaf(sf.layout, paneId);
+              return {
+                pane_id: paneId,
+                pane_name: sf.paneNames[paneId] || paneId,
+                pane_type: panelType,
+                is_active: isActiveWorkspace && isActiveSurface && paneId === sf.activePaneId,
+                session_id: panelType === "terminal"
+                  ? (canvasPanel?.sessionId ?? leaf?.sessionId ?? null)
+                  : null,
+                url: panelType === "browser" ? (canvasPanel?.url ?? null) : null,
+                title: panelType === "browser" ? (canvasPanel?.title ?? null) : null,
+              };
+            }),
+          };
+        }),
+      };
+    }),
+  };
+}
+
+/** Write workspace topology to the data dir for the daemon. */
+export function saveWorkspaceTopology(): void {
+  scheduleJsonWrite(TOPOLOGY_FILE, captureWorkspaceTopology(), 200);
+}
+
 /** Save the current session to the amux data directory. */
 export function saveSession(): void {
   const data = captureSession();
   scheduleJsonWrite(SESSION_FILE, data, 300);
+  saveWorkspaceTopology();
 }
 
 /** Load a persisted session from the amux data directory. Returns null if nothing stored. */
@@ -139,11 +191,14 @@ export function clearSession(): void {
 /** Start auto-saving the session at a regular interval. Returns cleanup fn. */
 export function startAutoSave(intervalMs: number = 30_000): () => void {
   const id = setInterval(saveSession, intervalMs);
+  // Sync topology more frequently so daemon agents see changes quickly.
+  const topologyId = setInterval(saveWorkspaceTopology, 5_000);
   // Also save on unload.
   const onBeforeUnload = () => saveSession();
   window.addEventListener("beforeunload", onBeforeUnload);
   return () => {
     clearInterval(id);
+    clearInterval(topologyId);
     window.removeEventListener("beforeunload", onBeforeUnload);
   };
 }

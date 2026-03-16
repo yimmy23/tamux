@@ -5,11 +5,13 @@ export function SurfaceCreateButton({
     createBspTerminal,
     createCanvasSurface,
     createCanvasTerminal,
+    createCanvasBrowser,
 }: {
     layoutMode: "bsp" | "canvas";
     createBspTerminal: () => void;
     createCanvasSurface: () => void;
     createCanvasTerminal: () => void;
+    createCanvasBrowser: () => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -84,16 +86,28 @@ export function SurfaceCreateButton({
                         New Infinite Canvas
                     </button>
                     {layoutMode === "canvas" ? (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                createCanvasTerminal();
-                                setMenuOpen(false);
-                            }}
-                            style={menuItemStyle}
-                        >
-                            New Canvas Terminal
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    createCanvasTerminal();
+                                    setMenuOpen(false);
+                                }}
+                                style={menuItemStyle}
+                            >
+                                New Canvas Terminal
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    createCanvasBrowser();
+                                    setMenuOpen(false);
+                                }}
+                                style={menuItemStyle}
+                            >
+                                New Canvas Browser
+                            </button>
+                        </>
                     ) : null}
                     <button
                         type="button"

@@ -204,7 +204,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "list_sessions",
-            "description": "List all active terminal sessions managed by the tamux daemon.",
+            "description": "List all active terminal sessions and browser panels. Includes workspace/surface hierarchy, pane types (terminal/browser), URLs for browser panes, session IDs, CWD, and active commands.",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
@@ -607,13 +607,72 @@ async fn tool_scrub_sensitive(args: &Value) -> Result<Value> {
 async fn tool_list_sessions(_args: &Value) -> Result<Value> {
     let resp = daemon_roundtrip(ClientMessage::ListSessions).await?;
 
-    match resp {
-        DaemonMessage::SessionList { sessions } => Ok(serde_json::json!({
-            "sessions": sessions,
-        })),
+    let sessions = match resp {
+        DaemonMessage::SessionList { sessions } => sessions,
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    };
+
+    // Try to read workspace topology for a richer view that includes browser panels.
+    let topology_path = amux_protocol::ensure_amux_data_dir()
+        .ok()
+        .map(|dir| dir.join("workspace-topology.json"));
+    let topology: Option<amux_protocol::WorkspaceTopology> = topology_path
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|data| serde_json::from_str(&data).ok());
+
+    if let Some(topology) = topology {
+        let session_map: std::collections::HashMap<String, &amux_protocol::SessionInfo> = sessions
+            .iter()
+            .filter_map(|s| Some((s.id.to_string(), s)))
+            .collect();
+
+        let mut lines = Vec::new();
+        for ws in &topology.workspaces {
+            lines.push(format!("Workspace \"{}\":", ws.workspace_name));
+            for sf in &ws.surfaces {
+                let active_tag = if sf.is_active { " (active)" } else { "" };
+                lines.push(format!(
+                    "  Surface \"{}\" ({}{}):",
+                    sf.surface_name, sf.layout_mode, active_tag
+                ));
+                for pane in &sf.panes {
+                    let active_tag = if pane.is_active { " (active)" } else { "" };
+                    let mut parts = vec![format!(
+                        "    - {} [{}] type={}",
+                        pane.pane_name, pane.pane_id, pane.pane_type
+                    )];
+                    if pane.pane_type == "browser" {
+                        if let Some(url) = &pane.url {
+                            parts.push(format!("url={url}"));
+                        }
+                        if let Some(title) = &pane.title {
+                            parts.push(format!("title={title}"));
+                        }
+                    } else if let Some(sid) = &pane.session_id {
+                        parts.push(format!("session={sid}"));
+                        if let Some(s) = session_map.get(sid) {
+                            parts.push(format!("cwd={}", s.cwd.as_deref().unwrap_or("?")));
+                            if let Some(cmd) = s.active_command.as_deref() {
+                                parts.push(format!("cmd={cmd}"));
+                            }
+                        }
+                    }
+                    if !active_tag.is_empty() {
+                        parts.push(active_tag.trim().to_string());
+                    }
+                    lines.push(parts.join(" "));
+                }
+            }
+        }
+
+        if !lines.is_empty() {
+            return Ok(serde_json::json!({ "topology": lines.join("\n") }));
+        }
     }
+
+    // Fallback: raw sessions.
+    Ok(serde_json::json!({ "sessions": sessions }))
 }
 
 async fn tool_verify_integrity(_args: &Value) -> Result<Value> {

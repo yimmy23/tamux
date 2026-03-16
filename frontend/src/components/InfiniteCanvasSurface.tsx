@@ -23,6 +23,7 @@ import { iconChoices, PANE_ICON_IDS } from "../lib/iconRegistry";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { AppConfirmDialog } from "./AppConfirmDialog";
 import { TerminalPane } from "./TerminalPane";
+import { CanvasBrowserPane } from "./web-browser-panel/CanvasBrowserPane";
 
 const CANVAS_GRID_SIZE = 32;
 const MIN_CANVAS_ZOOM = 0.04;
@@ -77,10 +78,12 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
   const [isPanning, setIsPanning] = useState(false);
   const [animateTransform, setAnimateTransform] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
+  const [ctrlHeld, setCtrlHeld] = useState(false);
   const [selectedPaneIds, setSelectedPaneIds] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [iconPicker, setIconPicker] = useState<CanvasIconPickerState | null>(null);
   const [confirmClosePaneIds, setConfirmClosePaneIds] = useState<string[]>([]);
+  const [showNewPanelMenu, setShowNewPanelMenu] = useState(false);
   const [marquee, setMarquee] = useState<CanvasMarqueeState | null>(null);
   const dragGroupBaseRef = useRef<Map<string, { x: number; y: number }> | null>(null);
   const createCanvasPanel = useWorkspaceStore((s) => s.createCanvasPanel);
@@ -125,7 +128,7 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
   }, [panels]);
 
   useEffect(() => {
-    if (!contextMenu && !iconPicker) return;
+    if (!contextMenu && !iconPicker && !showNewPanelMenu) return;
     const closeMenus = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("[data-canvas-menu='true']")) {
@@ -133,10 +136,11 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
       }
       setContextMenu(null);
       setIconPicker(null);
+      setShowNewPanelMenu(false);
     };
     window.addEventListener("mousedown", closeMenus);
     return () => window.removeEventListener("mousedown", closeMenus);
-  }, [contextMenu, iconPicker]);
+  }, [contextMenu, iconPicker, showNewPanelMenu]);
 
   useEffect(() => () => {
     if (panCleanupRef.current) {
@@ -211,6 +215,17 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
 
   const handleCreatePanel = useCallback(() => {
     const createdPaneId = createCanvasPanel(surface.id);
+    if (!createdPaneId) return;
+    window.setTimeout(() => centerOnPanel(createdPaneId), 0);
+  }, [centerOnPanel, createCanvasPanel, surface.id]);
+
+  const handleCreateBrowserPanel = useCallback(() => {
+    const createdPaneId = createCanvasPanel(surface.id, {
+      panelType: "browser",
+      paneIcon: "web",
+      paneName: "Browser",
+      url: "https://google.com",
+    });
     if (!createdPaneId) return;
     window.setTimeout(() => centerOnPanel(createdPaneId), 0);
   }, [centerOnPanel, createCanvasPanel, surface.id]);
@@ -671,6 +686,20 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
     return () => viewport.removeEventListener("wheel", onWheel);
   }, [clearActivePaneFocus, queueViewUpdate, surface.id]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Control") setCtrlHeld(true); };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === "Control") setCtrlHeld(false); };
+    const onBlur = () => setCtrlHeld(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
   const handleCenterView = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport || surface.canvasPanels.length === 0) return;
@@ -802,7 +831,7 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
         position: "relative",
         overflow: "hidden",
         background: "radial-gradient(circle at top right, rgba(96, 165, 250, 0.09), transparent 58%), var(--bg-deep)",
-        cursor: isPanning ? "grabbing" : "grab",
+        cursor: ctrlHeld ? "zoom-in" : isPanning ? "grabbing" : "grab",
       }}
       onContextMenu={(event) => {
         if (event.buttons === 2) {
@@ -868,6 +897,7 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
               zoomLevel={surface.canvasState.zoomLevel}
               active={isActive}
               selected={isSelected}
+              ctrlHeld={ctrlHeld}
               onActivate={(event) => handlePanelActivate(panel.paneId, event)}
               onContextMenu={(event) => handlePanelContextMenu(panel.paneId, event)}
               onMoveStart={() => handlePanelMoveStart(panel.paneId)}
@@ -877,7 +907,11 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
               onDoubleClick={() => centerOnPanel(panel.paneId, { storePrevious: true, zoomIn: true })}
               onRequestClose={() => requestClosePanes(panel.paneId)}
             >
-              <TerminalPane paneId={panel.paneId} sessionId={panel.sessionId ?? undefined} />
+              {panel.panelType === "browser" ? (
+                <CanvasBrowserPane paneId={panel.paneId} initialUrl={panel.url ?? "https://google.com"} />
+              ) : (
+                <TerminalPane paneId={panel.paneId} sessionId={panel.sessionId ?? undefined} />
+              )}
             </CanvasPanelShell>
           );
         })}
@@ -901,24 +935,66 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
       ) : null}
 
       <div data-canvas-toolbar="true" style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 8, zIndex: 40 }}>
-        <button
-          type="button"
-          onClick={handleCreatePanel}
-          title="Add panel"
-          style={{
-            height: 30,
-            minWidth: 32,
-            borderRadius: "var(--radius-md)",
-            border: "1px solid var(--accent)",
-            background: "var(--accent-soft)",
-            color: "var(--accent)",
-            fontSize: 18,
-            lineHeight: 1,
-            cursor: "pointer",
-          }}
-        >
-          +
-        </button>
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={() => setShowNewPanelMenu((v) => !v)}
+            title="Add panel"
+            style={{
+              height: 30,
+              minWidth: 32,
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--accent)",
+              background: "var(--accent-soft)",
+              color: "var(--accent)",
+              fontSize: 18,
+              lineHeight: 1,
+              cursor: "pointer",
+            }}
+          >
+            +
+          </button>
+          {showNewPanelMenu ? (
+            <div
+              data-canvas-menu="true"
+              style={{
+                position: "absolute",
+                top: 34,
+                left: 0,
+                zIndex: 50,
+                minWidth: 150,
+                border: "1px solid var(--glass-border)",
+                borderRadius: "var(--radius-md)",
+                background: "var(--bg-primary)",
+                boxShadow: "var(--shadow-sm)",
+                padding: 4,
+                display: "grid",
+                gap: 2,
+              }}
+            >
+              <button
+                type="button"
+                style={contextMenuItemStyle}
+                onClick={() => {
+                  handleCreatePanel();
+                  setShowNewPanelMenu(false);
+                }}
+              >
+                Terminal
+              </button>
+              <button
+                type="button"
+                style={contextMenuItemStyle}
+                onClick={() => {
+                  handleCreateBrowserPanel();
+                  setShowNewPanelMenu(false);
+                }}
+              >
+                Browser
+              </button>
+            </div>
+          ) : null}
+        </div>
 
         <button
           type="button"
@@ -1046,25 +1122,29 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
               ? `Duplicate ${contextPaneIds.length} Panels`
               : "Duplicate Panel"}
           </button>
-          <button
-            type="button"
-            style={contextMenuItemStyle}
-            onClick={() => {
-              convertPaneIdsToBsp(contextPaneIds);
-            }}
-          >
-            {contextPaneIds.length > 1 ? `Convert ${contextPaneIds.length} to BSP` : "Convert to BSP"}
-          </button>
-          <button
-            type="button"
-            style={contextMenuItemStyle}
-            onClick={() => {
-              runSnippetForPanes(contextPaneIds);
-              setContextMenu(null);
-            }}
-          >
-            Run Snippet
-          </button>
+          {contextPaneIds.some((id) => panelByPane.get(id)?.panelType !== "browser") ? (
+            <button
+              type="button"
+              style={contextMenuItemStyle}
+              onClick={() => {
+                convertPaneIdsToBsp(contextPaneIds);
+              }}
+            >
+              {contextPaneIds.length > 1 ? `Convert ${contextPaneIds.length} to BSP` : "Convert to BSP"}
+            </button>
+          ) : null}
+          {contextPaneIds.some((id) => panelByPane.get(id)?.panelType !== "browser") ? (
+            <button
+              type="button"
+              style={contextMenuItemStyle}
+              onClick={() => {
+                runSnippetForPanes(contextPaneIds);
+                setContextMenu(null);
+              }}
+            >
+              Run Snippet
+            </button>
+          ) : null}
           <button
             type="button"
             style={contextMenuItemStyle}
@@ -1183,6 +1263,7 @@ function CanvasPanelShell({
   zoomLevel,
   active,
   selected,
+  ctrlHeld,
   onActivate,
   onContextMenu,
   onMoveStart,
@@ -1205,6 +1286,7 @@ function CanvasPanelShell({
   zoomLevel: number;
   active: boolean;
   selected: boolean;
+  ctrlHeld: boolean;
   onActivate: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onMoveStart: () => void;
@@ -1362,13 +1444,6 @@ function CanvasPanelShell({
         }
         onContextMenu(event);
       }}
-      onDoubleClick={(event) => {
-        if (event.button !== 0) return;
-        if (suppressActivationRef.current) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onDoubleClick();
-      }}
       style={{
         position: "absolute",
         left: panel.x,
@@ -1387,6 +1462,13 @@ function CanvasPanelShell({
     >
       <div
         onPointerDown={handleDragStart}
+        onDoubleClick={(event) => {
+          if (event.button !== 0) return;
+          if (suppressActivationRef.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onDoubleClick();
+        }}
         style={{
           height: 28,
           display: "flex",
@@ -1451,7 +1533,19 @@ function CanvasPanelShell({
         </div>
       </div>
 
-      <div style={{ width: "100%", height: "calc(100% - 28px)" }}>{children}</div>
+      <div style={{ width: "100%", height: "calc(100% - 28px)", position: "relative" }}>
+        {children}
+        {ctrlHeld ? (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 20,
+              cursor: "zoom-in",
+            }}
+          />
+        ) : null}
+      </div>
 
       <div
         onPointerDown={handleResizeStart}

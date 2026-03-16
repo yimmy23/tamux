@@ -251,9 +251,12 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
 
     // Terminal pane tools
     tools.push(tool_def("list_terminals", "List all open terminal panes with their IDs and names.", serde_json::json!({"type":"object","properties":{}})));
-    tools.push(tool_def("read_active_terminal_content", "Read the current terminal buffer content from a pane.", serde_json::json!({
+    tools.push(tool_def("read_active_terminal_content", "Read the current terminal buffer content from a pane, or browser panel info. For browser panels, returns URL and title; use include_dom to get page text content.", serde_json::json!({
         "type": "object",
-        "properties": { "pane": { "type": "string", "description": "Pane ID or name (optional, defaults to active)" } }
+        "properties": {
+            "pane": { "type": "string", "description": "Pane ID or name (optional, defaults to active)" },
+            "include_dom": { "type": "boolean", "description": "For browser panels: include page DOM text content. Ignored for terminal panes." }
+        }
     })));
     tools.push(tool_def("run_terminal_command", "Execute a non-interactive shell command and return stdout/stderr. Runs in a headless subprocess — NO TTY. Use ONLY for commands that produce text output (ls, cat, grep, git, curl, etc). Do NOT use for interactive/TUI programs (vim, htop, codex, claude, etc) — use type_in_terminal instead.", serde_json::json!({
         "type": "object",
@@ -824,6 +827,61 @@ async fn execute_onecontext_search(args: &serde_json::Value) -> Result<String> {
 }
 
 async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<String> {
+    // If we have frontend topology, use it for a richer view that includes
+    // browser panels and workspace/surface hierarchy.
+    if let Some(topology) = session_manager.read_workspace_topology() {
+        let sessions = session_manager.list().await;
+        let session_map: std::collections::HashMap<String, &amux_protocol::SessionInfo> = sessions
+            .iter()
+            .filter_map(|s| Some((s.id.to_string(), s)))
+            .collect();
+
+        let mut lines = Vec::new();
+        for ws in &topology.workspaces {
+            lines.push(format!("Workspace \"{}\":", ws.workspace_name));
+            for sf in &ws.surfaces {
+                let active_tag = if sf.is_active { " (active)" } else { "" };
+                lines.push(format!(
+                    "  Surface \"{}\" ({}{}):",
+                    sf.surface_name, sf.layout_mode, active_tag
+                ));
+                for pane in &sf.panes {
+                    let active_tag = if pane.is_active { " (active)" } else { "" };
+                    let mut parts = vec![format!(
+                        "    - {} [{}] type={}",
+                        pane.pane_name, pane.pane_id, pane.pane_type
+                    )];
+                    if pane.pane_type == "browser" {
+                        if let Some(url) = &pane.url {
+                            parts.push(format!("url={url}"));
+                        }
+                        if let Some(title) = &pane.title {
+                            parts.push(format!("title={title}"));
+                        }
+                    } else if let Some(sid) = &pane.session_id {
+                        parts.push(format!("session={sid}"));
+                        if let Some(s) = session_map.get(sid) {
+                            parts.push(format!("cwd={}", s.cwd.as_deref().unwrap_or("?")));
+                            if let Some(cmd) = s.active_command.as_deref() {
+                                parts.push(format!("cmd={cmd}"));
+                            }
+                        }
+                    }
+                    if !active_tag.is_empty() {
+                        parts.push(active_tag.trim().to_string());
+                    }
+                    lines.push(parts.join(" "));
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            return Ok("No active sessions or panes.".into());
+        }
+        return Ok(lines.join("\n"));
+    }
+
+    // Fallback: no topology reported, list raw sessions.
     let sessions = session_manager.list().await;
 
     if sessions.is_empty() {
@@ -832,14 +890,21 @@ async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<
         let lines: Vec<String> = sessions
             .iter()
             .map(|s| {
-                format!(
+                let mut line = format!(
                     "{} cols={} rows={} alive={} cwd={}",
                     s.id,
                     s.cols,
                     s.rows,
                     s.is_alive,
                     s.cwd.as_deref().unwrap_or("?"),
-                )
+                );
+                if let Some(cmd) = s.active_command.as_deref() {
+                    line.push_str(&format!(" cmd={cmd}"));
+                }
+                if let Some(ws) = s.workspace_id.as_deref() {
+                    line.push_str(&format!(" workspace={ws}"));
+                }
+                line
             })
             .collect();
         Ok(lines.join("\n"))

@@ -392,6 +392,41 @@ pub struct SessionInfo {
     pub workspace_id: Option<WorkspaceId>,
     pub exit_code: Option<i32>,
     pub is_alive: bool,
+    pub active_command: Option<String>,
+}
+
+/// Frontend workspace topology snapshot — used by the daemon to include
+/// non-session panes (e.g. browser panels) in `list_terminals`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceTopology {
+    pub workspaces: Vec<WorkspaceTopologyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceTopologyEntry {
+    pub workspace_id: WorkspaceId,
+    pub workspace_name: String,
+    pub surfaces: Vec<SurfaceTopologyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurfaceTopologyEntry {
+    pub surface_id: String,
+    pub surface_name: String,
+    pub layout_mode: String,
+    pub is_active: bool,
+    pub panes: Vec<PaneTopologyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneTopologyEntry {
+    pub pane_id: String,
+    pub pane_name: String,
+    pub pane_type: String, // "terminal" | "browser"
+    pub is_active: bool,
+    pub session_id: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
 }
 
 /// OSC notification payload (parsed from OSC 9, 99, 777).

@@ -10,6 +10,8 @@ export function BrowserChrome({
     navigate,
     toggleFullscreen,
     close,
+    showFullscreen = true,
+    showClose = true,
 }: {
     address: string;
     setAddress: (value: string) => void;
@@ -18,12 +20,15 @@ export function BrowserChrome({
     forward: () => void;
     reload: () => void;
     navigate: (url: string) => void;
-    toggleFullscreen: () => void;
-    close: () => void;
+    toggleFullscreen?: () => void;
+    close?: () => void;
+    showFullscreen?: boolean;
+    showClose?: boolean;
 }) {
     return (
         <>
             <div
+                data-no-drag="true"
                 style={{
                     height: 40,
                     display: "flex",
@@ -59,8 +64,12 @@ export function BrowserChrome({
                     }}
                 />
                 <button onClick={() => navigate(address)} style={navBtnStyle} title="Go">Go</button>
-                <button onClick={toggleFullscreen} style={navBtnStyle} title="Toggle fullscreen">⛶</button>
-                <button onClick={close} style={navBtnStyle} title="Close browser">✕</button>
+                {showFullscreen && toggleFullscreen ? (
+                    <button onClick={toggleFullscreen} style={navBtnStyle} title="Toggle fullscreen">⛶</button>
+                ) : null}
+                {showClose && close ? (
+                    <button onClick={close} style={navBtnStyle} title="Close browser">✕</button>
+                ) : null}
             </div>
 
             <div

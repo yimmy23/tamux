@@ -161,6 +161,15 @@ export function SurfaceTabBar() {
           if (activeLayoutMode !== "canvas" || !activeSurfaceId) return;
           createCanvasPanel(activeSurfaceId);
         }}
+        createCanvasBrowser={() => {
+          if (activeLayoutMode !== "canvas" || !activeSurfaceId) return;
+          createCanvasPanel(activeSurfaceId, {
+            panelType: "browser",
+            paneIcon: "web",
+            paneName: "Browser",
+            url: "https://google.com",
+          });
+        }}
       />
 
       <AppConfirmDialog
