@@ -18,6 +18,7 @@ export type NotificationId = string;
 // ---------------------------------------------------------------------------
 export type SurfaceLayoutMode = "bsp" | "canvas";
 export type CanvasPanelStatus = "running" | "idle" | "needs_approval";
+export type CanvasPanelType = "terminal" | "browser";
 
 export interface CanvasViewSnapshot {
   panX: number;
@@ -33,6 +34,7 @@ export interface CanvasState extends CanvasViewSnapshot {
 export interface CanvasPanel {
   id: string;
   paneId: PaneId;
+  panelType: CanvasPanelType;
   title: string;
   icon: string;
   x: number;
@@ -41,6 +43,9 @@ export interface CanvasPanel {
   height: number;
   status: CanvasPanelStatus;
   sessionId: SessionId | null;
+  url: string | null;
+  cwd: string | null;
+  userRenamed: boolean;
   lastActivityAt: number;
 }
 
@@ -349,6 +354,7 @@ export interface PersistedCanvasState {
 export interface PersistedCanvasPanel {
   id: string;
   paneId: PaneId;
+  panelType?: CanvasPanelType;
   title: string;
   icon: string;
   x: number;
@@ -357,6 +363,9 @@ export interface PersistedCanvasPanel {
   height: number;
   status: CanvasPanelStatus;
   sessionId: SessionId | null;
+  url?: string | null;
+  cwd?: string | null;
+  userRenamed?: boolean;
   lastActivityAt: number;
 }
 

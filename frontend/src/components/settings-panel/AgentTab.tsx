@@ -35,6 +35,32 @@ export function AgentTab({
                 <SettingRow label="Enable Agent">
                     <Toggle value={settings.enabled} onChange={(value) => updateSetting("enabled", value)} />
                 </SettingRow>
+                <SettingRow label="Agent Backend">
+                    <select value={settings.agentBackend}
+                        onChange={(e) => updateSetting("agentBackend", e.target.value as "daemon" | "openclaw" | "hermes" | "legacy")}
+                        style={inputStyle}>
+                        <option value="daemon">tamux</option>
+                        <option value="openclaw">OpenClaw</option>
+                        <option value="hermes">Hermes</option>
+                        <option value="legacy">Legacy (frontend)</option>
+                    </select>
+                </SettingRow>
+                {(settings.agentBackend === "openclaw" || settings.agentBackend === "hermes") ? (
+                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                        <strong>{settings.agentBackend === "openclaw" ? "OpenClaw" : "Hermes"}</strong> will handle LLM inference, tools, memory, and gateway connections using its own infrastructure.
+                        {settings.agentBackend === "hermes" ? (
+                            <span> Config: <code>~/.hermes/config.yaml</code></span>
+                        ) : (
+                            <span> Config: <code>~/.openclaw/openclaw.json</code></span>
+                        )}
+                        <div style={{ marginTop: 6, padding: "4px 6px", background: "var(--bg-secondary)", borderRadius: 3 }}>
+                            <strong>tamux tools:</strong> Add <code>tamux-mcp</code> to {settings.agentBackend === "hermes" ? "Hermes" : "OpenClaw"}'s MCP config for terminal session access, command execution, history search, and more.
+                            <div style={{ marginTop: 3, fontFamily: "monospace", fontSize: 10 }}>
+                                {`{"mcpServers": {"tamux": {"command": "tamux-mcp"}}}`}
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
                 <SettingRow label="Agent Name">
                     <TextInput value={settings.agentName} onChange={(value) => updateSetting("agentName", value)} />
                 </SettingRow>
@@ -49,31 +75,33 @@ export function AgentTab({
                 </SettingRow>
             </Section>
 
-            <Section title="Provider">
-                <SettingRow label="Active Provider">
-                    <SelectInput value={settings.activeProvider}
-                        options={providerOptions.map((provider) => provider.id)}
-                        onChange={(value) => updateSetting("activeProvider", value as AgentProviderId)} />
-                </SettingRow>
+            {settings.agentBackend !== "openclaw" && settings.agentBackend !== "hermes" ? (
+                <Section title="Provider">
+                    <SettingRow label="Active Provider">
+                        <SelectInput value={settings.activeProvider}
+                            options={providerOptions.map((provider) => provider.id)}
+                            onChange={(value) => updateSetting("activeProvider", value as AgentProviderId)} />
+                    </SettingRow>
 
-                <div style={{ marginTop: 6, marginBottom: 6, fontSize: 11, color: "var(--text-secondary)" }}>
-                    {providerOptions.find((provider) => provider.id === settings.activeProvider)?.label}
-                </div>
+                    <div style={{ marginTop: 6, marginBottom: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+                        {providerOptions.find((provider) => provider.id === settings.activeProvider)?.label}
+                    </div>
 
-                <SettingRow label="Base URL">
-                    <TextInput value={providerConfig.baseUrl}
-                        onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, baseUrl: value })} />
-                </SettingRow>
-                <SettingRow label="Model">
-                    <TextInput value={providerConfig.model}
-                        onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, model: value })} />
-                </SettingRow>
-                <SettingRow label="API Key">
-                    <PasswordInput value={providerConfig.apiKey}
-                        onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, apiKey: value })}
-                        placeholder="Provider API key" />
-                </SettingRow>
-            </Section>
+                    <SettingRow label="Base URL">
+                        <TextInput value={providerConfig.baseUrl}
+                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, baseUrl: value })} />
+                    </SettingRow>
+                    <SettingRow label="Model">
+                        <TextInput value={providerConfig.model}
+                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, model: value })} />
+                    </SettingRow>
+                    <SettingRow label="API Key">
+                        <PasswordInput value={providerConfig.apiKey}
+                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, apiKey: value })}
+                            placeholder="Provider API key" />
+                    </SettingRow>
+                </Section>
+            ) : null}
 
             <Section title="Tools">
                 <SettingRow label="Bash Tool">
@@ -149,6 +177,14 @@ export function AgentTab({
                 <SettingRow label="Max Tool Loops">
                     <NumberInput value={settings.maxToolLoops} min={1} max={100}
                         onChange={(value) => updateSetting("maxToolLoops", value)} />
+                </SettingRow>
+                <SettingRow label="429 Max Retries">
+                    <NumberInput value={settings.maxRetries} min={0} max={10}
+                        onChange={(value) => updateSetting("maxRetries", value)} />
+                </SettingRow>
+                <SettingRow label="429 Retry Delay (ms)">
+                    <NumberInput value={settings.retryDelayMs} min={100} max={60000} step={100}
+                        onChange={(value) => updateSetting("retryDelayMs", value)} />
                 </SettingRow>
                 <SettingRow label="Budget Tokens">
                     <NumberInput value={settings.contextBudgetTokens} min={10000} max={500000} step={10000}

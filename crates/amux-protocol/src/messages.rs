@@ -139,6 +139,59 @@ pub enum ClientMessage {
 
     /// Ping / health-check.
     Ping,
+
+    // -----------------------------------------------------------------------
+    // Agent engine
+    // -----------------------------------------------------------------------
+
+    /// Send a message to the agent (triggers an LLM turn with tool loop).
+    AgentSendMessage {
+        thread_id: Option<String>,
+        content: String,
+    },
+
+    /// Stop the current agent stream on a thread.
+    AgentStopStream { thread_id: String },
+
+    /// List all agent threads.
+    AgentListThreads,
+
+    /// Get a specific agent thread with full message history.
+    AgentGetThread { thread_id: String },
+
+    /// Delete an agent thread.
+    AgentDeleteThread { thread_id: String },
+
+    /// Add a task to the agent's task queue.
+    AgentAddTask {
+        title: String,
+        description: String,
+        priority: String,
+    },
+
+    /// Cancel a queued or running agent task.
+    AgentCancelTask { task_id: String },
+
+    /// List all agent tasks.
+    AgentListTasks,
+
+    /// Get current agent configuration.
+    AgentGetConfig,
+
+    /// Update agent configuration.
+    AgentSetConfig { config_json: String },
+
+    /// Get heartbeat check items.
+    AgentHeartbeatGetItems,
+
+    /// Set heartbeat check items.
+    AgentHeartbeatSetItems { items_json: String },
+
+    /// Subscribe to agent event broadcasts.
+    AgentSubscribe,
+
+    /// Unsubscribe from agent event broadcasts.
+    AgentUnsubscribe,
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +352,28 @@ pub enum DaemonMessage {
 
     /// Generic error.
     Error { message: String },
+
+    // -----------------------------------------------------------------------
+    // Agent engine responses
+    // -----------------------------------------------------------------------
+
+    /// Streamed agent event (delta, tool call, done, etc.).
+    AgentEvent { event_json: String },
+
+    /// Response to AgentListThreads.
+    AgentThreadList { threads_json: String },
+
+    /// Response to AgentGetThread.
+    AgentThreadDetail { thread_json: String },
+
+    /// Response to AgentListTasks.
+    AgentTaskList { tasks_json: String },
+
+    /// Response to AgentGetConfig.
+    AgentConfigResponse { config_json: String },
+
+    /// Response to AgentHeartbeatGetItems.
+    AgentHeartbeatItems { items_json: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +392,96 @@ pub struct SessionInfo {
     pub workspace_id: Option<WorkspaceId>,
     pub exit_code: Option<i32>,
     pub is_alive: bool,
+    pub active_command: Option<String>,
+}
+
+/// Frontend workspace topology snapshot — used by the daemon to include
+/// non-session panes (e.g. browser panels) in `list_terminals`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceTopology {
+    pub workspaces: Vec<WorkspaceTopologyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceTopologyEntry {
+    pub workspace_id: WorkspaceId,
+    pub workspace_name: String,
+    pub surfaces: Vec<SurfaceTopologyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurfaceTopologyEntry {
+    pub surface_id: String,
+    pub surface_name: String,
+    pub layout_mode: String,
+    pub is_active: bool,
+    pub panes: Vec<PaneTopologyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneTopologyEntry {
+    pub pane_id: String,
+    pub pane_name: String,
+    pub pane_type: String, // "terminal" | "browser"
+    pub is_active: bool,
+    pub session_id: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub cwd: Option<String>,
+}
+
+/// Format a workspace topology into a human-readable string, enriched with
+/// session metadata (CWD, active command) where available.
+pub fn format_topology(topology: &WorkspaceTopology, sessions: &[SessionInfo]) -> String {
+    let session_map: std::collections::HashMap<String, &SessionInfo> = sessions
+        .iter()
+        .map(|s| (s.id.to_string(), s))
+        .collect();
+
+    let mut lines = Vec::new();
+    for ws in &topology.workspaces {
+        lines.push(format!("Workspace \"{}\":", ws.workspace_name));
+        for sf in &ws.surfaces {
+            let active_tag = if sf.is_active { " (active)" } else { "" };
+            lines.push(format!(
+                "  Surface \"{}\" ({}{}):",
+                sf.surface_name, sf.layout_mode, active_tag
+            ));
+            for pane in &sf.panes {
+                let active_tag = if pane.is_active { " (active)" } else { "" };
+                let mut parts = vec![format!(
+                    "    - {} [{}] type={}",
+                    pane.pane_name, pane.pane_id, pane.pane_type
+                )];
+                if pane.pane_type == "browser" {
+                    if let Some(url) = &pane.url {
+                        parts.push(format!("url={url}"));
+                    }
+                    if let Some(title) = &pane.title {
+                        parts.push(format!("title={title}"));
+                    }
+                } else if let Some(sid) = &pane.session_id {
+                    parts.push(format!("session={sid}"));
+                    // Prefer panel-level CWD (live from shell integration), fall back to session CWD.
+                    let cwd = pane.cwd.as_deref()
+                        .or_else(|| session_map.get(sid).and_then(|s| s.cwd.as_deref()));
+                    if let Some(cwd) = cwd {
+                        parts.push(format!("cwd={cwd}"));
+                    }
+                    if let Some(s) = session_map.get(sid) {
+                        if let Some(cmd) = s.active_command.as_deref() {
+                            parts.push(format!("cmd={cmd}"));
+                        }
+                    }
+                }
+                if !active_tag.is_empty() {
+                    parts.push(active_tag.trim().to_string());
+                }
+                lines.push(parts.join(" "));
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 /// OSC notification payload (parsed from OSC 9, 99, 777).

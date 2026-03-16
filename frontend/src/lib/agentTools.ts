@@ -8,9 +8,10 @@
 
 import { useSettingsStore } from "./settingsStore";
 import { useWorkspaceStore } from "./workspaceStore";
-import { allLeafIds } from "./bspTree";
+import { allLeafIds, findLeaf } from "./bspTree";
 import { getTerminalController, getTerminalSnapshot } from "./terminalRegistry";
 import { getBrowserController } from "./browserRegistry";
+import { getCanvasBrowserController } from "./canvasBrowserRegistry";
 import { assessCommandRisk } from "./agentMissionStore";
 import { resolveSnippetTemplate, useSnippetStore } from "./snippetStore";
 import { executePluginAssistantTool, listPluginAssistantTools } from "../plugins/assistantToolRegistry";
@@ -159,13 +160,17 @@ const TERMINAL_TOOLS: ToolDefinition[] = [
     function: {
       name: "read_active_terminal_content",
       description:
-        "Read the current terminal buffer content. By default reads the active pane; optionally target a pane by ID or pane name.",
+        "Read the current terminal buffer content or browser panel info. By default reads the active pane; optionally target a pane by ID or pane name. For browser panels, returns URL and title; use include_dom to get page text content.",
       parameters: {
         type: "object",
         properties: {
           pane: {
             type: "string",
             description: "Optional pane ID or pane name to read from. If omitted, uses the active pane.",
+          },
+          include_dom: {
+            type: "boolean",
+            description: "For browser panels: include page DOM text content. Ignored for terminal panes.",
           },
         },
       },
@@ -644,7 +649,9 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case "browser_take_screenshot":
         return await executeBrowserScreenshot(call.id, name);
       case "read_active_terminal_content":
-        return executeReadTerminalContent(call.id, name, args.pane || args.pane_id);
+        return await executeReadTerminalContent(call.id, name, args.pane || args.pane_id, {
+          include_dom: args.include_dom,
+        });
       case "run_terminal_command":
         return await executeTerminalCommand(call.id, name, args.command, args.pane || args.pane_id);
       case "get_system_info":
@@ -1041,18 +1048,42 @@ function executeListTerminals(callId: string, name: string): ToolResult {
   const activePaneId = activeSurface?.activePaneId ?? null;
 
   const lines: string[] = [];
+  lines.push(`Workspace "${workspace.name}" (active):`);
   for (const surface of workspace.surfaces) {
     const paneIds = allLeafIds(surface.layout);
     const isActiveSurface = surface.id === activeSurface?.id;
-    lines.push(`Surface "${surface.name}"${isActiveSurface ? " (active)" : ""}:`);
+    const modeLabel = surface.layoutMode === "canvas" ? "canvas" : "bsp";
+    lines.push(`  Surface "${surface.name}"${isActiveSurface ? " (active" : " ("}${isActiveSurface ? ", " : ""}${modeLabel}):`);
+
+    // Build a lookup for canvas panels by paneId
+    const canvasPanelMap = new Map(
+      surface.canvasPanels?.map((panel) => [panel.paneId, panel]) ?? [],
+    );
+
     for (const paneId of paneIds) {
       const isActive = paneId === activePaneId && isActiveSurface;
       const paneName = surface.paneNames[paneId] || paneId;
-      lines.push(`  - ${paneName} [${paneId}]${isActive ? " (active)" : ""}`);
+      const canvasPanel = canvasPanelMap.get(paneId);
+      const panelType = canvasPanel?.panelType ?? "terminal";
+
+      const parts = [`    - ${paneName} [${paneId}]`];
+      parts.push(`type=${panelType}`);
+
+      if (panelType === "browser") {
+        if (canvasPanel?.url) parts.push(`url=${canvasPanel.url}`);
+      } else {
+        // Terminal: include sessionId if available
+        const leaf = findLeaf(surface.layout, paneId);
+        const sessionId = canvasPanel?.sessionId ?? leaf?.sessionId ?? null;
+        if (sessionId) parts.push(`session=${sessionId}`);
+      }
+
+      if (isActive) parts.push("(active)");
+      lines.push(parts.join(" "));
     }
   }
 
-  if (lines.length === 0) {
+  if (lines.length <= 1) {
     return { toolCallId: callId, name, content: "No terminal panes found." };
   }
 
@@ -1404,14 +1435,37 @@ async function executeBrowserScreenshot(callId: string, name: string): Promise<T
   };
 }
 
-function executeReadTerminalContent(
+async function executeReadTerminalContent(
   callId: string,
   name: string,
   paneRef?: string,
-): ToolResult {
+  opts?: { include_dom?: boolean },
+): Promise<ToolResult> {
   const paneId = resolvePaneIdByRef(paneRef);
   if (!paneId) {
     return { toolCallId: callId, name, content: "Error: No terminal pane found. Open a terminal first or provide a valid pane name/ID." };
+  }
+
+  // Check if this is a canvas browser panel
+  const browserController = getCanvasBrowserController(paneId);
+  if (browserController) {
+    if (opts?.include_dom) {
+      try {
+        const snapshot = await browserController.getDomSnapshot();
+        return {
+          toolCallId: callId,
+          name,
+          content: `Browser Panel\nURL: ${snapshot.url}\nTitle: ${snapshot.title}\n\n${snapshot.text}`,
+        };
+      } catch (err: any) {
+        return { toolCallId: callId, name, content: `Error reading browser DOM: ${err.message || String(err)}` };
+      }
+    }
+    return {
+      toolCallId: callId,
+      name,
+      content: `Browser Panel\nURL: ${browserController.getUrl()}\nTitle: ${browserController.getTitle()}`,
+    };
   }
 
   const content = getTerminalSnapshot(paneId).trim();
@@ -1579,7 +1633,7 @@ export function getToolCapabilityDescription(tools: ToolDefinition[]): string {
     described.add("run_terminal_command");
   }
   if (names.includes("read_active_terminal_content")) {
-    capabilities.push("- Read terminal content from the active pane or by pane name/ID");
+    capabilities.push("- Read terminal content or browser panel info from the active pane or by pane name/ID");
     described.add("read_active_terminal_content");
   }
   if (names.includes("get_system_info")) {

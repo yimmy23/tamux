@@ -1,6 +1,6 @@
 use amux_protocol::{
     ApprovalDecision, DaemonMessage, HistorySearchHit, ManagedCommandRequest, SessionId,
-    SessionInfo, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus,
+    SessionInfo, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, WorkspaceTopology,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -197,6 +197,16 @@ impl SessionManager {
         Ok((rx, alive))
     }
 
+    /// Read the workspace topology snapshot written by the frontend.
+    pub fn read_workspace_topology(&self) -> Option<WorkspaceTopology> {
+        let path = match amux_protocol::ensure_amux_data_dir() {
+            Ok(dir) => dir.join("workspace-topology.json"),
+            Err(_) => return None,
+        };
+        let data = std::fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
     /// List all running sessions.
     pub async fn list(&self) -> Vec<SessionInfo> {
         self.list_filtered(None).await
@@ -230,13 +240,14 @@ impl SessionManager {
             infos.push(SessionInfo {
                 id,
                 title: s.title().map(|t| t.to_owned()),
-                cwd: s.cwd().map(|c| c.to_owned()),
+                cwd: s.resolved_cwd().or_else(|| s.cwd().map(|c| c.to_owned())),
                 cols: s.cols(),
                 rows: s.rows(),
                 created_at: s.created_at(),
                 workspace_id,
                 exit_code: None,
                 is_alive: !s.is_dead(),
+                active_command: s.active_command(),
             });
         }
         infos

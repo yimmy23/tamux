@@ -73,6 +73,15 @@ function normalizeAgentProviderId(value: unknown): AgentProviderId {
   return AGENT_PROVIDER_IDS.includes(normalized) ? normalized : "openai";
 }
 
+const VALID_AGENT_BACKENDS = ["daemon", "openclaw", "hermes", "legacy"] as const;
+
+function normalizeAgentBackend(value: unknown): AgentSettings["agentBackend"] {
+  if (typeof value === "string" && (VALID_AGENT_BACKENDS as readonly string[]).includes(value)) {
+    return value as AgentSettings["agentBackend"];
+  }
+  return "daemon";
+}
+
 export interface AgentProviderConfig {
   baseUrl: string;
   model: string;
@@ -154,9 +163,15 @@ export interface AgentSettings {
   autoCompactContext: boolean;
   maxContextMessages: number;
   maxToolLoops: number;
+  maxRetries: number;
+  retryDelayMs: number;
   contextBudgetTokens: number;
   compactThresholdPercent: number;
   keepRecentOnCompaction: number;
+
+  // Agent backend: "daemon" runs LLM in tamux-daemon, "openclaw"/"hermes" route
+  // through external agent processes, "legacy" uses frontend
+  agentBackend: "daemon" | "openclaw" | "hermes" | "legacy";
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -205,9 +220,13 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   autoCompactContext: true,
   maxContextMessages: 100,
   maxToolLoops: 25,
+  maxRetries: 3,
+  retryDelayMs: 2000,
   contextBudgetTokens: 100000,
   compactThresholdPercent: 80,
   keepRecentOnCompaction: 10,
+
+  agentBackend: "daemon",
 };
 
 // ---------------------------------------------------------------------------
@@ -238,7 +257,7 @@ export interface AgentState {
     threadId: string,
     content: string,
     streaming?: boolean,
-    meta?: Partial<Pick<AgentMessage, "inputTokens" | "outputTokens" | "totalTokens" | "reasoning" | "reasoningTokens" | "audioTokens" | "videoTokens" | "cost" | "tps" | "toolCalls">>
+    meta?: Partial<Pick<AgentMessage, "inputTokens" | "outputTokens" | "totalTokens" | "reasoning" | "reasoningTokens" | "audioTokens" | "videoTokens" | "cost" | "tps" | "toolCalls" | "provider" | "model">>
   ) => void;
   getThreadMessages: (threadId: string) => AgentMessage[];
 
@@ -450,6 +469,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         cost: meta?.cost ?? last.cost,
         tps: meta?.tps ?? last.tps,
         toolCalls: meta?.toolCalls ?? last.toolCalls,
+        provider: meta?.provider ?? last.provider,
+        model: meta?.model ?? last.model,
       };
       const updated = [...msgs.slice(0, -1), updatedLast];
       const tokenDeltaIn = nextInputTokens - last.inputTokens;
@@ -509,6 +530,7 @@ export async function hydrateAgentStore(): Promise<void> {
       ...DEFAULT_AGENT_SETTINGS,
       ...diskState,
       activeProvider: normalizeAgentProviderId(diskState.activeProvider),
+      agentBackend: normalizeAgentBackend(diskState.agentBackend),
       featherless: { ...DEFAULT_AGENT_SETTINGS.featherless, ...(diskState.featherless ?? {}) },
       openai: { ...DEFAULT_AGENT_SETTINGS.openai, ...(diskState.openai ?? {}) },
       anthropic: { ...DEFAULT_AGENT_SETTINGS.anthropic, ...(diskState.anthropic ?? {}) },
