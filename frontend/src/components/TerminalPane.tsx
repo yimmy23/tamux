@@ -370,7 +370,11 @@ export function TerminalPane({ paneId, sessionId }: TerminalPaneProps) {
       trackInput(payload);
     }
 
-    payload = options?.bracketed ? wrapBracketedPaste(payload, bracketedPasteRef.current) : payload;
+    // Use the terminal's actual bracketed paste mode (set by the running program
+    // via CSI ?2004h) rather than a static setting, so TUIs that don't support
+    // bracketed paste won't see raw escape sequences.
+    const termBracketedPaste = bracketedPasteRef.current && (termRef.current?.modes.bracketedPasteMode ?? false);
+    payload = options?.bracketed ? wrapBracketedPaste(payload, termBracketedPaste) : payload;
     await amux.sendTerminalInput(paneId, encodeTextToBase64(payload));
     return true;
   }, [paneId, trackInput]);

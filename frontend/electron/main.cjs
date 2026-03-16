@@ -745,14 +745,15 @@ function configureChromiumRuntimePaths() {
     }
 
     // GPU acceleration: enabled by default for smooth terminal rendering.
-    // Users can disable via settings.json { "gpuAcceleration": false } if
-    // their environment (WSL, locked-down profiles) has GPU cache issues.
+    // Users can disable via the Settings UI (persisted under settings.gpuAcceleration)
+    // or by manually editing settings.json if their environment (WSL, locked-down
+    // profiles) has GPU cache issues.
     const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
     let gpuEnabled = true;
     try {
         const raw = fs.readFileSync(settingsPath, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (parsed.gpuAcceleration === false) {
+        if ((parsed.settings?.gpuAcceleration ?? parsed.gpuAcceleration) === false) {
             gpuEnabled = false;
         }
     } catch {}
@@ -1889,6 +1890,7 @@ function checkSetupPrereqs(_event, profile = 'desktop') {
         .map((name) => collectSetupDependency(name))
         .filter(Boolean);
     const missingRequired = required.filter((entry) => !entry.found).map((entry) => entry.name);
+    const daemonPath = getDaemonPath();
 
     return {
         profile: normalizedProfile,
@@ -1896,9 +1898,9 @@ function checkSetupPrereqs(_event, profile = 'desktop') {
         required,
         optional,
         missingRequired,
-        daemonPath: getDaemonPath(),
+        daemonPath,
         cliPath: getCliPath(),
-        installRoot: path.dirname(getDaemonPath()),
+        installRoot: path.dirname(daemonPath),
         dataDir: ensureTamuxDataDir(),
         gettingStartedPath: resolveGettingStartedPath(),
         whatIsTamux: 'tamux is an AI-native terminal multiplexer with a Rust daemon, pane/session control, and agent workflows.',

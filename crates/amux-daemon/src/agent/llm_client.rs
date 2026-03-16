@@ -75,6 +75,24 @@ impl fmt::Display for RateLimitError {
 
 impl std::error::Error for RateLimitError {}
 
+/// Build an appropriate error for a non-success API response, distinguishing
+/// rate-limit (429) errors for retry handling.
+fn check_rate_limit_response(
+    status: reqwest::StatusCode,
+    provider: &str,
+    body_text: &str,
+) -> anyhow::Error {
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        RateLimitError {
+            provider: provider.to_string(),
+            details: body_text.to_string(),
+        }
+        .into()
+    } else {
+        anyhow::anyhow!("{provider} API returned {status}: {body_text}")
+    }
+}
+
 impl Stream for CompletionStream {
     type Item = Result<CompletionChunk>;
 
@@ -273,14 +291,7 @@ async fn run_openai_compatible(
             .chars()
             .take(200)
             .collect::<String>();
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(RateLimitError {
-                provider: provider.to_string(),
-                details: text,
-            }
-            .into());
-        }
-        anyhow::bail!("{provider} API returned {status}: {text}");
+        return Err(check_rate_limit_response(status, provider, &text));
     }
 
     parse_openai_sse(response, tx).await
@@ -549,14 +560,7 @@ async fn run_anthropic(
             .chars()
             .take(200)
             .collect::<String>();
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(RateLimitError {
-                provider: "Anthropic".to_string(),
-                details: text,
-            }
-            .into());
-        }
-        anyhow::bail!("Anthropic API returned {status}: {text}");
+        return Err(check_rate_limit_response(status, "Anthropic", &text));
     }
 
     parse_anthropic_sse(response, tx).await

@@ -41,6 +41,12 @@ struct StreamCancellationEntry {
 const ONECONTEXT_BOOTSTRAP_QUERY_MAX_CHARS: usize = 180;
 const ONECONTEXT_BOOTSTRAP_OUTPUT_MAX_CHARS: usize = 5000;
 
+/// Cached check for `aline` CLI availability (checked once per process).
+pub(crate) fn aline_available() -> bool {
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| which::which("aline").is_ok())
+}
+
 // ---------------------------------------------------------------------------
 // AgentEngine
 // ---------------------------------------------------------------------------
@@ -184,7 +190,7 @@ impl AgentEngine {
         if trimmed.is_empty() {
             return None;
         }
-        if which::which("aline").is_err() {
+        if !aline_available() {
             return None;
         }
 
@@ -302,46 +308,30 @@ impl AgentEngine {
         let config = self.config.read().await.clone();
         let gw = &config.gateway;
 
-        // Also check frontend settings.json as fallback for tokens
-        let (slack_token, telegram_token, discord_token) = if !gw.slack_token.is_empty()
-            || !gw.telegram_token.is_empty()
-            || !gw.discord_token.is_empty()
-        {
-            (
-                gw.slack_token.clone(),
-                gw.telegram_token.clone(),
-                gw.discord_token.clone(),
-            )
-        } else {
-            let settings_path = self
-                .data_dir
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join("settings.json");
-            match tokio::fs::read_to_string(&settings_path).await {
-                Ok(raw) => {
-                    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
-                    (
-                        v.pointer("/settings/slackToken")
-                            .or_else(|| v.get("slackToken"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        v.pointer("/settings/telegramToken")
-                            .or_else(|| v.get("telegramToken"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        v.pointer("/settings/discordToken")
-                            .or_else(|| v.get("discordToken"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    )
+        // Read settings.json once and extract all gateway-related values
+        let (slack_token, telegram_token, discord_token, discord_channel_filter, slack_channel_filter) =
+            if !gw.slack_token.is_empty() || !gw.telegram_token.is_empty() || !gw.discord_token.is_empty() {
+                (gw.slack_token.clone(), gw.telegram_token.clone(), gw.discord_token.clone(), String::new(), String::new())
+            } else {
+                let settings_path = self
+                    .data_dir
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .join("settings.json");
+                match tokio::fs::read_to_string(&settings_path).await {
+                    Ok(raw) => {
+                        let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+                        (
+                            read_setting_str(&v, "slackToken"),
+                            read_setting_str(&v, "telegramToken"),
+                            read_setting_str(&v, "discordToken"),
+                            read_setting_str(&v, "discordChannelFilter"),
+                            read_setting_str(&v, "slackChannelFilter"),
+                        )
+                    }
+                    Err(_) => (String::new(), String::new(), String::new(), String::new(), String::new()),
                 }
-                Err(_) => (String::new(), String::new(), String::new()),
-            }
-        };
+            };
 
         let has_any =
             !slack_token.is_empty() || !telegram_token.is_empty() || !discord_token.is_empty();
@@ -350,52 +340,23 @@ impl AgentEngine {
             return;
         }
 
-        // Parse channel lists from settings
-        let settings_path = self
-            .data_dir
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("settings.json");
-        tracing::info!(?settings_path, "gateway: reading channel config");
-        match tokio::fs::read_to_string(&settings_path).await {
-            Ok(raw) => {
-                match serde_json::from_str::<serde_json::Value>(&raw) {
-                    Ok(v) => {
-                        // Discord channels
-                        let filter = v
-                            .pointer("/settings/discordChannelFilter")
-                            .or_else(|| v.get("discordChannelFilter"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        tracing::info!(discord_filter = %filter, "gateway: discordChannelFilter");
-                        if !filter.is_empty() {
-                            let channels: Vec<String> = filter
-                                .split(',')
-                                .map(|s| s.trim().to_string())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                            *self.gateway_discord_channels.write().await = channels;
-                        }
-
-                        // Slack channels
-                        let filter = v
-                            .pointer("/settings/slackChannelFilter")
-                            .or_else(|| v.get("slackChannelFilter"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        if !filter.is_empty() {
-                            let channels: Vec<String> = filter
-                                .split(',')
-                                .map(|s| s.trim().to_string())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                            *self.gateway_slack_channels.write().await = channels;
-                        }
-                    }
-                    Err(e) => tracing::warn!("gateway: failed to parse settings.json: {e}"),
-                }
-            }
-            Err(e) => tracing::warn!(?settings_path, "gateway: failed to read settings.json: {e}"),
+        // Parse channel lists from the already-read settings
+        if !discord_channel_filter.is_empty() {
+            tracing::info!(discord_filter = %discord_channel_filter, "gateway: discordChannelFilter");
+            let channels: Vec<String> = discord_channel_filter
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            *self.gateway_discord_channels.write().await = channels;
+        }
+        if !slack_channel_filter.is_empty() {
+            let channels: Vec<String> = slack_channel_filter
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            *self.gateway_slack_channels.write().await = channels;
         }
 
         let gw_config = GatewayConfig {
@@ -452,21 +413,9 @@ impl AgentEngine {
                 Ok(raw) => {
                     let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
                     (
-                        v.pointer("/settings/slackToken")
-                            .or_else(|| v.get("slackToken"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        v.pointer("/settings/telegramToken")
-                            .or_else(|| v.get("telegramToken"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        v.pointer("/settings/discordToken")
-                            .or_else(|| v.get("discordToken"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
+                        read_setting_str(&v, "slackToken"),
+                        read_setting_str(&v, "telegramToken"),
+                        read_setting_str(&v, "discordToken"),
                     )
                 }
                 Err(_) => (String::new(), String::new(), String::new()),
@@ -617,24 +566,8 @@ impl AgentEngine {
             match tokio::fs::read_to_string(&settings_path).await {
                 Ok(raw) => {
                     let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
-                    let dc: Vec<String> = v
-                        .pointer("/settings/discordChannelFilter")
-                        .or_else(|| v.get("discordChannelFilter"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    let sc: Vec<String> = v
-                        .pointer("/settings/slackChannelFilter")
-                        .or_else(|| v.get("slackChannelFilter"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
+                    let dc = parse_channel_filter(&read_setting_str(&v, "discordChannelFilter"));
+                    let sc = parse_channel_filter(&read_setting_str(&v, "slackChannelFilter"));
                     (dc, sc)
                 }
                 Err(_) => (Vec::new(), Vec::new()),
@@ -847,6 +780,41 @@ impl AgentEngine {
         }
     }
 
+    /// Get or create a thread, returning the thread ID and whether it was newly created.
+    async fn get_or_create_thread(
+        &self,
+        thread_id: Option<&str>,
+        content: &str,
+    ) -> (String, bool) {
+        let given_id = thread_id.map(|s| s.to_string());
+        let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
+        let title = content.chars().take(50).collect::<String>();
+        let mut created = false;
+
+        let mut threads = self.threads.write().await;
+        if !threads.contains_key(&id) {
+            created = true;
+            threads.insert(
+                id.clone(),
+                AgentThread {
+                    id: id.clone(),
+                    title: title.clone(),
+                    messages: Vec::new(),
+                    created_at: now_millis(),
+                    updated_at: now_millis(),
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                },
+            );
+            let _ = self.event_tx.send(AgentEvent::ThreadCreated {
+                thread_id: id.clone(),
+                title,
+            });
+        }
+        drop(threads);
+        (id, created)
+    }
+
     // -----------------------------------------------------------------------
     // Agent turn (send message → LLM → tool loop → done)
     // -----------------------------------------------------------------------
@@ -869,35 +837,7 @@ impl AgentEngine {
         let provider_config = self.resolve_provider_config(&config)?;
 
         // Get or create thread
-        let (tid, is_new_thread) = {
-            let given_id = thread_id.map(|s| s.to_string());
-            let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
-            let title = content.chars().take(50).collect::<String>();
-            let mut created = false;
-
-            let mut threads = self.threads.write().await;
-            if !threads.contains_key(&id) {
-                created = true;
-                threads.insert(
-                    id.clone(),
-                    AgentThread {
-                        id: id.clone(),
-                        title: title.clone(),
-                        messages: Vec::new(),
-                        created_at: now_millis(),
-                        updated_at: now_millis(),
-                        total_input_tokens: 0,
-                        total_output_tokens: 0,
-                    },
-                );
-                let _ = self.event_tx.send(AgentEvent::ThreadCreated {
-                    thread_id: id.clone(),
-                    title,
-                });
-            }
-            drop(threads);
-            (id, created)
-        };
+        let (tid, is_new_thread) = self.get_or_create_thread(thread_id, content).await;
 
         // Add user message
         {
@@ -1103,12 +1043,8 @@ impl AgentEngine {
                         .unwrap_or(llm_started_at)
                         .elapsed()
                         .as_secs_f64();
-                    let generation_ms = (generation_secs * 1000.0).round() as u64;
-                    let tps = if output_tokens > 0 && generation_secs > 0.0 {
-                        Some(output_tokens as f64 / generation_secs)
-                    } else {
-                        None
-                    };
+                    let (generation_ms, tps) =
+                        compute_generation_stats(generation_secs, output_tokens);
 
                     let _ = self.event_tx.send(AgentEvent::Done {
                         thread_id: tid.clone(),
@@ -1118,7 +1054,7 @@ impl AgentEngine {
                         provider: Some(config.provider.clone()),
                         model: Some(provider_config.model.clone()),
                         tps,
-                        generation_ms: Some(generation_ms),
+                        generation_ms,
                     });
                     break; // No tool calls, conversation turn is done
                 }
@@ -1524,35 +1460,7 @@ impl AgentEngine {
         thread_id: Option<&str>,
         content: &str,
     ) -> Result<String> {
-        let (tid, is_new_thread) = {
-            let given_id = thread_id.map(|s| s.to_string());
-            let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
-            let title = content.chars().take(50).collect::<String>();
-            let mut created = false;
-
-            let mut threads = self.threads.write().await;
-            if !threads.contains_key(&id) {
-                created = true;
-                threads.insert(
-                    id.clone(),
-                    AgentThread {
-                        id: id.clone(),
-                        title: title.clone(),
-                        messages: Vec::new(),
-                        created_at: now_millis(),
-                        updated_at: now_millis(),
-                        total_input_tokens: 0,
-                        total_output_tokens: 0,
-                    },
-                );
-                let _ = self.event_tx.send(AgentEvent::ThreadCreated {
-                    thread_id: id.clone(),
-                    title,
-                });
-            }
-            drop(threads);
-            (id, created)
-        };
+        let (tid, is_new_thread) = self.get_or_create_thread(thread_id, content).await;
 
         // Add user message
         {
@@ -1810,6 +1718,26 @@ pub(super) fn active_memory_dir(agent_data_dir: &std::path::Path) -> PathBuf {
     dirs.first()
         .cloned()
         .unwrap_or_else(|| agent_data_dir.to_path_buf())
+}
+
+/// Read a setting from a settings.json `Value` using the nested `/settings/<key>`
+/// path or a top-level `<key>` fallback.
+fn read_setting_str(v: &serde_json::Value, key: &str) -> String {
+    let pointer = format!("/settings/{key}");
+    v.pointer(&pointer)
+        .or_else(|| v.get(key))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Parse a comma-separated channel filter string into a list.
+fn parse_channel_filter(filter: &str) -> Vec<String> {
+    filter
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 fn now_millis() -> u64 {

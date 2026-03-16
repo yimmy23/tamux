@@ -279,12 +279,8 @@ impl ExternalAgentRunner {
             .unwrap_or(request_started_at)
             .elapsed()
             .as_secs_f64();
-        let generation_ms = Some((generation_secs * 1000.0).round() as u64);
-        let tps = if parsed.output_tokens > 0 && generation_secs > 0.0 {
-            Some(parsed.output_tokens as f64 / generation_secs)
-        } else {
-            None
-        };
+        let (generation_ms, tps) =
+            super::types::compute_generation_stats(generation_secs, parsed.output_tokens);
 
         // For JSON-mode agents, emit the parsed text as a delta now
         if is_json_mode && !parsed.text.is_empty() {

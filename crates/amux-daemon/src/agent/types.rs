@@ -436,6 +436,27 @@ pub struct AgentMemory {
 }
 
 // ---------------------------------------------------------------------------
+// Generation stats helper
+// ---------------------------------------------------------------------------
+
+/// Compute tokens-per-second and generation duration from timing data.
+/// Compute generation_ms and tokens-per-second from the elapsed duration and
+/// output token count. Pass `first_token_at.unwrap_or(started_at).elapsed()`
+/// as `generation_secs`.
+pub fn compute_generation_stats(
+    generation_secs: f64,
+    output_tokens: u64,
+) -> (Option<u64>, Option<f64>) {
+    let generation_ms = Some((generation_secs * 1000.0).round() as u64);
+    let tps = if output_tokens > 0 && generation_secs > 0.0 {
+        Some(output_tokens as f64 / generation_secs)
+    } else {
+        None
+    };
+    (generation_ms, tps)
+}
+
+// ---------------------------------------------------------------------------
 // LLM completion types
 // ---------------------------------------------------------------------------
 

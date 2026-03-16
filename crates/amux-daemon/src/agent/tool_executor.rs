@@ -754,7 +754,7 @@ async fn execute_onecontext_search(args: &serde_json::Value) -> Result<String> {
         ));
     }
 
-    if which::which("aline").is_err() {
+    if !super::aline_available() {
         return Ok("OneContext search unavailable: `aline` CLI not found on PATH.".into());
     }
 
