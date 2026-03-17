@@ -5,6 +5,8 @@ export type CanvasBrowserController = {
   getTitle: () => string;
   navigate: (url: string) => void;
   getDomSnapshot: () => Promise<BrowserDomSnapshot>;
+  /** Execute JavaScript in the webview page context and return the result. */
+  executeJavaScript: (code: string) => Promise<unknown>;
 };
 
 const controllers = new Map<string, CanvasBrowserController>();

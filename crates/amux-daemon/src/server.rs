@@ -422,6 +422,9 @@ where
                     decision,
                 } => match manager.resolve_approval(id, &approval_id, decision).await {
                     Ok(messages) => {
+                        let _ = agent
+                            .handle_task_approval_resolution(&approval_id, decision)
+                            .await;
                         for message in messages {
                             framed.send(message).await?;
                         }
@@ -503,6 +506,338 @@ where
                         }
                     }
                 }
+
+                ClientMessage::AppendCommandLog { entry_json } => {
+                    match serde_json::from_str::<amux_protocol::CommandLogEntry>(&entry_json) {
+                        Ok(entry) => match manager.append_command_log(&entry) {
+                            Ok(()) => {
+                                framed.send(DaemonMessage::CommandLogAck).await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid command log payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::CompleteCommandLog {
+                    id,
+                    exit_code,
+                    duration_ms,
+                } => match manager.complete_command_log(&id, exit_code, duration_ms) {
+                    Ok(()) => {
+                        framed.send(DaemonMessage::CommandLogAck).await?;
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: e.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::QueryCommandLog {
+                    workspace_id,
+                    pane_id,
+                    limit,
+                } => match manager.query_command_log(
+                    workspace_id.as_deref(),
+                    pane_id.as_deref(),
+                    limit,
+                ) {
+                    Ok(entries) => {
+                        let entries_json = serde_json::to_string(&entries).unwrap_or_default();
+                        framed
+                            .send(DaemonMessage::CommandLogEntries { entries_json })
+                            .await?;
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: e.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::ClearCommandLog => match manager.clear_command_log() {
+                    Ok(()) => {
+                        framed.send(DaemonMessage::CommandLogAck).await?;
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: e.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::CreateAgentThread { thread_json } => {
+                    match serde_json::from_str::<amux_protocol::AgentDbThread>(&thread_json) {
+                        Ok(thread) => match manager.create_agent_thread(&thread) {
+                            Ok(()) => {
+                                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid agent thread payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::DeleteAgentThread { thread_id } => {
+                    match manager.delete_agent_thread(&thread_id) {
+                        Ok(()) => {
+                            framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ListAgentThreads => match manager.list_agent_threads() {
+                    Ok(threads) => {
+                        let threads_json = serde_json::to_string(&threads).unwrap_or_default();
+                        framed
+                            .send(DaemonMessage::AgentDbThreadList { threads_json })
+                            .await?;
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: e.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::GetAgentThread { thread_id } => {
+                    match manager.get_agent_thread(&thread_id) {
+                        Ok(thread) => {
+                            let messages = manager.list_agent_messages(&thread_id, None)?;
+                            let thread_json = serde_json::to_string(&thread).unwrap_or_default();
+                            let messages_json = serde_json::to_string(&messages).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::AgentDbThreadDetail {
+                                    thread_json,
+                                    messages_json,
+                                })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AddAgentMessage { message_json } => {
+                    match serde_json::from_str::<amux_protocol::AgentDbMessage>(&message_json) {
+                        Ok(message) => match manager.add_agent_message(&message) {
+                            Ok(()) => {
+                                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid agent message payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ListAgentMessages { thread_id, limit } => {
+                    match manager.list_agent_messages(&thread_id, limit) {
+                        Ok(messages) => {
+                            let thread = manager.get_agent_thread(&thread_id)?;
+                            let thread_json = serde_json::to_string(&thread).unwrap_or_default();
+                            let messages_json = serde_json::to_string(&messages).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::AgentDbThreadDetail {
+                                    thread_json,
+                                    messages_json,
+                                })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::UpsertTranscriptIndex { entry_json } => {
+                    match serde_json::from_str::<amux_protocol::TranscriptIndexEntry>(&entry_json) {
+                        Ok(entry) => match manager.upsert_transcript_index(&entry) {
+                            Ok(()) => {
+                                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid transcript index payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ListTranscriptIndex { workspace_id } => {
+                    match manager.list_transcript_index(workspace_id.as_deref()) {
+                        Ok(entries) => {
+                            let entries_json = serde_json::to_string(&entries).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::TranscriptIndexEntries { entries_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::UpsertSnapshotIndex { entry_json } => {
+                    match serde_json::from_str::<amux_protocol::SnapshotIndexEntry>(&entry_json) {
+                        Ok(entry) => match manager.upsert_snapshot_index(&entry) {
+                            Ok(()) => {
+                                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid snapshot index payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ListSnapshotIndex { workspace_id } => {
+                    match manager.list_snapshot_index(workspace_id.as_deref()) {
+                        Ok(entries) => {
+                            let entries_json = serde_json::to_string(&entries).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::SnapshotIndexEntries { entries_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::UpsertAgentEvent { event_json } => {
+                    match serde_json::from_str::<amux_protocol::AgentEventRow>(&event_json) {
+                        Ok(event) => match manager.upsert_agent_event(&event) {
+                            Ok(()) => {
+                                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: e.to_string(),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("invalid agent event payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ListAgentEvents {
+                    category,
+                    pane_id,
+                    limit,
+                } => match manager.list_agent_events(category.as_deref(), pane_id.as_deref(), limit)
+                {
+                    Ok(events) => {
+                        let events_json = serde_json::to_string(&events).unwrap_or_default();
+                        framed
+                            .send(DaemonMessage::AgentEventRows { events_json })
+                            .await?;
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: e.to_string(),
+                            })
+                            .await?;
+                    }
+                },
 
                 ClientMessage::GenerateSkill { query, title } => {
                     match manager.generate_skill(query.as_deref(), title.as_deref()) {
@@ -686,8 +1021,13 @@ where
                     title,
                     description,
                     priority,
+                    command,
+                    session_id,
+                    dependencies,
                 } => {
-                    let task_id = agent.add_task(title, description, &priority).await;
+                    let task_id = agent
+                        .add_task(title, description, &priority, command, session_id, dependencies)
+                        .await;
                     tracing::info!(%task_id, "agent task added");
                 }
 

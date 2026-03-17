@@ -45,6 +45,7 @@ Key design principles:
 ### Terminal Management
 
 - **BSP (Binary Space Partition) layout engine** for splitting panes horizontally and vertically with automatic tiling.
+- **Infinite canvas mode** with free-form draggable, resizable panels supporting both terminal and embedded browser panel types.
 - **Layout presets** and resizable panels via `react-resizable-panels`.
 - **Directional focus navigation** between panes (left, right, up, down).
 - **Workspaces** with independent surfaces (tabs), each containing its own pane tree.
@@ -56,10 +57,15 @@ Key design principles:
 
 - **Multi-provider LLM chat panel** with streaming responses, token tracking, and conversation memory.
 - **16 built-in providers** (see table below) plus a custom endpoint option.
+- **Daemon-owned agent task queue** for background work that survives UI disconnects and restarts.
+- **Task dependencies, retries, and session targeting** so queued work can model ordered execution and bind managed commands to a specific PTY session.
+- **Approval-aware background execution** -- queued tasks can pause in `awaiting_approval` and resume or fail when an operator resolves the approval request.
+- **Honcho memory integration** for cross-session recall, with either managed cloud or a self-hosted base URL.
 - **Configurable system prompts** and agent personas.
 - **Context compaction** -- automatic summarization when the conversation exceeds a configurable token budget, preserving recent messages while compressing history.
 - **Bash tool** allowing the agent to execute shell commands within managed sessions.
 - **Web search tool** integration (Firecrawl, Exa, Tavily).
+- **agent_query_memory tool** for targeted long-term memory lookups during legacy frontend agent runs.
 - **Procedural skills ecosystem** -- the daemon can generate reusable SKILL.md documents from successful execution trajectories.
 - **Semantic symbol search** powered by tree-sitter AST indexing.
 
@@ -85,9 +91,17 @@ Key design principles:
 - **Operational event tracking** -- command execution duration, exit codes, payloads in replayable JSONL.
 - **Cognitive event tracking** -- agent reasoning traces, retrieved memory embeddings, compiled prompts.
 - **Contextual telemetry** -- CPU, memory, and system health correlated with agent actions.
+- **Persistent task-tray visibility** for queued, blocked, running, approval-pending, failed, and completed agent jobs.
 - **Approval workflows** rendered as structured interceptor modals rather than raw Y/N prompts.
 - **Context snapshots** capturing the full workspace/session state before managed command batches.
 - **Shared cursor model** -- visual distinction between human input, agent-managed execution, approval-pending, and idle states.
+
+### Persistence
+
+- **SQLite-backed operational state** for command logs, agent threads/messages, agent task queue state/dependencies/logs, transcript metadata, mission events, WORM tips, and snapshot indexes.
+- **Single daemon-owned source of truth** shared by the Rust daemon, CLI bridge, Electron shell, and frontend stores.
+- **Transcript log files preserved on disk** while their searchable index lives in SQLite.
+- **Agent mission MEMORY.md and USER.md preserved as editable markdown files** alongside SQLite-backed structured events.
 
 ### MCP Server
 
@@ -100,6 +114,15 @@ Key design principles:
 - Incoming messages matching a command prefix are translated into managed command requests.
 - Daemon responses are streamed back to the originating chat channel.
 - Per-chat session stores maintain conversation context across messages.
+
+### Embedded Browser
+
+- **Canvas browser panels** -- add fully functional web browsers directly on the infinite canvas alongside terminal panels.
+- **Independent browser instances** -- each canvas browser panel has its own URL, navigation history, address bar, and Electron webview, operating independently of the sidebar browser and of every other canvas browser.
+- **Agent-accessible** -- browser panels are surfaced in `list_terminals` (with `type=browser` and current URL) and `read_active_terminal_content` (returns page title, URL, and optionally DOM text content for agent consumption).
+- **Canvas browser controller registry** -- each browser panel registers a lightweight controller exposing `getUrl`, `getTitle`, `navigate`, `getDomSnapshot`, and `executeJavaScript`, enabling agent tools and MCP integrations to read and interact with canvas browsers programmatically.
+- **Persistable** -- browser panel URLs survive session save/restore; the panel type, position, and current URL are serialized alongside terminal panels.
+- **Sidebar browser** -- a separate resizable browser panel docked to the side of the workspace, with full BrowserChrome navigation, fullscreen toggle, and global browser controller registration for agent tool integration (screenshots, DOM snapshots, navigation commands).
 
 ### UI Features
 
@@ -194,6 +217,16 @@ Key design principles:
 
 All providers use OpenAI-compatible chat completion endpoints. Switch providers at any time from the Settings panel or by updating the agent configuration. Each provider's base URL, model, and API key are independently configurable.
 
+## Persistence And Memory
+
+tamux now stores high-churn UI and agent state in the daemon's SQLite database instead of scattered JSON indexes. That includes command logs, agent threads and messages, AJQ task records with dependency edges and task logs, transcript indexes, mission-control event streams, WORM cache tips, and snapshot indexes. The goal is one durable store that survives UI restarts and can be shared consistently across Electron, the CLI bridge, and daemon-side agents.
+
+Transcript bodies still live as plain `.log` files under the data directory, and agent mission notes still keep `MEMORY.md` and `USER.md` as editable text. Only their structured indexes and event streams moved into SQLite.
+
+The AJQ scheduler runs inside the daemon and dispatches work across execution lanes. Session-bound tasks use dedicated `session:<id>` lanes, generic daemon work stays on `daemon-main`, and tasks that are waiting on dependencies, lane availability, or a workspace lock surface that state in the UI instead of silently stalling.
+
+Legacy frontend agent runs can optionally sync conversations into Honcho. When enabled, tamux writes user and assistant turns to Honcho, requests per-thread context before a new turn, and exposes an `agent_query_memory` tool for explicit recall. For managed cloud, set an API key and workspace ID. For self-hosted Honcho, also set the base URL in the Agent settings panel.
+
 ---
 
 ## Documentation
@@ -253,6 +286,13 @@ npm install
 npm run dev
 ```
 
+### Optional Honcho Setup
+
+1. Open Settings > Agent.
+2. Enable `Honcho Memory`.
+3. Set `Honcho API Key` and `Honcho Workspace`.
+4. Leave `Honcho Base URL` empty for Honcho Cloud, or set it to your self-hosted endpoint.
+
 ### Build Components
 
 Build the repository in slices depending on what you are changing:
@@ -302,6 +342,45 @@ cargo run --release --bin tamux -- attach <session-id>
 cargo run --release --bin tamux -- kill <session-id>
 cargo run --release --bin tamux -- ping
 ```
+
+### OSC Attention Notifications (OSC 9 / 99 / 777)
+
+tamux supports in-app notifications emitted from terminal output using OSC sequences.
+
+Supported formats:
+
+- `OSC 9`: `9;<message>`
+- `OSC 777`: `777;notify;<title>;<body>`
+- `OSC 99`: `99;<text>` (or metadata + `;<text>`)
+
+You can open the in-app notification panel with `Ctrl+I`.
+
+Quick smoke test commands (run inside a tamux terminal pane):
+
+```bash
+printf '\033]9;Claude needs attention\007'
+printf '\033]777;notify;Claude;Waiting for your input\007'
+printf '\033]99;Codex finished task\007'
+```
+
+Optional shell helpers (`~/.bashrc` / `~/.zshrc`):
+
+```bash
+osc9() {
+  printf '\033]9;%s\007' "$*"
+}
+
+osc777() {
+  local title="$1"; shift
+  printf '\033]777;notify;%s;%s\007' "$title" "$*"
+}
+
+osc99() {
+  printf '\033]99;%s\007' "$*"
+}
+```
+
+After editing shell config, run `source ~/.bashrc` (or `source ~/.zshrc`).
 
 ### Electron Production Build
 
@@ -642,11 +721,18 @@ cmux-next/
         SurfaceTabBar           # Surface (tab) bar
         SystemMonitorPanel      # Real-time system telemetry
         TerminalPane            # xterm.js terminal instance
+        WebBrowserPanel         # Sidebar docked browser (Electron webview)
+        web-browser-panel/
+          BrowserChrome         # Navigation bar (back/forward/reload/address)
+          CanvasBrowserPane     # Self-contained browser for canvas panels
+          WebviewFrame          # Electron <webview> wrapper with auto-resize
         TimeTravelSlider        # Snapshot timeline scrubber
         TitleBar                # Window title bar and controls
       lib/
         agentMissionStore.ts    # Operational + cognitive event tracking store
         agentStore.ts           # Agent settings, providers, threads, messages
+        browserRegistry.ts      # Global sidebar browser controller registry
+        canvasBrowserRegistry.ts # Per-panel canvas browser controller registry
         bspTree.ts              # Binary space partition tree logic
         commandLogStore.ts      # Command execution log persistence
         dataParser.ts           # Structured data detection and parsing

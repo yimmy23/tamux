@@ -20,6 +20,7 @@ let mainWindow = null;
 const terminalBridges = new Map();
 const paneSessionHints = new Map();
 let agentBridge = null;
+let dbBridge = null;
 // Module-level reference to sendAgentCommand (set during registerIpcHandlers)
 let sendAgentCommandFn = null;
 // Track the active daemon thread ID for routing gateway messages
@@ -1592,6 +1593,15 @@ async function startTerminalBridge(_event, options = {}) {
                 continue;
             }
 
+            if (event.type === 'osc-notification') {
+                emitTerminalEvent(paneId, {
+                    type: 'osc-notification',
+                    sessionId: event.session_id,
+                    notification: event.notification,
+                });
+                continue;
+            }
+
             if (event.type === 'error') {
                 emitTerminalEvent(paneId, {
                     type: 'error',
@@ -2925,6 +2935,153 @@ function registerIpcHandlers() {
     ipcMain.handle('terminal-clone-session', cloneTerminalSession);
     ipcMain.handle('terminal-resize', resizeTerminalSession);
     ipcMain.handle('terminal-stop', (_event, paneId, killSession) => stopTerminalBridge(paneId, Boolean(killSession)));
+    ipcMain.handle('db-append-command-log', async (_event, entry) => {
+        try {
+            await sendDbAckCommand({ type: 'append-command-log', entry_json: JSON.stringify(entry ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-complete-command-log', async (_event, id, exitCode, durationMs) => {
+        try {
+            await sendDbAckCommand({
+                type: 'complete-command-log',
+                id,
+                exit_code: Number.isFinite(exitCode) ? Math.trunc(exitCode) : null,
+                duration_ms: Number.isFinite(durationMs) ? Math.trunc(durationMs) : null,
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-query-command-log', async (_event, opts = {}) => {
+        try {
+            return await sendDbQuery({
+                type: 'query-command-log',
+                workspace_id: typeof opts.workspaceId === 'string' ? opts.workspaceId : null,
+                pane_id: typeof opts.paneId === 'string' ? opts.paneId : null,
+                limit: Number.isFinite(opts.limit) ? Math.max(1, Math.trunc(opts.limit)) : null,
+            }, 'command-log-entries');
+        } catch {
+            return [];
+        }
+    });
+    ipcMain.handle('db-clear-command-log', async () => {
+        try {
+            await sendDbAckCommand({ type: 'clear-command-log' });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-create-thread', async (_event, thread) => {
+        try {
+            await sendDbAckCommand({ type: 'create-agent-thread', thread_json: JSON.stringify(thread ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-delete-thread', async (_event, threadId) => {
+        try {
+            await sendDbAckCommand({ type: 'delete-agent-thread', thread_id: threadId });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-list-threads', async () => {
+        try {
+            return await sendDbQuery({ type: 'list-agent-threads' }, 'agent-thread-list');
+        } catch {
+            return [];
+        }
+    });
+    ipcMain.handle('db-get-thread', async (_event, threadId) => {
+        try {
+            return await sendDbQuery({ type: 'get-agent-thread', thread_id: threadId }, 'agent-thread-detail');
+        } catch {
+            return { thread: null, messages: [] };
+        }
+    });
+    ipcMain.handle('db-add-message', async (_event, message) => {
+        try {
+            await sendDbAckCommand({ type: 'add-agent-message', message_json: JSON.stringify(message ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-list-messages', async (_event, threadId, limit) => {
+        try {
+            const result = await sendDbQuery({
+                type: 'list-agent-messages',
+                thread_id: threadId,
+                limit: Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : null,
+            }, 'agent-thread-detail');
+            return Array.isArray(result?.messages) ? result.messages : [];
+        } catch {
+            return [];
+        }
+    });
+    ipcMain.handle('db-upsert-transcript-index', async (_event, entry) => {
+        try {
+            await sendDbAckCommand({ type: 'upsert-transcript-index', entry_json: JSON.stringify(entry ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-list-transcript-index', async (_event, workspaceId) => {
+        try {
+            return await sendDbQuery({
+                type: 'list-transcript-index',
+                workspace_id: typeof workspaceId === 'string' ? workspaceId : null,
+            }, 'transcript-index-entries');
+        } catch {
+            return [];
+        }
+    });
+    ipcMain.handle('db-upsert-snapshot-index', async (_event, entry) => {
+        try {
+            await sendDbAckCommand({ type: 'upsert-snapshot-index', entry_json: JSON.stringify(entry ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-list-snapshot-index', async (_event, workspaceId) => {
+        try {
+            return await sendDbQuery({
+                type: 'list-snapshot-index',
+                workspace_id: typeof workspaceId === 'string' ? workspaceId : null,
+            }, 'snapshot-index-entries');
+        } catch {
+            return [];
+        }
+    });
+    ipcMain.handle('db-upsert-agent-event', async (_event, eventRow) => {
+        try {
+            await sendDbAckCommand({ type: 'upsert-agent-event', event_json: JSON.stringify(eventRow ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-list-agent-events', async (_event, opts = {}) => {
+        try {
+            return await sendDbQuery({
+                type: 'list-agent-events',
+                category: typeof opts.category === 'string' ? opts.category : null,
+                pane_id: typeof opts.paneId === 'string' ? opts.paneId : null,
+                limit: Number.isFinite(opts.limit) ? Math.max(1, Math.trunc(opts.limit)) : null,
+            }, 'agent-event-rows');
+        } catch {
+            return [];
+        }
+    });
     ipcMain.handle('window-minimize', () => mainWindow?.minimize());
     ipcMain.handle('window-maximize', () => {
         if (mainWindow?.isMaximized()) mainWindow.unmaximize();
@@ -3082,6 +3239,77 @@ function registerIpcHandlers() {
         return agentBridge;
     }
 
+    function ensureDbBridge() {
+        if (dbBridge && !dbBridge.process.killed) return dbBridge;
+
+        const cliPath = getDaemonPath().replace(/tamux-daemon/, 'tamux').replace(/tamux-daemon\.exe/, 'tamux.exe');
+        if (!fs.existsSync(cliPath)) {
+            logToFile('warn', 'db bridge: tamux CLI not found', { cliPath });
+            return null;
+        }
+
+        const bridgeProcess = spawn(cliPath, ['db-bridge'], {
+            cwd: path.dirname(cliPath),
+            windowsHide: true,
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        dbBridge = {
+            process: bridgeProcess,
+            ready: false,
+            pending: new Map(),
+            stdoutBuffer: '',
+        };
+
+        bridgeProcess.stdout.on('data', (chunk) => {
+            dbBridge.stdoutBuffer += chunk.toString('utf8');
+            const lines = dbBridge.stdoutBuffer.split(/\r?\n/);
+            dbBridge.stdoutBuffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                let event;
+                try {
+                    event = JSON.parse(line);
+                } catch {
+                    continue;
+                }
+
+                if (event.type === 'ready') {
+                    dbBridge.ready = true;
+                    continue;
+                }
+
+                let oldest = null;
+                for (const [reqId, handler] of dbBridge.pending.entries()) {
+                    if (handler.responseType === event.type) {
+                        if (!oldest || handler.ts < oldest.ts) {
+                            oldest = { reqId, handler, ts: handler.ts };
+                        }
+                    }
+                }
+
+                if (oldest) {
+                    oldest.handler.resolve(event.type === 'ack' ? true : event.data ?? { thread: event.thread ?? null, messages: event.messages ?? [] });
+                    dbBridge.pending.delete(oldest.reqId);
+                }
+            }
+        });
+
+        bridgeProcess.stderr.on('data', (chunk) => {
+            logToFile('warn', 'db bridge stderr', { message: chunk.toString('utf8').trim() });
+        });
+
+        bridgeProcess.on('exit', () => {
+            for (const [, handler] of (dbBridge?.pending ?? new Map()).entries()) {
+                handler.reject(new Error('db bridge exited'));
+            }
+            dbBridge = null;
+        });
+
+        return dbBridge;
+    }
+
     async function handleAgentGatewaySend(event) {
         // Read settings to get gateway tokens (settings are nested under "settings" key)
         const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
@@ -3161,6 +3389,34 @@ function registerIpcHandlers() {
         });
     }
 
+    function sendDbQuery(command, responseType, timeoutMs = 5000) {
+        return new Promise((resolve, reject) => {
+            const bridge = ensureDbBridge();
+            if (!bridge) {
+                reject(new Error('DB bridge not available'));
+                return;
+            }
+            const reqId = `${responseType}_${Date.now()}_${Math.random()}`;
+            const timer = setTimeout(() => {
+                bridge.pending.delete(reqId);
+                reject(new Error(`DB query timeout: ${responseType}`));
+            }, timeoutMs);
+
+            bridge.pending.set(reqId, {
+                responseType,
+                ts: Date.now(),
+                resolve: (data) => { clearTimeout(timer); resolve(data); },
+                reject: (err) => { clearTimeout(timer); reject(err); },
+            });
+
+            bridge.process.stdin.write(`${JSON.stringify(command)}\n`);
+        });
+    }
+
+    function sendDbAckCommand(command, timeoutMs = 5000) {
+        return sendDbQuery(command, 'ack', timeoutMs);
+    }
+
     ipcMain.handle('agent-send-message', async (_event, threadId, content) => {
         try {
             sendAgentCommand({ type: 'send-message', thread_id: threadId || null, content });
@@ -3204,9 +3460,21 @@ function registerIpcHandlers() {
         }
     });
 
-    ipcMain.handle('agent-add-task', async (_event, title, description, priority) => {
+    ipcMain.handle('agent-add-task', async (_event, payload) => {
         try {
-            sendAgentCommand({ type: 'add-task', title, description, priority: priority || 'normal' });
+            sendAgentCommand({
+                type: 'add-task',
+                title: payload?.title,
+                description: payload?.description,
+                priority: payload?.priority || 'normal',
+                command: typeof payload?.command === 'string' && payload.command.trim() ? payload.command.trim() : null,
+                session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
+                dependencies: Array.isArray(payload?.dependencies)
+                    ? payload.dependencies
+                        .filter((value) => typeof value === 'string' && value.trim())
+                        .map((value) => value.trim())
+                    : [],
+            });
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };

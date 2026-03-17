@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useAgentStore } from "./agentStore";
 import { useSettingsStore } from "./settingsStore";
 import type { AmuxSettings } from "./types";
-import { readPersistedJson, readPersistedText, scheduleJsonWrite, scheduleTextWrite } from "./persistence";
+import { readPersistedJson, readPersistedText, scheduleTextWrite } from "./persistence";
 import { useSnippetStore } from "./snippetStore";
 
 export type RiskLevel = "medium" | "high" | "critical";
@@ -117,6 +117,23 @@ type PersistedMissionState = {
     sessionAllowlist?: Record<string, string[]>;
 };
 
+type AgentEventRow = {
+    id: string;
+    category: string;
+    kind: string;
+    pane_id: string | null;
+    workspace_id: string | null;
+    surface_id: string | null;
+    session_id: string | null;
+    payload_json: string;
+    timestamp: number;
+};
+
+type MissionDbApi = {
+    dbUpsertAgentEvent?: (eventRow: AgentEventRow) => Promise<boolean>;
+    dbListAgentEvents?: (opts?: { category?: string | null; paneId?: string | null; limit?: number | null }) => Promise<AgentEventRow[]>;
+};
+
 const MISSION_DIR = "agent-mission";
 const OPERATIONAL_FILE = `${MISSION_DIR}/operational.json`;
 const COGNITIVE_FILE = `${MISSION_DIR}/cognitive.json`;
@@ -125,6 +142,11 @@ const APPROVAL_FILE = `${MISSION_DIR}/approvals.json`;
 const ALLOWLIST_FILE = `${MISSION_DIR}/session-allowlist.json`;
 const MEMORY_FILE = `${MISSION_DIR}/MEMORY.md`;
 const USER_FILE = `${MISSION_DIR}/USER.md`;
+const CATEGORY_OPERATIONAL = "operational";
+const CATEGORY_COGNITIVE = "cognitive";
+const CATEGORY_CONTEXT = "context";
+const CATEGORY_APPROVAL = "approval";
+const CATEGORY_ALLOWLIST = "session-allowlist";
 const MAX_OPERATIONAL_EVENTS = 400;
 const MAX_COGNITIVE_EVENTS = 200;
 const MAX_CONTEXT_SNAPSHOTS = 120;
@@ -136,6 +158,12 @@ let operationalId = 0;
 let cognitiveId = 0;
 let contextId = 0;
 let approvalId = 0;
+
+function getMissionDbApi(): MissionDbApi | null {
+    const api = (window as any).tamux ?? (window as any).amux;
+    if (!api) return null;
+    return api as MissionDbApi;
+}
 
 function limitItems<T>(items: T[], maxItems: number): T[] {
     return items.slice(0, maxItems);
@@ -234,11 +262,170 @@ function persistMissionState(state: PersistedMissionState): void {
         approvals: limitItems(state.approvals ?? [], MAX_APPROVALS),
         sessionAllowlist: state.sessionAllowlist ?? {},
     };
-    scheduleJsonWrite(OPERATIONAL_FILE, payload.operationalEvents, 200);
-    scheduleJsonWrite(COGNITIVE_FILE, payload.cognitiveEvents, 200);
-    scheduleJsonWrite(CONTEXT_FILE, payload.contextSnapshots, 200);
-    scheduleJsonWrite(APPROVAL_FILE, payload.approvals, 200);
-    scheduleJsonWrite(ALLOWLIST_FILE, payload.sessionAllowlist, 200);
+    const api = getMissionDbApi();
+    if (!api?.dbUpsertAgentEvent) return;
+
+    void (async () => {
+        for (const event of payload.operationalEvents ?? []) {
+            await api.dbUpsertAgentEvent?.(serializeOperationalEvent(event));
+        }
+        for (const event of payload.cognitiveEvents ?? []) {
+            await api.dbUpsertAgentEvent?.(serializeCognitiveEvent(event));
+        }
+        for (const snapshot of payload.contextSnapshots ?? []) {
+            await api.dbUpsertAgentEvent?.(serializeContextSnapshot(snapshot));
+        }
+        for (const approval of payload.approvals ?? []) {
+            await api.dbUpsertAgentEvent?.(serializeApprovalRequest(approval));
+        }
+        for (const [sessionKey, commands] of Object.entries(payload.sessionAllowlist ?? {})) {
+            await api.dbUpsertAgentEvent?.(serializeAllowlistEntry(sessionKey, commands));
+        }
+    })();
+}
+
+function serializeOperationalEvent(event: OperationalEvent): AgentEventRow {
+    return {
+        id: event.id,
+        category: CATEGORY_OPERATIONAL,
+        kind: event.kind,
+        pane_id: event.paneId,
+        workspace_id: event.workspaceId,
+        surface_id: event.surfaceId,
+        session_id: event.sessionId,
+        payload_json: JSON.stringify(event),
+        timestamp: event.timestamp,
+    };
+}
+
+function serializeCognitiveEvent(event: CognitiveEvent): AgentEventRow {
+    return {
+        id: event.id,
+        category: CATEGORY_COGNITIVE,
+        kind: event.source,
+        pane_id: event.paneId,
+        workspace_id: event.workspaceId,
+        surface_id: event.surfaceId,
+        session_id: event.sessionId,
+        payload_json: JSON.stringify(event),
+        timestamp: event.timestamp,
+    };
+}
+
+function serializeContextSnapshot(snapshot: ContextSnapshot): AgentEventRow {
+    return {
+        id: snapshot.id,
+        category: CATEGORY_CONTEXT,
+        kind: "context-snapshot",
+        pane_id: snapshot.paneId,
+        workspace_id: snapshot.workspaceId,
+        surface_id: snapshot.surfaceId,
+        session_id: snapshot.sessionId,
+        payload_json: JSON.stringify(snapshot),
+        timestamp: snapshot.timestamp,
+    };
+}
+
+function serializeApprovalRequest(approval: ApprovalRequest): AgentEventRow {
+    return {
+        id: approval.id,
+        category: CATEGORY_APPROVAL,
+        kind: approval.status,
+        pane_id: approval.paneId,
+        workspace_id: approval.workspaceId,
+        surface_id: approval.surfaceId,
+        session_id: approval.sessionId,
+        payload_json: JSON.stringify(approval),
+        timestamp: approval.createdAt,
+    };
+}
+
+function serializeAllowlistEntry(sessionKey: string, commands: string[]): AgentEventRow {
+    return {
+        id: `allow_${sessionKey}`,
+        category: CATEGORY_ALLOWLIST,
+        kind: "session-command-allowlist",
+        pane_id: sessionKey,
+        workspace_id: null,
+        surface_id: null,
+        session_id: sessionKey,
+        payload_json: JSON.stringify({ sessionKey, commands }),
+        timestamp: Date.now(),
+    };
+}
+
+function parseRows(rows: unknown): AgentEventRow[] {
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((row): row is AgentEventRow => {
+        if (!row || typeof row !== "object") return false;
+        const candidate = row as Partial<AgentEventRow>;
+        return typeof candidate.id === "string"
+            && typeof candidate.category === "string"
+            && typeof candidate.kind === "string"
+            && typeof candidate.payload_json === "string"
+            && typeof candidate.timestamp === "number";
+    });
+}
+
+function parsePayload<T>(row: AgentEventRow): T | null {
+    try {
+        return JSON.parse(row.payload_json) as T;
+    } catch {
+        return null;
+    }
+}
+
+async function loadDbMissionState(): Promise<PersistedMissionState | null> {
+    const api = getMissionDbApi();
+    if (!api?.dbListAgentEvents) return null;
+
+    const [operationalRows, cognitiveRows, contextRows, approvalRows, allowlistRows] = await Promise.all([
+        api.dbListAgentEvents({ category: CATEGORY_OPERATIONAL, limit: MAX_OPERATIONAL_EVENTS }),
+        api.dbListAgentEvents({ category: CATEGORY_COGNITIVE, limit: MAX_COGNITIVE_EVENTS }),
+        api.dbListAgentEvents({ category: CATEGORY_CONTEXT, limit: MAX_CONTEXT_SNAPSHOTS }),
+        api.dbListAgentEvents({ category: CATEGORY_APPROVAL, limit: MAX_APPROVALS }),
+        api.dbListAgentEvents({ category: CATEGORY_ALLOWLIST, limit: 500 }),
+    ]);
+
+    const operationalEvents = parseRows(operationalRows)
+        .map((row) => parsePayload<OperationalEvent>(row))
+        .filter((row): row is OperationalEvent => Boolean(row));
+    const cognitiveEvents = parseRows(cognitiveRows)
+        .map((row) => parsePayload<CognitiveEvent>(row))
+        .filter((row): row is CognitiveEvent => Boolean(row));
+    const contextSnapshots = parseRows(contextRows)
+        .map((row) => parsePayload<ContextSnapshot>(row))
+        .filter((row): row is ContextSnapshot => Boolean(row));
+    const approvals = parseRows(approvalRows)
+        .map((row) => parsePayload<ApprovalRequest>(row))
+        .filter((row): row is ApprovalRequest => Boolean(row));
+
+    const sessionAllowlist = parseRows(allowlistRows).reduce<Record<string, string[]>>((acc, row) => {
+        const payload = parsePayload<{ sessionKey: string; commands: string[] }>(row);
+        if (!payload || typeof payload.sessionKey !== "string" || !Array.isArray(payload.commands)) {
+            return acc;
+        }
+        acc[payload.sessionKey] = payload.commands.filter((command): command is string => typeof command === "string");
+        return acc;
+    }, {});
+
+    if (
+        operationalEvents.length === 0
+        && cognitiveEvents.length === 0
+        && contextSnapshots.length === 0
+        && approvals.length === 0
+        && Object.keys(sessionAllowlist).length === 0
+    ) {
+        return null;
+    }
+
+    return {
+        operationalEvents,
+        cognitiveEvents,
+        contextSnapshots,
+        approvals,
+        sessionAllowlist,
+    };
 }
 
 function buildContextSnapshot(opts: {
@@ -732,6 +919,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
 }));
 
 export async function hydrateAgentMissionStore(): Promise<void> {
+    const dbState = await loadDbMissionState();
     const [operationalEvents, cognitiveEvents, contextSnapshots, approvals, sessionAllowlist, frozenSnapshot, userProfile] = await Promise.all([
         readPersistedJson<OperationalEvent[]>(OPERATIONAL_FILE),
         readPersistedJson<CognitiveEvent[]>(COGNITIVE_FILE),
@@ -743,11 +931,11 @@ export async function hydrateAgentMissionStore(): Promise<void> {
     ]);
 
     useAgentMissionStore.getState().hydrate({
-        operationalEvents: operationalEvents ?? [],
-        cognitiveEvents: cognitiveEvents ?? [],
-        contextSnapshots: contextSnapshots ?? [],
-        approvals: approvals ?? [],
-        sessionAllowlist: sessionAllowlist ?? {},
+        operationalEvents: dbState?.operationalEvents ?? operationalEvents ?? [],
+        cognitiveEvents: dbState?.cognitiveEvents ?? cognitiveEvents ?? [],
+        contextSnapshots: dbState?.contextSnapshots ?? contextSnapshots ?? [],
+        approvals: dbState?.approvals ?? approvals ?? [],
+        sessionAllowlist: dbState?.sessionAllowlist ?? sessionAllowlist ?? {},
         memory: {
             frozenSnapshot: frozenSnapshot ?? defaultFrozenSnapshot(),
             userProfile: userProfile ?? defaultUserProfile(),

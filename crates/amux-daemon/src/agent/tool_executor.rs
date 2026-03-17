@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use amux_protocol::SessionId;
+use amux_protocol::{
+    DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SecurityLevel, SessionId,
+};
 use anyhow::Result;
 use tokio::sync::broadcast;
 
@@ -14,7 +16,7 @@ use crate::session_manager::SessionManager;
 
 use super::types::{
     AgentConfig, AgentEvent, NotificationSeverity, ToolCall, ToolDefinition, ToolFunctionDef,
-    ToolResult,
+    ToolPendingApproval, ToolResult,
 };
 
 const ONECONTEXT_TOOL_QUERY_MAX_CHARS: usize = 300;
@@ -267,6 +269,20 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
         },
         "required": ["command"]
     })));
+    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. Use this when the command should run in a real PTY, may need TTY semantics, or should go through the operator approval policy. If session is omitted, uses the first active terminal session.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "command": { "type": "string", "description": "Shell command to run in the managed terminal session" },
+            "rationale": { "type": "string", "description": "Why this command should run" },
+            "session": { "type": "string", "description": "Optional session ID or unique substring" },
+            "cwd": { "type": "string", "description": "Optional working directory" },
+            "allow_network": { "type": "boolean", "description": "Whether network access is expected" },
+            "sandbox_enabled": { "type": "boolean", "description": "Whether sandboxing should be requested" },
+            "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
+            "language_hint": { "type": "string", "description": "Optional language hint for validation" }
+        },
+        "required": ["command", "rationale"]
+    })));
     tools.push(tool_def("type_in_terminal", "Type text into an existing terminal session as raw keyboard input. Use this for: interactive TUI programs (codex, vim, htop), REPLs (python, node), typing commands in running shells, or any program that needs a real TTY. Text and Enter are sent with a small delay between them so TUIs process correctly. You can also send special keys like ctrl+c, escape, tab, arrow keys, etc.", serde_json::json!({
         "type": "object",
         "properties": {
@@ -384,7 +400,7 @@ fn tool_def(name: &str, description: &str, parameters: serde_json::Value) -> Too
 pub async fn execute_tool(
     tool_call: &ToolCall,
     session_manager: &Arc<SessionManager>,
-    _session_id: Option<SessionId>,
+    session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
     agent_data_dir: &std::path::Path,
     http_client: &reqwest::Client,
@@ -398,11 +414,20 @@ pub async fn execute_tool(
         "agent tool call"
     );
 
+    let mut pending_approval = None;
+
     let result = match tool_call.function.name.as_str() {
         // Terminal/session tools (daemon owns sessions directly)
         "list_terminals" | "list_sessions" => execute_list_sessions(session_manager).await,
         "read_active_terminal_content" => execute_read_terminal(&args, session_manager).await,
         "run_terminal_command" => execute_run_terminal_command(&args, session_manager).await,
+        "execute_managed_command" => match execute_managed_command(&args, session_manager, session_id).await {
+            Ok((content, approval)) => {
+                pending_approval = approval;
+                Ok(content)
+            }
+            Err(error) => Err(error),
+        },
         "type_in_terminal" => execute_type_in_terminal(&args, session_manager).await,
         // Gateway messaging (execute via CLI)
         "send_slack_message" | "send_discord_message" | "send_telegram_message" | "send_whatsapp_message" =>
@@ -438,6 +463,7 @@ pub async fn execute_tool(
                 name: tool_call.function.name.clone(),
                 content,
                 is_error: false,
+                pending_approval,
             }
         }
         Err(e) => {
@@ -447,6 +473,7 @@ pub async fn execute_tool(
                 name: tool_call.function.name.clone(),
                 content: format!("Error: {e}"),
                 is_error: true,
+                pending_approval: None,
             }
         }
     }
@@ -1069,6 +1096,120 @@ async fn execute_run_terminal_command(
     // Agent uses direct process execution — bypasses the managed lane
     // and approval system. The daemon agent is a trusted process.
     execute_bash(args).await
+}
+
+async fn execute_managed_command(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+) -> Result<(String, Option<ToolPendingApproval>)> {
+    let command = args
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'command' argument"))?;
+    let rationale = args
+        .get("rationale")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'rationale' argument"))?;
+
+    let sessions = session_manager.list().await;
+    if sessions.is_empty() {
+        anyhow::bail!("No active terminal sessions are available for managed execution");
+    }
+
+    let resolved_session_id = if let Some(session_ref) = args.get("session").and_then(|v| v.as_str()) {
+        sessions
+            .iter()
+            .find(|session| session.id.to_string() == session_ref || session.id.to_string().contains(session_ref))
+            .map(|session| session.id)
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_ref}"))?
+    } else {
+        session_id.unwrap_or(sessions[0].id)
+    };
+
+    let security_level = match args
+        .get("security_level")
+        .and_then(|value| value.as_str())
+        .unwrap_or("moderate")
+    {
+        "highest" => SecurityLevel::Highest,
+        "lowest" => SecurityLevel::Lowest,
+        "yolo" => SecurityLevel::Yolo,
+        _ => SecurityLevel::Moderate,
+    };
+
+    let request = ManagedCommandRequest {
+        command: command.to_string(),
+        rationale: rationale.to_string(),
+        allow_network: args
+            .get("allow_network")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        sandbox_enabled: args
+            .get("sandbox_enabled")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        security_level,
+        cwd: args
+            .get("cwd")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned),
+        language_hint: args
+            .get("language_hint")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned),
+        source: ManagedCommandSource::Agent,
+    };
+
+    match session_manager
+        .execute_managed_command(resolved_session_id, request)
+        .await?
+    {
+        DaemonMessage::ManagedCommandQueued {
+            execution_id,
+            position,
+            snapshot,
+            ..
+        } => Ok((
+            format!(
+                "Managed command queued in session {} as {} at lane position {}{}",
+                resolved_session_id,
+                execution_id,
+                position,
+                snapshot
+                    .map(|item| format!(" (snapshot: {})", item.snapshot_id))
+                    .unwrap_or_default(),
+            ),
+            None,
+        )),
+        DaemonMessage::ApprovalRequired { approval, .. } => Ok((
+            format!(
+                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}",
+                approval.approval_id,
+                approval.risk_level,
+                approval.blast_radius,
+                approval.command,
+            ),
+            Some(ToolPendingApproval {
+                approval_id: approval.approval_id,
+                execution_id: approval.execution_id,
+                command: approval.command,
+                rationale: approval.rationale,
+                risk_level: approval.risk_level,
+                blast_radius: approval.blast_radius,
+                reasons: approval.reasons,
+                session_id: Some(resolved_session_id.to_string()),
+            }),
+        )),
+        other => Err(anyhow::anyhow!(
+            "unexpected managed command response: {}",
+            serde_json::to_string(&other).unwrap_or_else(|_| "<unserializable>".to_string())
+        )),
+    }
 }
 
 async fn execute_type_in_terminal(

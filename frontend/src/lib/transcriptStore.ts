@@ -2,8 +2,8 @@ import { create } from "zustand";
 import { TranscriptEntry, TranscriptReason, WorkspaceId, SurfaceId, PaneId } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import {
+  listPersistedDir,
   readPersistedJson,
-  scheduleJsonWrite,
   schedulePathDelete,
   scheduleTextWrite,
 } from "./persistence";
@@ -13,6 +13,17 @@ let _txId = 0;
 const TRANSCRIPT_INDEX_FILE = "transcript-index.json";
 const TRANSCRIPT_DIR = "transcripts";
 const LIVE_TRANSCRIPT_DIR = `${TRANSCRIPT_DIR}/live`;
+
+type TranscriptDbApi = {
+  dbUpsertTranscriptIndex?: (entry: TranscriptEntry) => Promise<boolean>;
+  dbListTranscriptIndex?: (workspaceId?: string | null) => Promise<TranscriptEntry[]>;
+};
+
+function getTranscriptDbApi(): TranscriptDbApi | null {
+  const api = (window as any).tamux ?? (window as any).amux;
+  if (!api) return null;
+  return api as TranscriptDbApi;
+}
 
 function readRetentionDays(): number {
   const retentionDays = useSettingsStore.getState().settings.transcriptRetentionDays;
@@ -26,7 +37,14 @@ function loadTranscripts(): TranscriptEntry[] {
 }
 
 function persistTranscripts(transcripts: TranscriptEntry[]) {
-  scheduleJsonWrite(TRANSCRIPT_INDEX_FILE, transcripts, 200);
+  const api = getTranscriptDbApi();
+  if (!api?.dbUpsertTranscriptIndex) return;
+
+  void (async () => {
+    for (const transcript of transcripts) {
+      await api.dbUpsertTranscriptIndex?.(transcript);
+    }
+  })();
 }
 
 function buildFinalTranscriptFilePath(reason: TranscriptReason, paneId?: string | null) {
@@ -57,6 +75,68 @@ function pruneTranscripts(entries: TranscriptEntry[]): TranscriptEntry[] {
 
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
   return entries.filter((entry) => entry.capturedAt >= cutoff);
+}
+
+function normalizeTranscriptEntries(entries: unknown): TranscriptEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((entry): entry is TranscriptEntry => {
+      if (!entry || typeof entry !== "object") return false;
+      const candidate = entry as Partial<TranscriptEntry>;
+      return typeof candidate.id === "string"
+        && typeof candidate.filename === "string"
+        && typeof candidate.reason === "string"
+        && typeof candidate.capturedAt === "number";
+    })
+    .map((entry) => ({
+      ...entry,
+      filePath: entry.filePath ?? entry.filename,
+      workspaceId: entry.workspaceId ?? null,
+      surfaceId: entry.surfaceId ?? null,
+      paneId: entry.paneId ?? null,
+      cwd: entry.cwd ?? null,
+      preview: entry.preview ?? "",
+      content: entry.content ?? "",
+      sizeBytes: Number.isFinite(entry.sizeBytes) ? entry.sizeBytes : new TextEncoder().encode(entry.content ?? "").length,
+    }));
+}
+
+async function collectTranscriptFiles(relativeDir: string): Promise<Set<string>> {
+  const discovered = new Set<string>();
+  const entries = await listPersistedDir(relativeDir);
+  for (const entry of entries) {
+    if (entry.isDirectory) {
+      const nested = await collectTranscriptFiles(entry.path);
+      for (const path of nested) {
+        discovered.add(path);
+      }
+      continue;
+    }
+    discovered.add(entry.path);
+  }
+  return discovered;
+}
+
+async function loadIndexedTranscripts(): Promise<TranscriptEntry[]> {
+  const api = getTranscriptDbApi();
+  const indexed = normalizeTranscriptEntries(await api?.dbListTranscriptIndex?.(null) ?? []);
+  if (indexed.length === 0) {
+    return [];
+  }
+
+  const existingPaths = await collectTranscriptFiles(TRANSCRIPT_DIR);
+  return indexed.filter((entry) => existingPaths.has(entry.filePath ?? entry.filename));
+}
+
+function syncTranscriptIds(entries: TranscriptEntry[]) {
+  let maxId = 0;
+  for (const entry of entries) {
+    const match = /^tx_(\d+)$/.exec(entry.id);
+    if (match) {
+      maxId = Math.max(maxId, Number(match[1]));
+    }
+  }
+  _txId = Math.max(_txId, maxId);
 }
 
 export interface TranscriptState {
@@ -192,20 +272,17 @@ export const useTranscriptStore = create<TranscriptState>((set, get) => ({
 }));
 
 export async function hydrateTranscriptStore(): Promise<void> {
+  const dbTranscripts = await loadIndexedTranscripts();
+  if (dbTranscripts.length > 0) {
+    syncTranscriptIds(dbTranscripts);
+    useTranscriptStore.getState().hydrateTranscripts(dbTranscripts);
+    return;
+  }
+
   const diskTranscripts = await readPersistedJson<TranscriptEntry[]>(TRANSCRIPT_INDEX_FILE);
   if (Array.isArray(diskTranscripts)) {
-    const hydrated = diskTranscripts.map((entry) => ({
-      ...entry,
-      filePath: entry.filePath ?? entry.filename,
-    }));
-    let maxId = 0;
-    for (const entry of hydrated) {
-      const match = /^tx_(\d+)$/.exec(entry.id);
-      if (match) {
-        maxId = Math.max(maxId, Number(match[1]));
-      }
-    }
-    _txId = maxId;
+    const hydrated = normalizeTranscriptEntries(diskTranscripts);
+    syncTranscriptIds(hydrated);
     useTranscriptStore.getState().hydrateTranscripts(hydrated);
     return;
   }
@@ -215,13 +292,9 @@ export async function hydrateTranscriptStore(): Promise<void> {
       const filePath = transcript.filePath ?? transcript.filename;
       scheduleTextWrite(filePath, transcript.content, 0);
     }
-    scheduleJsonWrite(
-      TRANSCRIPT_INDEX_FILE,
-      initialTranscripts.map((transcript) => ({
-        ...transcript,
-        filePath: transcript.filePath ?? transcript.filename,
-      })),
-      0,
-    );
+    persistTranscripts(initialTranscripts.map((transcript) => ({
+      ...transcript,
+      filePath: transcript.filePath ?? transcript.filename,
+    })));
   }
 }

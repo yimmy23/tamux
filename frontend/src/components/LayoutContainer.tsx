@@ -3,6 +3,7 @@ import { allLeafIds, computeLeafRects, computeSplitBoundaries, findLeaf, SplitBo
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { TerminalPane } from "./TerminalPane";
 import { InfiniteCanvasSurface } from "./InfiniteCanvasSurface";
+import { TaskTray } from "./TaskTray";
 
 export function LayoutContainer() {
   const surface = useWorkspaceStore((s) => s.activeSurface());
@@ -35,19 +36,25 @@ export function LayoutContainer() {
   }
 
   if (surface.layoutMode === "canvas") {
-    return <InfiniteCanvasSurface surface={surface} />;
+    return (
+      <div style={{ width: "100%", height: "100%", position: "relative" }}>
+        <InfiniteCanvasSurface surface={surface} />
+        <TaskTray />
+      </div>
+    );
   }
 
   if (zoomedPaneId && allLeafIds(surface.layout).includes(zoomedPaneId)) {
     const zoomedLeaf = findLeaf(surface.layout, zoomedPaneId);
 
     return (
-      <div style={{ width: "100%", height: "100%", padding: "var(--space-1)" }}>
+      <div style={{ width: "100%", height: "100%", padding: "var(--space-1)", position: "relative" }}>
         <TerminalPane
           key={zoomedPaneId}
           paneId={zoomedPaneId}
           sessionId={zoomedLeaf?.sessionId}
         />
+        <TaskTray />
       </div>
     );
   }
@@ -100,6 +107,8 @@ export function LayoutContainer() {
           onRatioChange={updateNodeRatio}
         />
       ))}
+
+      <TaskTray />
     </div>
   );
 }
@@ -163,27 +172,27 @@ function SplitHandle({
 
   const style: React.CSSProperties = isHorizontal
     ? {
-        position: "absolute",
-        left: `calc(${boundary.position * 100}% - ${handleSize / 2}px)`,
-        top: `${boundary.spanStart * 100}%`,
-        width: handleSize,
-        height: `${(boundary.spanEnd - boundary.spanStart) * 100}%`,
-        cursor: "col-resize",
-        zIndex: 10,
-        background: "transparent",
-        transition: "background var(--transition-fast)",
-      }
+      position: "absolute",
+      left: `calc(${boundary.position * 100}% - ${handleSize / 2}px)`,
+      top: `${boundary.spanStart * 100}%`,
+      width: handleSize,
+      height: `${(boundary.spanEnd - boundary.spanStart) * 100}%`,
+      cursor: "col-resize",
+      zIndex: 10,
+      background: "transparent",
+      transition: "background var(--transition-fast)",
+    }
     : {
-        position: "absolute",
-        left: `${boundary.spanStart * 100}%`,
-        top: `calc(${boundary.position * 100}% - ${handleSize / 2}px)`,
-        width: `${(boundary.spanEnd - boundary.spanStart) * 100}%`,
-        height: handleSize,
-        cursor: "row-resize",
-        zIndex: 10,
-        background: "transparent",
-        transition: "background var(--transition-fast)",
-      };
+      position: "absolute",
+      left: `${boundary.spanStart * 100}%`,
+      top: `calc(${boundary.position * 100}% - ${handleSize / 2}px)`,
+      width: `${(boundary.spanEnd - boundary.spanStart) * 100}%`,
+      height: handleSize,
+      cursor: "row-resize",
+      zIndex: 10,
+      background: "transparent",
+      transition: "background var(--transition-fast)",
+    };
 
   return (
     <div

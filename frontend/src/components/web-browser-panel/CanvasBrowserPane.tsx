@@ -149,21 +149,14 @@ export function CanvasBrowserPane({
     };
   }, [paneId, updateCanvasPanelUrl, updateCanvasPanelTitle]);
 
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   useEffect(() => {
     return registerCanvasBrowserController(paneId, {
       getUrl: () => currentUrlRef.current,
       getTitle: () => pageTitleRef.current,
-      navigate: (url: string) => {
-        const webview = webviewRef.current;
-        if (!webview) return;
-        const normalized = url.match(/^https?:\/\//) ? url : `https://${url}`;
-        setCurrentUrl(normalized);
-        setAddress(normalized);
-        updateCanvasPanelUrl(paneId, normalized);
-        if (typeof webview.loadURL === "function") {
-          webview.loadURL(normalized);
-        }
-      },
+      navigate: (url: string) => navigateRef.current(url),
       getDomSnapshot: async () => {
         const webview = webviewRef.current;
         const url = currentUrlRef.current;
@@ -177,6 +170,13 @@ export function CanvasBrowserPane({
         } catch {
           return { title, url, text: "" };
         }
+      },
+      executeJavaScript: async (code: string) => {
+        const webview = webviewRef.current;
+        if (!webview || typeof webview.executeJavaScript !== "function") {
+          throw new Error("Webview not available");
+        }
+        return webview.executeJavaScript(code);
       },
     });
   }, [paneId]);

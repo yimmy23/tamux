@@ -1,21 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { SectionTitle, ActionButton, iconButtonStyle } from "./shared";
-
-interface AgentTask {
-    id: string;
-    title: string;
-    description: string;
-    status: "queued" | "running" | "completed" | "failed" | "cancelled";
-    priority: string;
-    progress: number;
-    created_at: number;
-    started_at: number | null;
-    completed_at: number | null;
-    error: string | null;
-    result: string | null;
-    thread_id: string | null;
-    source: string;
-}
+import {
+    fetchAgentTasks,
+    formatTaskStatus,
+    formatTaskTimestamp,
+    isTaskActive,
+    taskStatusColor,
+    type AgentQueueTask,
+} from "../../lib/agentTaskQueue";
 
 interface HeartbeatItem {
     id: string;
@@ -28,14 +20,6 @@ interface HeartbeatItem {
     last_message: string | null;
 }
 
-const statusColors: Record<string, string> = {
-    queued: "var(--text-muted)",
-    running: "var(--accent)",
-    completed: "var(--success)",
-    failed: "var(--danger)",
-    cancelled: "var(--text-muted)",
-};
-
 const heartbeatColors: Record<string, string> = {
     ok: "var(--success)",
     alert: "var(--warning)",
@@ -43,20 +27,22 @@ const heartbeatColors: Record<string, string> = {
 };
 
 export function TasksView() {
-    const [tasks, setTasks] = useState<AgentTask[]>([]);
+    const [tasks, setTasks] = useState<AgentQueueTask[]>([]);
     const [heartbeatItems, setHeartbeatItems] = useState<HeartbeatItem[]>([]);
     const [newTaskTitle, setNewTaskTitle] = useState("");
     const [newTaskDescription, setNewTaskDescription] = useState("");
+    const [newTaskCommand, setNewTaskCommand] = useState("");
+    const [newTaskSessionId, setNewTaskSessionId] = useState("");
+    const [newTaskDependencies, setNewTaskDependencies] = useState("");
+    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
     const amux = (window as any).tamux ?? (window as any).amux;
 
     const refreshTasks = useCallback(async () => {
-        if (!amux?.agentListTasks) return;
-        try {
-            const result = await amux.agentListTasks();
-            setTasks(Array.isArray(result) ? result : []);
-        } catch { /* silent */ }
-    }, [amux]);
+        const result = await fetchAgentTasks();
+        setTasks(result);
+        setSelectedTaskId((current) => current ?? result[0]?.id ?? null);
+    }, []);
 
     const refreshHeartbeat = useCallback(async () => {
         if (!amux?.agentHeartbeatGetItems) return;
@@ -78,9 +64,22 @@ export function TasksView() {
 
     const addTask = async () => {
         if (!newTaskTitle.trim() || !amux?.agentAddTask) return;
-        await amux.agentAddTask(newTaskTitle, newTaskDescription || newTaskTitle, "normal");
+        await amux.agentAddTask({
+            title: newTaskTitle.trim(),
+            description: (newTaskDescription || newTaskTitle).trim(),
+            priority: "normal",
+            command: newTaskCommand.trim() || null,
+            sessionId: newTaskSessionId.trim() || null,
+            dependencies: newTaskDependencies
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean),
+        });
         setNewTaskTitle("");
         setNewTaskDescription("");
+        setNewTaskCommand("");
+        setNewTaskSessionId("");
+        setNewTaskDependencies("");
         refreshTasks();
     };
 
@@ -90,8 +89,9 @@ export function TasksView() {
         refreshTasks();
     };
 
-    const activeTasks = tasks.filter((t) => t.status === "queued" || t.status === "running");
-    const completedTasks = tasks.filter((t) => t.status === "completed" || t.status === "failed" || t.status === "cancelled");
+    const activeTasks = tasks.filter(isTaskActive);
+    const completedTasks = tasks.filter((task) => !isTaskActive(task));
+    const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null;
 
     return (
         <div style={{ padding: "var(--space-4)", overflow: "auto", height: "100%" }}>
@@ -135,6 +135,57 @@ export function TasksView() {
                     />
                 )}
                 {newTaskTitle && (
+                    <input
+                        type="text"
+                        placeholder="Preferred command or entrypoint (optional)..."
+                        value={newTaskCommand}
+                        onChange={(e) => setNewTaskCommand(e.target.value)}
+                        style={{
+                            padding: "var(--space-2) var(--space-3)",
+                            borderRadius: "var(--radius-md)",
+                            border: "1px solid var(--border)",
+                            background: "var(--bg-tertiary)",
+                            color: "var(--text-primary)",
+                            fontSize: "var(--text-xs)",
+                            outline: "none",
+                        }}
+                    />
+                )}
+                {newTaskTitle && (
+                    <input
+                        type="text"
+                        placeholder="Target session ID (optional)..."
+                        value={newTaskSessionId}
+                        onChange={(e) => setNewTaskSessionId(e.target.value)}
+                        style={{
+                            padding: "var(--space-2) var(--space-3)",
+                            borderRadius: "var(--radius-md)",
+                            border: "1px solid var(--border)",
+                            background: "var(--bg-tertiary)",
+                            color: "var(--text-primary)",
+                            fontSize: "var(--text-xs)",
+                            outline: "none",
+                        }}
+                    />
+                )}
+                {newTaskTitle && (
+                    <input
+                        type="text"
+                        placeholder="Dependencies: task IDs, comma-separated (optional)..."
+                        value={newTaskDependencies}
+                        onChange={(e) => setNewTaskDependencies(e.target.value)}
+                        style={{
+                            padding: "var(--space-2) var(--space-3)",
+                            borderRadius: "var(--radius-md)",
+                            border: "1px solid var(--border)",
+                            background: "var(--bg-tertiary)",
+                            color: "var(--text-primary)",
+                            fontSize: "var(--text-xs)",
+                            outline: "none",
+                        }}
+                    />
+                )}
+                {newTaskTitle && (
                     <ActionButton onClick={addTask}>Add Task</ActionButton>
                 )}
             </div>
@@ -146,7 +197,7 @@ export function TasksView() {
                         Active ({activeTasks.length})
                     </div>
                     {activeTasks.map((task) => (
-                        <TaskCard key={task.id} task={task} onCancel={() => cancelTask(task.id)} />
+                        <TaskCard key={task.id} task={task} selected={task.id === selectedTask?.id} onSelect={() => setSelectedTaskId(task.id)} onCancel={() => cancelTask(task.id)} />
                     ))}
                 </div>
             )}
@@ -158,7 +209,7 @@ export function TasksView() {
                         History ({completedTasks.length})
                     </div>
                     {completedTasks.slice(0, 20).map((task) => (
-                        <TaskCard key={task.id} task={task} />
+                        <TaskCard key={task.id} task={task} selected={task.id === selectedTask?.id} onSelect={() => setSelectedTaskId(task.id)} />
                     ))}
                 </div>
             )}
@@ -166,6 +217,13 @@ export function TasksView() {
             {tasks.length === 0 && (
                 <div style={{ textAlign: "center", padding: "var(--space-6)", color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
                     No tasks yet. Add a task above or tell the agent what to do.
+                </div>
+            )}
+
+            {selectedTask && (
+                <div style={{ marginBottom: "var(--space-5)" }}>
+                    <SectionTitle title="Post-Mortem" subtitle="Latest trajectory for the selected task" />
+                    <TaskPostMortem task={selectedTask} />
                 </div>
             )}
 
@@ -185,18 +243,40 @@ export function TasksView() {
     );
 }
 
-function TaskCard({ task, onCancel }: { task: AgentTask; onCancel?: () => void }) {
-    const statusColor = statusColors[task.status] || "var(--text-muted)";
-    const isActive = task.status === "queued" || task.status === "running";
+function TaskCard({
+    task,
+    selected,
+    onSelect,
+    onCancel,
+}: {
+    task: AgentQueueTask;
+    selected: boolean;
+    onSelect: () => void;
+    onCancel?: () => void;
+}) {
+    const statusColor = taskStatusColor(task.status);
+    const isActive = isTaskActive(task);
 
     return (
         <div
+            role="button"
+            tabIndex={0}
+            onClick={onSelect}
+            onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect();
+                }
+            }}
             style={{
+                width: "100%",
+                textAlign: "left",
                 padding: "var(--space-3)",
                 borderRadius: "var(--radius-md)",
-                border: "1px solid var(--border)",
-                background: "var(--bg-secondary)",
+                border: selected ? `1px solid ${statusColor}` : "1px solid var(--border)",
+                background: selected ? "var(--bg-tertiary)" : "var(--bg-secondary)",
                 marginBottom: "var(--space-2)",
+                cursor: "pointer",
             }}
         >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)" }}>
@@ -205,26 +285,89 @@ function TaskCard({ task, onCancel }: { task: AgentTask; onCancel?: () => void }
                         {task.title}
                     </div>
                     <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: 2 }}>
-                        <span style={{ color: statusColor, fontWeight: 600 }}>{task.status}</span>
-                        {task.status === "running" && task.progress > 0 && (
+                        <span style={{ color: statusColor, fontWeight: 600 }}>{formatTaskStatus(task)}</span>
+                        {task.status === "in_progress" && task.progress > 0 && (
                             <span> {task.progress}%</span>
                         )}
                         <span style={{ marginLeft: "var(--space-2)" }}>
-                            {new Date(task.created_at).toLocaleTimeString()}
+                            {formatTaskTimestamp(task.created_at)}
                         </span>
+                        {typeof task.retry_count === "number" && typeof task.max_retries === "number" && (
+                            <span style={{ marginLeft: "var(--space-2)" }}>retry {task.retry_count}/{task.max_retries}</span>
+                        )}
                     </div>
                 </div>
                 {isActive && onCancel && (
-                    <button type="button" onClick={onCancel} style={{ ...iconButtonStyle, fontSize: 11 }} title="Cancel task">
+                    <button type="button" onClick={(event) => { event.stopPropagation(); onCancel(); }} style={{ ...iconButtonStyle, fontSize: 11 }} title="Cancel task">
                         Cancel
                     </button>
                 )}
             </div>
-            {task.error && (
+            {(task.blocked_reason || task.error) && (
                 <div style={{ fontSize: "var(--text-xs)", color: "var(--danger)", marginTop: "var(--space-2)" }}>
-                    {task.error}
+                    {task.blocked_reason ?? task.error}
                 </div>
             )}
+            {task.command && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: "var(--space-2)" }}>
+                    {task.command}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function TaskPostMortem({ task }: { task: AgentQueueTask }) {
+    const logs = [...(task.logs ?? [])].slice(-8).reverse();
+
+    return (
+        <div
+            style={{
+                padding: "var(--space-3)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border)",
+                background: "var(--bg-secondary)",
+            }}
+        >
+            <div style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", fontWeight: 600 }}>{task.title}</div>
+            <div style={{ fontSize: "var(--text-xs)", color: taskStatusColor(task.status), marginTop: 4 }}>
+                {formatTaskStatus(task)}
+            </div>
+            {task.command && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: "var(--space-2)" }}>
+                    Command: {task.command}
+                </div>
+            )}
+            {task.session_id && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>
+                    Session: {task.session_id}
+                </div>
+            )}
+            {task.dependencies && task.dependencies.length > 0 && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>
+                    Depends on: {task.dependencies.join(", ")}
+                </div>
+            )}
+            {task.last_error && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--danger)", marginTop: "var(--space-2)" }}>
+                    {task.last_error}
+                </div>
+            )}
+            <div style={{ marginTop: "var(--space-3)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                {logs.length > 0 ? logs.map((log) => (
+                    <div key={log.id} style={{ padding: "var(--space-2)", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)" }}>
+                        <div style={{ fontSize: "var(--text-xs)", color: log.level === "error" ? "var(--danger)" : log.level === "warn" ? "var(--warning)" : "var(--text-muted)" }}>
+                            {log.phase} · attempt {log.attempt || 0} · {formatTaskTimestamp(log.timestamp)}
+                        </div>
+                        <div style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", marginTop: 2 }}>{log.message}</div>
+                        {log.details && (
+                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>{log.details}</div>
+                        )}
+                    </div>
+                )) : (
+                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>No task logs recorded yet.</div>
+                )}
+            </div>
         </div>
     );
 }

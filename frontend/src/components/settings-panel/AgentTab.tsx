@@ -157,6 +157,22 @@ export function AgentTab({
                 <SettingRow label="Conversation Memory">
                     <Toggle value={settings.enableConversationMemory} onChange={(value) => updateSetting("enableConversationMemory", value)} />
                 </SettingRow>
+                <SettingRow label="Honcho Memory">
+                    <Toggle value={settings.enableHonchoMemory} onChange={(value) => updateSetting("enableHonchoMemory", value)} />
+                </SettingRow>
+                {settings.enableHonchoMemory ? (
+                    <>
+                        <SettingRow label="Honcho API Key">
+                            <PasswordInput value={settings.honchoApiKey} onChange={(value) => updateSetting("honchoApiKey", value)} placeholder="hc_..." />
+                        </SettingRow>
+                        <SettingRow label="Honcho Base URL">
+                            <TextInput value={settings.honchoBaseUrl} onChange={(value) => updateSetting("honchoBaseUrl", value)} placeholder="Leave blank for managed cloud" />
+                        </SettingRow>
+                        <SettingRow label="Honcho Workspace">
+                            <TextInput value={settings.honchoWorkspaceId} onChange={(value) => updateSetting("honchoWorkspaceId", value)} placeholder="tamux" />
+                        </SettingRow>
+                    </>
+                ) : null}
                 <SettingRow label="Chat Font Family">
                     <TextInput value={settings.chatFontFamily} onChange={(value) => updateSetting("chatFontFamily", value)} />
                 </SettingRow>

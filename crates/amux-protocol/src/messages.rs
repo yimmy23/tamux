@@ -102,6 +102,73 @@ pub enum ClientMessage {
     /// Search daemon-managed command/transcript history.
     SearchHistory { query: String, limit: Option<usize> },
 
+    /// Append a terminal command log entry to the daemon database.
+    AppendCommandLog { entry_json: String },
+
+    /// Complete a previously inserted command log entry.
+    CompleteCommandLog {
+        id: String,
+        exit_code: Option<i32>,
+        duration_ms: Option<i64>,
+    },
+
+    /// Query command log entries from the daemon database.
+    QueryCommandLog {
+        workspace_id: Option<WorkspaceId>,
+        pane_id: Option<String>,
+        limit: Option<usize>,
+    },
+
+    /// Remove all command log entries from the daemon database.
+    ClearCommandLog,
+
+    /// Create a persisted agent thread record.
+    CreateAgentThread { thread_json: String },
+
+    /// Delete a persisted agent thread record.
+    DeleteAgentThread { thread_id: String },
+
+    /// List persisted agent threads.
+    ListAgentThreads,
+
+    /// Fetch a persisted agent thread and its metadata.
+    GetAgentThread { thread_id: String },
+
+    /// Append a persisted agent message record.
+    AddAgentMessage { message_json: String },
+
+    /// List persisted agent messages for a thread.
+    ListAgentMessages {
+        thread_id: String,
+        limit: Option<usize>,
+    },
+
+    /// Insert or update an indexed transcript record.
+    UpsertTranscriptIndex { entry_json: String },
+
+    /// List indexed transcript records.
+    ListTranscriptIndex {
+        workspace_id: Option<WorkspaceId>,
+    },
+
+    /// Insert or update an indexed snapshot record.
+    UpsertSnapshotIndex { entry_json: String },
+
+    /// List indexed snapshot records.
+    ListSnapshotIndex {
+        workspace_id: Option<WorkspaceId>,
+    },
+
+    /// Insert or update an agent event record.
+    UpsertAgentEvent { event_json: String },
+
+    /// List agent event records.
+    ListAgentEvents {
+        category: Option<String>,
+        pane_id: Option<String>,
+        limit: Option<usize>,
+    },
+
     /// Generate a reusable skill document from historical executions.
     GenerateSkill {
         query: Option<String>,
@@ -167,6 +234,10 @@ pub enum ClientMessage {
         title: String,
         description: String,
         priority: String,
+        command: Option<String>,
+        session_id: Option<String>,
+        #[serde(default)]
+        dependencies: Vec<String>,
     },
 
     /// Cancel a queued or running agent task.
@@ -301,6 +372,33 @@ pub enum DaemonMessage {
         summary: String,
         hits: Vec<HistorySearchHit>,
     },
+
+    /// Reply containing command log rows serialized as JSON.
+    CommandLogEntries { entries_json: String },
+
+    /// Generic ack for command log write operations.
+    CommandLogAck,
+
+    /// Reply containing persisted agent thread summaries.
+    AgentDbThreadList { threads_json: String },
+
+    /// Reply containing a persisted agent thread plus its messages.
+    AgentDbThreadDetail {
+        thread_json: String,
+        messages_json: String,
+    },
+
+    /// Generic ack for agent message writes.
+    AgentDbMessageAck,
+
+    /// Reply containing transcript index rows.
+    TranscriptIndexEntries { entries_json: String },
+
+    /// Reply containing snapshot index rows.
+    SnapshotIndexEntries { entries_json: String },
+
+    /// Reply containing agent event rows.
+    AgentEventRows { events_json: String },
 
     /// Generated procedural skill document.
     SkillGenerated { title: String, path: String },
@@ -607,6 +705,104 @@ pub struct HistorySearchHit {
     pub path: Option<String>,
     pub timestamp: u64,
     pub score: f64,
+}
+
+/// SQLite-backed command log entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandLogEntry {
+    pub id: String,
+    pub command: String,
+    pub timestamp: i64,
+    pub path: Option<String>,
+    pub cwd: Option<String>,
+    pub workspace_id: Option<WorkspaceId>,
+    pub surface_id: Option<String>,
+    pub pane_id: Option<String>,
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<i64>,
+}
+
+/// SQLite-backed agent thread summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentDbThread {
+    pub id: String,
+    pub workspace_id: Option<WorkspaceId>,
+    pub surface_id: Option<String>,
+    pub pane_id: Option<String>,
+    pub agent_name: Option<String>,
+    pub title: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub message_count: i64,
+    pub total_tokens: i64,
+    pub last_preview: String,
+}
+
+/// SQLite-backed agent message record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentDbMessage {
+    pub id: String,
+    pub thread_id: String,
+    pub created_at: i64,
+    pub role: String,
+    pub content: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub total_tokens: Option<i64>,
+    pub reasoning: Option<String>,
+    pub tool_calls_json: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
+/// Cached WORM ledger chain tip.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WormChainTip {
+    pub kind: String,
+    pub seq: i64,
+    pub hash: String,
+}
+
+/// Indexed transcript metadata stored in SQLite.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptIndexEntry {
+    pub id: String,
+    pub pane_id: Option<String>,
+    pub workspace_id: Option<WorkspaceId>,
+    pub surface_id: Option<String>,
+    pub filename: String,
+    pub reason: Option<String>,
+    pub captured_at: i64,
+    pub size_bytes: Option<i64>,
+    pub preview: Option<String>,
+}
+
+/// Indexed snapshot metadata stored in SQLite.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotIndexEntry {
+    pub snapshot_id: String,
+    pub workspace_id: Option<WorkspaceId>,
+    pub session_id: Option<String>,
+    pub kind: String,
+    pub label: Option<String>,
+    pub path: String,
+    pub created_at: i64,
+    pub details_json: Option<String>,
+}
+
+/// Generic agent mission event row stored in SQLite.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEventRow {
+    pub id: String,
+    pub category: String,
+    pub kind: String,
+    pub pane_id: Option<String>,
+    pub workspace_id: Option<WorkspaceId>,
+    pub surface_id: Option<String>,
+    pub session_id: Option<String>,
+    pub payload_json: String,
+    pub timestamp: i64,
 }
 
 /// Symbol search result emitted by the daemon.

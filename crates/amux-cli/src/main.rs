@@ -92,6 +92,10 @@ enum Commands {
     #[command(hide = true, name = "agent-bridge")]
     AgentBridge,
 
+    /// Internal database bridge used by the Electron frontend.
+    #[command(hide = true, name = "db-bridge")]
+    DbBridge,
+
     /// Internal JSON bridge used by the Electron frontend.
     #[command(hide = true, name = "bridge")]
     Bridge {
@@ -278,6 +282,10 @@ async fn main() -> Result<()> {
 
         Commands::AgentBridge => {
             client::run_agent_bridge().await?;
+        }
+
+        Commands::DbBridge => {
+            client::run_db_bridge().await?;
         }
 
         Commands::Bridge {

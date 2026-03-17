@@ -199,6 +199,8 @@ pub enum AgentEvent {
         status: TaskStatus,
         progress: u8,
         message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task: Option<AgentTask>,
     },
     HeartbeatResult {
         item_id: String,
@@ -296,6 +298,21 @@ pub struct ToolResult {
     pub name: String,
     pub content: String,
     pub is_error: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_approval: Option<ToolPendingApproval>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolPendingApproval {
+    pub approval_id: String,
+    pub execution_id: String,
+    pub command: String,
+    pub rationale: String,
+    pub risk_level: String,
+    pub blast_radius: String,
+    pub reasons: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,10 +334,14 @@ pub struct ToolFunctionDef {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Queued,
-    Running,
+    #[serde(alias = "running")]
+    InProgress,
+    AwaitingApproval,
+    Blocked,
+    FailedAnalyzing,
     Completed,
     Failed,
     Cancelled,
@@ -339,6 +360,27 @@ impl Default for TaskPriority {
     fn default() -> Self {
         Self::Normal
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskLogLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentTaskLogEntry {
+    pub id: String,
+    pub timestamp: u64,
+    pub level: TaskLogLevel,
+    pub phase: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(default)]
+    pub attempt: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -368,10 +410,36 @@ pub struct AgentTask {
     pub notify_on_complete: bool,
     #[serde(default)]
     pub notify_channels: Vec<String>,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default = "default_max_task_retries")]
+    pub max_retries: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_retry_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub awaiting_approval_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lane_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub logs: Vec<AgentTaskLogEntry>,
 }
 
 fn default_source() -> String {
     "user".into()
+}
+
+fn default_max_task_retries() -> u32 {
+    3
 }
 
 // ---------------------------------------------------------------------------

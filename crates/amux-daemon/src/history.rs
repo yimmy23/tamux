@@ -1,6 +1,12 @@
 use anyhow::{Context, Result};
-use amux_protocol::HistorySearchHit;
-use rusqlite::{params, Connection};
+use amux_protocol::{
+    AgentDbMessage, AgentDbThread, AgentEventRow, CommandLogEntry, HistorySearchHit,
+    SnapshotIndexEntry, TranscriptIndexEntry, WormChainTip,
+};
+use crate::agent::types::{
+    AgentTask, AgentTaskLogEntry, TaskLogLevel, TaskPriority, TaskStatus,
+};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
@@ -37,6 +43,19 @@ pub struct ManagedHistoryRecord {
     pub snapshot_path: Option<String>,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct AgentMessagePatch {
+    pub content: Option<String>,
+    pub reasoning: Option<Option<String>>,
+    pub tool_calls_json: Option<Option<String>>,
+    pub metadata_json: Option<Option<String>>,
+    pub provider: Option<Option<String>>,
+    pub model: Option<Option<String>>,
+    pub input_tokens: Option<Option<i64>>,
+    pub output_tokens: Option<Option<i64>>,
+    pub total_tokens: Option<Option<i64>>,
+}
+
 impl HistoryStore {
     pub fn new() -> Result<Self> {
         let base = amux_protocol::ensure_amux_data_dir()?;
@@ -61,7 +80,7 @@ impl HistoryStore {
     }
 
     pub fn record_managed_finish(&self, record: &ManagedHistoryRecord) -> Result<()> {
-        let connection = Connection::open(&self.db_path)?;
+        let connection = self.open_connection()?;
         let timestamp = now_ts() as i64;
         let excerpt = format!(
             "exit={:?} duration_ms={:?} snapshot={} rationale={}",
@@ -120,7 +139,7 @@ impl HistoryStore {
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<(String, Vec<HistorySearchHit>)> {
-        let connection = Connection::open(&self.db_path)?;
+        let connection = self.open_connection()?;
         let mut stmt = connection.prepare(
             "SELECT history_entries.id, kind, title, excerpt, path, timestamp, bm25(history_fts) \
              FROM history_fts JOIN history_entries ON history_entries.id = history_fts.id \
@@ -169,8 +188,583 @@ impl HistoryStore {
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
     }
 
+    pub fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO command_log \
+             (id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                entry.id,
+                entry.command,
+                entry.timestamp,
+                entry.path,
+                entry.cwd,
+                entry.workspace_id,
+                entry.surface_id,
+                entry.pane_id,
+                entry.exit_code,
+                entry.duration_ms,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn complete_command_log(
+        &self,
+        id: &str,
+        exit_code: Option<i32>,
+        duration_ms: Option<i64>,
+    ) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "UPDATE command_log SET exit_code = ?2, duration_ms = ?3 WHERE id = ?1",
+            params![id, exit_code, duration_ms],
+        )?;
+        Ok(())
+    }
+
+    pub fn query_command_log(
+        &self,
+        workspace_id: Option<&str>,
+        pane_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<CommandLogEntry>> {
+        let connection = self.open_connection()?;
+        let limit = limit.unwrap_or(200).max(1) as i64;
+
+        let sql = match (workspace_id.is_some(), pane_id.is_some()) {
+            (true, true) => {
+                "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
+                 FROM command_log WHERE workspace_id = ?1 AND pane_id = ?2 \
+                 ORDER BY timestamp DESC LIMIT ?3"
+            }
+            (true, false) => {
+                "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
+                 FROM command_log WHERE workspace_id = ?1 \
+                 ORDER BY timestamp DESC LIMIT ?2"
+            }
+            (false, true) => {
+                "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
+                 FROM command_log WHERE pane_id = ?1 \
+                 ORDER BY timestamp DESC LIMIT ?2"
+            }
+            (false, false) => {
+                "SELECT id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms \
+                 FROM command_log ORDER BY timestamp DESC LIMIT ?1"
+            }
+        };
+
+        let mut stmt = connection.prepare(sql)?;
+        let rows = match (workspace_id, pane_id) {
+            (Some(workspace_id), Some(pane_id)) => stmt.query_map(
+                params![workspace_id, pane_id, limit],
+                map_command_log_entry,
+            )?,
+            (Some(workspace_id), None) => {
+                stmt.query_map(params![workspace_id, limit], map_command_log_entry)?
+            }
+            (None, Some(pane_id)) => {
+                stmt.query_map(params![pane_id, limit], map_command_log_entry)?
+            }
+            (None, None) => stmt.query_map(params![limit], map_command_log_entry)?,
+        };
+
+        Ok(rows.filter_map(|row| row.ok()).collect())
+    }
+
+    pub fn clear_command_log(&self) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute("DELETE FROM command_log", [])?;
+        Ok(())
+    }
+
+    pub fn create_thread(&self, thread: &AgentDbThread) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO agent_threads \
+             (id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                thread.id,
+                thread.workspace_id,
+                thread.surface_id,
+                thread.pane_id,
+                thread.agent_name,
+                thread.title,
+                thread.created_at,
+                thread.updated_at,
+                thread.message_count,
+                thread.total_tokens,
+                thread.last_preview,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_thread(&self, id: &str) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute("DELETE FROM agent_threads WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn list_threads(&self) -> Result<Vec<AgentDbThread>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview \
+             FROM agent_threads ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], map_agent_thread)?;
+        Ok(rows.filter_map(|row| row.ok()).collect())
+    }
+
+    pub fn get_thread(&self, id: &str) -> Result<Option<AgentDbThread>> {
+        let connection = self.open_connection()?;
+        connection
+            .query_row(
+                "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview \
+                 FROM agent_threads WHERE id = ?1",
+                params![id],
+                map_agent_thread,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn add_message(&self, message: &AgentDbMessage) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO agent_messages \
+             (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                message.id,
+                message.thread_id,
+                message.created_at,
+                message.role,
+                message.content,
+                message.provider,
+                message.model,
+                message.input_tokens,
+                message.output_tokens,
+                message.total_tokens,
+                message.reasoning,
+                message.tool_calls_json,
+                message.metadata_json,
+            ],
+        )?;
+        self.refresh_thread_stats(&connection, &message.thread_id)?;
+        Ok(())
+    }
+
+    pub fn update_message(&self, id: &str, patch: &AgentMessagePatch) -> Result<()> {
+        let connection = self.open_connection()?;
+        let thread_id: Option<String> = connection
+            .query_row(
+                "SELECT thread_id FROM agent_messages WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if thread_id.is_none() {
+            return Ok(());
+        }
+
+        connection.execute(
+            "UPDATE agent_messages SET
+                content = COALESCE(?2, content),
+                provider = COALESCE(?3, provider),
+                model = COALESCE(?4, model),
+                input_tokens = COALESCE(?5, input_tokens),
+                output_tokens = COALESCE(?6, output_tokens),
+                total_tokens = COALESCE(?7, total_tokens),
+                reasoning = COALESCE(?8, reasoning),
+                tool_calls_json = COALESCE(?9, tool_calls_json),
+                metadata_json = COALESCE(?10, metadata_json)
+             WHERE id = ?1",
+            params![
+                id,
+                patch.content.as_deref(),
+                flatten_option_str(&patch.provider),
+                flatten_option_str(&patch.model),
+                flatten_option_i64(&patch.input_tokens),
+                flatten_option_i64(&patch.output_tokens),
+                flatten_option_i64(&patch.total_tokens),
+                flatten_option_str(&patch.reasoning),
+                flatten_option_str(&patch.tool_calls_json),
+                flatten_option_str(&patch.metadata_json),
+            ],
+        )?;
+
+        if let Some(thread_id) = thread_id {
+            self.refresh_thread_stats(&connection, &thread_id)?;
+        }
+        Ok(())
+    }
+
+    pub fn list_messages(&self, thread_id: &str, limit: Option<usize>) -> Result<Vec<AgentDbMessage>> {
+        let connection = self.open_connection()?;
+        let limit = limit.unwrap_or(500).max(1) as i64;
+        let mut stmt = connection.prepare(
+            "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
+             FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at ASC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![thread_id, limit], map_agent_message)?;
+        Ok(rows.filter_map(|row| row.ok()).collect())
+    }
+
+    pub fn get_worm_chain_tip(&self, kind: &str) -> Result<Option<WormChainTip>> {
+        let connection = self.open_connection()?;
+        connection
+            .query_row(
+                "SELECT kind, seq, hash FROM worm_chain_tip WHERE kind = ?1",
+                params![kind],
+                |row| {
+                    Ok(WormChainTip {
+                        kind: row.get(0)?,
+                        seq: row.get(1)?,
+                        hash: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn set_worm_chain_tip(&self, kind: &str, seq: i64, hash: &str) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT INTO worm_chain_tip (kind, seq, hash) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(kind) DO UPDATE SET seq = excluded.seq, hash = excluded.hash",
+            params![kind, seq, hash],
+        )?;
+        Ok(())
+    }
+
+    pub fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO transcript_index \
+             (id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                entry.id,
+                entry.pane_id,
+                entry.workspace_id,
+                entry.surface_id,
+                entry.filename,
+                entry.reason,
+                entry.captured_at,
+                entry.size_bytes,
+                entry.preview,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_transcript_index(&self, workspace_id: Option<&str>) -> Result<Vec<TranscriptIndexEntry>> {
+        let connection = self.open_connection()?;
+        let sql = if workspace_id.is_some() {
+            "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
+             FROM transcript_index WHERE workspace_id = ?1 ORDER BY captured_at DESC"
+        } else {
+            "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
+             FROM transcript_index ORDER BY captured_at DESC"
+        };
+        let mut stmt = connection.prepare(sql)?;
+        let rows = if let Some(workspace_id) = workspace_id {
+            stmt.query_map(params![workspace_id], map_transcript_index_entry)?
+        } else {
+            stmt.query_map([], map_transcript_index_entry)?
+        };
+        Ok(rows.filter_map(|row| row.ok()).collect())
+    }
+
+    pub fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO snapshot_index \
+             (snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                entry.snapshot_id,
+                entry.workspace_id,
+                entry.session_id,
+                entry.kind,
+                entry.label,
+                entry.path,
+                entry.created_at,
+                entry.details_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_snapshot_index(&self, workspace_id: Option<&str>) -> Result<Vec<SnapshotIndexEntry>> {
+        let connection = self.open_connection()?;
+        let sql = if workspace_id.is_some() {
+            "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
+             FROM snapshot_index WHERE workspace_id = ?1 ORDER BY created_at DESC"
+        } else {
+            "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
+             FROM snapshot_index ORDER BY created_at DESC"
+        };
+        let mut stmt = connection.prepare(sql)?;
+        let rows = if let Some(workspace_id) = workspace_id {
+            stmt.query_map(params![workspace_id], map_snapshot_index_entry)?
+        } else {
+            stmt.query_map([], map_snapshot_index_entry)?
+        };
+        Ok(rows.filter_map(|row| row.ok()).collect())
+    }
+
+    pub fn get_snapshot_index(&self, snapshot_id: &str) -> Result<Option<SnapshotIndexEntry>> {
+        let connection = self.open_connection()?;
+        connection
+            .query_row(
+                "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
+                 FROM snapshot_index WHERE snapshot_id = ?1",
+                params![snapshot_id],
+                map_snapshot_index_entry,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO agent_events \
+             (id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                entry.id,
+                entry.category,
+                entry.kind,
+                entry.pane_id,
+                entry.workspace_id,
+                entry.surface_id,
+                entry.session_id,
+                entry.payload_json,
+                entry.timestamp,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_agent_events(
+        &self,
+        category: Option<&str>,
+        pane_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<AgentEventRow>> {
+        let connection = self.open_connection()?;
+        let limit = limit.unwrap_or(500).max(1) as i64;
+        let sql = match (category.is_some(), pane_id.is_some()) {
+            (true, true) => {
+                "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp \
+                 FROM agent_events WHERE category = ?1 AND pane_id = ?2 ORDER BY timestamp DESC LIMIT ?3"
+            }
+            (true, false) => {
+                "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp \
+                 FROM agent_events WHERE category = ?1 ORDER BY timestamp DESC LIMIT ?2"
+            }
+            (false, true) => {
+                "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp \
+                 FROM agent_events WHERE pane_id = ?1 ORDER BY timestamp DESC LIMIT ?2"
+            }
+            (false, false) => {
+                "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp \
+                 FROM agent_events ORDER BY timestamp DESC LIMIT ?1"
+            }
+        };
+        let mut stmt = connection.prepare(sql)?;
+        let rows = match (category, pane_id) {
+            (Some(category), Some(pane_id)) => stmt.query_map(params![category, pane_id, limit], map_agent_event_row)?,
+            (Some(category), None) => stmt.query_map(params![category, limit], map_agent_event_row)?,
+            (None, Some(pane_id)) => stmt.query_map(params![pane_id, limit], map_agent_event_row)?,
+            (None, None) => stmt.query_map(params![limit], map_agent_event_row)?,
+        };
+        Ok(rows.filter_map(|row| row.ok()).collect())
+    }
+
+    pub fn upsert_agent_task(&self, task: &AgentTask) -> Result<()> {
+        let mut connection = self.open_connection()?;
+        let transaction = connection.transaction()?;
+        let notify_channels_json = serde_json::to_string(&task.notify_channels)?;
+
+        transaction.execute(
+            "INSERT OR REPLACE INTO agent_tasks \
+             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, retry_count, max_retries, next_retry_at, blocked_reason, awaiting_approval_id, lane_id, last_error) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+            params![
+                &task.id,
+                &task.title,
+                &task.description,
+                task_status_to_str(task.status),
+                task_priority_to_str(task.priority),
+                task.progress as i64,
+                task.created_at as i64,
+                task.started_at.map(|value| value as i64),
+                task.completed_at.map(|value| value as i64),
+                &task.error,
+                &task.result,
+                &task.thread_id,
+                &task.source,
+                if task.notify_on_complete { 1 } else { 0 },
+                notify_channels_json,
+                &task.command,
+                &task.session_id,
+                task.retry_count as i64,
+                task.max_retries as i64,
+                task.next_retry_at.map(|value| value as i64),
+                &task.blocked_reason,
+                &task.awaiting_approval_id,
+                &task.lane_id,
+                &task.last_error,
+            ],
+        )?;
+
+        transaction.execute(
+            "DELETE FROM agent_task_dependencies WHERE task_id = ?1",
+            params![&task.id],
+        )?;
+        for (ordinal, dependency) in task.dependencies.iter().enumerate() {
+            transaction.execute(
+                "INSERT INTO agent_task_dependencies (task_id, depends_on_task_id, ordinal) VALUES (?1, ?2, ?3)",
+                params![&task.id, dependency, ordinal as i64],
+            )?;
+        }
+
+        transaction.execute("DELETE FROM agent_task_logs WHERE task_id = ?1", params![&task.id])?;
+        for log in &task.logs {
+            transaction.execute(
+                "INSERT OR REPLACE INTO agent_task_logs (id, task_id, timestamp, level, phase, message, details, attempt) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    &log.id,
+                    &task.id,
+                    log.timestamp as i64,
+                    task_log_level_to_str(log.level),
+                    &log.phase,
+                    &log.message,
+                    &log.details,
+                    log.attempt as i64,
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_agent_task(&self, task_id: &str) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute("DELETE FROM agent_tasks WHERE id = ?1", params![task_id])?;
+        Ok(())
+    }
+
+    pub fn list_agent_tasks(&self) -> Result<Vec<AgentTask>> {
+        let connection = self.open_connection()?;
+        let mut dependency_stmt = connection.prepare(
+            "SELECT task_id, depends_on_task_id FROM agent_task_dependencies ORDER BY ordinal ASC",
+        )?;
+        let dependency_rows = dependency_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut dependency_map = std::collections::HashMap::<String, Vec<String>>::new();
+        for row in dependency_rows {
+            let (task_id, dependency) = row?;
+            dependency_map.entry(task_id).or_default().push(dependency);
+        }
+
+        let mut log_stmt = connection.prepare(
+            "SELECT id, task_id, timestamp, level, phase, message, details, attempt FROM agent_task_logs ORDER BY timestamp ASC",
+        )?;
+        let log_rows = log_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                AgentTaskLogEntry {
+                    id: row.get(0)?,
+                    timestamp: row.get::<_, i64>(2)? as u64,
+                    level: parse_task_log_level(&row.get::<_, String>(3)?),
+                    phase: row.get(4)?,
+                    message: row.get(5)?,
+                    details: row.get(6)?,
+                    attempt: row.get::<_, i64>(7)? as u32,
+                },
+            ))
+        })?;
+        let mut log_map = std::collections::HashMap::<String, Vec<AgentTaskLogEntry>>::new();
+        for row in log_rows {
+            let (task_id, log) = row?;
+            log_map.entry(task_id).or_default().push(log);
+        }
+
+        let mut stmt = connection.prepare(
+            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, retry_count, max_retries, next_retry_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
+             FROM agent_tasks \
+             ORDER BY CASE status \
+                 WHEN 'in_progress' THEN 0 \
+                 WHEN 'awaiting_approval' THEN 1 \
+                 WHEN 'failed_analyzing' THEN 2 \
+                 WHEN 'blocked' THEN 3 \
+                 WHEN 'queued' THEN 4 \
+                 WHEN 'failed' THEN 5 \
+                 WHEN 'completed' THEN 6 \
+                 ELSE 7 END, \
+                 CASE priority \
+                 WHEN 'urgent' THEN 0 \
+                 WHEN 'high' THEN 1 \
+                 WHEN 'normal' THEN 2 \
+                 ELSE 3 END, \
+                 created_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let task_id: String = row.get(0)?;
+            let notify_channels_json: String = row.get(14)?;
+            Ok(AgentTask {
+                id: task_id,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                status: parse_task_status(&row.get::<_, String>(3)?),
+                priority: parse_task_priority(&row.get::<_, String>(4)?),
+                progress: row.get::<_, i64>(5)? as u8,
+                created_at: row.get::<_, i64>(6)? as u64,
+                started_at: row.get::<_, Option<i64>>(7)?.map(|value| value as u64),
+                completed_at: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
+                error: row.get(9)?,
+                result: row.get(10)?,
+                thread_id: row.get(11)?,
+                source: row.get(12)?,
+                notify_on_complete: row.get::<_, i64>(13)? != 0,
+                notify_channels: serde_json::from_str(&notify_channels_json).unwrap_or_default(),
+                dependencies: Vec::new(),
+                command: row.get(15)?,
+                session_id: row.get(16)?,
+                retry_count: row.get::<_, i64>(17)? as u32,
+                max_retries: row.get::<_, i64>(18)? as u32,
+                next_retry_at: row.get::<_, Option<i64>>(19)?.map(|value| value as u64),
+                blocked_reason: row.get(20)?,
+                awaiting_approval_id: row.get(21)?,
+                lane_id: row.get(22)?,
+                last_error: row.get(23)?,
+                logs: Vec::new(),
+            })
+        })?;
+
+        let mut tasks = Vec::new();
+        for row in rows {
+            let mut task = row?;
+            task.dependencies = dependency_map.remove(&task.id).unwrap_or_default();
+            task.logs = log_map.remove(&task.id).unwrap_or_default();
+            tasks.push(task);
+        }
+        Ok(tasks)
+    }
+
     fn init_schema(&self) -> Result<()> {
-        let connection = Connection::open(&self.db_path)?;
+        let connection = self.open_connection()?;
         connection.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS history_entries (
@@ -188,8 +782,142 @@ impl HistoryStore {
                 excerpt,
                 content
             );
+            CREATE TABLE IF NOT EXISTS command_log (
+                id           TEXT PRIMARY KEY,
+                command      TEXT NOT NULL,
+                timestamp    INTEGER NOT NULL,
+                path         TEXT,
+                cwd          TEXT,
+                workspace_id TEXT,
+                surface_id   TEXT,
+                pane_id      TEXT,
+                exit_code    INTEGER,
+                duration_ms  INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_command_log_ts ON command_log(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_command_log_pane ON command_log(pane_id);
+            CREATE TABLE IF NOT EXISTS agent_threads (
+                id             TEXT PRIMARY KEY,
+                workspace_id   TEXT,
+                surface_id     TEXT,
+                pane_id        TEXT,
+                agent_name     TEXT,
+                title          TEXT NOT NULL DEFAULT '',
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                total_tokens   INTEGER NOT NULL DEFAULT 0,
+                last_preview   TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_threads_updated ON agent_threads(updated_at DESC);
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                id              TEXT PRIMARY KEY,
+                thread_id       TEXT NOT NULL REFERENCES agent_threads(id) ON DELETE CASCADE,
+                created_at      INTEGER NOT NULL,
+                role            TEXT NOT NULL,
+                content         TEXT NOT NULL DEFAULT '',
+                provider        TEXT,
+                model           TEXT,
+                input_tokens    INTEGER,
+                output_tokens   INTEGER,
+                total_tokens    INTEGER,
+                reasoning       TEXT,
+                tool_calls_json TEXT,
+                metadata_json   TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_thread ON agent_messages(thread_id, created_at);
+            CREATE TABLE IF NOT EXISTS worm_chain_tip (
+                kind      TEXT PRIMARY KEY,
+                seq       INTEGER NOT NULL,
+                hash      TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_events (
+                id           TEXT PRIMARY KEY,
+                category     TEXT NOT NULL,
+                kind         TEXT NOT NULL,
+                pane_id      TEXT,
+                workspace_id TEXT,
+                surface_id   TEXT,
+                session_id   TEXT,
+                payload_json TEXT NOT NULL,
+                timestamp    INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_events_cat ON agent_events(category, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_agent_events_pane ON agent_events(pane_id, timestamp DESC);
+            CREATE TABLE IF NOT EXISTS agent_tasks (
+                id                   TEXT PRIMARY KEY,
+                title                TEXT NOT NULL,
+                description          TEXT NOT NULL,
+                status               TEXT NOT NULL,
+                priority             TEXT NOT NULL,
+                progress             INTEGER NOT NULL DEFAULT 0,
+                created_at           INTEGER NOT NULL,
+                started_at           INTEGER,
+                completed_at         INTEGER,
+                error                TEXT,
+                result               TEXT,
+                thread_id            TEXT,
+                source               TEXT NOT NULL DEFAULT 'user',
+                notify_on_complete   INTEGER NOT NULL DEFAULT 0,
+                notify_channels_json TEXT NOT NULL DEFAULT '[]',
+                command              TEXT,
+                session_id           TEXT,
+                retry_count          INTEGER NOT NULL DEFAULT 0,
+                max_retries          INTEGER NOT NULL DEFAULT 3,
+                next_retry_at        INTEGER,
+                blocked_reason       TEXT,
+                awaiting_approval_id TEXT,
+                lane_id              TEXT,
+                last_error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, priority, created_at DESC);
+            CREATE TABLE IF NOT EXISTS agent_task_dependencies (
+                task_id             TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+                depends_on_task_id  TEXT NOT NULL,
+                ordinal             INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (task_id, depends_on_task_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_task_deps_parent ON agent_task_dependencies(depends_on_task_id);
+            CREATE TABLE IF NOT EXISTS agent_task_logs (
+                id         TEXT PRIMARY KEY,
+                task_id    TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+                timestamp  INTEGER NOT NULL,
+                level      TEXT NOT NULL,
+                phase      TEXT NOT NULL,
+                message    TEXT NOT NULL,
+                details    TEXT,
+                attempt    INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_task_logs_task_ts ON agent_task_logs(task_id, timestamp ASC);
+            CREATE TABLE IF NOT EXISTS transcript_index (
+                id           TEXT PRIMARY KEY,
+                pane_id      TEXT,
+                workspace_id TEXT,
+                surface_id   TEXT,
+                filename     TEXT NOT NULL,
+                reason       TEXT,
+                captured_at  INTEGER NOT NULL,
+                size_bytes   INTEGER,
+                preview      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_transcript_ts ON transcript_index(captured_at DESC);
+            CREATE TABLE IF NOT EXISTS snapshot_index (
+                snapshot_id  TEXT PRIMARY KEY,
+                workspace_id TEXT,
+                session_id   TEXT,
+                kind         TEXT NOT NULL,
+                label        TEXT,
+                path         TEXT NOT NULL,
+                created_at   INTEGER NOT NULL,
+                details_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_snapshot_ts ON snapshot_index(created_at DESC);
             ",
         )?;
+        let _ = connection.execute(
+            "ALTER TABLE agent_tasks ADD COLUMN session_id TEXT",
+            [],
+        );
         Ok(())
     }
 
@@ -200,8 +928,13 @@ impl HistoryStore {
 
         append_line(&log_path, &line)?;
 
-        // Read the last entry to obtain prev_hash and seq for hash-chain.
-        let (prev_hash, seq) = read_last_worm_entry(&worm_path);
+        let (prev_hash, seq) = match self.get_worm_chain_tip(kind)? {
+            Some(tip) => (tip.hash, tip.seq + 1),
+            None => {
+                let (prev_hash, seq) = read_last_worm_entry(&worm_path);
+                (prev_hash, seq as i64)
+            }
+        };
 
         let payload_json = serde_json::to_string(&payload)?;
         let hash = hex_hash(&format!("{}{}", prev_hash, payload_json));
@@ -212,13 +945,14 @@ impl HistoryStore {
             "payload": payload,
         }))?;
         append_line(&worm_path, &worm_line)?;
+        self.set_worm_chain_tip(kind, seq, &hash)?;
         Ok(())
     }
 
     /// Detect sequences of 3+ consecutive successful managed commands
     /// that completed within a 5-minute window.
     pub fn detect_skill_candidates(&self) -> Result<Vec<(String, Vec<HistorySearchHit>)>> {
-        let connection = Connection::open(&self.db_path)?;
+        let connection = self.open_connection()?;
         let mut stmt = connection.prepare(
             "SELECT id, kind, title, excerpt, path, timestamp FROM history_entries \
              WHERE kind = 'managed-command' \
@@ -280,6 +1014,193 @@ impl HistoryStore {
         }
 
         Ok(results)
+    }
+
+    fn open_connection(&self) -> Result<Connection> {
+        let connection = Connection::open(&self.db_path)?;
+        connection.pragma_update(None, "foreign_keys", "ON")?;
+        Ok(connection)
+    }
+
+    fn refresh_thread_stats(&self, connection: &Connection, thread_id: &str) -> Result<()> {
+        let (message_count, total_tokens, last_preview, updated_at): (i64, i64, String, i64) = connection.query_row(
+            "SELECT 
+                COUNT(*),
+                COALESCE(SUM(total_tokens), 0),
+                COALESCE((SELECT substr(content, 1, 100) FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), ''),
+                COALESCE((SELECT created_at FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), strftime('%s','now') * 1000)
+             FROM agent_messages WHERE thread_id = ?1",
+            params![thread_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        connection.execute(
+            "UPDATE agent_threads SET message_count = ?2, total_tokens = ?3, last_preview = ?4, updated_at = ?5 WHERE id = ?1",
+            params![thread_id, message_count, total_tokens, last_preview, updated_at],
+        )?;
+        Ok(())
+    }
+}
+
+fn map_command_log_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<CommandLogEntry> {
+    Ok(CommandLogEntry {
+        id: row.get(0)?,
+        command: row.get(1)?,
+        timestamp: row.get(2)?,
+        path: row.get(3)?,
+        cwd: row.get(4)?,
+        workspace_id: row.get(5)?,
+        surface_id: row.get(6)?,
+        pane_id: row.get(7)?,
+        exit_code: row.get(8)?,
+        duration_ms: row.get(9)?,
+    })
+}
+
+fn map_agent_thread(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentDbThread> {
+    Ok(AgentDbThread {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        surface_id: row.get(2)?,
+        pane_id: row.get(3)?,
+        agent_name: row.get(4)?,
+        title: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+        message_count: row.get(8)?,
+        total_tokens: row.get(9)?,
+        last_preview: row.get(10)?,
+    })
+}
+
+fn map_agent_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentDbMessage> {
+    Ok(AgentDbMessage {
+        id: row.get(0)?,
+        thread_id: row.get(1)?,
+        created_at: row.get(2)?,
+        role: row.get(3)?,
+        content: row.get(4)?,
+        provider: row.get(5)?,
+        model: row.get(6)?,
+        input_tokens: row.get(7)?,
+        output_tokens: row.get(8)?,
+        total_tokens: row.get(9)?,
+        reasoning: row.get(10)?,
+        tool_calls_json: row.get(11)?,
+        metadata_json: row.get(12)?,
+    })
+}
+
+fn map_transcript_index_entry(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<TranscriptIndexEntry> {
+    Ok(TranscriptIndexEntry {
+        id: row.get(0)?,
+        pane_id: row.get(1)?,
+        workspace_id: row.get(2)?,
+        surface_id: row.get(3)?,
+        filename: row.get(4)?,
+        reason: row.get(5)?,
+        captured_at: row.get(6)?,
+        size_bytes: row.get(7)?,
+        preview: row.get(8)?,
+    })
+}
+
+fn map_snapshot_index_entry(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<SnapshotIndexEntry> {
+    Ok(SnapshotIndexEntry {
+        snapshot_id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        session_id: row.get(2)?,
+        kind: row.get(3)?,
+        label: row.get(4)?,
+        path: row.get(5)?,
+        created_at: row.get(6)?,
+        details_json: row.get(7)?,
+    })
+}
+
+fn map_agent_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentEventRow> {
+    Ok(AgentEventRow {
+        id: row.get(0)?,
+        category: row.get(1)?,
+        kind: row.get(2)?,
+        pane_id: row.get(3)?,
+        workspace_id: row.get(4)?,
+        surface_id: row.get(5)?,
+        session_id: row.get(6)?,
+        payload_json: row.get(7)?,
+        timestamp: row.get(8)?,
+    })
+}
+
+fn flatten_option_str(value: &Option<Option<String>>) -> Option<&str> {
+    value.as_ref().and_then(|inner| inner.as_deref())
+}
+
+fn flatten_option_i64(value: &Option<Option<i64>>) -> Option<i64> {
+    value.as_ref().copied().flatten()
+}
+
+fn task_status_to_str(value: TaskStatus) -> &'static str {
+    match value {
+        TaskStatus::Queued => "queued",
+        TaskStatus::InProgress => "in_progress",
+        TaskStatus::AwaitingApproval => "awaiting_approval",
+        TaskStatus::Blocked => "blocked",
+        TaskStatus::FailedAnalyzing => "failed_analyzing",
+        TaskStatus::Completed => "completed",
+        TaskStatus::Failed => "failed",
+        TaskStatus::Cancelled => "cancelled",
+    }
+}
+
+fn parse_task_status(value: &str) -> TaskStatus {
+    match value {
+        "in_progress" => TaskStatus::InProgress,
+        "awaiting_approval" => TaskStatus::AwaitingApproval,
+        "blocked" => TaskStatus::Blocked,
+        "failed_analyzing" => TaskStatus::FailedAnalyzing,
+        "completed" => TaskStatus::Completed,
+        "failed" => TaskStatus::Failed,
+        "cancelled" => TaskStatus::Cancelled,
+        _ => TaskStatus::Queued,
+    }
+}
+
+fn task_priority_to_str(value: TaskPriority) -> &'static str {
+    match value {
+        TaskPriority::Low => "low",
+        TaskPriority::Normal => "normal",
+        TaskPriority::High => "high",
+        TaskPriority::Urgent => "urgent",
+    }
+}
+
+fn parse_task_priority(value: &str) -> TaskPriority {
+    match value {
+        "low" => TaskPriority::Low,
+        "high" => TaskPriority::High,
+        "urgent" => TaskPriority::Urgent,
+        _ => TaskPriority::Normal,
+    }
+}
+
+fn task_log_level_to_str(value: TaskLogLevel) -> &'static str {
+    match value {
+        TaskLogLevel::Info => "info",
+        TaskLogLevel::Warn => "warn",
+        TaskLogLevel::Error => "error",
+    }
+}
+
+fn parse_task_log_level(value: &str) -> TaskLogLevel {
+    match value {
+        "warn" => TaskLogLevel::Warn,
+        "error" => TaskLogLevel::Error,
+        _ => TaskLogLevel::Info,
     }
 }
 

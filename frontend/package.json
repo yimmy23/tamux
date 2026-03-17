@@ -1,7 +1,7 @@
 {
   "name": "tamux",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Agentic terminal multiplexer with AI-native workflows",
   "homepage": "https://tamux.app",
   "author": {
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
+    "@honcho-ai/sdk": "^2.0.1",
     "@types/js-yaml": "^4.0.9",
     "@whiskeysockets/baileys": "^6.7.21",
     "@xterm/addon-canvas": "^0.7.0",
@@ -36,6 +37,7 @@
     "discord.js": "^14.25.1",
     "js-yaml": "^4.1.1",
     "pino": "^9.14.0",
+    "buffer": "^6.0.3",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

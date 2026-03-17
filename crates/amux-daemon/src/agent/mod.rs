@@ -13,7 +13,7 @@ pub mod llm_client;
 pub mod tool_executor;
 pub mod types;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -26,11 +26,17 @@ use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
 
 use self::llm_client::{messages_to_api_format, send_chat_completion};
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
+
+struct SendMessageOutcome {
+    thread_id: String,
+    interrupted_for_approval: bool,
+}
 
 #[derive(Clone)]
 struct StreamCancellationEntry {
@@ -55,6 +61,7 @@ pub struct AgentEngine {
     config: RwLock<AgentConfig>,
     http_client: reqwest::Client,
     session_manager: Arc<SessionManager>,
+    history: HistoryStore,
     threads: RwLock<HashMap<String, AgentThread>>,
     tasks: Mutex<VecDeque<AgentTask>>,
     heartbeat_items: RwLock<Vec<HeartbeatItem>>,
@@ -94,6 +101,7 @@ impl AgentEngine {
             config: RwLock::new(config),
             http_client: reqwest::Client::new(),
             session_manager,
+            history: HistoryStore::new().expect("history store initialization failed"),
             threads: RwLock::new(HashMap::new()),
             tasks: Mutex::new(VecDeque::new()),
             heartbeat_items: RwLock::new(Vec::new()),
@@ -248,35 +256,105 @@ impl AgentEngine {
         }
 
         // Load threads
-        let threads_path = self.data_dir.join("threads.json");
-        if threads_path.exists() {
-            match tokio::fs::read_to_string(&threads_path).await {
-                Ok(raw) => {
-                    if let Ok(threads) = serde_json::from_str::<HashMap<String, AgentThread>>(&raw)
-                    {
-                        *self.threads.write().await = threads;
-                    }
+        match self.history.list_threads() {
+            Ok(thread_rows) if !thread_rows.is_empty() => {
+                let mut threads = HashMap::new();
+                for thread_row in thread_rows {
+                    let messages = self
+                        .history
+                        .list_messages(&thread_row.id, None)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|message| AgentMessage {
+                            role: match message.role.as_str() {
+                                "system" => MessageRole::System,
+                                "assistant" => MessageRole::Assistant,
+                                "tool" => MessageRole::Tool,
+                                _ => MessageRole::User,
+                            },
+                            content: message.content,
+                            tool_calls: message
+                                .tool_calls_json
+                                .as_deref()
+                                .and_then(|json| serde_json::from_str(json).ok()),
+                            tool_call_id: message
+                                .metadata_json
+                                .as_deref()
+                                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                                .and_then(|value| value.get("tool_call_id").and_then(|v| v.as_str()).map(ToOwned::to_owned)),
+                            tool_name: message
+                                .metadata_json
+                                .as_deref()
+                                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+                                .and_then(|value| value.get("tool_name").and_then(|v| v.as_str()).map(ToOwned::to_owned)),
+                            input_tokens: message.input_tokens.unwrap_or(0) as u64,
+                            output_tokens: message.output_tokens.unwrap_or(0) as u64,
+                            reasoning: message.reasoning,
+                            timestamp: message.created_at as u64,
+                        })
+                        .collect::<Vec<_>>();
+
+                    threads.insert(
+                        thread_row.id.clone(),
+                        AgentThread {
+                            id: thread_row.id,
+                            title: thread_row.title,
+                            messages,
+                            created_at: thread_row.created_at as u64,
+                            updated_at: thread_row.updated_at as u64,
+                            total_input_tokens: 0,
+                            total_output_tokens: 0,
+                        },
+                    );
                 }
-                Err(e) => tracing::warn!("failed to load agent threads: {e}"),
+                *self.threads.write().await = threads;
             }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),
         }
 
-        // Load tasks (re-queue any that were running when daemon stopped)
-        let tasks_path = self.data_dir.join("tasks.json");
-        if tasks_path.exists() {
-            match tokio::fs::read_to_string(&tasks_path).await {
-                Ok(raw) => {
-                    if let Ok(mut tasks) = serde_json::from_str::<VecDeque<AgentTask>>(&raw) {
-                        for task in tasks.iter_mut() {
-                            if task.status == TaskStatus::Running {
-                                task.status = TaskStatus::Queued;
-                            }
-                        }
-                        *self.tasks.lock().await = tasks;
+        // Load AJQ tasks from SQLite first; fall back to legacy JSON migration.
+        match self.history.list_agent_tasks() {
+            Ok(mut tasks) if !tasks.is_empty() => {
+                for task in &mut tasks {
+                    if task.status == TaskStatus::InProgress {
+                        task.status = TaskStatus::Queued;
+                        task.started_at = None;
+                        task.lane_id = None;
+                        task.logs.push(make_task_log_entry(
+                            task.retry_count,
+                            TaskLogLevel::Warn,
+                            "hydrate",
+                            "daemon restarted while task was in progress; task re-queued",
+                            None,
+                        ));
                     }
                 }
-                Err(e) => tracing::warn!("failed to load agent tasks: {e}"),
+                *self.tasks.lock().await = tasks.into_iter().collect();
+                self.persist_tasks().await;
             }
+            Ok(_) => {
+                let tasks_path = self.data_dir.join("tasks.json");
+                if tasks_path.exists() {
+                    match tokio::fs::read_to_string(&tasks_path).await {
+                        Ok(raw) => {
+                            if let Ok(mut tasks) = serde_json::from_str::<VecDeque<AgentTask>>(&raw) {
+                                for task in tasks.iter_mut() {
+                                    if task.status == TaskStatus::InProgress {
+                                        task.status = TaskStatus::Queued;
+                                        task.started_at = None;
+                                    }
+                                    task.max_retries = task.max_retries.max(1);
+                                }
+                                *self.tasks.lock().await = tasks;
+                                self.persist_tasks().await;
+                            }
+                        }
+                        Err(e) => tracing::warn!("failed to migrate legacy agent tasks: {e}"),
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("failed to load agent tasks from sqlite: {e}"),
         }
 
         // Load heartbeat items
@@ -520,7 +598,7 @@ impl AgentEngine {
         loop {
             tokio::select! {
                 _ = task_tick.tick() => {
-                    if let Err(e) = self.process_next_task().await {
+                    if let Err(e) = self.clone().dispatch_ready_tasks().await {
                         tracing::error!("agent task error: {e}");
                     }
                 }
@@ -821,6 +899,31 @@ impl AgentEngine {
 
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
+        Ok(self
+            .send_message_inner(thread_id, content, None, None)
+            .await?
+            .thread_id)
+    }
+
+    async fn send_task_message(
+        &self,
+        task_id: &str,
+        thread_id: Option<&str>,
+        preferred_session_hint: Option<&str>,
+        content: &str,
+    ) -> Result<SendMessageOutcome> {
+        self
+            .send_message_inner(thread_id, content, Some(task_id), preferred_session_hint)
+            .await
+    }
+
+    async fn send_message_inner(
+        &self,
+        thread_id: Option<&str>,
+        content: &str,
+        task_id: Option<&str>,
+        preferred_session_hint: Option<&str>,
+    ) -> Result<SendMessageOutcome> {
         let config = self.config.read().await.clone();
 
         // Route through external agent if backend is "openclaw" or "hermes"
@@ -828,7 +931,11 @@ impl AgentEngine {
             "openclaw" | "hermes" => {
                 return self
                     .send_message_external(&config, thread_id, content)
-                    .await;
+                    .await
+                    .map(|thread_id| SendMessageOutcome {
+                        thread_id,
+                        interrupted_for_approval: false,
+                    });
             }
             _ => {} // Fall through to built-in daemon LLM client
         }
@@ -881,11 +988,14 @@ impl AgentEngine {
 
         // Get tools
         let tools = get_available_tools(&config);
+        let preferred_session_id =
+            resolve_preferred_session_id(&self.session_manager, preferred_session_hint).await;
 
         // Run the agent loop
         let max_loops = config.max_tool_loops;
         let mut loop_count = 0u32;
         let mut was_cancelled = false;
+        let mut interrupted_for_approval = false;
 
         'agent_loop: while loop_count < max_loops {
             if stream_cancel_token.is_cancelled() {
@@ -1109,7 +1219,7 @@ impl AgentEngine {
                         let result = execute_tool(
                             tc,
                             &self.session_manager,
-                            None, // TODO: use agent's dedicated session
+                            preferred_session_id,
                             &self.event_tx,
                             &self.data_dir,
                             &self.http_client,
@@ -1146,6 +1256,15 @@ impl AgentEngine {
                             }
                         }
 
+                        if let Some(pending_approval) = result.pending_approval.as_ref() {
+                            interrupted_for_approval = true;
+                            if let Some(task_id) = task_id {
+                                self.mark_task_awaiting_approval(task_id, &tid, pending_approval)
+                                    .await;
+                            }
+                            break 'agent_loop;
+                        }
+
                         if stream_cancel_token.is_cancelled() {
                             was_cancelled = true;
                             break;
@@ -1177,14 +1296,25 @@ impl AgentEngine {
         self.persist_threads().await;
         self.finish_stream_cancellation(&tid, stream_generation)
             .await;
-        Ok(tid)
+        Ok(SendMessageOutcome {
+            thread_id: tid,
+            interrupted_for_approval,
+        })
     }
 
     // -----------------------------------------------------------------------
     // Task queue
     // -----------------------------------------------------------------------
 
-    pub async fn add_task(&self, title: String, description: String, priority: &str) -> String {
+    pub async fn add_task(
+        &self,
+        title: String,
+        description: String,
+        priority: &str,
+        command: Option<String>,
+        session_id: Option<String>,
+        dependencies: Vec<String>,
+    ) -> String {
         let id = format!("task_{}", Uuid::new_v4());
         let task = AgentTask {
             id: id.clone(),
@@ -1207,17 +1337,31 @@ impl AgentEngine {
             source: "user".into(),
             notify_on_complete: true,
             notify_channels: vec!["in-app".into()],
+            dependencies,
+            command,
+            session_id,
+            retry_count: 0,
+            max_retries: self.config.read().await.max_retries.max(1),
+            next_retry_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            lane_id: None,
+            last_error: None,
+            logs: vec![make_task_log_entry(
+                0,
+                TaskLogLevel::Info,
+                "queue",
+                "task enqueued",
+                None,
+            )],
         };
 
         self.tasks.lock().await.push_back(task);
         self.persist_tasks().await;
 
-        let _ = self.event_tx.send(AgentEvent::TaskUpdate {
-            task_id: id.clone(),
-            status: TaskStatus::Queued,
-            progress: 0,
-            message: None,
-        });
+        if let Some(task) = self.tasks.lock().await.iter().find(|task| task.id == id).cloned() {
+            self.emit_task_update(&task, Some("Task queued".into()));
+        }
 
         id
     }
@@ -1225,91 +1369,341 @@ impl AgentEngine {
     pub async fn cancel_task(&self, task_id: &str) -> bool {
         let mut tasks = self.tasks.lock().await;
         if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
-            if task.status == TaskStatus::Queued || task.status == TaskStatus::Running {
+            if matches!(
+                task.status,
+                TaskStatus::Queued
+                    | TaskStatus::InProgress
+                    | TaskStatus::Blocked
+                    | TaskStatus::FailedAnalyzing
+                    | TaskStatus::AwaitingApproval
+            ) {
                 task.status = TaskStatus::Cancelled;
                 task.completed_at = Some(now_millis());
-                let _ = self.event_tx.send(AgentEvent::TaskUpdate {
-                    task_id: task_id.into(),
-                    status: TaskStatus::Cancelled,
-                    progress: task.progress,
-                    message: Some("Cancelled by user".into()),
-                });
+                task.lane_id = None;
+                task.blocked_reason = None;
+                task.logs.push(make_task_log_entry(
+                    task.retry_count,
+                    TaskLogLevel::Warn,
+                    "queue",
+                    "task cancelled by user",
+                    None,
+                ));
+                let updated = task.clone();
                 drop(tasks);
                 self.persist_tasks().await;
+                self.emit_task_update(&updated, Some("Cancelled by user".into()));
                 return true;
             }
         }
         false
     }
 
-    pub async fn list_tasks(&self) -> Vec<AgentTask> {
-        self.tasks.lock().await.iter().cloned().collect()
-    }
-
-    async fn process_next_task(&self) -> Result<()> {
-        // Find next queued task
-        let task = {
+    pub async fn handle_task_approval_resolution(
+        &self,
+        approval_id: &str,
+        decision: amux_protocol::ApprovalDecision,
+    ) -> bool {
+        let updated = {
             let mut tasks = self.tasks.lock().await;
-            let pos = tasks.iter().position(|t| t.status == TaskStatus::Queued);
-            match pos {
-                Some(i) => {
-                    tasks[i].status = TaskStatus::Running;
-                    tasks[i].started_at = Some(now_millis());
-                    tasks[i].clone()
+            let Some(task) = tasks
+                .iter_mut()
+                .find(|task| task.awaiting_approval_id.as_deref() == Some(approval_id))
+            else {
+                return false;
+            };
+
+            match decision {
+                amux_protocol::ApprovalDecision::ApproveOnce
+                | amux_protocol::ApprovalDecision::ApproveSession => {
+                    task.status = TaskStatus::Queued;
+                    task.started_at = None;
+                    task.awaiting_approval_id = None;
+                    task.blocked_reason = None;
+                    task.logs.push(make_task_log_entry(
+                        task.retry_count,
+                        TaskLogLevel::Info,
+                        "approval",
+                        "operator approved managed command; task re-queued",
+                        None,
+                    ));
                 }
-                None => return Ok(()), // No queued tasks
+                amux_protocol::ApprovalDecision::Deny => {
+                    let reason = "operator denied managed command approval".to_string();
+                    task.status = TaskStatus::Failed;
+                    task.started_at = None;
+                    task.completed_at = Some(now_millis());
+                    task.awaiting_approval_id = None;
+                    task.blocked_reason = Some(reason.clone());
+                    task.error = Some(reason.clone());
+                    task.last_error = Some(reason.clone());
+                    task.logs.push(make_task_log_entry(
+                        task.retry_count,
+                        TaskLogLevel::Error,
+                        "approval",
+                        "operator denied managed command; task failed",
+                        Some(reason),
+                    ));
+                }
             }
+
+            task.clone()
         };
 
-        let _ = self.event_tx.send(AgentEvent::TaskUpdate {
-            task_id: task.id.clone(),
-            status: TaskStatus::Running,
-            progress: 0,
-            message: Some(format!("Starting: {}", task.title)),
-        });
+        self.persist_tasks().await;
+        self.emit_task_update(&updated, Some(status_message(&updated).into()));
+        true
+    }
 
-        // Execute the task as an agent turn
-        let prompt = format!(
-            "Execute the following task:\n\nTitle: {}\nDescription: {}\n\n\
-             Work through this step by step. Use your tools as needed. \
-             Report your progress and results clearly.",
-            task.title, task.description
-        );
+    pub async fn list_tasks(&self) -> Vec<AgentTask> {
+        let sessions = self.session_manager.list().await;
+        let mut tasks = self.tasks.lock().await;
+        let changed = refresh_task_queue_state(&mut tasks, now_millis(), &sessions);
+        let snapshot = tasks.iter().cloned().collect();
+        drop(tasks);
 
-        match self.send_message(None, &prompt).await {
-            Ok(thread_id) => {
-                let mut tasks = self.tasks.lock().await;
-                if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
-                    t.status = TaskStatus::Completed;
-                    t.progress = 100;
-                    t.completed_at = Some(now_millis());
-                    t.thread_id = Some(thread_id);
-                }
-                let _ = self.event_tx.send(AgentEvent::TaskUpdate {
-                    task_id: task.id.clone(),
-                    status: TaskStatus::Completed,
-                    progress: 100,
-                    message: Some("Task completed".into()),
-                });
-            }
-            Err(e) => {
-                let mut tasks = self.tasks.lock().await;
-                if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
-                    t.status = TaskStatus::Failed;
-                    t.completed_at = Some(now_millis());
-                    t.error = Some(e.to_string());
-                }
-                let _ = self.event_tx.send(AgentEvent::TaskUpdate {
-                    task_id: task.id.clone(),
-                    status: TaskStatus::Failed,
-                    progress: 0,
-                    message: Some(format!("Failed: {e}")),
-                });
+        if !changed.is_empty() {
+            self.persist_tasks().await;
+            for task in changed {
+                self.emit_task_update(&task, Some(status_message(&task).into()));
             }
         }
 
+        snapshot
+    }
+
+    async fn dispatch_ready_tasks(self: Arc<Self>) -> Result<()> {
+        let now = now_millis();
+        let sessions = self.session_manager.list().await;
+        let (changed_before_start, dispatched_tasks) = {
+            let mut tasks = self.tasks.lock().await;
+            let changed_before_start = refresh_task_queue_state(&mut tasks, now, &sessions);
+            let next_indices = select_ready_task_indices(&tasks, &sessions);
+            if next_indices.is_empty() {
+                drop(tasks);
+                if !changed_before_start.is_empty() {
+                    self.persist_tasks().await;
+                    for task in changed_before_start {
+                        self.emit_task_update(&task, Some(status_message(&task).into()));
+                    }
+                }
+                return Ok(());
+            }
+
+            let mut dispatched_tasks = Vec::with_capacity(next_indices.len());
+            for index in next_indices {
+                let task = &mut tasks[index];
+                let lane_id = task_lane_key(task);
+                task.status = TaskStatus::InProgress;
+                task.started_at = Some(now);
+                task.completed_at = None;
+                task.progress = task.progress.max(5);
+                task.blocked_reason = None;
+                task.awaiting_approval_id = None;
+                task.lane_id = Some(lane_id.clone());
+                task.logs.push(make_task_log_entry(
+                    task.retry_count,
+                    TaskLogLevel::Info,
+                    "execution",
+                    &format!("task dispatched to {lane_id} lane"),
+                    None,
+                ));
+                dispatched_tasks.push(task.clone());
+            }
+            (changed_before_start, dispatched_tasks)
+        };
+
         self.persist_tasks().await;
+        for changed in changed_before_start {
+            self.emit_task_update(&changed, Some(status_message(&changed).into()));
+        }
+        for task in dispatched_tasks {
+            self.emit_task_update(&task, Some(format!("Starting: {}", task.title)));
+            let engine = self.clone();
+            tokio::spawn(async move {
+                if let Err(error) = engine.execute_dispatched_task(task).await {
+                    tracing::error!(error = %error, "agent task execution error");
+                }
+            });
+        }
+
         Ok(())
+    }
+
+    async fn execute_dispatched_task(&self, task: AgentTask) -> Result<()> {
+        match self
+            .send_task_message(
+                &task.id,
+                task.thread_id.as_deref(),
+                task.session_id.as_deref(),
+                &build_task_prompt(&task),
+            )
+            .await
+        {
+            Ok(outcome) if outcome.interrupted_for_approval => Ok(()),
+            Ok(outcome) => {
+                let now = now_millis();
+                let updated = {
+                    let mut tasks = self.tasks.lock().await;
+                    if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
+                        current.status = TaskStatus::Completed;
+                        current.progress = 100;
+                        current.completed_at = Some(now);
+                        current.thread_id = Some(outcome.thread_id);
+                        current.lane_id = None;
+                        current.blocked_reason = None;
+                        current.awaiting_approval_id = None;
+                        current.error = None;
+                        current.last_error = None;
+                        current.next_retry_at = None;
+                        current.logs.push(make_task_log_entry(
+                            current.retry_count,
+                            TaskLogLevel::Info,
+                            "execution",
+                            if current.retry_count > 0 {
+                                "task self-healed and completed"
+                            } else {
+                                "task completed"
+                            },
+                            None,
+                        ));
+                        current.clone()
+                    } else {
+                        return Ok(());
+                    }
+                };
+                self.persist_tasks().await;
+                self.emit_task_update(
+                    &updated,
+                    Some(if updated.retry_count > 0 {
+                        "Task self-healed and completed".into()
+                    } else {
+                        "Task completed".into()
+                    }),
+                );
+                Ok(())
+            }
+            Err(error) => {
+                let error_text = error.to_string();
+                let retry_delay_ms = compute_task_backoff_ms(
+                    self.config.read().await.retry_delay_ms,
+                    task.retry_count.saturating_add(1),
+                );
+                let updated = {
+                    let mut tasks = self.tasks.lock().await;
+                    if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
+                        current.retry_count = current.retry_count.saturating_add(1);
+                        current.error = Some(error_text.clone());
+                        current.last_error = Some(error_text.clone());
+                        current.progress = 0;
+                        current.lane_id = None;
+                        current.logs.push(make_task_log_entry(
+                            current.retry_count,
+                            TaskLogLevel::Error,
+                            "execution",
+                            "task execution failed",
+                            Some(error_text.clone()),
+                        ));
+
+                        if current.retry_count <= current.max_retries {
+                            current.status = TaskStatus::FailedAnalyzing;
+                            current.completed_at = None;
+                            current.next_retry_at = Some(now_millis().saturating_add(retry_delay_ms));
+                            current.blocked_reason = Some(format!(
+                                "retry {} of {} scheduled in {}s",
+                                current.retry_count,
+                                current.max_retries,
+                                ((retry_delay_ms + 999) / 1000).max(1),
+                            ));
+                            current.logs.push(make_task_log_entry(
+                                current.retry_count,
+                                TaskLogLevel::Warn,
+                                "analysis",
+                                "agent queued self-healing retry",
+                                current.blocked_reason.clone(),
+                            ));
+                        } else {
+                            current.status = TaskStatus::Failed;
+                            current.completed_at = Some(now_millis());
+                            current.next_retry_at = None;
+                            current.blocked_reason = Some("retry budget exhausted".into());
+                            current.logs.push(make_task_log_entry(
+                                current.retry_count,
+                                TaskLogLevel::Error,
+                                "analysis",
+                                "task failed permanently after exhausting retry budget",
+                                Some(error_text.clone()),
+                            ));
+                        }
+                        current.clone()
+                    } else {
+                        return Ok(());
+                    }
+                };
+
+                self.persist_tasks().await;
+                self.emit_task_update(
+                    &updated,
+                    Some(match updated.status {
+                        TaskStatus::FailedAnalyzing => format!(
+                            "Attempt {} failed; retry scheduled",
+                            updated.retry_count
+                        ),
+                        _ => format!("Failed: {error_text}"),
+                    }),
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn emit_task_update(&self, task: &AgentTask, message: Option<String>) {
+        let _ = self.event_tx.send(AgentEvent::TaskUpdate {
+            task_id: task.id.clone(),
+            status: task.status,
+            progress: task.progress,
+            message,
+            task: Some(task.clone()),
+        });
+    }
+
+    async fn mark_task_awaiting_approval(
+        &self,
+        task_id: &str,
+        thread_id: &str,
+        pending_approval: &ToolPendingApproval,
+    ) {
+        let updated = {
+            let mut tasks = self.tasks.lock().await;
+            let Some(task) = tasks.iter_mut().find(|entry| entry.id == task_id) else {
+                return;
+            };
+
+            let reason = format!(
+                "waiting for operator approval: {}",
+                pending_approval.command
+            );
+            task.status = TaskStatus::AwaitingApproval;
+            task.thread_id = Some(thread_id.to_string());
+            if task.session_id.is_none() {
+                task.session_id = pending_approval.session_id.clone();
+            }
+            task.awaiting_approval_id = Some(pending_approval.approval_id.clone());
+            task.blocked_reason = Some(reason.clone());
+            task.error = None;
+            task.last_error = None;
+            task.progress = task.progress.max(35);
+            task.logs.push(make_task_log_entry(
+                task.retry_count,
+                TaskLogLevel::Warn,
+                "approval",
+                "managed command paused for operator approval",
+                Some(reason),
+            ));
+            task.clone()
+        };
+
+        self.persist_tasks().await;
+        self.emit_task_update(&updated, Some("Task awaiting approval".into()));
     }
 
     // -----------------------------------------------------------------------
@@ -1643,13 +2037,78 @@ impl AgentEngine {
 
     async fn persist_threads(&self) {
         let threads = self.threads.read().await;
-        if let Err(e) = persist_json(&self.data_dir.join("threads.json"), &*threads).await {
-            tracing::warn!("failed to persist threads: {e}");
+        for thread in threads.values() {
+            let thread_row = amux_protocol::AgentDbThread {
+                id: thread.id.clone(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: Some("assistant".to_string()),
+                title: thread.title.clone(),
+                created_at: thread.created_at as i64,
+                updated_at: thread.updated_at as i64,
+                message_count: thread.messages.len() as i64,
+                total_tokens: (thread.total_input_tokens + thread.total_output_tokens) as i64,
+                last_preview: thread
+                    .messages
+                    .last()
+                    .map(|message| message.content.chars().take(100).collect())
+                    .unwrap_or_default(),
+            };
+
+            if let Err(e) = self.history.delete_thread(&thread.id) {
+                tracing::warn!(thread_id = %thread.id, "failed to reset sqlite thread state: {e}");
+                continue;
+            }
+            if let Err(e) = self.history.create_thread(&thread_row) {
+                tracing::warn!(thread_id = %thread.id, "failed to persist sqlite thread row: {e}");
+                continue;
+            }
+
+            for (index, message) in thread.messages.iter().enumerate() {
+                let metadata_json = serde_json::to_string(&serde_json::json!({
+                    "tool_call_id": message.tool_call_id,
+                    "tool_name": message.tool_name,
+                }))
+                .ok();
+                let row = amux_protocol::AgentDbMessage {
+                    id: format!("{}:{}", thread.id, index),
+                    thread_id: thread.id.clone(),
+                    created_at: message.timestamp as i64,
+                    role: match message.role {
+                        MessageRole::System => "system",
+                        MessageRole::User => "user",
+                        MessageRole::Assistant => "assistant",
+                        MessageRole::Tool => "tool",
+                    }
+                    .to_string(),
+                    content: message.content.clone(),
+                    provider: None,
+                    model: None,
+                    input_tokens: Some(message.input_tokens as i64),
+                    output_tokens: Some(message.output_tokens as i64),
+                    total_tokens: Some((message.input_tokens + message.output_tokens) as i64),
+                    reasoning: message.reasoning.clone(),
+                    tool_calls_json: message
+                        .tool_calls
+                        .as_ref()
+                        .and_then(|calls| serde_json::to_string(calls).ok()),
+                    metadata_json,
+                };
+                if let Err(e) = self.history.add_message(&row) {
+                    tracing::warn!(thread_id = %thread.id, message_index = index, "failed to persist sqlite message row: {e}");
+                }
+            }
         }
     }
 
     async fn persist_tasks(&self) {
         let tasks = self.tasks.lock().await;
+        for task in tasks.iter() {
+            if let Err(e) = self.history.upsert_agent_task(task) {
+                tracing::warn!(task_id = %task.id, "failed to persist task to sqlite: {e}");
+            }
+        }
         if let Err(e) = persist_json(&self.data_dir.join("tasks.json"), &*tasks).await {
             tracing::warn!("failed to persist tasks: {e}");
         }
@@ -1668,6 +2127,316 @@ impl AgentEngine {
             tracing::warn!("failed to persist config: {e}");
         }
     }
+}
+
+fn make_task_log_entry(
+    attempt: u32,
+    level: TaskLogLevel,
+    phase: &str,
+    message: &str,
+    details: Option<String>,
+) -> AgentTaskLogEntry {
+    AgentTaskLogEntry {
+        id: format!("tasklog_{}", Uuid::new_v4()),
+        timestamp: now_millis(),
+        level,
+        phase: phase.to_string(),
+        message: message.to_string(),
+        details,
+        attempt,
+    }
+}
+
+fn refresh_task_queue_state(
+    tasks: &mut VecDeque<AgentTask>,
+    now: u64,
+    sessions: &[amux_protocol::SessionInfo],
+) -> Vec<AgentTask> {
+    let completed: HashSet<String> = tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::Completed)
+        .map(|task| task.id.clone())
+        .collect();
+    let occupied_lanes = tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::InProgress | TaskStatus::AwaitingApproval))
+        .map(current_task_lane_key)
+        .collect::<HashSet<_>>();
+    let occupied_workspaces = tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::InProgress | TaskStatus::AwaitingApproval))
+        .filter_map(|task| task_workspace_key(task, sessions))
+        .collect::<HashSet<_>>();
+    let mut changed = Vec::new();
+
+    for task in tasks.iter_mut() {
+        let unresolved = task
+            .dependencies
+            .iter()
+            .filter(|dependency| !completed.contains(*dependency))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if matches!(task.status, TaskStatus::Queued | TaskStatus::Blocked) {
+            if !unresolved.is_empty() {
+                let reason = format!("waiting for dependencies: {}", unresolved.join(", "));
+                if task.status != TaskStatus::Blocked || task.blocked_reason.as_deref() != Some(reason.as_str()) {
+                    task.status = TaskStatus::Blocked;
+                    task.blocked_reason = Some(reason.clone());
+                    task.logs.push(make_task_log_entry(
+                        task.retry_count,
+                        TaskLogLevel::Info,
+                        "queue",
+                        "task blocked on dependencies",
+                        Some(reason),
+                    ));
+                    changed.push(task.clone());
+                }
+                continue;
+            }
+
+            let resource_reason = if occupied_lanes.contains(&task_lane_key(task)) {
+                Some(format!("waiting for lane availability: {}", task_lane_key(task)))
+            } else if let Some(workspace_key) = task_workspace_key(task, sessions) {
+                if occupied_workspaces.contains(&workspace_key) {
+                    Some(format!("waiting for workspace lock: {}", workspace_key.replace("workspace:", "")))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(reason) = resource_reason {
+                if task.status != TaskStatus::Blocked || task.blocked_reason.as_deref() != Some(reason.as_str()) {
+                    task.status = TaskStatus::Blocked;
+                    task.blocked_reason = Some(reason.clone());
+                    task.logs.push(make_task_log_entry(
+                        task.retry_count,
+                        TaskLogLevel::Info,
+                        "queue",
+                        "task blocked on lane or workspace availability",
+                        Some(reason),
+                    ));
+                    changed.push(task.clone());
+                }
+                continue;
+            }
+
+            if task.status == TaskStatus::Blocked {
+                task.status = TaskStatus::Queued;
+                task.blocked_reason = None;
+                task.logs.push(make_task_log_entry(
+                    task.retry_count,
+                    TaskLogLevel::Info,
+                    "queue",
+                    "task gate cleared; task returned to queue",
+                    None,
+                ));
+                changed.push(task.clone());
+            }
+        }
+
+        if task.status == TaskStatus::FailedAnalyzing
+            && task.next_retry_at.map(|deadline| deadline <= now).unwrap_or(true)
+        {
+            task.status = TaskStatus::Queued;
+            task.next_retry_at = None;
+            task.blocked_reason = None;
+            task.logs.push(make_task_log_entry(
+                task.retry_count,
+                TaskLogLevel::Info,
+                "analysis",
+                "retry backoff elapsed; task returned to queue",
+                None,
+            ));
+            changed.push(task.clone());
+        }
+    }
+
+    changed
+}
+
+fn select_ready_task_indices(
+    tasks: &VecDeque<AgentTask>,
+    sessions: &[amux_protocol::SessionInfo],
+) -> Vec<usize> {
+    let mut occupied_lanes = tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::InProgress | TaskStatus::AwaitingApproval))
+        .map(current_task_lane_key)
+        .collect::<HashSet<_>>();
+    let mut occupied_workspaces = tasks
+        .iter()
+        .filter(|task| matches!(task.status, TaskStatus::InProgress | TaskStatus::AwaitingApproval))
+        .filter_map(|task| task_workspace_key(task, sessions))
+        .collect::<HashSet<_>>();
+
+    let mut queued = tasks
+        .iter()
+        .enumerate()
+        .filter(|(_, task)| task.status == TaskStatus::Queued)
+        .collect::<Vec<_>>();
+    queued.sort_by_key(|(_, task)| (task_priority_rank(task.priority), task.created_at));
+
+    let mut selected = Vec::new();
+    for (index, task) in queued {
+        let lane = task_lane_key(task);
+        let workspace = task_workspace_key(task, sessions);
+        let lane_available = occupied_lanes.insert(lane);
+        let workspace_available = workspace
+            .as_ref()
+            .map(|key| occupied_workspaces.insert(key.clone()))
+            .unwrap_or(true);
+        if lane_available && workspace_available {
+            selected.push(index);
+            continue;
+        }
+
+        if lane_available {
+            occupied_lanes.remove(current_task_lane_key(task).as_str());
+        }
+    }
+
+    selected
+}
+
+fn task_lane_key(task: &AgentTask) -> String {
+    task.session_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("session:{value}"))
+        .unwrap_or_else(|| "daemon-main".to_string())
+}
+
+fn current_task_lane_key(task: &AgentTask) -> String {
+    task.lane_id.clone().unwrap_or_else(|| task_lane_key(task))
+}
+
+fn task_workspace_key(
+    task: &AgentTask,
+    sessions: &[amux_protocol::SessionInfo],
+) -> Option<String> {
+    let session_hint = task.session_id.as_deref()?.trim();
+    if session_hint.is_empty() {
+        return None;
+    }
+
+    sessions
+        .iter()
+        .find(|session| {
+            let session_id = session.id.to_string();
+            session_id == session_hint || session_id.contains(session_hint)
+        })
+        .and_then(|session| session.workspace_id.as_ref())
+        .map(|workspace_id| format!("workspace:{workspace_id}"))
+}
+
+fn task_priority_rank(priority: TaskPriority) -> u8 {
+    match priority {
+        TaskPriority::Urgent => 0,
+        TaskPriority::High => 1,
+        TaskPriority::Normal => 2,
+        TaskPriority::Low => 3,
+    }
+}
+
+fn compute_task_backoff_ms(base_delay_ms: u64, retry_count: u32) -> u64 {
+    let multiplier = 2u64.saturating_pow(retry_count.saturating_sub(1));
+    base_delay_ms.saturating_mul(multiplier).min(5 * 60 * 1000)
+}
+
+fn build_task_prompt(task: &AgentTask) -> String {
+    let mut prompt = format!(
+        "Execute the following queued task.\n\nTitle: {}\nDescription: {}",
+        task.title, task.description
+    );
+
+    prompt.push_str(
+        "\nUse execute_managed_command when work should run inside a daemon-managed terminal lane, needs a real PTY, or may require operator approval.",
+    );
+
+    if let Some(command) = task.command.as_deref() {
+        prompt.push_str(&format!("\nPreferred command or entrypoint: {command}"));
+    }
+
+    if let Some(session_id) = task.session_id.as_deref() {
+        prompt.push_str(&format!("\nPreferred terminal session: {session_id}"));
+    }
+
+    if !task.dependencies.is_empty() {
+        prompt.push_str(&format!(
+            "\nResolved dependencies: {}",
+            task.dependencies.join(", ")
+        ));
+    }
+
+    if task.retry_count > 0 {
+        prompt.push_str(&format!(
+            "\n\nThis is self-healing retry attempt {} of {}.",
+            task.retry_count,
+            task.max_retries
+        ));
+        if let Some(last_error) = task.last_error.as_deref() {
+            prompt.push_str(&format!("\nLast failure: {last_error}"));
+        }
+        let recent_logs = task
+            .logs
+            .iter()
+            .rev()
+            .take(4)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|log| format!("- [{}] {}", log.phase, log.message))
+            .collect::<Vec<_>>();
+        if !recent_logs.is_empty() {
+            prompt.push_str("\nRecent task log:\n");
+            prompt.push_str(&recent_logs.join("\n"));
+        }
+        prompt.push_str(
+            "\nAnalyze the root cause, adapt the approach, and retry with the smallest viable correction.",
+        );
+    } else {
+        prompt.push_str(
+            "\n\nWork through this step by step. Use your tools as needed and report your progress clearly.",
+        );
+    }
+
+    prompt
+}
+
+fn status_message(task: &AgentTask) -> &'static str {
+    match task.status {
+        TaskStatus::Queued => "Task queued",
+        TaskStatus::InProgress => "Task in progress",
+        TaskStatus::AwaitingApproval => "Task awaiting approval",
+        TaskStatus::Blocked => "Task blocked",
+        TaskStatus::FailedAnalyzing => "Task analyzing failure",
+        TaskStatus::Completed => "Task completed",
+        TaskStatus::Failed => "Task failed",
+        TaskStatus::Cancelled => "Task cancelled",
+    }
+}
+
+async fn resolve_preferred_session_id(
+    session_manager: &Arc<SessionManager>,
+    session_hint: Option<&str>,
+) -> Option<amux_protocol::SessionId> {
+    let hint = session_hint?.trim();
+    if hint.is_empty() {
+        return None;
+    }
+
+    session_manager
+        .list()
+        .await
+        .into_iter()
+        .find(|session| {
+            let session_id = session.id.to_string();
+            session_id == hint || session_id.contains(hint)
+        })
+        .map(|session| session.id)
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,9 @@ import { getTerminalController, getTerminalSnapshot } from "./terminalRegistry";
 import { getBrowserController } from "./browserRegistry";
 import { getCanvasBrowserController } from "./canvasBrowserRegistry";
 import { assessCommandRisk } from "./agentMissionStore";
+import { useAgentStore } from "./agentStore";
 import { resolveSnippetTemplate, useSnippetStore } from "./snippetStore";
+import { queryHonchoMemory } from "./honchoClient";
 import { executePluginAssistantTool, listPluginAssistantTools } from "../plugins/assistantToolRegistry";
 
 // ---------------------------------------------------------------------------
@@ -218,6 +220,23 @@ const SYSTEM_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "agent_query_memory",
+      description: "Query Honcho cross-session memory for long-term user, workspace, or assistant context.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Question to ask Honcho memory, for example 'What coding conventions does this workspace prefer?'",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 const WEB_BROWSING_TOOLS: ToolDefinition[] = [
@@ -268,39 +287,24 @@ const WEB_BROWSING_TOOLS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "browser_back",
-      description: "Navigate back in browser history. Optionally target a canvas browser pane.",
-      parameters: {
-        type: "object",
-        properties: {
-          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
-        },
-      },
+      description: "Navigate back in the sidebar browser history.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
     type: "function",
     function: {
       name: "browser_forward",
-      description: "Navigate forward in browser history. Optionally target a canvas browser pane.",
-      parameters: {
-        type: "object",
-        properties: {
-          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
-        },
-      },
+      description: "Navigate forward in the sidebar browser history.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
     type: "function",
     function: {
       name: "browser_reload",
-      description: "Reload the current browser page. Optionally target a canvas browser pane.",
-      parameters: {
-        type: "object",
-        properties: {
-          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
-        },
-      },
+      description: "Reload the sidebar browser page.",
+      parameters: { type: "object", properties: {} },
     },
   },
 ];
@@ -310,8 +314,13 @@ const VISION_TOOLS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "browser_read_dom",
-      description: "Read current page DOM text/title/url from the integrated browser.",
-      parameters: { type: "object", properties: {} },
+      description: "Read current page DOM text/title/url from a browser. Without a pane parameter, uses the sidebar browser. With a pane ID/name, targets a canvas browser panel.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
+        },
+      },
     },
   },
   {
@@ -320,6 +329,99 @@ const VISION_TOOLS: ToolDefinition[] = [
       name: "browser_take_screenshot",
       description: "Capture a browser screenshot, save it to temporary vision storage, and return its path.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Browser-use tools — interact with canvas browser panels
+// ---------------------------------------------------------------------------
+
+const BROWSER_USE_TOOLS: ToolDefinition[] = [
+  {
+    type: "function",
+    function: {
+      name: "browser_click",
+      description:
+        "Click an element in a canvas browser panel. Target by CSS selector or visible text content.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Canvas browser pane ID or name" },
+          selector: { type: "string", description: "CSS selector of the element to click" },
+          text: { type: "string", description: "Visible text content to match (finds the first element containing this text). Used when selector is not provided." },
+        },
+        required: ["pane"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_type",
+      description:
+        "Type text into an input, textarea, or contenteditable element in a canvas browser panel.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Canvas browser pane ID or name" },
+          selector: { type: "string", description: "CSS selector of the input element" },
+          text: { type: "string", description: "Text to type" },
+          clear: { type: "boolean", description: "Clear existing content before typing (default: true)" },
+        },
+        required: ["pane", "selector", "text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_scroll",
+      description:
+        "Scroll the page or a specific element in a canvas browser panel.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Canvas browser pane ID or name" },
+          direction: { type: "string", enum: ["up", "down"], description: "Scroll direction" },
+          amount: { type: "number", description: "Pixels to scroll (default: 400)" },
+          selector: { type: "string", description: "Optional CSS selector of element to scroll (defaults to window)" },
+        },
+        required: ["pane", "direction"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_get_elements",
+      description:
+        "List interactive elements (links, buttons, inputs, selects) visible on the current page in a canvas browser panel. Returns element tag, text, href, selector hint.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Canvas browser pane ID or name" },
+          filter: { type: "string", description: "Optional filter: 'links', 'buttons', 'inputs', or 'all' (default: 'all')" },
+          limit: { type: "number", description: "Max number of elements to return (default: 50)" },
+        },
+        required: ["pane"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_eval_js",
+      description:
+        "Execute JavaScript code in the page context of a canvas browser panel and return the result. Use for advanced DOM queries, form manipulation, or data extraction.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Canvas browser pane ID or name" },
+          code: { type: "string", description: "JavaScript code to evaluate in the page context. The return value is serialized as JSON." },
+        },
+        required: ["pane", "code"],
+      },
     },
   },
 ];
@@ -591,6 +693,7 @@ export function getAvailableTools(options: {
 
   if (options.enableWebBrowsingTool) {
     tools.push(...WEB_BROWSING_TOOLS);
+    tools.push(...BROWSER_USE_TOOLS);
   }
 
   if (options.enableVisionTool) {
@@ -612,6 +715,10 @@ export function getAvailableTools(options: {
     if (settings.whatsappToken || settings.whatsappAllowedContacts) {
       tools.push(GATEWAY_TOOLS[3]); // send_whatsapp_message
     }
+  }
+
+  if (useAgentStore.getState().agentSettings.enableHonchoMemory) {
+    tools.push(SYSTEM_TOOLS[SYSTEM_TOOLS.length - 1]);
   }
 
   const registeredNames = new Set(tools.map((tool) => tool.function.name));
@@ -682,15 +789,25 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case "browser_navigate":
         return await executeBrowserNavigate(call.id, name, args.url, args.pane);
       case "browser_back":
-        return await executeBrowserBack(call.id, name, args.pane);
+        return await executeBrowserBack(call.id, name);
       case "browser_forward":
-        return await executeBrowserForward(call.id, name, args.pane);
+        return await executeBrowserForward(call.id, name);
       case "browser_reload":
-        return await executeBrowserReload(call.id, name, args.pane);
+        return await executeBrowserReload(call.id, name);
       case "browser_read_dom":
         return await executeBrowserReadDom(call.id, name, args.pane);
       case "browser_take_screenshot":
         return await executeBrowserScreenshot(call.id, name);
+      case "browser_click":
+        return await executeBrowserClick(call.id, name, args.pane, args.selector, args.text);
+      case "browser_type":
+        return await executeBrowserType(call.id, name, args.pane, args.selector, args.text, args.clear);
+      case "browser_scroll":
+        return await executeBrowserScroll(call.id, name, args.pane, args.direction, args.amount, args.selector);
+      case "browser_get_elements":
+        return await executeBrowserGetElements(call.id, name, args.pane, args.filter, args.limit);
+      case "browser_eval_js":
+        return await executeBrowserEvalJs(call.id, name, args.pane, args.code);
       case "read_active_terminal_content":
         return await executeReadTerminalContent(call.id, name, args.pane || args.pane_id, {
           include_dom: args.include_dom,
@@ -699,6 +816,8 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
         return await executeTerminalCommand(call.id, name, args.command, args.pane || args.pane_id);
       case "get_system_info":
         return await executeGetSystemInfo(call.id, name);
+      case "agent_query_memory":
+        return await executeAgentQueryMemory(call.id, name, args.query);
       default:
         const pluginResult = await executePluginAssistantTool(call, args);
         if (pluginResult) {
@@ -709,6 +828,19 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
   } catch (err: any) {
     return { toolCallId: call.id, name, content: `Error: ${err.message || String(err)}` };
   }
+}
+
+async function executeAgentQueryMemory(callId: string, name: string, query: string): Promise<ToolResult> {
+  if (typeof query !== "string" || !query.trim()) {
+    return { toolCallId: callId, name, content: "Error: query is required" };
+  }
+
+  const response = await queryHonchoMemory(useAgentStore.getState().agentSettings, query);
+  return {
+    toolCallId: callId,
+    name,
+    content: response,
+  };
 }
 
 async function executeGatewayMessage(
@@ -1407,11 +1539,14 @@ function executeOpenCanvasBrowser(callId: string, name: string, url?: string, pa
     return { toolCallId: callId, name, content: "Error: No active canvas surface. Switch to a canvas surface first or create one." };
   }
 
+  const rawUrl = url?.trim() || "https://google.com";
+  const normalizedUrl = rawUrl.match(/^https?:\/\//) ? rawUrl : `https://${rawUrl}`;
+
   const paneId = store.createCanvasPanel(surface.id, {
     panelType: "browser",
     paneIcon: "web",
     paneName: panelName?.trim() || "Browser",
-    url: url?.trim() || "https://google.com",
+    url: normalizedUrl,
   });
 
   if (!paneId) {
@@ -1425,20 +1560,6 @@ function executeOpenCanvasBrowser(callId: string, name: string, url?: string, pa
   };
 }
 
-/** Resolve a canvas browser controller by optional pane ref, falling back to sidebar browser. */
-function resolveBrowserForPane(paneRef?: string): { type: "sidebar"; ctrl: ReturnType<typeof getBrowserController> } | { type: "canvas"; ctrl: ReturnType<typeof getCanvasBrowserController>; paneId: string } | null {
-  if (paneRef?.trim()) {
-    const paneId = resolvePaneIdByRef(paneRef);
-    if (paneId) {
-      const ctrl = getCanvasBrowserController(paneId);
-      if (ctrl) return { type: "canvas", ctrl, paneId };
-    }
-    return null;
-  }
-  const ctrl = getBrowserController();
-  if (ctrl) return { type: "sidebar", ctrl };
-  return null;
-}
 
 async function executeBrowserNavigate(callId: string, name: string, url?: string, paneRef?: string): Promise<ToolResult> {
   if (!url?.trim()) {
@@ -1468,46 +1589,30 @@ async function executeBrowserNavigate(callId: string, name: string, url?: string
   return { toolCallId: callId, name, content: `Navigated browser to ${url}.` };
 }
 
-async function executeBrowserBack(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
-  const resolved = resolveBrowserForPane(paneRef);
-  if (!resolved) {
-    return { toolCallId: callId, name, content: `Error: Browser not available${paneRef ? ` for pane "${paneRef}"` : ""}.` };
+async function executeBrowserBack(callId: string, name: string): Promise<ToolResult> {
+  const browser = getBrowserController();
+  if (!browser) {
+    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
   }
-  if (resolved.type === "sidebar") {
-    await resolved.ctrl!.back();
-  }
-  // Canvas browsers: back is not exposed via the registry (webview-only). Report limitation.
-  if (resolved.type === "canvas") {
-    return { toolCallId: callId, name, content: "Canvas browser back navigation is not supported yet. Use browser_navigate with a new URL." };
-  }
+  await browser.back();
   return { toolCallId: callId, name, content: "Browser navigated back." };
 }
 
-async function executeBrowserForward(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
-  const resolved = resolveBrowserForPane(paneRef);
-  if (!resolved) {
-    return { toolCallId: callId, name, content: `Error: Browser not available${paneRef ? ` for pane "${paneRef}"` : ""}.` };
+async function executeBrowserForward(callId: string, name: string): Promise<ToolResult> {
+  const browser = getBrowserController();
+  if (!browser) {
+    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
   }
-  if (resolved.type === "sidebar") {
-    await resolved.ctrl!.forward();
-  }
-  if (resolved.type === "canvas") {
-    return { toolCallId: callId, name, content: "Canvas browser forward navigation is not supported yet. Use browser_navigate with a new URL." };
-  }
+  await browser.forward();
   return { toolCallId: callId, name, content: "Browser navigated forward." };
 }
 
-async function executeBrowserReload(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
-  const resolved = resolveBrowserForPane(paneRef);
-  if (!resolved) {
-    return { toolCallId: callId, name, content: `Error: Browser not available${paneRef ? ` for pane "${paneRef}"` : ""}.` };
+async function executeBrowserReload(callId: string, name: string): Promise<ToolResult> {
+  const browser = getBrowserController();
+  if (!browser) {
+    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
   }
-  if (resolved.type === "sidebar") {
-    await resolved.ctrl!.reload();
-  }
-  if (resolved.type === "canvas") {
-    return { toolCallId: callId, name, content: "Canvas browser reload is not supported yet. Use browser_navigate with the same URL." };
-  }
+  await browser.reload();
   return { toolCallId: callId, name, content: "Browser reloaded." };
 }
 
@@ -1569,6 +1674,229 @@ async function executeBrowserScreenshot(callId: string, name: string): Promise<T
     name,
     content: `Screenshot saved: ${saved.path}\nExpiresAt: ${new Date(saved.expiresAt).toISOString()}\nPage: ${shot.title || "(untitled)"}\nURL: ${shot.url}`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Browser-use tool implementations (canvas browser panels)
+// ---------------------------------------------------------------------------
+
+function resolveCanvasBrowser(callId: string, name: string, paneRef?: string): { ctrl: NonNullable<ReturnType<typeof getCanvasBrowserController>>; paneId: string } | ToolResult {
+  if (!paneRef?.trim()) {
+    return { toolCallId: callId, name, content: "Error: pane parameter is required for browser-use tools." };
+  }
+  const paneId = resolvePaneIdByRef(paneRef);
+  if (!paneId) {
+    return { toolCallId: callId, name, content: `Error: Pane not found for "${paneRef}".` };
+  }
+  const ctrl = getCanvasBrowserController(paneId);
+  if (!ctrl) {
+    return { toolCallId: callId, name, content: `Error: Pane "${paneRef}" is not a browser panel or is not mounted.` };
+  }
+  return { ctrl, paneId };
+}
+
+function isToolResult(v: unknown): v is ToolResult {
+  return typeof v === "object" && v !== null && "toolCallId" in v;
+}
+
+async function executeBrowserClick(
+  callId: string, name: string, paneRef?: string, selector?: string, text?: string,
+): Promise<ToolResult> {
+  const resolved = resolveCanvasBrowser(callId, name, paneRef);
+  if (isToolResult(resolved)) return resolved;
+
+  if (!selector && !text) {
+    return { toolCallId: callId, name, content: "Error: Provide either a CSS selector or text to match." };
+  }
+
+  try {
+    const script = selector
+      ? `(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
+          el.scrollIntoView({ block: 'center' });
+          el.click();
+          return { ok: true, tag: el.tagName, text: (el.textContent || '').slice(0, 100) };
+        })()`
+      : `(() => {
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+          const target = ${JSON.stringify(text)}.toLowerCase();
+          let node;
+          while ((node = walker.nextNode())) {
+            const el = node;
+            if (el.children.length === 0 || el.tagName === 'A' || el.tagName === 'BUTTON') {
+              if ((el.textContent || '').trim().toLowerCase().includes(target)) {
+                el.scrollIntoView({ block: 'center' });
+                el.click();
+                return { ok: true, tag: el.tagName, text: (el.textContent || '').slice(0, 100) };
+              }
+            }
+          }
+          return { ok: false, error: 'No element found containing text: ' + ${JSON.stringify(text)} };
+        })()`;
+
+    const result = await resolved.ctrl.executeJavaScript(script) as any;
+    if (!result?.ok) {
+      return { toolCallId: callId, name, content: `Error: ${result?.error || "Click failed"}` };
+    }
+    return { toolCallId: callId, name, content: `Clicked <${result.tag}> "${result.text}"` };
+  } catch (err: any) {
+    return { toolCallId: callId, name, content: `Error: ${err.message || String(err)}` };
+  }
+}
+
+async function executeBrowserType(
+  callId: string, name: string, paneRef?: string, selector?: string, text?: string, clear?: boolean,
+): Promise<ToolResult> {
+  const resolved = resolveCanvasBrowser(callId, name, paneRef);
+  if (isToolResult(resolved)) return resolved;
+
+  if (!selector || !text) {
+    return { toolCallId: callId, name, content: "Error: Both selector and text are required." };
+  }
+
+  try {
+    const shouldClear = clear !== false;
+    const script = `(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
+      el.focus();
+      ${shouldClear ? `
+      if ('value' in el) { el.value = ''; }
+      else if (el.isContentEditable) { el.textContent = ''; }
+      ` : ""}
+      if ('value' in el) {
+        const nativeSet = Object.getOwnPropertyDescriptor(
+          Object.getPrototypeOf(el).constructor.prototype, 'value'
+        )?.set;
+        if (nativeSet) { nativeSet.call(el, ${JSON.stringify(text)}); }
+        else { el.value = ${JSON.stringify(text)}; }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } else if (el.isContentEditable) {
+        el.textContent = ${JSON.stringify(text)};
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      return { ok: true, tag: el.tagName };
+    })()`;
+
+    const result = await resolved.ctrl.executeJavaScript(script) as any;
+    if (!result?.ok) {
+      return { toolCallId: callId, name, content: `Error: ${result?.error || "Type failed"}` };
+    }
+    return { toolCallId: callId, name, content: `Typed into <${result.tag}> "${selector}"` };
+  } catch (err: any) {
+    return { toolCallId: callId, name, content: `Error: ${err.message || String(err)}` };
+  }
+}
+
+async function executeBrowserScroll(
+  callId: string, name: string, paneRef?: string, direction?: string, amount?: number, selector?: string,
+): Promise<ToolResult> {
+  const resolved = resolveCanvasBrowser(callId, name, paneRef);
+  if (isToolResult(resolved)) return resolved;
+
+  const pixels = amount || 400;
+  const delta = direction === "up" ? -pixels : pixels;
+
+  try {
+    const script = selector
+      ? `(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return { ok: false, error: 'Element not found' };
+          el.scrollBy(0, ${delta});
+          return { ok: true, scrollTop: el.scrollTop };
+        })()`
+      : `(() => { window.scrollBy(0, ${delta}); return { ok: true, scrollY: window.scrollY }; })()`;
+
+    const result = await resolved.ctrl.executeJavaScript(script) as any;
+    if (!result?.ok) {
+      return { toolCallId: callId, name, content: `Error: ${result?.error || "Scroll failed"}` };
+    }
+    return { toolCallId: callId, name, content: `Scrolled ${direction} by ${pixels}px. Position: ${result.scrollY ?? result.scrollTop}` };
+  } catch (err: any) {
+    return { toolCallId: callId, name, content: `Error: ${err.message || String(err)}` };
+  }
+}
+
+async function executeBrowserGetElements(
+  callId: string, name: string, paneRef?: string, filter?: string, limit?: number,
+): Promise<ToolResult> {
+  const resolved = resolveCanvasBrowser(callId, name, paneRef);
+  if (isToolResult(resolved)) return resolved;
+
+  const maxItems = Math.min(limit || 50, 200);
+  const filterType = filter || "all";
+
+  try {
+    const script = `(() => {
+      const filterType = ${JSON.stringify(filterType)};
+      const selectors = {
+        links: 'a[href]',
+        buttons: 'button, [role="button"], input[type="submit"], input[type="button"]',
+        inputs: 'input:not([type="hidden"]), textarea, select, [contenteditable="true"]',
+        all: 'a[href], button, [role="button"], input:not([type="hidden"]), textarea, select, [contenteditable="true"]',
+      };
+      const sel = selectors[filterType] || selectors.all;
+      const els = Array.from(document.querySelectorAll(sel)).slice(0, ${maxItems});
+      return els.map((el, i) => {
+        const rect = el.getBoundingClientRect();
+        const visible = rect.width > 0 && rect.height > 0 && rect.top < window.innerHeight && rect.bottom > 0;
+        if (!visible) return null;
+        const text = (el.textContent || '').trim().slice(0, 80);
+        const tag = el.tagName.toLowerCase();
+        const href = el.getAttribute('href') || '';
+        const type = el.getAttribute('type') || '';
+        const placeholder = el.getAttribute('placeholder') || '';
+        const id = el.id ? '#' + el.id : '';
+        const cls = el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '';
+        const hint = tag + id + cls;
+        return { tag, text, href, type, placeholder, hint };
+      }).filter(Boolean);
+    })()`;
+
+    const result = await resolved.ctrl.executeJavaScript(script) as any[];
+    if (!result || result.length === 0) {
+      return { toolCallId: callId, name, content: `No ${filterType} elements found on the page.` };
+    }
+
+    const lines = result.map((el: any) => {
+      const parts = [`<${el.tag}>`];
+      if (el.text) parts.push(`"${el.text}"`);
+      if (el.href) parts.push(`href=${el.href}`);
+      if (el.type) parts.push(`type=${el.type}`);
+      if (el.placeholder) parts.push(`placeholder="${el.placeholder}"`);
+      parts.push(`selector="${el.hint}"`);
+      return parts.join(" ");
+    });
+
+    return { toolCallId: callId, name, content: `Found ${result.length} ${filterType} elements:\n${lines.join("\n")}` };
+  } catch (err: any) {
+    return { toolCallId: callId, name, content: `Error: ${err.message || String(err)}` };
+  }
+}
+
+async function executeBrowserEvalJs(
+  callId: string, name: string, paneRef?: string, code?: string,
+): Promise<ToolResult> {
+  const resolved = resolveCanvasBrowser(callId, name, paneRef);
+  if (isToolResult(resolved)) return resolved;
+
+  if (!code?.trim()) {
+    return { toolCallId: callId, name, content: "Error: code parameter is required." };
+  }
+
+  try {
+    const result = await resolved.ctrl.executeJavaScript(code);
+    const output = result === undefined ? "(undefined)" : JSON.stringify(result, null, 2);
+    const maxChars = 12000;
+    const truncated = output.length > maxChars
+      ? `${output.slice(0, maxChars)}\n\n[truncated to ${maxChars} chars]`
+      : output;
+    return { toolCallId: callId, name, content: truncated };
+  } catch (err: any) {
+    return { toolCallId: callId, name, content: `Error: ${err.message || String(err)}` };
+  }
 }
 
 async function executeReadTerminalContent(
@@ -1845,6 +2173,14 @@ export function getToolCapabilityDescription(tools: ToolDefinition[]): string {
   if (names.includes("browser_take_screenshot")) {
     capabilities.push("- Capture browser screenshots to temporary vision storage (auto-expire)");
     described.add("browser_take_screenshot");
+  }
+  if (names.includes("browser_click")) {
+    capabilities.push("- Interact with canvas browser panels: click elements, type text, scroll, extract elements, run JavaScript");
+    described.add("browser_click");
+    described.add("browser_type");
+    described.add("browser_scroll");
+    described.add("browser_get_elements");
+    described.add("browser_eval_js");
   }
   if (names.includes("send_slack_message")) {
     capabilities.push("- Send messages to Slack channels");

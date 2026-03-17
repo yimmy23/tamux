@@ -91,6 +91,23 @@ declare global {
         listDataDir?: (relativeDir?: string) => Promise<Array<{ name: string; path: string; isDirectory: boolean }>>;
         openDataPath?: (relativePath: string) => Promise<string>;
         revealDataPath?: (relativePath: string) => Promise<boolean>;
+        dbAppendCommandLog?: (entry: unknown) => Promise<boolean>;
+        dbCompleteCommandLog?: (id: string, exitCode?: number | null, durationMs?: number | null) => Promise<boolean>;
+        dbQueryCommandLog?: (opts?: { workspaceId?: string | null; paneId?: string | null; limit?: number | null }) => Promise<unknown[]>;
+        dbClearCommandLog?: () => Promise<boolean>;
+        dbCreateThread?: (thread: unknown) => Promise<boolean>;
+        dbDeleteThread?: (id: string) => Promise<boolean>;
+        dbListThreads?: () => Promise<unknown[]>;
+        dbGetThread?: (id: string) => Promise<{ thread: unknown; messages: unknown[] }>;
+        dbAddMessage?: (message: unknown) => Promise<boolean>;
+        dbListMessages?: (threadId: string, limit?: number | null) => Promise<unknown[]>;
+        agentAddTask?: (payload: { title: string; description: string; priority?: string; command?: string | null; sessionId?: string | null; dependencies?: string[] }) => Promise<unknown>;
+        dbUpsertTranscriptIndex?: (entry: unknown) => Promise<boolean>;
+        dbListTranscriptIndex?: (workspaceId?: string | null) => Promise<unknown[]>;
+        dbUpsertSnapshotIndex?: (entry: unknown) => Promise<boolean>;
+        dbListSnapshotIndex?: (workspaceId?: string | null) => Promise<unknown[]>;
+        dbUpsertAgentEvent?: (eventRow: unknown) => Promise<boolean>;
+        dbListAgentEvents?: (opts?: { category?: string | null; paneId?: string | null; limit?: number | null }) => Promise<unknown[]>;
         sendTerminalInput?: (paneId: string | null, data: string) => Promise<boolean>;
         cloneTerminalSession?: (payload: {
             sourcePaneId?: string;

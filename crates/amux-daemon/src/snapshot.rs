@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
-use amux_protocol::{SessionId, SnapshotInfo, WorkspaceId};
+use amux_protocol::{SessionId, SnapshotIndexEntry, SnapshotInfo, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+use crate::history::HistoryStore;
 
 // ---------------------------------------------------------------------------
 // Snapshot backend trait
@@ -32,11 +34,6 @@ pub trait SnapshotBackend: Send + Sync {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct SnapshotIndex {
-    snapshots: Vec<SnapshotInfo>,
-}
-
 fn now_ts() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -44,9 +41,9 @@ fn now_ts() -> u64 {
         .as_secs()
 }
 
-/// Parse a session ID string back into a `Uuid`.
-fn parse_session_id(s: &str) -> Option<SessionId> {
-    Uuid::parse_str(s).ok()
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct SnapshotIndex {
+    snapshots: Vec<SnapshotInfo>,
 }
 
 fn load_index(index_path: &Path) -> Result<SnapshotIndex> {
@@ -59,11 +56,127 @@ fn load_index(index_path: &Path) -> Result<SnapshotIndex> {
     Ok(serde_json::from_str(&data).unwrap_or_default())
 }
 
-fn save_index(index_path: &Path, index: &SnapshotIndex) -> Result<()> {
-    let data = serde_json::to_string_pretty(index)?;
-    std::fs::write(index_path, data)
-        .with_context(|| format!("failed to write {}", index_path.display()))?;
-    Ok(())
+/// Parse a session ID string back into a `Uuid`.
+fn parse_session_id(s: &str) -> Option<SessionId> {
+    Uuid::parse_str(s).ok()
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct SnapshotDetails {
+    command: Option<String>,
+    status: Option<String>,
+    details: Option<String>,
+}
+
+fn encode_snapshot(snapshot: &SnapshotInfo) -> SnapshotIndexEntry {
+    SnapshotIndexEntry {
+        snapshot_id: snapshot.snapshot_id.clone(),
+        workspace_id: snapshot.workspace_id.clone(),
+        session_id: snapshot.session_id.map(|id| id.to_string()),
+        kind: snapshot.kind.clone(),
+        label: Some(snapshot.label.clone()),
+        path: snapshot.path.clone(),
+        created_at: snapshot.created_at as i64,
+        details_json: serde_json::to_string(&SnapshotDetails {
+            command: snapshot.command.clone(),
+            status: Some(snapshot.status.clone()),
+            details: Some(snapshot.details.clone()),
+        }).ok(),
+    }
+}
+
+fn decode_snapshot(entry: SnapshotIndexEntry) -> SnapshotInfo {
+    let details = entry
+        .details_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<SnapshotDetails>(raw).ok())
+        .unwrap_or_default();
+    SnapshotInfo {
+        snapshot_id: entry.snapshot_id,
+        workspace_id: entry.workspace_id,
+        session_id: entry.session_id.as_deref().and_then(parse_session_id),
+        command: details.command,
+        kind: entry.kind,
+        label: entry.label.unwrap_or_else(|| "snapshot".to_string()),
+        path: entry.path,
+        created_at: entry.created_at.max(0) as u64,
+        status: details.status.unwrap_or_else(|| "ready".to_string()),
+        details: details.details.unwrap_or_default(),
+    }
+}
+
+fn restore_snapshot_payload(snapshot: &SnapshotInfo) -> Result<(bool, String)> {
+    match snapshot.kind.as_str() {
+        "zfs" => {
+            let status = Command::new("zfs")
+                .arg("rollback")
+                .arg(&snapshot.path)
+                .status();
+            match status {
+                Ok(result) if result.success() => Ok((
+                    true,
+                    format!("rolled back to ZFS snapshot {}", snapshot.path),
+                )),
+                Ok(result) => Ok((false, format!("zfs rollback exited with status {result}"))),
+                Err(error) => Ok((false, format!("zfs rollback failed: {error}"))),
+            }
+        }
+        "btrfs" => {
+            let Some(workspace_id) = snapshot.workspace_id.as_deref() else {
+                return Ok((false, "snapshot has no workspace association".to_string()));
+            };
+            let target_root = amux_protocol::ensure_amux_data_dir()?
+                .join("restores")
+                .join(workspace_id);
+            if target_root.exists() {
+                let _ = Command::new("btrfs")
+                    .arg("subvolume")
+                    .arg("delete")
+                    .arg(&target_root)
+                    .status();
+            }
+            let status = Command::new("btrfs")
+                .arg("subvolume")
+                .arg("snapshot")
+                .arg(&snapshot.path)
+                .arg(&target_root)
+                .status();
+            match status {
+                Ok(result) if result.success() => Ok((
+                    true,
+                    format!("restored BTRFS snapshot into {}", target_root.display()),
+                )),
+                Ok(result) => Ok((
+                    false,
+                    format!("btrfs snapshot restore exited with status {result}"),
+                )),
+                Err(error) => Ok((false, format!("btrfs restore failed: {error}"))),
+            }
+        }
+        _ => {
+            let Some(workspace_id) = snapshot.workspace_id.as_deref() else {
+                return Ok((false, "snapshot has no workspace association".to_string()));
+            };
+            let target_root = amux_protocol::ensure_amux_data_dir()?
+                .join("restores")
+                .join(workspace_id);
+            std::fs::create_dir_all(&target_root)?;
+            let status = Command::new("tar")
+                .arg("-xzf")
+                .arg(&snapshot.path)
+                .arg("-C")
+                .arg(&target_root)
+                .status();
+            match status {
+                Ok(result) if result.success() => Ok((
+                    true,
+                    format!("restored snapshot into {}", target_root.display()),
+                )),
+                Ok(result) => Ok((false, format!("restore tar exited with status {result}"))),
+                Err(error) => Ok((false, format!("restore failed: {error}"))),
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,9 +253,6 @@ impl SnapshotBackend for TarBackend {
             details,
         };
 
-        let mut index = load_index(&self.index_path)?;
-        index.snapshots.insert(0, snapshot.clone());
-        save_index(&self.index_path, &index)?;
         Ok(snapshot)
     }
 
@@ -209,10 +319,7 @@ impl ZfsBackend {
         let root = amux_protocol::ensure_amux_data_dir()?.join("snapshots");
         std::fs::create_dir_all(&root)?;
         let index_path = root.join("index.json");
-        Ok(Self {
-            dataset,
-            index_path,
-        })
+        Ok(Self { dataset, index_path })
     }
 }
 
@@ -269,9 +376,6 @@ impl SnapshotBackend for ZfsBackend {
             details,
         };
 
-        let mut index = load_index(&self.index_path)?;
-        index.snapshots.insert(0, snapshot.clone());
-        save_index(&self.index_path, &index)?;
         Ok(snapshot)
     }
 
@@ -397,9 +501,6 @@ impl SnapshotBackend for BtrfsBackend {
             details,
         };
 
-        let mut index = load_index(&self.index_path)?;
-        index.snapshots.insert(0, snapshot.clone());
-        save_index(&self.index_path, &index)?;
         Ok(snapshot)
     }
 
@@ -570,16 +671,14 @@ fn is_btrfs(path: &str) -> bool {
 
 #[derive(Clone)]
 pub struct SnapshotStore {
-    root: PathBuf,
-    index_path: PathBuf,
+    history: HistoryStore,
 }
 
 impl SnapshotStore {
     pub fn new() -> Result<Self> {
         let root = amux_protocol::ensure_amux_data_dir()?.join("snapshots");
         std::fs::create_dir_all(&root)?;
-        let index_path = root.join("index.json");
-        Ok(Self { root, index_path })
+        Ok(Self { history: HistoryStore::new()? })
     }
 
     pub fn create_snapshot(
@@ -609,51 +708,21 @@ impl SnapshotStore {
             command,
         )?;
 
+        self.history.upsert_snapshot_index(&encode_snapshot(&snapshot))?;
+
         Ok(Some(snapshot))
     }
 
     pub fn list(&self, workspace_id: Option<&str>) -> Result<Vec<SnapshotInfo>> {
-        let index = load_index(&self.index_path)?;
-        Ok(index
-            .snapshots
-            .into_iter()
-            .filter(|snapshot| {
-                workspace_id.is_none() || snapshot.workspace_id.as_deref() == workspace_id
-            })
-            .collect())
+        let entries = self.history.list_snapshot_index(workspace_id)?;
+        Ok(entries.into_iter().map(decode_snapshot).collect())
     }
 
     pub fn restore(&self, snapshot_id: &str) -> Result<(bool, String)> {
-        let index = load_index(&self.index_path)?;
-        let Some(snapshot) = index
-            .snapshots
-            .iter()
-            .find(|entry| entry.snapshot_id == snapshot_id)
-        else {
+        let Some(entry) = self.history.get_snapshot_index(snapshot_id)? else {
             return Ok((false, "snapshot not found".to_string()));
         };
-
-        // Dispatch to the correct backend based on snapshot kind.
-        match snapshot.kind.as_str() {
-            "zfs" => {
-                let dataset = snapshot
-                    .path
-                    .split('@')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                let backend = ZfsBackend::new(dataset)?;
-                backend.restore(snapshot_id)
-            }
-            "btrfs" => {
-                let backend = BtrfsBackend::new()?;
-                backend.restore(snapshot_id)
-            }
-            _ => {
-                // Default to tar restore logic
-                let backend = TarBackend::new()?;
-                backend.restore(snapshot_id)
-            }
-        }
+        let snapshot = decode_snapshot(entry);
+        restore_snapshot_payload(&snapshot)
     }
 }

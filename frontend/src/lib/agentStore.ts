@@ -1,10 +1,7 @@
 import { create } from "zustand";
 import type { WorkspaceId, SurfaceId, PaneId } from "./types";
 import type { ToolCall } from "./agentTools";
-import {
-  readPersistedJson,
-  scheduleJsonWrite,
-} from "./persistence";
+import { readPersistedJson, scheduleJsonWrite } from "./persistence";
 
 // ---------------------------------------------------------------------------
 // Types matching amux-windows AgentConversationThread/Message
@@ -156,6 +153,10 @@ export interface AgentSettings {
 
   enableStreaming: boolean;
   enableConversationMemory: boolean;
+  enableHonchoMemory: boolean;
+  honchoApiKey: string;
+  honchoBaseUrl: string;
+  honchoWorkspaceId: string;
 
   chatFontFamily: string;
   chatFontSize: number;
@@ -213,6 +214,10 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 
   enableStreaming: true,
   enableConversationMemory: true,
+  enableHonchoMemory: false,
+  honchoApiKey: "",
+  honchoBaseUrl: "",
+  honchoWorkspaceId: "tamux",
 
   chatFontFamily: "Cascadia Code",
   chatFontSize: 13,
@@ -309,6 +314,51 @@ type AgentChatState = {
   activeThreadId: string | null;
 };
 
+type AgentDbThreadRecord = {
+  id: string;
+  workspace_id: string | null;
+  surface_id: string | null;
+  pane_id: string | null;
+  agent_name: string | null;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  total_tokens: number;
+  last_preview: string;
+};
+
+type AgentDbMessageRecord = {
+  id: string;
+  thread_id: string;
+  created_at: number;
+  role: string;
+  content: string;
+  provider: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  reasoning: string | null;
+  tool_calls_json: string | null;
+  metadata_json: string | null;
+};
+
+type AgentDbApi = {
+  dbCreateThread?: (thread: AgentDbThreadRecord) => Promise<boolean>;
+  dbDeleteThread?: (id: string) => Promise<boolean>;
+  dbListThreads?: () => Promise<AgentDbThreadRecord[]>;
+  dbGetThread?: (id: string) => Promise<{ thread: AgentDbThreadRecord | null; messages: AgentDbMessageRecord[] }>;
+  dbAddMessage?: (message: AgentDbMessageRecord) => Promise<boolean>;
+  dbListMessages?: (threadId: string, limit?: number | null) => Promise<AgentDbMessageRecord[]>;
+};
+
+function getAgentDbApi(): AgentDbApi | null {
+  const api = (window as any).tamux ?? (window as any).amux;
+  if (!api) return null;
+  return api as AgentDbApi;
+}
+
 function saveAgentSettings(s: AgentSettings) {
   scheduleJsonWrite(AGENT_SETTINGS_FILE, s);
 }
@@ -337,8 +387,100 @@ function syncChatCounters(chat: AgentChatState) {
   _msgId = Math.max(_msgId, maxMessage);
 }
 
-function saveChatState(chat: AgentChatState) {
-  scheduleJsonWrite(AGENT_CHAT_FILE, chat, 200);
+function serializeThread(thread: AgentThread): AgentDbThreadRecord {
+  return {
+    id: thread.id,
+    workspace_id: thread.workspaceId ?? null,
+    surface_id: thread.surfaceId ?? null,
+    pane_id: thread.paneId ?? null,
+    agent_name: thread.agentName ?? null,
+    title: thread.title,
+    created_at: thread.createdAt,
+    updated_at: thread.updatedAt,
+    message_count: thread.messageCount,
+    total_tokens: thread.totalTokens,
+    last_preview: thread.lastMessagePreview,
+  };
+}
+
+function serializeMessage(message: AgentMessage): AgentDbMessageRecord {
+  return {
+    id: message.id,
+    thread_id: message.threadId,
+    created_at: message.createdAt,
+    role: message.role,
+    content: message.content,
+    provider: message.provider ?? null,
+    model: message.model ?? null,
+    input_tokens: message.inputTokens,
+    output_tokens: message.outputTokens,
+    total_tokens: message.totalTokens,
+    reasoning: message.reasoning ?? null,
+    tool_calls_json: message.toolCalls ? JSON.stringify(message.toolCalls) : null,
+    metadata_json: JSON.stringify({
+      toolName: message.toolName ?? null,
+      toolCallId: message.toolCallId ?? null,
+      toolArguments: message.toolArguments ?? null,
+      toolStatus: message.toolStatus ?? null,
+      reasoningTokens: message.reasoningTokens ?? null,
+      audioTokens: message.audioTokens ?? null,
+      videoTokens: message.videoTokens ?? null,
+      cost: message.cost ?? null,
+      tps: message.tps ?? null,
+      isCompactionSummary: message.isCompactionSummary,
+      isStreaming: message.isStreaming ?? false,
+    }),
+  };
+}
+
+function deserializeThread(thread: AgentDbThreadRecord): AgentThread {
+  return {
+    id: thread.id,
+    workspaceId: thread.workspace_id,
+    surfaceId: thread.surface_id,
+    paneId: thread.pane_id,
+    agentName: thread.agent_name ?? "assistant",
+    title: thread.title,
+    createdAt: thread.created_at,
+    updatedAt: thread.updated_at,
+    messageCount: thread.message_count,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalTokens: thread.total_tokens,
+    compactionCount: 0,
+    lastMessagePreview: thread.last_preview,
+  };
+}
+
+function deserializeMessage(message: AgentDbMessageRecord): AgentMessage {
+  const metadata = typeof message.metadata_json === "string"
+    ? JSON.parse(message.metadata_json)
+    : {};
+  return {
+    id: message.id,
+    threadId: message.thread_id,
+    createdAt: message.created_at,
+    role: message.role as AgentRole,
+    content: message.content,
+    provider: message.provider ?? undefined,
+    model: message.model ?? undefined,
+    toolCalls: typeof message.tool_calls_json === "string" ? JSON.parse(message.tool_calls_json) : undefined,
+    toolName: metadata.toolName ?? undefined,
+    toolCallId: metadata.toolCallId ?? undefined,
+    toolArguments: metadata.toolArguments ?? undefined,
+    toolStatus: metadata.toolStatus ?? undefined,
+    inputTokens: message.input_tokens ?? 0,
+    outputTokens: message.output_tokens ?? 0,
+    totalTokens: message.total_tokens ?? 0,
+    reasoning: message.reasoning ?? undefined,
+    reasoningTokens: metadata.reasoningTokens ?? undefined,
+    audioTokens: metadata.audioTokens ?? undefined,
+    videoTokens: metadata.videoTokens ?? undefined,
+    cost: metadata.cost ?? undefined,
+    tps: metadata.tps ?? undefined,
+    isCompactionSummary: Boolean(metadata.isCompactionSummary),
+    isStreaming: Boolean(metadata.isStreaming),
+  };
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -374,7 +516,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         messages: { ...s.messages, [id]: [] },
         activeThreadId: id,
       };
-      saveChatState(next);
+      void getAgentDbApi()?.dbCreateThread?.(serializeThread(thread));
       return next;
     });
     return id;
@@ -388,20 +530,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         messages: rest,
         activeThreadId: s.activeThreadId === id ? null : s.activeThreadId,
       };
-      saveChatState(next);
+      void getAgentDbApi()?.dbDeleteThread?.(id);
       return next;
     });
   },
 
-  setActiveThread: (id) => set((s) => {
-    const next: AgentChatState = {
-      threads: s.threads,
-      messages: s.messages,
-      activeThreadId: id,
-    };
-    saveChatState(next);
-    return { activeThreadId: id };
-  }),
+  setActiveThread: (id) => set({ activeThreadId: id }),
 
   searchThreads: (query) => {
     const lower = query.toLowerCase();
@@ -441,7 +575,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         ),
         activeThreadId: s.activeThreadId,
       };
-      saveChatState(next);
+      const updatedThread = next.threads.find((thread) => thread.id === threadId);
+      if (updatedThread) {
+        void getAgentDbApi()?.dbCreateThread?.(serializeThread(updatedThread));
+      }
+      void getAgentDbApi()?.dbAddMessage?.(serializeMessage(full));
       return next;
     });
   },
@@ -489,11 +627,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           : thread,
       );
       const next = { messages: { ...s.messages, [threadId]: updated }, threads: nextThreads };
-      saveChatState({
-        threads: nextThreads,
-        messages: next.messages,
-        activeThreadId: s.activeThreadId,
-      });
+      const updatedThread = nextThreads.find((thread) => thread.id === threadId);
+      if (updatedThread) {
+        void getAgentDbApi()?.dbCreateThread?.(serializeThread(updatedThread));
+      }
+      void getAgentDbApi()?.dbAddMessage?.(serializeMessage(updatedLast));
       return next;
     });
   },
@@ -551,37 +689,47 @@ export async function hydrateAgentStore(): Promise<void> {
     useAgentStore.setState({ agentSettings: merged });
   }
 
-  const diskChat = await readPersistedJson<AgentChatState>(AGENT_CHAT_FILE);
-  const chat = diskChat;
-  if (!chat || !Array.isArray(chat.threads) || !chat.messages || typeof chat.messages !== "object") {
+  const api = getAgentDbApi();
+  const dbThreads = await api?.dbListThreads?.();
+  if (Array.isArray(dbThreads) && dbThreads.length > 0) {
+    const messages: Record<string, AgentMessage[]> = {};
+    for (const thread of dbThreads) {
+      const threadMessages = await api?.dbListMessages?.(thread.id, 500) ?? [];
+      messages[thread.id] = threadMessages.map(deserializeMessage);
+    }
+
+    const hydrated: AgentChatState = {
+      threads: dbThreads.map((thread) => ({
+        ...deserializeThread(thread),
+        messageCount: messages[thread.id]?.length ?? thread.message_count,
+        lastMessagePreview: messages[thread.id]?.[messages[thread.id].length - 1]?.content?.slice(0, 100) ?? thread.last_preview ?? "",
+      })),
+      messages,
+      activeThreadId: null,
+    };
+
+    syncChatCounters(hydrated);
+    useAgentStore.setState(hydrated);
     return;
   }
 
-  const messages: Record<string, AgentMessage[]> = {};
-  for (const thread of chat.threads) {
-    const threadMessages = Array.isArray(chat.messages[thread.id]) ? chat.messages[thread.id] : [];
-    messages[thread.id] = threadMessages
-      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.content === "string")
-      .map((entry) => ({
-        ...entry,
-        threadId: thread.id,
-        createdAt: Number(entry.createdAt) || Date.now(),
-      }));
+  const legacyChat = await readPersistedJson<AgentChatState>(AGENT_CHAT_FILE);
+  if (!legacyChat || !Array.isArray(legacyChat.threads) || typeof legacyChat.messages !== "object") {
+    return;
   }
 
   const hydrated: AgentChatState = {
-    threads: chat.threads
-      .filter((thread) => thread && typeof thread.id === "string" && thread.id)
-      .map((thread) => ({
-        ...thread,
-        messageCount: messages[thread.id]?.length ?? 0,
-        lastMessagePreview: messages[thread.id]?.[messages[thread.id].length - 1]?.content?.slice(0, 100) ?? thread.lastMessagePreview ?? "",
-      })),
-    messages,
-    activeThreadId: typeof chat.activeThreadId === "string" ? chat.activeThreadId : null,
+    threads: legacyChat.threads,
+    messages: legacyChat.messages,
+    activeThreadId: legacyChat.activeThreadId ?? null,
   };
-
   syncChatCounters(hydrated);
   useAgentStore.setState(hydrated);
-  saveChatState(hydrated);
+
+  for (const thread of hydrated.threads) {
+    await api?.dbCreateThread?.(serializeThread(thread));
+    for (const message of hydrated.messages[thread.id] ?? []) {
+      await api?.dbAddMessage?.(serializeMessage(message));
+    }
+  }
 }

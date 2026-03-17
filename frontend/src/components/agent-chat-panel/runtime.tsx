@@ -2,8 +2,10 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import { abortThreadStream, clearThreadAbortController, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
 import type { AgentMessage, AgentThread } from "../../lib/agentStore";
 import { sendChatCompletion, messagesToApiFormat } from "../../lib/agentClient";
+import { buildHonchoContext, syncMessagesToHoncho } from "../../lib/honchoClient";
 import { getAvailableTools, executeTool, getToolCapabilityDescription } from "../../lib/agentTools";
 import { useAgentMissionStore } from "../../lib/agentMissionStore";
+import { useNotificationStore } from "../../lib/notificationStore";
 import { useSettingsStore } from "../../lib/settingsStore";
 import { useSnippetStore } from "../../lib/snippetStore";
 import { getTerminalController } from "../../lib/terminalRegistry";
@@ -112,6 +114,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
 
     const snippets = useSnippetStore((s) => s.snippets);
     const transcripts = useTranscriptStore((s) => s.transcripts);
+    const addNotification = useNotificationStore((s) => s.addNotification);
 
     const [input, setInput] = useState("");
     const [view, setView] = useState<AgentChatPanelView>("threads");
@@ -313,6 +316,51 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                             });
                         }
                     }
+                    break;
+                }
+                case "task_update": {
+                    const task = event.task;
+                    if (!task) break;
+
+                    if (task.status === "awaiting_approval") {
+                        addNotification({
+                            title: "Task awaiting approval",
+                            body: task.title,
+                            subtitle: task.blocked_reason || "Managed command paused",
+                            icon: "shield",
+                            source: "system",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            paneId: activePaneId ?? null,
+                            panelId: activePaneId ?? null,
+                        });
+                    }
+
+                    if (task.status === "completed") {
+                        addNotification({
+                            title: task.retry_count > 0 ? "Task self-healed" : "Task completed",
+                            body: task.title,
+                            subtitle: task.retry_count > 0 ? `Recovered after ${task.retry_count} retry${task.retry_count === 1 ? "" : "ies"}` : "Background queue",
+                            icon: task.retry_count > 0 ? "sparkles" : "check",
+                            source: "system",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            paneId: activePaneId ?? null,
+                            panelId: activePaneId ?? null,
+                        });
+                    }
+
+                    if (task.status === "failed") {
+                        addNotification({
+                            title: "Task failed",
+                            body: task.title,
+                            subtitle: task.last_error || event.message || "Retry budget exhausted",
+                            icon: "alert-triangle",
+                            source: "system",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            paneId: activePaneId ?? null,
+                            panelId: activePaneId ?? null,
+                        });
+                    }
+
                     break;
                 }
                 case "workspace_command": {
@@ -586,8 +634,13 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             const maxToolLoops = Math.max(1, Math.min(100, Number(agentSettings.maxToolLoops ?? 25)));
             let loopCount = 0;
             let allCurrentMessages = useAgentStore.getState().getThreadMessages(currentThreadId);
+            await syncMessagesToHoncho(agentSettings, currentThreadId, allCurrentMessages);
             let apiMessages = messagesToApiFormat(allCurrentMessages.slice(0, -1));
             let lastPersistedReasoning: string | null = null;
+            const honchoContext = await buildHonchoContext(agentSettings, currentThreadId, text);
+            const effectiveSystemPrompt = honchoContext
+                ? `${systemPrompt}\n\nCross-session memory:\n${honchoContext}`
+                : systemPrompt;
 
             const persistReasoningTrace = (reasoning: string) => {
                 const normalized = reasoning.trim();
@@ -621,7 +674,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                     for await (const chunk of sendChatCompletion({
                         provider: agentSettings.activeProvider,
                         config: providerConfig,
-                        systemPrompt,
+                        systemPrompt: effectiveSystemPrompt,
                         messages: apiMessages,
                         streaming: agentSettings.enableStreaming,
                         signal: controller.signal,
@@ -767,6 +820,12 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 allCurrentMessages = useAgentStore.getState().getThreadMessages(currentThreadId);
                 apiMessages = messagesToApiFormat(allCurrentMessages.slice(0, -1));
             }
+
+            await syncMessagesToHoncho(
+                agentSettings,
+                currentThreadId,
+                useAgentStore.getState().getThreadMessages(currentThreadId),
+            );
 
             if (loopCount >= maxToolLoops) {
                 updateLastAssistantMessage(currentThreadId, "(Tool execution limit reached)", false);

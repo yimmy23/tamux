@@ -81,8 +81,9 @@ bump_file() {
     return
   fi
 
-  if grep -q "$pattern" "$file"; then
-    sed -i "s|$pattern|$replacement|g" "$file"
+  if grep -qF "$pattern" "$file"; then
+    # Use perl for portable in-place edit (works on both GNU and BSD/macOS)
+    perl -pi -e "s/\Q${pattern}\E/${replacement}/g" "$file"
     echo "  OK    $file"
   else
     echo "  SKIP  $file (pattern not found)"
@@ -146,7 +147,8 @@ fi
 # ---------------------------------------------------------------------------
 if command -v cargo &>/dev/null; then
   echo "Updating Cargo.lock..."
-  cargo update --workspace 2>/dev/null && echo "  OK    Cargo.lock" || echo "  WARN  cargo update failed"
+  # Use cargo check to refresh the lockfile without upgrading dependencies.
+  cargo check --workspace 2>/dev/null && echo "  OK    Cargo.lock" || echo "  WARN  cargo check failed — run 'cargo check' manually"
 fi
 
 echo ""

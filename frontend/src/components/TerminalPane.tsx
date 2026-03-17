@@ -670,28 +670,78 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
 
     term.open(containerRef.current);
     term.textarea?.focus({ preventScroll: true });
+    const viewportElement = containerRef.current.querySelector<HTMLElement>(".xterm-viewport");
+    const isViewportAtBottom = () => {
+      const buffer = term.buffer.active;
+      if (!buffer) return true;
+      return (buffer.baseY - buffer.viewportY) <= 1;
+    };
+    let followOutput = true;
+    const syncFollowOutputWithViewport = () => {
+      followOutput = isViewportAtBottom();
+    };
+    syncFollowOutputWithViewport();
+    const scrollSyncDisposable = term.onScroll(() => {
+      syncFollowOutputWithViewport();
+    });
+    const stopViewportWheelPropagation = (event: Event) => {
+      event.stopPropagation();
+    };
+    viewportElement?.addEventListener("wheel", stopViewportWheelPropagation, { capture: true, passive: true });
 
-    // Prevent the browser from scrolling any ancestor element when the
-    // terminal textarea is focused during TUI redraws / output. Without
-    // this, the browser's native scroll-into-view on focus causes the
-    // canvas viewport to jump.
-    const preventAncestorScroll = () => {
-      let el: HTMLElement | null = containerRef.current;
-      while (el) {
-        if (el.scrollTop !== 0) el.scrollTop = 0;
-        if (el.scrollLeft !== 0) el.scrollLeft = 0;
-        if (el.dataset?.canvasPanel) break;
-        el = el.parentElement;
+    const snapshotAncestorScroll = () => {
+      const positions = new Map<HTMLElement, { top: number; left: number }>();
+      let ancestor: HTMLElement | null = containerRef.current?.parentElement ?? null;
+      while (ancestor) {
+        positions.set(ancestor, { top: ancestor.scrollTop, left: ancestor.scrollLeft });
+        ancestor = ancestor.parentElement;
+      }
+      const documentScroller = document.scrollingElement;
+      if (documentScroller instanceof HTMLElement && !positions.has(documentScroller)) {
+        positions.set(documentScroller, { top: documentScroller.scrollTop, left: documentScroller.scrollLeft });
+      }
+      return positions;
+    };
+
+    const restoreAncestorScroll = (positions: Map<HTMLElement, { top: number; left: number }>) => {
+      for (const [el, previous] of positions.entries()) {
+        if (el.scrollTop !== previous.top) {
+          el.scrollTop = previous.top;
+        }
+        if (el.scrollLeft !== previous.left) {
+          el.scrollLeft = previous.left;
+        }
       }
     };
-    if (term.textarea) {
-      term.textarea.addEventListener("focus", preventAncestorScroll);
-    }
-    // Also intercept any scroll events that bubble up from the xterm
-    // viewport — these can cause ancestors to scroll in tandem.
-    const container = containerRef.current;
-    const onScroll = () => preventAncestorScroll();
-    container.addEventListener("scroll", onScroll, true);
+
+    const writeWithPreservedAncestorScroll = (data: Uint8Array) => {
+      const positions = snapshotAncestorScroll();
+      const maybeStickViewportToBottom = () => {
+        const textarea = term.textarea;
+        if (!textarea || document.activeElement !== textarea) return;
+        if (term.hasSelection()) return;
+        if (!followOutput) return;
+        if (!isViewportAtBottom()) {
+          term.scrollToBottom();
+        }
+      };
+      term.write(data, () => {
+        restoreAncestorScroll(positions);
+        maybeStickViewportToBottom();
+        window.requestAnimationFrame(() => restoreAncestorScroll(positions));
+      });
+      restoreAncestorScroll(positions);
+      maybeStickViewportToBottom();
+      window.requestAnimationFrame(() => restoreAncestorScroll(positions));
+    };
+
+    const handleTextareaFocus = () => {
+      setActivePaneId(paneId);
+      const positions = snapshotAncestorScroll();
+      restoreAncestorScroll(positions);
+      window.requestAnimationFrame(() => restoreAncestorScroll(positions));
+    };
+    term.textarea?.addEventListener("focus", handleTextareaFocus);
 
     termRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -960,7 +1010,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
             } catch {
               decodedText = "";
             }
-            term.write(decodedBytes);
+            writeWithPreservedAncestorScroll(decodedBytes);
             recordCognitiveOutput({
               paneId,
               workspaceId: paneWorkspaceId ?? null,
@@ -970,6 +1020,45 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
             });
             maybeRaiseInlineApprovalPrompt(decodedText);
             scheduleRollingSnapshot();
+            return;
+          }
+
+          if (event.type === "osc-notification") {
+            const rawSource = String(event.notification?.source ?? "").toLowerCase();
+            const source = rawSource === "osc99"
+              ? "osc99"
+              : rawSource === "osc777"
+                ? "osc777"
+                : rawSource === "osc9"
+                  ? "osc9"
+                  : "system";
+            const title = String(event.notification?.title ?? "").trim() || "Notification";
+            const body = String(event.notification?.body ?? "");
+            const subtitleRaw = event.notification?.subtitle;
+            const subtitle = typeof subtitleRaw === "string" && subtitleRaw.trim().length > 0
+              ? subtitleRaw
+              : null;
+            const iconRaw = event.notification?.icon;
+            const icon = typeof iconRaw === "string" && iconRaw.trim().length > 0
+              ? iconRaw
+              : "bell";
+            const progressRaw = Number(event.notification?.progress);
+            const progress = Number.isFinite(progressRaw)
+              ? Math.max(0, Math.min(100, Math.round(progressRaw)))
+              : null;
+
+            addNotification({
+              title,
+              body,
+              subtitle,
+              icon,
+              progress,
+              source,
+              workspaceId: paneWorkspaceId ?? null,
+              surfaceId: paneSurfaceId ?? null,
+              paneId,
+              panelId: paneId,
+            });
             return;
           }
 
@@ -1268,7 +1357,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
         if (Array.isArray(bridge?.initialOutput)) {
           term.clear();
           for (const chunk of bridge.initialOutput) {
-            term.write(decodeBase64ToBytes(chunk));
+            writeWithPreservedAncestorScroll(decodeBase64ToBytes(chunk));
           }
           scheduleRollingSnapshot();
           scheduleRepaintRecovery(80);
@@ -1593,8 +1682,9 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
       textarea?.removeEventListener("copy", handleNativeCopy);
       textarea?.removeEventListener("cut", handleNativeCopy);
       textarea?.removeEventListener("paste", handleNativePaste);
-      textarea?.removeEventListener("focus", preventAncestorScroll);
-      container.removeEventListener("scroll", onScroll, true);
+      textarea?.removeEventListener("focus", handleTextareaFocus);
+      viewportElement?.removeEventListener("wheel", stopViewportWheelPropagation, true);
+      scrollSyncDisposable.dispose();
       window.removeEventListener("pointerdown", handleWindowPointer);
       window.removeEventListener("blur", handleWindowPointer);
       window.removeEventListener("keydown", handleWindowKeyDown);

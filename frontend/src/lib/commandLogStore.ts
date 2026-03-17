@@ -1,14 +1,24 @@
 import { create } from "zustand";
 import { CommandLogEntry, WorkspaceId, SurfaceId, PaneId } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
-import {
-  readPersistedJson,
-  scheduleJsonWrite,
-} from "./persistence";
+import { readPersistedJson } from "./persistence";
 import { useSettingsStore } from "./settingsStore";
 
 let _logId = 0;
 const COMMAND_LOG_FILE = "command-log.json";
+
+type DbApi = {
+  dbAppendCommandLog?: (entry: CommandLogEntry) => Promise<boolean>;
+  dbCompleteCommandLog?: (id: string, exitCode?: number | null, durationMs?: number | null) => Promise<boolean>;
+  dbQueryCommandLog?: (opts?: { workspaceId?: string | null; paneId?: string | null; limit?: number | null }) => Promise<CommandLogEntry[]>;
+  dbClearCommandLog?: () => Promise<boolean>;
+};
+
+function getDbApi(): DbApi | null {
+  const api = (window as any).tamux ?? (window as any).amux;
+  if (!api) return null;
+  return api as DbApi;
+}
 
 function syncLogId(entries: CommandLogEntry[]) {
   let maxId = 0;
@@ -69,7 +79,16 @@ function loadEntries(): CommandLogEntry[] {
 }
 
 function persistEntries(entries: CommandLogEntry[]) {
-  scheduleJsonWrite(COMMAND_LOG_FILE, entries, 200);
+  const api = getDbApi();
+  if (!api?.dbClearCommandLog || !api?.dbAppendCommandLog) return;
+
+  void (async () => {
+    const cleared = await api.dbClearCommandLog?.();
+    if (!cleared) return;
+    for (const entry of entries) {
+      await api.dbAppendCommandLog?.(entry);
+    }
+  })();
 }
 
 function pruneEntries(entries: CommandLogEntry[]): CommandLogEntry[] {
@@ -132,7 +151,7 @@ export const useCommandLogStore = create<CommandLogState>((set, get) => ({
     };
     set((s) => {
       const entries = pruneEntries([entry, ...s.entries]);
-      persistEntries(entries);
+      void getDbApi()?.dbAppendCommandLog?.(entry);
       return { entries };
     });
   },
@@ -165,7 +184,7 @@ export const useCommandLogStore = create<CommandLogState>((set, get) => ({
       };
 
       const pruned = pruneEntries(entries);
-      persistEntries(pruned);
+      void getDbApi()?.dbCompleteCommandLog?.(target.id, opts.exitCode ?? null, durationMs);
       return { entries: pruned };
     });
   },
@@ -223,14 +242,8 @@ export const useCommandLogStore = create<CommandLogState>((set, get) => ({
 }));
 
 export async function hydrateCommandLogStore(): Promise<void> {
-  const diskEntries = normalizeEntries(await readPersistedJson<CommandLogEntry[]>(COMMAND_LOG_FILE));
-  const merged = pruneEntries(mergeEntries(diskEntries, []));
+  const dbEntries = normalizeEntries(await getDbApi()?.dbQueryCommandLog?.({}) ?? []);
+  const diskEntries = normalizeEntries(await readPersistedJson<CommandLogEntry[]>(COMMAND_LOG_FILE) ?? []);
+  const merged = pruneEntries(mergeEntries(dbEntries, diskEntries));
   useCommandLogStore.getState().hydrateEntries(merged);
-
-  if (merged.length === 0) {
-    if (initialEntries.length > 0) {
-      scheduleJsonWrite(COMMAND_LOG_FILE, initialEntries, 0);
-    }
-    return;
-  }
 }

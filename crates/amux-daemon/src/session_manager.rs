@@ -1,6 +1,8 @@
 use amux_protocol::{
-    ApprovalDecision, DaemonMessage, HistorySearchHit, ManagedCommandRequest, SessionId,
-    SessionInfo, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, WorkspaceTopology,
+    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry,
+    DaemonMessage, HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo,
+    SnapshotIndexEntry, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus,
+    TranscriptIndexEntry, WorkspaceTopology,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -425,6 +427,95 @@ impl SessionManager {
         title: Option<&str>,
     ) -> Result<(String, String)> {
         self.history.generate_skill(query, title)
+    }
+
+    pub fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
+        self.history.append_command_log(entry)
+    }
+
+    pub fn complete_command_log(
+        &self,
+        id: &str,
+        exit_code: Option<i32>,
+        duration_ms: Option<i64>,
+    ) -> Result<()> {
+        self.history.complete_command_log(id, exit_code, duration_ms)
+    }
+
+    pub fn query_command_log(
+        &self,
+        workspace_id: Option<&str>,
+        pane_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<CommandLogEntry>> {
+        self.history.query_command_log(workspace_id, pane_id, limit)
+    }
+
+    pub fn clear_command_log(&self) -> Result<()> {
+        self.history.clear_command_log()
+    }
+
+    pub fn create_agent_thread(&self, thread: &AgentDbThread) -> Result<()> {
+        self.history.create_thread(thread)
+    }
+
+    pub fn delete_agent_thread(&self, thread_id: &str) -> Result<()> {
+        self.history.delete_thread(thread_id)
+    }
+
+    pub fn list_agent_threads(&self) -> Result<Vec<AgentDbThread>> {
+        self.history.list_threads()
+    }
+
+    pub fn get_agent_thread(&self, thread_id: &str) -> Result<Option<AgentDbThread>> {
+        self.history.get_thread(thread_id)
+    }
+
+    pub fn add_agent_message(&self, message: &AgentDbMessage) -> Result<()> {
+        self.history.add_message(message)
+    }
+
+    pub fn list_agent_messages(
+        &self,
+        thread_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<AgentDbMessage>> {
+        self.history.list_messages(thread_id, limit)
+    }
+
+    pub fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
+        self.history.upsert_transcript_index(entry)
+    }
+
+    pub fn list_transcript_index(
+        &self,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
+        self.history.list_transcript_index(workspace_id)
+    }
+
+    pub fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
+        self.history.upsert_snapshot_index(entry)
+    }
+
+    pub fn list_snapshot_index(
+        &self,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<SnapshotIndexEntry>> {
+        self.history.list_snapshot_index(workspace_id)
+    }
+
+    pub fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
+        self.history.upsert_agent_event(entry)
+    }
+
+    pub fn list_agent_events(
+        &self,
+        category: Option<&str>,
+        pane_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<AgentEventRow>> {
+        self.history.list_agent_events(category, pane_id, limit)
     }
 
     pub fn find_symbol_matches(
