@@ -3028,15 +3028,20 @@ function registerIpcHandlers() {
                     continue;
                 }
 
-                // Response types from daemon queries
+                // Response types from daemon queries — resolve oldest pending
+                // request of the matching type (FIFO order).
                 if (['thread-list', 'thread-detail', 'task-list', 'config', 'heartbeat-items'].includes(event.type)) {
-                    // Resolve any pending request for this type
+                    let oldest = null;
                     for (const [reqId, handler] of agentBridge.pending.entries()) {
                         if (handler.responseType === event.type) {
-                            handler.resolve(event.data);
-                            agentBridge.pending.delete(reqId);
-                            break;
+                            if (!oldest || handler.ts < oldest.ts) {
+                                oldest = { reqId, handler, ts: handler.ts };
+                            }
                         }
+                    }
+                    if (oldest) {
+                        oldest.handler.resolve(event.data);
+                        agentBridge.pending.delete(oldest.reqId);
                     }
                     continue;
                 }
@@ -3078,11 +3083,12 @@ function registerIpcHandlers() {
     }
 
     async function handleAgentGatewaySend(event) {
-        // Read settings to get gateway tokens
+        // Read settings to get gateway tokens (settings are nested under "settings" key)
         const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
         let settings = {};
         try {
-            settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            settings = parsed.settings ?? parsed;
         } catch {
             logToFile('warn', 'agent gateway: cannot read settings for tokens');
             return;
@@ -3146,6 +3152,7 @@ function registerIpcHandlers() {
 
             bridge.pending.set(reqId, {
                 responseType,
+                ts: Date.now(),
                 resolve: (data) => { clearTimeout(timer); resolve(data); },
                 reject: (err) => { clearTimeout(timer); reject(err); },
             });
@@ -3331,7 +3338,8 @@ app.whenReady().then(async () => {
     try {
         const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
         if (fs.existsSync(settingsPath)) {
-            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            const settings = parsed.settings ?? parsed;
 
             if (settings.gatewayEnabled) {
                 if (settings.slackToken) {

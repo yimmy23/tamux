@@ -477,7 +477,14 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
 
   const handleFocus = useCallback(() => {
     setActivePaneId(paneId);
-    termRef.current?.focus();
+    // Use preventScroll to avoid the browser scrolling ancestor containers
+    // (including the canvas viewport) when the terminal textarea is focused.
+    const textarea = termRef.current?.textarea;
+    if (textarea) {
+      textarea.focus({ preventScroll: true });
+    } else {
+      termRef.current?.focus();
+    }
   }, [paneId, setActivePaneId]);
 
   const restoreCanvasPreviousView = useCallback(() => {
@@ -662,7 +669,29 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
     term.loadAddon(new WebLinksAddon());
 
     term.open(containerRef.current);
-    term.focus();
+    term.textarea?.focus({ preventScroll: true });
+
+    // Prevent the browser from scrolling any ancestor element when the
+    // terminal textarea is focused during TUI redraws / output. Without
+    // this, the browser's native scroll-into-view on focus causes the
+    // canvas viewport to jump.
+    const preventAncestorScroll = () => {
+      let el: HTMLElement | null = containerRef.current;
+      while (el) {
+        if (el.scrollTop !== 0) el.scrollTop = 0;
+        if (el.scrollLeft !== 0) el.scrollLeft = 0;
+        if (el.dataset?.canvasPanel) break;
+        el = el.parentElement;
+      }
+    };
+    if (term.textarea) {
+      term.textarea.addEventListener("focus", preventAncestorScroll);
+    }
+    // Also intercept any scroll events that bubble up from the xterm
+    // viewport — these can cause ancestors to scroll in tandem.
+    const container = containerRef.current;
+    const onScroll = () => preventAncestorScroll();
+    container.addEventListener("scroll", onScroll, true);
 
     termRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -1564,6 +1593,8 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
       textarea?.removeEventListener("copy", handleNativeCopy);
       textarea?.removeEventListener("cut", handleNativeCopy);
       textarea?.removeEventListener("paste", handleNativePaste);
+      textarea?.removeEventListener("focus", preventAncestorScroll);
+      container.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("pointerdown", handleWindowPointer);
       window.removeEventListener("blur", handleWindowPointer);
       window.removeEventListener("keydown", handleWindowKeyDown);
@@ -1612,9 +1643,8 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
   return (
     <div
       ref={wrapperRef}
-      onFocus={handleFocus}
       onClick={handleFocus}
-      tabIndex={0}
+      tabIndex={-1}
       style={{
         width: "100%",
         height: "100%",
@@ -1622,6 +1652,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
         padding: `${Math.max(12, settings.padding)}px`,
         position: "relative",
         outline: "none",
+        overflow: "hidden",
       }}
     >
       {hideHeader ? null : (

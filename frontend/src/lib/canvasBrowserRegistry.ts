@@ -3,6 +3,7 @@ import type { BrowserDomSnapshot } from "./browserRegistry";
 export type CanvasBrowserController = {
   getUrl: () => string;
   getTitle: () => string;
+  navigate: (url: string) => void;
   getDomSnapshot: () => Promise<BrowserDomSnapshot>;
 };
 

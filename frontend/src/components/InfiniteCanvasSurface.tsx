@@ -881,10 +881,9 @@ export function InfiniteCanvasSurface({ surface }: InfiniteCanvasSurfaceProps) {
           position: "absolute",
           inset: 0,
           zIndex: 1,
-          transform: `translate3d(${surface.canvasState.panX}px, ${surface.canvasState.panY}px, 0) scale(${surface.canvasState.zoomLevel})`,
+          transform: `translate(${surface.canvasState.panX}px, ${surface.canvasState.panY}px) scale(${surface.canvasState.zoomLevel})`,
           transformOrigin: "0 0",
           transition: animateTransform ? "transform 240ms ease" : "none",
-          willChange: "transform",
         }}
       >
         {panels.map((panel) => {
@@ -1477,7 +1476,6 @@ function CanvasPanelShell({
         background: "var(--bg-primary)",
         borderRadius: "8px",
         overflow: "hidden",
-        willChange: "transform",
       }}
     >
       <div
@@ -1593,7 +1591,17 @@ function CanvasPanelShell({
         </div>
       </div>
 
-      <div style={{ width: "100%", height: "calc(100% - 28px)", position: "relative" }}>
+      <div style={zoomLevel > 1 ? {
+        width: panel.width * zoomLevel,
+        height: (panel.height - 32) * zoomLevel,
+        transformOrigin: "0 0",
+        transform: `scale(${1 / zoomLevel})`,
+        position: "relative",
+      } : {
+        width: "100%",
+        height: "calc(100% - 32px)",
+        position: "relative",
+      }}>
         {children}
         {ctrlHeld ? (
           <div

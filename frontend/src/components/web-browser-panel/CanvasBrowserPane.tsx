@@ -153,6 +153,17 @@ export function CanvasBrowserPane({
     return registerCanvasBrowserController(paneId, {
       getUrl: () => currentUrlRef.current,
       getTitle: () => pageTitleRef.current,
+      navigate: (url: string) => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+        const normalized = url.match(/^https?:\/\//) ? url : `https://${url}`;
+        setCurrentUrl(normalized);
+        setAddress(normalized);
+        updateCanvasPanelUrl(paneId, normalized);
+        if (typeof webview.loadURL === "function") {
+          webview.loadURL(normalized);
+        }
+      },
       getDomSnapshot: async () => {
         const webview = webviewRef.current;
         const url = currentUrlRef.current;

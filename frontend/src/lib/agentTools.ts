@@ -224,14 +224,40 @@ const WEB_BROWSING_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "open_canvas_browser",
+      description:
+        "Open a new browser panel on the active canvas surface. Returns the new pane ID for subsequent browser_navigate calls.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "Initial URL to load (default: https://google.com)",
+          },
+          name: {
+            type: "string",
+            description: "Optional panel name",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "browser_navigate",
-      description: "Open or navigate the integrated browser to a URL.",
+      description:
+        "Navigate a browser to a URL. Without a pane parameter, uses the sidebar browser. With a pane ID/name, targets a specific canvas browser panel.",
       parameters: {
         type: "object",
         properties: {
           url: {
             type: "string",
             description: "URL to open (https://...)",
+          },
+          pane: {
+            type: "string",
+            description: "Optional canvas browser pane ID or name to target. If omitted, uses the sidebar browser.",
           },
         },
         required: ["url"],
@@ -242,24 +268,39 @@ const WEB_BROWSING_TOOLS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "browser_back",
-      description: "Navigate back in browser history.",
-      parameters: { type: "object", properties: {} },
+      description: "Navigate back in browser history. Optionally target a canvas browser pane.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
+        },
+      },
     },
   },
   {
     type: "function",
     function: {
       name: "browser_forward",
-      description: "Navigate forward in browser history.",
-      parameters: { type: "object", properties: {} },
+      description: "Navigate forward in browser history. Optionally target a canvas browser pane.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
+        },
+      },
     },
   },
   {
     type: "function",
     function: {
       name: "browser_reload",
-      description: "Reload the current browser page.",
-      parameters: { type: "object", properties: {} },
+      description: "Reload the current browser page. Optionally target a canvas browser pane.",
+      parameters: {
+        type: "object",
+        properties: {
+          pane: { type: "string", description: "Optional canvas browser pane ID or name" },
+        },
+      },
     },
   },
 ];
@@ -636,16 +677,18 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
         return executeCreateSnippet(call.id, name, args);
       case "run_snippet":
         return await executeRunSnippet(call.id, name, args.snippet, args.pane || args.pane_id, args.params, args.execute);
+      case "open_canvas_browser":
+        return executeOpenCanvasBrowser(call.id, name, args.url, args.name);
       case "browser_navigate":
-        return await executeBrowserNavigate(call.id, name, args.url);
+        return await executeBrowserNavigate(call.id, name, args.url, args.pane);
       case "browser_back":
-        return await executeBrowserBack(call.id, name);
+        return await executeBrowserBack(call.id, name, args.pane);
       case "browser_forward":
-        return await executeBrowserForward(call.id, name);
+        return await executeBrowserForward(call.id, name, args.pane);
       case "browser_reload":
-        return await executeBrowserReload(call.id, name);
+        return await executeBrowserReload(call.id, name, args.pane);
       case "browser_read_dom":
-        return await executeBrowserReadDom(call.id, name);
+        return await executeBrowserReadDom(call.id, name, args.pane);
       case "browser_take_screenshot":
         return await executeBrowserScreenshot(call.id, name);
       case "read_active_terminal_content":
@@ -1357,46 +1400,139 @@ function executeEqualizeLayout(callId: string, name: string, surfaceRef?: string
   return { toolCallId: callId, name, content: `Equalized layout ratios for surface [${surfaceId}].` };
 }
 
-async function executeBrowserNavigate(callId: string, name: string, url?: string): Promise<ToolResult> {
+function executeOpenCanvasBrowser(callId: string, name: string, url?: string, panelName?: string): ToolResult {
+  const store = useWorkspaceStore.getState();
+  const surface = store.activeSurface();
+  if (!surface || surface.layoutMode !== "canvas") {
+    return { toolCallId: callId, name, content: "Error: No active canvas surface. Switch to a canvas surface first or create one." };
+  }
+
+  const paneId = store.createCanvasPanel(surface.id, {
+    panelType: "browser",
+    paneIcon: "web",
+    paneName: panelName?.trim() || "Browser",
+    url: url?.trim() || "https://google.com",
+  });
+
+  if (!paneId) {
+    return { toolCallId: callId, name, content: "Error: Failed to create canvas browser panel." };
+  }
+
+  return {
+    toolCallId: callId,
+    name,
+    content: `Created canvas browser panel [${paneId}]${url ? ` loading ${url}` : ""}. Use browser_navigate with pane="${paneId}" to navigate it.`,
+  };
+}
+
+/** Resolve a canvas browser controller by optional pane ref, falling back to sidebar browser. */
+function resolveBrowserForPane(paneRef?: string): { type: "sidebar"; ctrl: ReturnType<typeof getBrowserController> } | { type: "canvas"; ctrl: ReturnType<typeof getCanvasBrowserController>; paneId: string } | null {
+  if (paneRef?.trim()) {
+    const paneId = resolvePaneIdByRef(paneRef);
+    if (paneId) {
+      const ctrl = getCanvasBrowserController(paneId);
+      if (ctrl) return { type: "canvas", ctrl, paneId };
+    }
+    return null;
+  }
+  const ctrl = getBrowserController();
+  if (ctrl) return { type: "sidebar", ctrl };
+  return null;
+}
+
+async function executeBrowserNavigate(callId: string, name: string, url?: string, paneRef?: string): Promise<ToolResult> {
   if (!url?.trim()) {
     return { toolCallId: callId, name, content: "Error: URL is required." };
   }
+
+  // Canvas browser pane
+  if (paneRef?.trim()) {
+    const paneId = resolvePaneIdByRef(paneRef);
+    if (!paneId) {
+      return { toolCallId: callId, name, content: `Error: Pane not found for "${paneRef}".` };
+    }
+    const ctrl = getCanvasBrowserController(paneId);
+    if (!ctrl) {
+      return { toolCallId: callId, name, content: `Error: Pane ${paneId} is not a browser panel or is not mounted yet.` };
+    }
+    ctrl.navigate(url);
+    return { toolCallId: callId, name, content: `Canvas browser [${paneId}] navigating to ${url}.` };
+  }
+
+  // Sidebar browser
   const browser = getBrowserController();
   if (!browser) {
-    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
+    return { toolCallId: callId, name, content: "Error: Browser panel is not available. Use open_canvas_browser to create one on a canvas." };
   }
   await browser.navigate(url);
   return { toolCallId: callId, name, content: `Navigated browser to ${url}.` };
 }
 
-async function executeBrowserBack(callId: string, name: string): Promise<ToolResult> {
-  const browser = getBrowserController();
-  if (!browser) {
-    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
+async function executeBrowserBack(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
+  const resolved = resolveBrowserForPane(paneRef);
+  if (!resolved) {
+    return { toolCallId: callId, name, content: `Error: Browser not available${paneRef ? ` for pane "${paneRef}"` : ""}.` };
   }
-  await browser.back();
+  if (resolved.type === "sidebar") {
+    await resolved.ctrl!.back();
+  }
+  // Canvas browsers: back is not exposed via the registry (webview-only). Report limitation.
+  if (resolved.type === "canvas") {
+    return { toolCallId: callId, name, content: "Canvas browser back navigation is not supported yet. Use browser_navigate with a new URL." };
+  }
   return { toolCallId: callId, name, content: "Browser navigated back." };
 }
 
-async function executeBrowserForward(callId: string, name: string): Promise<ToolResult> {
-  const browser = getBrowserController();
-  if (!browser) {
-    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
+async function executeBrowserForward(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
+  const resolved = resolveBrowserForPane(paneRef);
+  if (!resolved) {
+    return { toolCallId: callId, name, content: `Error: Browser not available${paneRef ? ` for pane "${paneRef}"` : ""}.` };
   }
-  await browser.forward();
+  if (resolved.type === "sidebar") {
+    await resolved.ctrl!.forward();
+  }
+  if (resolved.type === "canvas") {
+    return { toolCallId: callId, name, content: "Canvas browser forward navigation is not supported yet. Use browser_navigate with a new URL." };
+  }
   return { toolCallId: callId, name, content: "Browser navigated forward." };
 }
 
-async function executeBrowserReload(callId: string, name: string): Promise<ToolResult> {
-  const browser = getBrowserController();
-  if (!browser) {
-    return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
+async function executeBrowserReload(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
+  const resolved = resolveBrowserForPane(paneRef);
+  if (!resolved) {
+    return { toolCallId: callId, name, content: `Error: Browser not available${paneRef ? ` for pane "${paneRef}"` : ""}.` };
   }
-  await browser.reload();
+  if (resolved.type === "sidebar") {
+    await resolved.ctrl!.reload();
+  }
+  if (resolved.type === "canvas") {
+    return { toolCallId: callId, name, content: "Canvas browser reload is not supported yet. Use browser_navigate with the same URL." };
+  }
   return { toolCallId: callId, name, content: "Browser reloaded." };
 }
 
-async function executeBrowserReadDom(callId: string, name: string): Promise<ToolResult> {
+async function executeBrowserReadDom(callId: string, name: string, paneRef?: string): Promise<ToolResult> {
+  // Canvas browser — use the registry controller
+  if (paneRef?.trim()) {
+    const paneId = resolvePaneIdByRef(paneRef);
+    if (!paneId) {
+      return { toolCallId: callId, name, content: `Error: Pane not found for "${paneRef}".` };
+    }
+    const ctrl = getCanvasBrowserController(paneId);
+    if (!ctrl) {
+      return { toolCallId: callId, name, content: `Error: Pane ${paneId} is not a browser panel or not mounted.` };
+    }
+    const snapshot = await ctrl.getDomSnapshot();
+    const text = snapshot.text || "(empty DOM text)";
+    const preview = text.length > 12000 ? `${text.slice(0, 12000)}\n\n[truncated]` : text;
+    return {
+      toolCallId: callId,
+      name,
+      content: `URL: ${snapshot.url}\nTitle: ${snapshot.title}\n\nDOM text:\n${preview}`,
+    };
+  }
+
+  // Sidebar browser
   const browser = getBrowserController();
   if (!browser) {
     return { toolCallId: callId, name, content: "Error: Browser panel is not available." };
@@ -1688,8 +1824,12 @@ export function getToolCapabilityDescription(tools: ToolDefinition[]): string {
     capabilities.push("- Execute snippets in a targeted pane");
     described.add("run_snippet");
   }
+  if (names.includes("open_canvas_browser")) {
+    capabilities.push("- Open a new browser panel on a canvas surface");
+    described.add("open_canvas_browser");
+  }
   if (names.includes("browser_navigate")) {
-    capabilities.push("- Navigate the integrated web browser");
+    capabilities.push("- Navigate the integrated web browser (sidebar or canvas browser by pane ID)");
     described.add("browser_navigate");
   }
   if (names.includes("browser_back") || names.includes("browser_forward") || names.includes("browser_reload")) {
