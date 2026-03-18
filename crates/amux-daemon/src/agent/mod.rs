@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::StreamExt;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::time::{Duration, Instant};
@@ -29,7 +29,7 @@ use uuid::Uuid;
 use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
 
-use self::llm_client::{messages_to_api_format, send_chat_completion};
+use self::llm_client::{messages_to_api_format, send_chat_completion, ApiContent, ApiMessage};
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 
@@ -63,7 +63,10 @@ pub struct AgentEngine {
     session_manager: Arc<SessionManager>,
     history: HistoryStore,
     threads: RwLock<HashMap<String, AgentThread>>,
+    thread_todos: RwLock<HashMap<String, Vec<TodoItem>>>,
     tasks: Mutex<VecDeque<AgentTask>>,
+    goal_runs: Mutex<VecDeque<GoalRun>>,
+    inflight_goal_runs: Mutex<HashSet<String>>,
     heartbeat_items: RwLock<Vec<HeartbeatItem>>,
     event_tx: broadcast::Sender<AgentEvent>,
     memory: RwLock<AgentMemory>,
@@ -103,7 +106,10 @@ impl AgentEngine {
             session_manager,
             history: HistoryStore::new().expect("history store initialization failed"),
             threads: RwLock::new(HashMap::new()),
+            thread_todos: RwLock::new(HashMap::new()),
             tasks: Mutex::new(VecDeque::new()),
+            goal_runs: Mutex::new(VecDeque::new()),
+            inflight_goal_runs: Mutex::new(HashSet::new()),
             heartbeat_items: RwLock::new(Vec::new()),
             event_tx,
             memory: RwLock::new(AgentMemory::default()),
@@ -265,46 +271,38 @@ impl AgentEngine {
                         .list_messages(&thread_row.id, None)
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|message| AgentMessage {
-                            role: match message.role.as_str() {
-                                "system" => MessageRole::System,
-                                "assistant" => MessageRole::Assistant,
-                                "tool" => MessageRole::Tool,
-                                _ => MessageRole::User,
-                            },
-                            content: message.content,
-                            tool_calls: message
-                                .tool_calls_json
-                                .as_deref()
-                                .and_then(|json| serde_json::from_str(json).ok()),
-                            tool_call_id: message
-                                .metadata_json
-                                .as_deref()
-                                .and_then(|json| {
-                                    serde_json::from_str::<serde_json::Value>(json).ok()
-                                })
-                                .and_then(|value| {
-                                    value
-                                        .get("tool_call_id")
-                                        .and_then(|v| v.as_str())
+                        .map(|message| {
+                            let metadata = message.metadata_json.as_deref().and_then(|json| {
+                                serde_json::from_str::<serde_json::Value>(json).ok()
+                            });
+                            let get_str = |keys: &[&str]| -> Option<String> {
+                                metadata.as_ref().and_then(|v| {
+                                    keys.iter()
+                                        .find_map(|k| v.get(*k).and_then(|val| val.as_str()))
                                         .map(ToOwned::to_owned)
-                                }),
-                            tool_name: message
-                                .metadata_json
-                                .as_deref()
-                                .and_then(|json| {
-                                    serde_json::from_str::<serde_json::Value>(json).ok()
                                 })
-                                .and_then(|value| {
-                                    value
-                                        .get("tool_name")
-                                        .and_then(|v| v.as_str())
-                                        .map(ToOwned::to_owned)
-                                }),
-                            input_tokens: message.input_tokens.unwrap_or(0) as u64,
-                            output_tokens: message.output_tokens.unwrap_or(0) as u64,
-                            reasoning: message.reasoning,
-                            timestamp: message.created_at as u64,
+                            };
+                            AgentMessage {
+                                role: match message.role.as_str() {
+                                    "system" => MessageRole::System,
+                                    "assistant" => MessageRole::Assistant,
+                                    "tool" => MessageRole::Tool,
+                                    _ => MessageRole::User,
+                                },
+                                content: message.content,
+                                tool_calls: message
+                                    .tool_calls_json
+                                    .as_deref()
+                                    .and_then(|json| serde_json::from_str(json).ok()),
+                                tool_call_id: get_str(&["tool_call_id", "toolCallId"]),
+                                tool_name: get_str(&["tool_name", "toolName"]),
+                                tool_arguments: get_str(&["tool_arguments", "toolArguments"]),
+                                tool_status: get_str(&["tool_status", "toolStatus"]),
+                                input_tokens: message.input_tokens.unwrap_or(0) as u64,
+                                output_tokens: message.output_tokens.unwrap_or(0) as u64,
+                                reasoning: message.reasoning,
+                                timestamp: message.created_at as u64,
+                            }
                         })
                         .collect::<Vec<_>>();
 
@@ -372,6 +370,40 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load agent tasks from sqlite: {e}"),
         }
 
+        match self.history.list_goal_runs() {
+            Ok(goal_runs) if !goal_runs.is_empty() => {
+                *self.goal_runs.lock().await = goal_runs.into_iter().collect();
+            }
+            Ok(_) => {
+                let goal_runs_path = self.data_dir.join("goal-runs.json");
+                if goal_runs_path.exists() {
+                    match tokio::fs::read_to_string(&goal_runs_path).await {
+                        Ok(raw) => {
+                            if let Ok(goal_runs) = serde_json::from_str::<VecDeque<GoalRun>>(&raw) {
+                                *self.goal_runs.lock().await = goal_runs;
+                                self.persist_goal_runs().await;
+                            }
+                        }
+                        Err(e) => tracing::warn!("failed to migrate legacy goal runs: {e}"),
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("failed to load goal runs from sqlite: {e}"),
+        }
+
+        let todos_path = self.data_dir.join("todos.json");
+        if todos_path.exists() {
+            match tokio::fs::read_to_string(&todos_path).await {
+                Ok(raw) => {
+                    if let Ok(items) = serde_json::from_str::<HashMap<String, Vec<TodoItem>>>(&raw)
+                    {
+                        *self.thread_todos.write().await = items;
+                    }
+                }
+                Err(e) => tracing::warn!("failed to load thread todos: {e}"),
+            }
+        }
+
         // Load heartbeat items
         let heartbeat_path = self.data_dir.join("heartbeat.json");
         if heartbeat_path.exists() {
@@ -387,6 +419,9 @@ impl AgentEngine {
 
         // Load memory files
         self.refresh_memory_cache().await;
+
+        // Seed built-in skill documents into ~/.tamux/skills/builtin/
+        seed_builtin_skills(&self.data_dir);
 
         tracing::info!("agent engine hydrated from {:?}", self.data_dir);
 
@@ -633,6 +668,7 @@ impl AgentEngine {
         loop {
             tokio::select! {
                 _ = task_tick.tick() => {
+                    self.clone().dispatch_goal_runs().await;
                     if let Err(e) = self.clone().dispatch_ready_tasks().await {
                         tracing::error!("agent task error: {e}");
                     }
@@ -872,6 +908,8 @@ impl AgentEngine {
                                 let _ = tool_executor::execute_tool(
                                     &auto_tool,
                                     self,
+                                    "",
+                                    None,
                                     &self.session_manager,
                                     None,
                                     &self.event_tx,
@@ -987,6 +1025,8 @@ impl AgentEngine {
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
                     input_tokens: 0,
                     output_tokens: 0,
                     reasoning: None,
@@ -1015,6 +1055,16 @@ impl AgentEngine {
                 .push_str("Use this as historical context from prior sessions when relevant:\n");
             system_prompt.push_str(&recall);
         }
+        self.emit_workflow_notice(
+            &tid,
+            "memory-consulted",
+            "Loaded persistent memory, user profile, and local skill paths for this turn.",
+            Some(format!(
+                "memory_dir={}; skills_dir={}",
+                memory_dir.display(),
+                skills_dir(&self.data_dir).display()
+            )),
+        );
 
         // Get tools
         let tools = get_available_tools(&config);
@@ -1222,6 +1272,8 @@ impl AgentEngine {
                                 tool_calls: Some(tool_calls.clone()),
                                 tool_call_id: None,
                                 tool_name: None,
+                                tool_arguments: None,
+                                tool_status: None,
                                 input_tokens: input_tokens.unwrap_or(0),
                                 output_tokens: output_tokens.unwrap_or(0),
                                 reasoning: msg_reasoning,
@@ -1249,6 +1301,8 @@ impl AgentEngine {
                         let result = execute_tool(
                             tc,
                             self,
+                            &tid,
+                            task_id,
                             &self.session_manager,
                             preferred_session_id,
                             &self.event_tx,
@@ -1271,6 +1325,7 @@ impl AgentEngine {
 
                         // Add tool result message
                         {
+                            let tool_status = if result.is_error { "error" } else { "done" };
                             let mut threads = self.threads.write().await;
                             if let Some(thread) = threads.get_mut(&tid) {
                                 thread.messages.push(AgentMessage {
@@ -1279,6 +1334,8 @@ impl AgentEngine {
                                     tool_calls: None,
                                     tool_call_id: Some(result.tool_call_id),
                                     tool_name: Some(result.name),
+                                    tool_arguments: Some(tc.function.arguments.clone()),
+                                    tool_status: Some(tool_status.to_string()),
                                     input_tokens: 0,
                                     output_tokens: 0,
                                     reasoning: None,
@@ -1337,6 +1394,230 @@ impl AgentEngine {
     // Task queue
     // -----------------------------------------------------------------------
 
+    pub async fn start_goal_run(
+        &self,
+        goal: String,
+        title: Option<String>,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+        priority: Option<&str>,
+    ) -> GoalRun {
+        let now = now_millis();
+        let normalized_title = title
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| summarize_goal_title(&goal));
+        let goal_run = GoalRun {
+            id: format!("goal_{}", Uuid::new_v4()),
+            title: normalized_title,
+            goal,
+            status: GoalRunStatus::Queued,
+            priority: parse_priority_str(priority.unwrap_or("normal")),
+            created_at: now,
+            updated_at: now,
+            started_at: None,
+            completed_at: None,
+            thread_id,
+            session_id,
+            current_step_index: 0,
+            current_step_title: None,
+            current_step_kind: None,
+            replan_count: 0,
+            max_replans: 2,
+            plan_summary: None,
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            awaiting_approval_id: None,
+            active_task_id: None,
+            duration_ms: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            steps: Vec::new(),
+            events: vec![make_goal_run_event("queue", "goal run created", None)],
+        };
+
+        self.goal_runs.lock().await.push_back(goal_run.clone());
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&goal_run, Some("Goal queued".into()));
+        self.project_goal_run(goal_run).await
+    }
+
+    pub async fn list_goal_runs(&self) -> Vec<GoalRun> {
+        let goal_runs = self.goal_runs.lock().await;
+        let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+        drop(goal_runs);
+        let mut projected = Vec::with_capacity(items.len());
+        for goal_run in items.drain(..) {
+            projected.push(self.project_goal_run(goal_run).await);
+        }
+        projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        projected
+    }
+
+    pub async fn get_goal_run(&self, goal_run_id: &str) -> Option<GoalRun> {
+        let goal_run = self
+            .goal_runs
+            .lock()
+            .await
+            .iter()
+            .find(|goal_run| goal_run.id == goal_run_id)
+            .cloned()?;
+        Some(self.project_goal_run(goal_run).await)
+    }
+
+    pub async fn list_todos(&self) -> HashMap<String, Vec<TodoItem>> {
+        self.thread_todos.read().await.clone()
+    }
+
+    pub async fn get_todos(&self, thread_id: &str) -> Vec<TodoItem> {
+        self.thread_todos
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    async fn project_goal_run(&self, goal_run: GoalRun) -> GoalRun {
+        let tasks = self.tasks.lock().await;
+        let related_tasks = tasks
+            .iter()
+            .filter(|task| task.goal_run_id.as_deref() == Some(goal_run.id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        project_goal_run_snapshot(goal_run, &related_tasks, now_millis())
+    }
+
+    pub async fn control_goal_run(
+        &self,
+        goal_run_id: &str,
+        action: &str,
+        step_index: Option<usize>,
+    ) -> bool {
+        let mut changed_goal: Option<GoalRun> = None;
+        let mut task_to_cancel: Option<String> = None;
+        {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                return false;
+            };
+
+            match action {
+                "pause" => {
+                    if matches!(
+                        goal_run.status,
+                        GoalRunStatus::Queued
+                            | GoalRunStatus::Planning
+                            | GoalRunStatus::Running
+                            | GoalRunStatus::AwaitingApproval
+                    ) {
+                        goal_run.status = GoalRunStatus::Paused;
+                        goal_run.updated_at = now_millis();
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run paused",
+                            None,
+                        ));
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "resume" => {
+                    if goal_run.status == GoalRunStatus::Paused {
+                        goal_run.status = if goal_run.steps.is_empty() {
+                            GoalRunStatus::Queued
+                        } else {
+                            GoalRunStatus::Running
+                        };
+                        goal_run.updated_at = now_millis();
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run resumed",
+                            None,
+                        ));
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "retry_step" | "retry-step" => {
+                    let target_index = resolve_goal_run_control_step(goal_run, step_index);
+                    task_to_cancel = goal_run
+                        .steps
+                        .get(target_index)
+                        .and_then(|step| step.task_id.clone());
+                    if retry_goal_run_step(goal_run, step_index).is_ok() {
+                        goal_run.updated_at = now_millis();
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run step retry requested",
+                            step_index.map(|value| format!("step {value}")),
+                        ));
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "rerun_from_step" | "rerun-from-step" => {
+                    let target_index = resolve_goal_run_control_step(goal_run, step_index);
+                    task_to_cancel = goal_run
+                        .steps
+                        .get(target_index)
+                        .and_then(|step| step.task_id.clone());
+                    if rerun_goal_run_from_step(goal_run, step_index).is_ok() {
+                        goal_run.updated_at = now_millis();
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run rerun requested",
+                            step_index.map(|value| format!("step {value}")),
+                        ));
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "cancel" => {
+                    if !matches!(
+                        goal_run.status,
+                        GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled
+                    ) {
+                        goal_run.status = GoalRunStatus::Cancelled;
+                        goal_run.completed_at = Some(now_millis());
+                        goal_run.updated_at = now_millis();
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run cancelled",
+                            None,
+                        ));
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        task_to_cancel = goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .and_then(|step| step.task_id.clone());
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(task_id) = task_to_cancel {
+            let _ = self.cancel_task(&task_id).await;
+        }
+
+        if let Some(goal_run) = changed_goal {
+            self.persist_goal_runs().await;
+            self.emit_goal_run_update(&goal_run, Some(goal_run_status_message(&goal_run).into()));
+            return true;
+        }
+
+        false
+    }
+
     pub async fn add_task(
         &self,
         title: String,
@@ -1355,6 +1636,7 @@ impl AgentEngine {
             dependencies,
             None,
             "user",
+            None,
         )
         .await
         .id
@@ -1370,6 +1652,7 @@ impl AgentEngine {
         dependencies: Vec<String>,
         scheduled_at: Option<u64>,
         source: &str,
+        goal_run_id: Option<String>,
     ) -> AgentTask {
         let id = format!("task_{}", Uuid::new_v4());
         let now = now_millis();
@@ -1385,12 +1668,7 @@ impl AgentEngine {
             } else {
                 TaskStatus::Queued
             },
-            priority: match priority {
-                "urgent" => TaskPriority::Urgent,
-                "high" => TaskPriority::High,
-                "low" => TaskPriority::Low,
-                _ => TaskPriority::Normal,
-            },
+            priority: parse_priority_str(priority),
             progress: 0,
             created_at: now,
             started_at: None,
@@ -1404,6 +1682,7 @@ impl AgentEngine {
             dependencies,
             command,
             session_id,
+            goal_run_id,
             retry_count: 0,
             max_retries: self.config.read().await.max_retries.max(1),
             next_retry_at: None,
@@ -1452,10 +1731,13 @@ impl AgentEngine {
                     | TaskStatus::FailedAnalyzing
                     | TaskStatus::AwaitingApproval
             ) {
+                let thread_to_stop = task.thread_id.clone();
+                let session_to_interrupt = task.session_id.clone();
                 task.status = TaskStatus::Cancelled;
                 task.completed_at = Some(now_millis());
                 task.lane_id = None;
                 task.blocked_reason = None;
+                task.awaiting_approval_id = None;
                 task.logs.push(make_task_log_entry(
                     task.retry_count,
                     TaskLogLevel::Warn,
@@ -1466,6 +1748,14 @@ impl AgentEngine {
                 let updated = task.clone();
                 drop(tasks);
                 self.persist_tasks().await;
+                if let Some(thread_id) = thread_to_stop {
+                    let _ = self.stop_stream(&thread_id).await;
+                }
+                if let Some(session_id) =
+                    session_to_interrupt.and_then(|value| Uuid::parse_str(&value).ok())
+                {
+                    let _ = self.session_manager.write_input(session_id, &[3]).await;
+                }
                 self.emit_task_update(&updated, Some("Cancelled by user".into()));
                 return true;
             }
@@ -1544,6 +1834,109 @@ impl AgentEngine {
         }
 
         snapshot
+    }
+
+    async fn dispatch_goal_runs(self: Arc<Self>) {
+        let goal_run_ids = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .filter(|goal_run| {
+                    !matches!(
+                        goal_run.status,
+                        GoalRunStatus::Paused
+                            | GoalRunStatus::Completed
+                            | GoalRunStatus::Failed
+                            | GoalRunStatus::Cancelled
+                    )
+                })
+                .map(|goal_run| goal_run.id.clone())
+                .collect::<Vec<_>>()
+        };
+
+        for goal_run_id in goal_run_ids {
+            if !self.try_begin_goal_run_work(&goal_run_id).await {
+                continue;
+            }
+
+            let engine = self.clone();
+            tokio::spawn(async move {
+                let result = engine.advance_goal_run(&goal_run_id).await;
+                if let Err(error) = result {
+                    tracing::error!(goal_run_id = %goal_run_id, error = %error, "goal run advancement failed");
+                    engine
+                        .fail_goal_run(&goal_run_id, &error.to_string(), "goal-run")
+                        .await;
+                }
+                engine.finish_goal_run_work(&goal_run_id).await;
+            });
+        }
+    }
+
+    async fn try_begin_goal_run_work(&self, goal_run_id: &str) -> bool {
+        let mut inflight = self.inflight_goal_runs.lock().await;
+        inflight.insert(goal_run_id.to_string())
+    }
+
+    async fn finish_goal_run_work(&self, goal_run_id: &str) {
+        self.inflight_goal_runs.lock().await.remove(goal_run_id);
+    }
+
+    async fn advance_goal_run(&self, goal_run_id: &str) -> Result<()> {
+        let goal_run = match self.get_goal_run(goal_run_id).await {
+            Some(goal_run) => goal_run,
+            None => return Ok(()),
+        };
+
+        if goal_run.status == GoalRunStatus::Queued && goal_run.steps.is_empty() {
+            self.plan_goal_run(goal_run_id).await?;
+            return Ok(());
+        }
+
+        if goal_run.current_step_index >= goal_run.steps.len() {
+            self.complete_goal_run(goal_run_id).await?;
+            return Ok(());
+        }
+
+        let current_step = goal_run.steps[goal_run.current_step_index].clone();
+        if current_step.task_id.is_none() {
+            self.enqueue_goal_run_step(goal_run_id).await?;
+            return Ok(());
+        }
+
+        let task_id = current_step.task_id.as_deref().unwrap_or_default();
+        let task = {
+            let tasks = self.tasks.lock().await;
+            tasks.iter().find(|task| task.id == task_id).cloned()
+        };
+
+        let Some(task) = task else {
+            self.requeue_goal_run_step(goal_run_id, &format!("child task {task_id} disappeared"))
+                .await;
+            return Ok(());
+        };
+
+        match task.status {
+            TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked => {
+                self.sync_goal_run_with_task(goal_run_id, &task).await;
+            }
+            TaskStatus::AwaitingApproval => {
+                self.sync_goal_run_with_task(goal_run_id, &task).await;
+            }
+            TaskStatus::Completed => {
+                self.handle_goal_run_step_completion(goal_run_id, &task)
+                    .await?;
+            }
+            TaskStatus::Failed | TaskStatus::Cancelled => {
+                self.handle_goal_run_step_failure(goal_run_id, &task)
+                    .await?;
+            }
+            TaskStatus::FailedAnalyzing => {
+                self.sync_goal_run_with_task(goal_run_id, &task).await;
+            }
+        }
+
+        Ok(())
     }
 
     async fn dispatch_ready_tasks(self: Arc<Self>) -> Result<()> {
@@ -1741,6 +2134,114 @@ impl AgentEngine {
         });
     }
 
+    fn emit_goal_run_update(&self, goal_run: &GoalRun, message: Option<String>) {
+        let _ = self.event_tx.send(AgentEvent::GoalRunUpdate {
+            goal_run_id: goal_run.id.clone(),
+            status: goal_run.status,
+            current_step_index: Some(goal_run.current_step_index),
+            message,
+            goal_run: Some(goal_run.clone()),
+        });
+    }
+
+    fn emit_todo_update(
+        &self,
+        thread_id: &str,
+        goal_run_id: Option<String>,
+        step_index: Option<usize>,
+        items: Vec<TodoItem>,
+    ) {
+        let _ = self.event_tx.send(AgentEvent::TodoUpdate {
+            thread_id: thread_id.to_string(),
+            goal_run_id,
+            step_index,
+            items,
+        });
+    }
+
+    fn emit_workflow_notice(
+        &self,
+        thread_id: &str,
+        kind: &str,
+        message: impl Into<String>,
+        details: Option<String>,
+    ) {
+        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+            thread_id: thread_id.to_string(),
+            kind: kind.to_string(),
+            message: message.into(),
+            details,
+        });
+    }
+
+    pub async fn replace_thread_todos(
+        &self,
+        thread_id: &str,
+        mut items: Vec<TodoItem>,
+        task_id: Option<&str>,
+    ) {
+        let now = now_millis();
+        for (index, item) in items.iter_mut().enumerate() {
+            item.position = index;
+            if item.created_at == 0 {
+                item.created_at = now;
+            }
+            item.updated_at = now;
+        }
+
+        {
+            let mut todos = self.thread_todos.write().await;
+            todos.insert(thread_id.to_string(), items.clone());
+        }
+        self.persist_todos().await;
+
+        let mut goal_run_update = None;
+        let mut goal_run_id = None;
+        let mut step_index = None;
+        if let Some(task_id) = task_id {
+            goal_run_update = self.record_goal_run_todo_snapshot(task_id, &items).await;
+            if let Some(goal_run) = goal_run_update.as_ref() {
+                goal_run_id = Some(goal_run.id.clone());
+                step_index = Some(goal_run.current_step_index);
+            }
+        }
+
+        self.emit_todo_update(thread_id, goal_run_id, step_index, items);
+
+        if let Some(goal_run) = goal_run_update {
+            self.persist_goal_runs().await;
+            self.emit_goal_run_update(&goal_run, Some("Goal todo updated".into()));
+        }
+    }
+
+    async fn record_goal_run_todo_snapshot(
+        &self,
+        task_id: &str,
+        items: &[TodoItem],
+    ) -> Option<GoalRun> {
+        let goal_run_id = {
+            let tasks = self.tasks.lock().await;
+            tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .and_then(|task| task.goal_run_id.clone())
+        }?;
+
+        let mut goal_runs = self.goal_runs.lock().await;
+        let goal_run = goal_runs
+            .iter_mut()
+            .find(|goal_run| goal_run.id == goal_run_id)?;
+        goal_run.updated_at = now_millis();
+        goal_run.events.push(make_goal_run_event_with_todos(
+            "todo",
+            "goal todo updated",
+            None,
+            Some(goal_run.current_step_index),
+            items.to_vec(),
+        ));
+        Some(goal_run.clone())
+    }
+
     async fn mark_task_awaiting_approval(
         &self,
         task_id: &str,
@@ -1779,6 +2280,434 @@ impl AgentEngine {
 
         self.persist_tasks().await;
         self.emit_task_update(&updated, Some("Task awaiting approval".into()));
+    }
+
+    async fn plan_goal_run(&self, goal_run_id: &str) -> Result<()> {
+        let goal_run = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during planning")?;
+
+        let queued = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(current) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run disappeared during planning");
+            };
+            current.status = GoalRunStatus::Planning;
+            current.started_at.get_or_insert(now_millis());
+            current.updated_at = now_millis();
+            current.events.push(make_goal_run_event(
+                "planning",
+                "building execution plan",
+                None,
+            ));
+            current.clone()
+        };
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&queued, Some("Planning goal".into()));
+
+        let plan = self.request_goal_plan(&goal_run).await?;
+        let now = now_millis();
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(current) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run disappeared after planning");
+            };
+            let default_session_id = current.session_id.clone();
+            if let Some(title) = plan
+                .title
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                current.title = title.trim().to_string();
+            }
+            current.plan_summary = Some(plan.summary.clone());
+            current.steps = plan
+                .steps
+                .into_iter()
+                .enumerate()
+                .map(|(position, step)| GoalRunStep {
+                    id: format!("goal_step_{}", Uuid::new_v4()),
+                    position,
+                    title: step.title,
+                    instructions: step.instructions,
+                    kind: step.kind,
+                    success_criteria: step.success_criteria,
+                    session_id: step.session_id.or_else(|| default_session_id.clone()),
+                    status: GoalRunStepStatus::Pending,
+                    task_id: None,
+                    summary: None,
+                    error: None,
+                    started_at: None,
+                    completed_at: None,
+                })
+                .collect();
+            current.current_step_index = 0;
+            current.current_step_title = current.steps.first().map(|step| step.title.clone());
+            current.current_step_kind = current.steps.first().map(|step| step.kind);
+            current.status = GoalRunStatus::Running;
+            current.updated_at = now;
+            current.last_error = None;
+            current.failure_cause = None;
+            current.awaiting_approval_id = None;
+            current.active_task_id = None;
+            current.events.push(make_goal_run_event(
+                "planning",
+                "goal plan generated",
+                current.plan_summary.clone(),
+            ));
+            current.clone()
+        };
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated, Some("Goal plan ready".into()));
+        Ok(())
+    }
+
+    async fn enqueue_goal_run_step(&self, goal_run_id: &str) -> Result<()> {
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing while enqueuing step")?;
+        if snapshot.current_step_index >= snapshot.steps.len() {
+            return Ok(());
+        }
+
+        let step = snapshot.steps[snapshot.current_step_index].clone();
+        let task = self
+            .enqueue_task(
+                format!("{}: {}", snapshot.title, step.title),
+                step.instructions.clone(),
+                task_priority_to_str(snapshot.priority),
+                None,
+                step.session_id
+                    .clone()
+                    .or_else(|| snapshot.session_id.clone()),
+                Vec::new(),
+                None,
+                "goal_run",
+                Some(snapshot.id.clone()),
+            )
+            .await;
+
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run disappeared after task enqueue");
+            };
+            if let Some(current_step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                current_step.task_id = Some(task.id.clone());
+                current_step.status = GoalRunStepStatus::InProgress;
+                current_step.started_at = Some(now_millis());
+            }
+            if !goal_run.child_task_ids.iter().any(|id| id == &task.id) {
+                goal_run.child_task_ids.push(task.id.clone());
+            }
+            goal_run.child_task_count = goal_run.child_task_ids.len() as u32;
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now_millis();
+            goal_run.current_step_title = Some(step.title.clone());
+            goal_run.current_step_kind = Some(step.kind);
+            goal_run.active_task_id = Some(task.id.clone());
+            goal_run.awaiting_approval_id = None;
+            goal_run.events.push(make_goal_run_event(
+                "execution",
+                "queued child task for goal step",
+                Some(format!("{} -> {}", step.title, task.id)),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated, Some(format!("Queued step: {}", step.title)));
+        Ok(())
+    }
+
+    async fn sync_goal_run_with_task(&self, goal_run_id: &str, task: &AgentTask) {
+        let mut maybe_updated = None;
+        {
+            let mut goal_runs = self.goal_runs.lock().await;
+            if let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) {
+                let prior_status = goal_run.status;
+                let next_status = if task.status == TaskStatus::AwaitingApproval {
+                    GoalRunStatus::AwaitingApproval
+                } else {
+                    GoalRunStatus::Running
+                };
+                let mut changed = goal_run.status != next_status;
+                goal_run.status = next_status;
+                goal_run.updated_at = now_millis();
+                goal_run.awaiting_approval_id = task.awaiting_approval_id.clone();
+                goal_run.active_task_id = Some(task.id.clone());
+                if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                    if step.status != GoalRunStepStatus::InProgress {
+                        step.status = GoalRunStepStatus::InProgress;
+                        step.started_at.get_or_insert(now_millis());
+                        changed = true;
+                    }
+                }
+                if next_status == GoalRunStatus::AwaitingApproval
+                    && prior_status != GoalRunStatus::AwaitingApproval
+                {
+                    goal_run.events.push(make_goal_run_event(
+                        "approval",
+                        "goal step awaiting operator approval",
+                        task.awaiting_approval_id.clone(),
+                    ));
+                    changed = true;
+                }
+                if changed {
+                    maybe_updated = Some(goal_run.clone());
+                }
+            }
+        }
+
+        if let Some(updated) = maybe_updated {
+            self.persist_goal_runs().await;
+            self.emit_goal_run_update(&updated, Some(goal_run_status_message(&updated).into()));
+        }
+    }
+
+    async fn handle_goal_run_step_completion(
+        &self,
+        goal_run_id: &str,
+        task: &AgentTask,
+    ) -> Result<()> {
+        let now = now_millis();
+        let thread_summary = match task.thread_id.as_deref() {
+            Some(thread_id) => self.goal_thread_summary(thread_id).await,
+            None => None,
+        };
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run missing after task completion");
+            };
+            if let Some(thread_id) = task.thread_id.clone() {
+                goal_run.thread_id = Some(thread_id);
+            }
+            if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                step.status = GoalRunStepStatus::Completed;
+                step.completed_at = Some(now);
+                step.summary = thread_summary
+                    .clone()
+                    .or_else(|| Some("step completed".into()));
+            }
+            goal_run.current_step_index = goal_run.current_step_index.saturating_add(1);
+            let next_step = goal_run.steps.get(goal_run.current_step_index);
+            goal_run.current_step_title = next_step.map(|step| step.title.clone());
+            goal_run.current_step_kind = next_step.map(|step| step.kind);
+            goal_run.status = GoalRunStatus::Running;
+            goal_run.updated_at = now;
+            goal_run.last_error = None;
+            goal_run.failure_cause = None;
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = None;
+            goal_run.events.push(make_goal_run_event(
+                "execution",
+                "goal step completed",
+                thread_summary.clone(),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated, Some("Goal step completed".into()));
+
+        if updated.current_step_index >= updated.steps.len() {
+            self.complete_goal_run(goal_run_id).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn handle_goal_run_step_failure(
+        &self,
+        goal_run_id: &str,
+        task: &AgentTask,
+    ) -> Result<()> {
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during failure handling")?;
+        let failure = task
+            .last_error
+            .clone()
+            .or_else(|| task.error.clone())
+            .unwrap_or_else(|| format!("child task {} failed", task.id));
+
+        if snapshot.replan_count < snapshot.max_replans
+            && snapshot.current_step_index < snapshot.steps.len()
+        {
+            let revised = self.request_goal_replan(&snapshot, &failure).await?;
+            let updated = {
+                let mut goal_runs = self.goal_runs.lock().await;
+                let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id)
+                else {
+                    anyhow::bail!("goal run disappeared during replan");
+                };
+                let default_session_id = goal_run.session_id.clone();
+                if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                    step.status = GoalRunStepStatus::Failed;
+                    step.completed_at = Some(now_millis());
+                    step.error = Some(failure.clone());
+                }
+                let insert_at = goal_run.current_step_index.saturating_add(1);
+                goal_run.steps.truncate(insert_at);
+                for (offset, step) in revised.steps.into_iter().enumerate() {
+                    goal_run.steps.push(GoalRunStep {
+                        id: format!("goal_step_{}", Uuid::new_v4()),
+                        position: insert_at + offset,
+                        title: step.title,
+                        instructions: step.instructions,
+                        kind: step.kind,
+                        success_criteria: step.success_criteria,
+                        session_id: step.session_id.or_else(|| default_session_id.clone()),
+                        status: GoalRunStepStatus::Pending,
+                        task_id: None,
+                        summary: None,
+                        error: None,
+                        started_at: None,
+                        completed_at: None,
+                    });
+                }
+                for (position, step) in goal_run.steps.iter_mut().enumerate() {
+                    step.position = position;
+                }
+                goal_run.current_step_index = insert_at;
+                let next_step = goal_run.steps.get(goal_run.current_step_index);
+                goal_run.current_step_title = next_step.map(|step| step.title.clone());
+                goal_run.current_step_kind = next_step.map(|step| step.kind);
+                goal_run.replan_count = goal_run.replan_count.saturating_add(1);
+                goal_run.status = GoalRunStatus::Running;
+                goal_run.updated_at = now_millis();
+                goal_run.last_error = Some(failure.clone());
+                goal_run.failure_cause = Some(failure.clone());
+                goal_run.reflection_summary = Some(revised.summary.clone());
+                goal_run.awaiting_approval_id = None;
+                goal_run.active_task_id = None;
+                goal_run.events.push(make_goal_run_event(
+                    "replan",
+                    "goal plan revised after failed step",
+                    Some(failure.clone()),
+                ));
+                goal_run.clone()
+            };
+            self.persist_goal_runs().await;
+            self.emit_goal_run_update(&updated, Some("Goal replanned after failure".into()));
+            return Ok(());
+        }
+
+        self.fail_goal_run(goal_run_id, &failure, "execution").await;
+        Ok(())
+    }
+
+    async fn complete_goal_run(&self, goal_run_id: &str) -> Result<()> {
+        let snapshot = self
+            .get_goal_run(goal_run_id)
+            .await
+            .context("goal run missing during completion")?;
+        let reflection = self.request_goal_reflection(&snapshot).await?;
+        if let Some(update) = reflection.stable_memory_update.clone() {
+            self.append_goal_memory_update(&update).await?;
+        }
+        let generated_skill_path = if reflection.generate_skill {
+            let skill_title = reflection
+                .skill_title
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(snapshot.title.as_str());
+            self.history
+                .generate_skill(Some(snapshot.goal.as_str()), Some(skill_title))
+                .ok()
+                .map(|(_, path)| path)
+        } else {
+            None
+        };
+
+        let updated = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
+                anyhow::bail!("goal run missing while finalizing");
+            };
+            goal_run.status = GoalRunStatus::Completed;
+            goal_run.completed_at = Some(now_millis());
+            goal_run.updated_at = now_millis();
+            goal_run.reflection_summary = Some(reflection.summary.clone());
+            goal_run.current_step_title = None;
+            goal_run.current_step_kind = None;
+            goal_run.awaiting_approval_id = None;
+            goal_run.active_task_id = None;
+            if let Some(update) = reflection.stable_memory_update {
+                goal_run.memory_updates.push(update);
+            }
+            if let Some(path) = generated_skill_path {
+                goal_run.generated_skill_path = Some(path);
+            }
+            goal_run.events.push(make_goal_run_event(
+                "reflection",
+                "goal run completed",
+                goal_run.reflection_summary.clone(),
+            ));
+            goal_run.clone()
+        };
+
+        self.persist_goal_runs().await;
+        self.emit_goal_run_update(&updated, Some("Goal completed".into()));
+        Ok(())
+    }
+
+    async fn fail_goal_run(&self, goal_run_id: &str, error: &str, phase: &str) {
+        let mut maybe_updated = None;
+        {
+            let mut goal_runs = self.goal_runs.lock().await;
+            if let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) {
+                goal_run.status = GoalRunStatus::Failed;
+                goal_run.completed_at = Some(now_millis());
+                goal_run.updated_at = now_millis();
+                goal_run.last_error = Some(error.to_string());
+                goal_run.failure_cause = Some(error.to_string());
+                goal_run.awaiting_approval_id = None;
+                goal_run.active_task_id = None;
+                goal_run.events.push(make_goal_run_event(
+                    phase,
+                    "goal run failed",
+                    Some(error.to_string()),
+                ));
+                maybe_updated = Some(goal_run.clone());
+            }
+        }
+        if let Some(updated) = maybe_updated {
+            self.persist_goal_runs().await;
+            self.emit_goal_run_update(&updated, Some(format!("Goal failed: {error}")));
+        }
+    }
+
+    async fn requeue_goal_run_step(&self, goal_run_id: &str, reason: &str) {
+        let mut maybe_updated = None;
+        {
+            let mut goal_runs = self.goal_runs.lock().await;
+            if let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) {
+                if let Some(step) = goal_run.steps.get_mut(goal_run.current_step_index) {
+                    step.task_id = None;
+                    step.status = GoalRunStepStatus::Pending;
+                    step.error = Some(reason.to_string());
+                }
+                goal_run.status = GoalRunStatus::Running;
+                goal_run.updated_at = now_millis();
+                goal_run.awaiting_approval_id = None;
+                goal_run.active_task_id = None;
+                goal_run.events.push(make_goal_run_event(
+                    "execution",
+                    "goal step returned to pending",
+                    Some(reason.to_string()),
+                ));
+                maybe_updated = Some(goal_run.clone());
+            }
+        }
+        if let Some(updated) = maybe_updated {
+            self.persist_goal_runs().await;
+            self.emit_goal_run_update(&updated, Some("Goal step re-queued".into()));
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1910,6 +2839,21 @@ impl AgentEngine {
         self.threads.read().await.get(thread_id).cloned()
     }
 
+    pub async fn planner_required_for_thread(&self, thread_id: &str) -> bool {
+        let threads = self.threads.read().await;
+        let Some(thread) = threads.get(thread_id) else {
+            return false;
+        };
+        let latest_user_message = thread
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == MessageRole::User)
+            .map(|message| message.content.as_str())
+            .unwrap_or("");
+        planner_required_for_message(latest_user_message)
+    }
+
     pub async fn delete_thread(&self, thread_id: &str) -> bool {
         let removed = self.threads.write().await.remove(thread_id).is_some();
         if removed {
@@ -1941,6 +2885,8 @@ impl AgentEngine {
                     tool_calls: None,
                     tool_call_id: None,
                     tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
                     input_tokens: 0,
                     output_tokens: 0,
                     reasoning: None,
@@ -1986,6 +2932,16 @@ impl AgentEngine {
         } else {
             content.to_string()
         };
+        self.emit_workflow_notice(
+            &tid,
+            "memory-consulted",
+            "Loaded persistent memory, user profile, and local skill paths for this turn.",
+            Some(format!(
+                "memory_dir={}; skills_dir={}",
+                active_memory_dir(&self.data_dir).display(),
+                skills_dir(&self.data_dir).display()
+            )),
+        );
         if let Some(recall) = onecontext_bootstrap {
             enriched_prompt.push_str("\n\n[ONECONTEXT RECALL]\n");
             enriched_prompt.push_str(&recall);
@@ -2058,6 +3014,182 @@ impl AgentEngine {
         }
     }
 
+    async fn request_goal_plan(&self, goal_run: &GoalRun) -> Result<GoalPlanResponse> {
+        let prompt = format!(
+            "You are planning a durable autonomous goal runner inside tamux.\n\
+             Produce strict JSON only with the shape:\n\
+             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill\",\"success_criteria\":\"...\",\"session_id\":null}}]}}\n\
+             Requirements:\n\
+             - 2 to 6 steps.\n\
+             - Keep each step actionable and narrow.\n\
+             - Use kind=command only when the step should execute via the daemon task queue.\n\
+             - Use skill only only if a reusable workflow artifact should be generated at the end.\n\
+             - Prefer one terminal session unless the goal clearly requires otherwise.\n\
+             Goal title: {}\n\
+             Goal:\n{}",
+            goal_run.title, goal_run.goal
+        );
+        let raw = self.run_goal_llm_json(&prompt).await?;
+        validate_goal_plan_response(parse_goal_llm_json(&raw)?, false)
+    }
+
+    async fn request_goal_replan(
+        &self,
+        goal_run: &GoalRun,
+        failure: &str,
+    ) -> Result<GoalPlanResponse> {
+        let completed = goal_run
+            .steps
+            .iter()
+            .take(goal_run.current_step_index.saturating_add(1))
+            .map(|step| {
+                format!(
+                    "- {} [{}]",
+                    step.title,
+                    goal_run_step_status_label(step.status)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let prompt = format!(
+            "You are replanning a tamux goal runner after a failed step.\n\
+             Produce strict JSON only with the shape:\n\
+             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill\",\"success_criteria\":\"...\",\"session_id\":null}}]}}\n\
+             Return only the revised remaining steps, not the full history.\n\
+             Goal: {}\n\
+             Failure: {}\n\
+             Completed / attempted steps:\n{}\n",
+            goal_run.goal,
+            failure,
+            if completed.is_empty() { "- none".into() } else { completed }
+        );
+        let raw = self.run_goal_llm_json(&prompt).await?;
+        validate_goal_plan_response(parse_goal_llm_json(&raw)?, true)
+    }
+
+    async fn request_goal_reflection(&self, goal_run: &GoalRun) -> Result<GoalReflectionResponse> {
+        let step_summaries = goal_run
+            .steps
+            .iter()
+            .map(|step| {
+                format!(
+                    "- {} [{}]: {}",
+                    step.title,
+                    goal_run_step_status_label(step.status),
+                    step.summary
+                        .as_deref()
+                        .or(step.error.as_deref())
+                        .unwrap_or("no summary")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let prompt = format!(
+            "You are reflecting on a completed tamux goal runner.\n\
+             Produce strict JSON only with the shape:\n\
+             {{\"summary\":\"...\",\"stable_memory_update\":null,\"generate_skill\":false,\"skill_title\":null}}\n\
+             `stable_memory_update` must be null unless you learned a durable operator preference or stable workspace fact worth appending to MEMORY.md.\n\
+             Goal: {}\n\
+             Step outcomes:\n{}\n",
+            goal_run.goal,
+            if step_summaries.is_empty() {
+                "- no steps recorded".into()
+            } else {
+                step_summaries
+            }
+        );
+        let raw = self.run_goal_llm_json(&prompt).await?;
+        parse_goal_reflection_json(&raw)
+    }
+
+    async fn run_goal_llm_json(&self, prompt: &str) -> Result<String> {
+        let config = self.config.read().await.clone();
+        if config.agent_backend != "daemon" {
+            anyhow::bail!("goal runs currently require the built-in daemon agent backend");
+        }
+        let provider_config = self.resolve_provider_config(&config)?;
+        let messages = vec![ApiMessage {
+            role: "user".into(),
+            content: ApiContent::Text(prompt.to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }];
+        let mut stream = send_chat_completion(
+            &self.http_client,
+            &config.provider,
+            &provider_config,
+            "Return strict JSON only. Do not call tools. Do not wrap the answer in markdown.",
+            &messages,
+            &[],
+            config.max_retries,
+            config.retry_delay_ms,
+        );
+        let mut content = String::new();
+        while let Some(chunk) = stream.next().await {
+            match chunk? {
+                CompletionChunk::Delta { content: delta, .. } => content.push_str(&delta),
+                CompletionChunk::Done { content: done, .. } => {
+                    if done.is_empty() {
+                        return Ok(content);
+                    }
+                    return Ok(done);
+                }
+                CompletionChunk::Error { message } => anyhow::bail!(message),
+                CompletionChunk::Retry { .. } => {}
+                CompletionChunk::ToolCalls { .. } => {
+                    anyhow::bail!("goal planning unexpectedly returned tool calls")
+                }
+            }
+        }
+        if content.trim().is_empty() {
+            anyhow::bail!("goal planning returned empty output");
+        }
+        Ok(content)
+    }
+
+    async fn append_goal_memory_update(&self, update: &str) -> Result<()> {
+        let trimmed = update.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        let memory_dir = active_memory_dir(&self.data_dir);
+        let memory_path = memory_dir.join("MEMORY.md");
+        tokio::fs::create_dir_all(&memory_dir).await?;
+        let existing = tokio::fs::read_to_string(&memory_path)
+            .await
+            .unwrap_or_default();
+        if existing.contains(trimmed) {
+            return Ok(());
+        }
+
+        let mut next = existing.trim_end().to_string();
+        if !next.is_empty() {
+            next.push_str("\n\n");
+        }
+        next.push_str("## Learned During Goal Runs\n");
+        next.push_str("- ");
+        next.push_str(trimmed);
+        next.push('\n');
+        tokio::fs::write(&memory_path, next).await?;
+        self.refresh_memory_cache().await;
+        Ok(())
+    }
+
+    async fn goal_thread_summary(&self, thread_id: &str) -> Option<String> {
+        let threads = self.threads.read().await;
+        threads.get(thread_id).and_then(|thread| {
+            thread
+                .messages
+                .iter()
+                .rev()
+                .find(|message| {
+                    message.role == MessageRole::Assistant && !message.content.trim().is_empty()
+                })
+                .map(|message| summarize_text(&message.content, 320))
+        })
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -2099,6 +3231,8 @@ impl AgentEngine {
                 tool_calls: None,
                 tool_call_id: None,
                 tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
                 input_tokens,
                 output_tokens,
                 reasoning,
@@ -2144,6 +3278,10 @@ impl AgentEngine {
                 let metadata_json = serde_json::to_string(&serde_json::json!({
                     "tool_call_id": message.tool_call_id,
                     "tool_name": message.tool_name,
+                    "toolName": message.tool_name,
+                    "toolCallId": message.tool_call_id,
+                    "toolArguments": message.tool_arguments,
+                    "toolStatus": message.tool_status,
                 }))
                 .ok();
                 let row = amux_protocol::AgentDbMessage {
@@ -2177,6 +3315,13 @@ impl AgentEngine {
         }
     }
 
+    async fn persist_todos(&self) {
+        let todos = self.thread_todos.read().await;
+        if let Err(e) = persist_json(&self.data_dir.join("todos.json"), &*todos).await {
+            tracing::warn!("failed to persist todos: {e}");
+        }
+    }
+
     async fn persist_tasks(&self) {
         let tasks = self.tasks.lock().await;
         for task in tasks.iter() {
@@ -2186,6 +3331,18 @@ impl AgentEngine {
         }
         if let Err(e) = persist_json(&self.data_dir.join("tasks.json"), &*tasks).await {
             tracing::warn!("failed to persist tasks: {e}");
+        }
+    }
+
+    async fn persist_goal_runs(&self) {
+        let goal_runs = self.goal_runs.lock().await;
+        for goal_run in goal_runs.iter() {
+            if let Err(e) = self.history.upsert_goal_run(goal_run) {
+                tracing::warn!(goal_run_id = %goal_run.id, "failed to persist goal run to sqlite: {e}");
+            }
+        }
+        if let Err(e) = persist_json(&self.data_dir.join("goal-runs.json"), &*goal_runs).await {
+            tracing::warn!("failed to persist goal runs: {e}");
         }
     }
 
@@ -2479,6 +3636,9 @@ fn build_task_prompt(task: &AgentTask) -> String {
     prompt.push_str(
         "\nUse execute_managed_command when work should run inside a daemon-managed terminal lane, needs a real PTY, or may require operator approval.",
     );
+    prompt.push_str(
+        "\nIf the task is more than a one-shot action, call update_todo immediately with a concise plan and keep it current as steps advance.",
+    );
 
     if let Some(command) = task.command.as_deref() {
         prompt.push_str(&format!("\nPreferred command or entrypoint: {command}"));
@@ -2486,6 +3646,10 @@ fn build_task_prompt(task: &AgentTask) -> String {
 
     if let Some(session_id) = task.session_id.as_deref() {
         prompt.push_str(&format!("\nPreferred terminal session: {session_id}"));
+    }
+
+    if let Some(goal_run_id) = task.goal_run_id.as_deref() {
+        prompt.push_str(&format!("\nGoal run context: {goal_run_id}"));
     }
 
     if let Some(scheduled_at) = task.scheduled_at {
@@ -2605,6 +3769,51 @@ fn ordered_memory_dirs(agent_data_dir: &std::path::Path) -> Vec<PathBuf> {
     dirs
 }
 
+pub(super) fn skills_dir(agent_data_dir: &std::path::Path) -> PathBuf {
+    agent_data_dir
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("skills")
+}
+
+/// Seed built-in skill documents into `~/.tamux/skills/builtin/`.
+///
+/// Files are written on every startup so that updates to the binary ship new
+/// skill versions automatically.  The `builtin/` subdirectory keeps them
+/// separate from user-authored and generated skills.
+fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
+    static BUILTIN_SKILLS: &[(&str, &str)] = &[
+        ("builtin/README.md",                       include_str!("../../../../docs/skills/README.md")),
+        ("builtin/cheatsheet.md",                   include_str!("../../../../docs/skills/cheatsheet.md")),
+        ("builtin/connection/setup.md",             include_str!("../../../../docs/skills/connection/setup.md")),
+        ("builtin/operating/terminals.md",          include_str!("../../../../docs/skills/operating/terminals.md")),
+        ("builtin/operating/browser.md",            include_str!("../../../../docs/skills/operating/browser.md")),
+        ("builtin/operating/tasks.md",              include_str!("../../../../docs/skills/operating/tasks.md")),
+        ("builtin/operating/goals.md",              include_str!("../../../../docs/skills/operating/goals.md")),
+        ("builtin/operating/memory.md",             include_str!("../../../../docs/skills/operating/memory.md")),
+        ("builtin/operating/workspaces.md",         include_str!("../../../../docs/skills/operating/workspaces.md")),
+        ("builtin/operating/safety.md",             include_str!("../../../../docs/skills/operating/safety.md")),
+        ("builtin/operating/messaging.md",          include_str!("../../../../docs/skills/operating/messaging.md")),
+        ("builtin/operating/observability.md",      include_str!("../../../../docs/skills/operating/observability.md")),
+        ("builtin/building/plugin-development.md",  include_str!("../../../../docs/skills/building/plugin-development.md")),
+    ];
+
+    let root = skills_dir(agent_data_dir);
+    for (relative_path, content) in BUILTIN_SKILLS {
+        let target = root.join(relative_path);
+        if let Some(parent) = target.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!("failed to create skill dir {}: {e}", parent.display());
+                continue;
+            }
+        }
+        if let Err(e) = std::fs::write(&target, content) {
+            tracing::warn!("failed to seed skill {}: {e}", target.display());
+        }
+    }
+    tracing::debug!("seeded {} built-in skills into {}", BUILTIN_SKILLS.len(), root.join("builtin").display());
+}
+
 fn dir_has_memory_files(dir: &std::path::Path) -> bool {
     ["MEMORY.md", "SOUL.md", "USER.md"]
         .iter()
@@ -2662,6 +3871,8 @@ fn build_external_agent_prompt(
 ) -> String {
     let mut context_parts = Vec::new();
     let memory_root = memory_dir;
+    let skills_root = skills_dir(&agent_data_dir());
+    let generated_skills_root = skills_root.join("generated");
 
     // Environment context — do NOT override the agent's own identity
     context_parts.push(
@@ -2733,6 +3944,12 @@ fn build_external_agent_prompt(
         memory_root.join("SOUL.md").display(),
         memory_root.join("USER.md").display(),
     ));
+    context_parts.push(format!(
+        "tamux local skills on this machine:\n- Skills root: {}\n- Generated skills: {}\n\
+         Before non-trivial work, review relevant skills in that directory and reuse them when possible.\n",
+        skills_root.display(),
+        generated_skills_root.display(),
+    ));
 
     if context_parts.is_empty() {
         return user_message.to_string();
@@ -2750,6 +3967,8 @@ fn build_system_prompt(base: &str, memory: &AgentMemory, data_dir: &std::path::P
     let memory_path = data_dir.join("MEMORY.md");
     let soul_path = data_dir.join("SOUL.md");
     let user_path = data_dir.join("USER.md");
+    let skills_root = skills_dir(data_dir);
+    let generated_skills_root = skills_root.join("generated");
 
     if !memory.soul.is_empty() {
         prompt.push_str(&memory.soul);
@@ -2782,12 +4001,436 @@ fn build_system_prompt(base: &str, memory: &AgentMemory, data_dir: &std::path::P
     );
 
     prompt.push_str(
+        &format!(
+            "\n\n## Local Skills\n\
+             - Skills root: {}\n\
+             - Generated skills: {}\n\
+             - Built-in skills: {}/builtin/ (tamux reference docs for terminals, browser, tasks, goals, memory, safety, etc.)\n\
+             - Before non-trivial work, consult MEMORY.md and USER.md, then call `list_skills` to inspect reusable local skills.\n\
+             - If a relevant skill exists, call `read_skill` before executing commands or spawning tasks.\n\
+             - The `builtin/cheatsheet` skill provides a quick reference for all available MCP tools.\n\
+             - Prefer reusing an existing skill over inventing a brand-new workflow.\n",
+            skills_root.display(),
+            generated_skills_root.display(),
+            skills_root.display(),
+        ),
+    );
+
+    prompt.push_str(
         "\n\n## Recall and Memory Maintenance\n\
          - Use `onecontext_search` when the user asks about prior decisions, existing implementations, or historical debugging context.\n\
+         - For any non-trivial or multi-step task, call `update_todo` early to enter plan mode, then keep that todo list current as work progresses.\n\
          - When you learn durable operator preferences or stable project facts, call `update_memory` with a concise update so future sessions start with that context.\n",
     );
 
+    prompt.push_str(
+        "\n\n## Terminal Session Discipline\n\
+         - Before running file or command actions, call `list_sessions` (or `list_terminals`) to discover current session IDs and CWD.\n\
+         - Pick a target session and reuse that `session` value across related tool calls so all actions stay in one terminal context.\n\
+         - If the operator asks to use another terminal, call `list_sessions` again and switch explicitly.\n",
+    );
+
     prompt
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GoalPlanResponse {
+    #[serde(default)]
+    title: Option<String>,
+    summary: String,
+    steps: Vec<GoalPlanStepResponse>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GoalPlanStepResponse {
+    title: String,
+    instructions: String,
+    kind: GoalRunStepKind,
+    success_criteria: String,
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GoalReflectionResponse {
+    summary: String,
+    #[serde(default)]
+    stable_memory_update: Option<String>,
+    #[serde(default)]
+    generate_skill: bool,
+    #[serde(default)]
+    skill_title: Option<String>,
+}
+
+fn validate_goal_plan_response(
+    mut plan: GoalPlanResponse,
+    allow_single_step: bool,
+) -> Result<GoalPlanResponse> {
+    plan.summary = plan.summary.trim().to_string();
+    if plan.summary.is_empty() {
+        anyhow::bail!("goal plan summary must not be empty");
+    }
+
+    let min_steps = if allow_single_step { 1 } else { 2 };
+    if plan.steps.len() < min_steps || plan.steps.len() > 6 {
+        anyhow::bail!(
+            "goal plan must contain between {} and 6 steps, got {}",
+            min_steps,
+            plan.steps.len()
+        );
+    }
+
+    let mut seen_skill = false;
+    let last_index = plan.steps.len().saturating_sub(1);
+    for (index, step) in plan.steps.iter_mut().enumerate() {
+        step.title = step.title.trim().to_string();
+        step.instructions = step.instructions.trim().to_string();
+        step.success_criteria = step.success_criteria.trim().to_string();
+        step.session_id = step
+            .session_id
+            .take()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+
+        if step.title.is_empty() || step.instructions.is_empty() || step.success_criteria.is_empty()
+        {
+            anyhow::bail!("goal plan step {} is missing required fields", index + 1);
+        }
+
+        if step.kind == GoalRunStepKind::Skill {
+            if index != last_index {
+                anyhow::bail!("skill steps must be the final step in the plan");
+            }
+            seen_skill = true;
+        } else if seen_skill {
+            anyhow::bail!("no steps may follow a skill-generation step");
+        }
+    }
+
+    Ok(plan)
+}
+
+fn parse_priority_str(value: &str) -> TaskPriority {
+    match value {
+        "low" => TaskPriority::Low,
+        "high" => TaskPriority::High,
+        "urgent" => TaskPriority::Urgent,
+        _ => TaskPriority::Normal,
+    }
+}
+
+fn task_priority_to_str(value: TaskPriority) -> &'static str {
+    match value {
+        TaskPriority::Low => "low",
+        TaskPriority::Normal => "normal",
+        TaskPriority::High => "high",
+        TaskPriority::Urgent => "urgent",
+    }
+}
+
+fn summarize_goal_title(goal: &str) -> String {
+    let trimmed = goal.trim();
+    if trimmed.is_empty() {
+        return "Untitled Goal".into();
+    }
+    summarize_text(trimmed, 72)
+}
+
+fn summarize_text(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+    let truncated = normalized
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
+    format!("{truncated}…")
+}
+
+fn resolve_goal_run_control_step(goal_run: &GoalRun, step_index: Option<usize>) -> usize {
+    if goal_run.steps.is_empty() {
+        return 0;
+    }
+    step_index
+        .unwrap_or(
+            goal_run
+                .current_step_index
+                .min(goal_run.steps.len().saturating_sub(1)),
+        )
+        .min(goal_run.steps.len().saturating_sub(1))
+}
+
+fn reset_goal_run_step(step: &mut GoalRunStep) {
+    step.status = GoalRunStepStatus::Pending;
+    step.task_id = None;
+    step.summary = None;
+    step.error = None;
+    step.started_at = None;
+    step.completed_at = None;
+}
+
+fn retry_goal_run_step(goal_run: &mut GoalRun, step_index: Option<usize>) -> Result<()> {
+    if goal_run.steps.is_empty() {
+        anyhow::bail!("goal run has no steps to retry");
+    }
+
+    let target_index = resolve_goal_run_control_step(goal_run, step_index);
+    let Some(step) = goal_run.steps.get_mut(target_index) else {
+        anyhow::bail!("goal run step index out of range");
+    };
+
+    reset_goal_run_step(step);
+    goal_run.current_step_index = target_index;
+    goal_run.completed_at = None;
+    goal_run.status = GoalRunStatus::Running;
+    goal_run.last_error = None;
+    goal_run.failure_cause = None;
+    goal_run.current_step_title = goal_run
+        .steps
+        .get(target_index)
+        .map(|step| step.title.clone());
+    goal_run.current_step_kind = goal_run.steps.get(target_index).map(|step| step.kind);
+    goal_run.awaiting_approval_id = None;
+    goal_run.active_task_id = None;
+    Ok(())
+}
+
+fn rerun_goal_run_from_step(goal_run: &mut GoalRun, step_index: Option<usize>) -> Result<()> {
+    if goal_run.steps.is_empty() {
+        anyhow::bail!("goal run has no steps to rerun");
+    }
+
+    let target_index = resolve_goal_run_control_step(goal_run, step_index);
+    for step in goal_run.steps.iter_mut().skip(target_index) {
+        reset_goal_run_step(step);
+    }
+    goal_run.current_step_index = target_index;
+    goal_run.completed_at = None;
+    goal_run.status = GoalRunStatus::Running;
+    goal_run.last_error = None;
+    goal_run.failure_cause = None;
+    goal_run.current_step_title = goal_run
+        .steps
+        .get(target_index)
+        .map(|step| step.title.clone());
+    goal_run.current_step_kind = goal_run.steps.get(target_index).map(|step| step.kind);
+    goal_run.awaiting_approval_id = None;
+    goal_run.active_task_id = None;
+    goal_run.reflection_summary = None;
+    goal_run.generated_skill_path = None;
+    Ok(())
+}
+
+fn latest_goal_run_failure(goal_run: &GoalRun, tasks: &[AgentTask]) -> Option<String> {
+    goal_run
+        .last_error
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            goal_run
+                .steps
+                .iter()
+                .rev()
+                .find_map(|step| step.error.clone().filter(|value| !value.trim().is_empty()))
+        })
+        .or_else(|| {
+            tasks.iter().rev().find_map(|task| {
+                task.last_error
+                    .clone()
+                    .or_else(|| task.error.clone())
+                    .filter(|value| !value.trim().is_empty())
+            })
+        })
+}
+
+fn approval_count_for_tasks(tasks: &[AgentTask]) -> u32 {
+    tasks
+        .iter()
+        .flat_map(|task| task.logs.iter())
+        .filter(|log| {
+            log.phase == "approval"
+                && log
+                    .message
+                    .to_ascii_lowercase()
+                    .contains("managed command paused for operator approval")
+        })
+        .count() as u32
+}
+
+fn project_goal_run_snapshot(
+    mut goal_run: GoalRun,
+    related_tasks: &[AgentTask],
+    now: u64,
+) -> GoalRun {
+    goal_run.current_step_title = goal_run
+        .steps
+        .get(goal_run.current_step_index)
+        .map(|step| step.title.clone());
+    goal_run.current_step_kind = goal_run
+        .steps
+        .get(goal_run.current_step_index)
+        .map(|step| step.kind);
+    goal_run.active_task_id = goal_run
+        .steps
+        .get(goal_run.current_step_index)
+        .and_then(|step| step.task_id.clone());
+    goal_run.awaiting_approval_id = related_tasks
+        .iter()
+        .find_map(|task| task.awaiting_approval_id.clone());
+    goal_run.child_task_count = if goal_run.child_task_ids.is_empty() {
+        related_tasks.len() as u32
+    } else {
+        goal_run.child_task_ids.iter().collect::<HashSet<_>>().len() as u32
+    };
+    goal_run.approval_count = approval_count_for_tasks(related_tasks);
+    goal_run.failure_cause = latest_goal_run_failure(&goal_run, related_tasks);
+    goal_run.duration_ms = goal_run.started_at.map(|started_at| {
+        goal_run
+            .completed_at
+            .unwrap_or(now)
+            .saturating_sub(started_at)
+    });
+    goal_run
+}
+
+fn make_goal_run_event(phase: &str, message: &str, details: Option<String>) -> GoalRunEvent {
+    make_goal_run_event_with_todos(phase, message, details, None, Vec::new())
+}
+
+fn make_goal_run_event_with_todos(
+    phase: &str,
+    message: &str,
+    details: Option<String>,
+    step_index: Option<usize>,
+    todo_snapshot: Vec<TodoItem>,
+) -> GoalRunEvent {
+    GoalRunEvent {
+        id: format!("goal_event_{}", Uuid::new_v4()),
+        timestamp: now_millis(),
+        phase: phase.to_string(),
+        message: message.to_string(),
+        details,
+        step_index,
+        todo_snapshot,
+    }
+}
+
+fn goal_run_status_message(goal_run: &GoalRun) -> &'static str {
+    match goal_run.status {
+        GoalRunStatus::Queued => "Goal queued",
+        GoalRunStatus::Planning => "Goal planning",
+        GoalRunStatus::Running => "Goal running",
+        GoalRunStatus::AwaitingApproval => "Goal awaiting approval",
+        GoalRunStatus::Paused => "Goal paused",
+        GoalRunStatus::Completed => "Goal completed",
+        GoalRunStatus::Failed => "Goal failed",
+        GoalRunStatus::Cancelled => "Goal cancelled",
+    }
+}
+
+fn goal_run_step_status_label(value: GoalRunStepStatus) -> &'static str {
+    match value {
+        GoalRunStepStatus::Pending => "pending",
+        GoalRunStepStatus::InProgress => "in_progress",
+        GoalRunStepStatus::Completed => "completed",
+        GoalRunStepStatus::Failed => "failed",
+        GoalRunStepStatus::Skipped => "skipped",
+    }
+}
+
+fn planner_required_for_message(content: &str) -> bool {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_lowercase();
+    let word_count = lower.split_whitespace().count();
+    if word_count >= 24 || trimmed.len() >= 160 {
+        return true;
+    }
+
+    if trimmed.lines().count() >= 3 {
+        return true;
+    }
+
+    if trimmed.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("- ")
+            || line.starts_with("* ")
+            || (line.len() >= 2
+                && line.as_bytes()[0].is_ascii_digit()
+                && line.as_bytes()[1] == b'.')
+    }) {
+        return true;
+    }
+
+    [
+        " then ",
+        " also ",
+        " after ",
+        " before ",
+        " next ",
+        " first ",
+        " second ",
+        " third ",
+        " plan ",
+        " steps ",
+        " todo ",
+        " workflow ",
+        " investigate ",
+        " implement ",
+        " migrate ",
+        " refactor ",
+        " compare ",
+        " audit ",
+        " analyze ",
+        " long-running ",
+        " autonomous ",
+        " goal ",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn parse_goal_llm_json(raw: &str) -> Result<GoalPlanResponse> {
+    parse_json_block(raw)
+}
+
+fn parse_goal_reflection_json(raw: &str) -> Result<GoalReflectionResponse> {
+    parse_json_block(raw)
+}
+
+fn parse_json_block<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
+    let trimmed = raw.trim();
+    if let Ok(parsed) = serde_json::from_str::<T>(trimmed) {
+        return Ok(parsed);
+    }
+
+    let without_fence = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(str::trim)
+        .and_then(|value| value.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+
+    if let Ok(parsed) = serde_json::from_str::<T>(without_fence) {
+        return Ok(parsed);
+    }
+
+    let object_candidate = without_fence
+        .find('{')
+        .zip(without_fence.rfind('}'))
+        .and_then(|(start, end)| (start < end).then_some(&without_fence[start..=end]));
+    if let Some(candidate) = object_candidate {
+        if let Ok(parsed) = serde_json::from_str::<T>(candidate) {
+            return Ok(parsed);
+        }
+    }
+
+    anyhow::bail!("failed to parse structured JSON from model output")
 }
 
 async fn persist_json<T: serde::Serialize>(path: &std::path::Path, data: &T) -> Result<()> {
@@ -2807,5 +4450,231 @@ pub fn load_config() -> Result<AgentConfig> {
         Ok(serde_json::from_str(&raw).unwrap_or_default())
     } else {
         Ok(AgentConfig::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_goal_run() -> GoalRun {
+        GoalRun {
+            id: "goal_test".to_string(),
+            title: "Test goal".to_string(),
+            goal: "Ship something".to_string(),
+            status: GoalRunStatus::Failed,
+            priority: TaskPriority::Normal,
+            created_at: 10,
+            updated_at: 30,
+            started_at: Some(20),
+            completed_at: Some(80),
+            thread_id: None,
+            session_id: Some("session-1".to_string()),
+            current_step_index: 1,
+            current_step_title: None,
+            current_step_kind: None,
+            replan_count: 1,
+            max_replans: 2,
+            plan_summary: Some("Plan".to_string()),
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: Some("/tmp/skill.md".to_string()),
+            last_error: Some("child task failed".to_string()),
+            failure_cause: None,
+            child_task_ids: vec!["task-a".to_string(), "task-b".to_string()],
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            active_task_id: None,
+            duration_ms: None,
+            steps: vec![
+                GoalRunStep {
+                    id: "step-0".to_string(),
+                    position: 0,
+                    title: "Inspect".to_string(),
+                    instructions: "Inspect state".to_string(),
+                    kind: GoalRunStepKind::Research,
+                    success_criteria: "Know what failed".to_string(),
+                    session_id: None,
+                    status: GoalRunStepStatus::Completed,
+                    task_id: Some("task-a".to_string()),
+                    summary: Some("done".to_string()),
+                    error: None,
+                    started_at: Some(21),
+                    completed_at: Some(30),
+                },
+                GoalRunStep {
+                    id: "step-1".to_string(),
+                    position: 1,
+                    title: "Fix".to_string(),
+                    instructions: "Fix it".to_string(),
+                    kind: GoalRunStepKind::Command,
+                    success_criteria: "Green".to_string(),
+                    session_id: Some("session-1".to_string()),
+                    status: GoalRunStepStatus::Failed,
+                    task_id: Some("task-b".to_string()),
+                    summary: None,
+                    error: Some("step failure".to_string()),
+                    started_at: Some(31),
+                    completed_at: Some(50),
+                },
+            ],
+            events: Vec::new(),
+        }
+    }
+
+    fn sample_task(id: &str, goal_run_id: &str) -> AgentTask {
+        AgentTask {
+            id: id.to_string(),
+            title: id.to_string(),
+            description: id.to_string(),
+            status: TaskStatus::Failed,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: Some(2),
+            completed_at: Some(3),
+            error: Some("task error".to_string()),
+            result: None,
+            thread_id: None,
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: Some("session-1".to_string()),
+            goal_run_id: Some(goal_run_id.to_string()),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: Some("apr-1".to_string()),
+            lane_id: None,
+            last_error: Some("task error".to_string()),
+            logs: vec![AgentTaskLogEntry {
+                id: format!("log-{id}"),
+                timestamp: 4,
+                level: TaskLogLevel::Warn,
+                phase: "approval".to_string(),
+                message: "managed command paused for operator approval".to_string(),
+                details: None,
+                attempt: 0,
+            }],
+        }
+    }
+
+    #[test]
+    fn validate_goal_plan_rejects_non_terminal_skill_step() {
+        let plan = GoalPlanResponse {
+            title: Some("Goal".to_string()),
+            summary: "Summary".to_string(),
+            steps: vec![
+                GoalPlanStepResponse {
+                    title: "Generate skill".to_string(),
+                    instructions: "Do it".to_string(),
+                    kind: GoalRunStepKind::Skill,
+                    success_criteria: "Artifact exists".to_string(),
+                    session_id: None,
+                },
+                GoalPlanStepResponse {
+                    title: "More work".to_string(),
+                    instructions: "Continue".to_string(),
+                    kind: GoalRunStepKind::Command,
+                    success_criteria: "Done".to_string(),
+                    session_id: None,
+                },
+            ],
+        };
+
+        assert!(validate_goal_plan_response(plan, false).is_err());
+    }
+
+    #[test]
+    fn retry_goal_run_step_resets_selected_step() {
+        let mut goal_run = sample_goal_run();
+
+        retry_goal_run_step(&mut goal_run, Some(1)).expect("retry should succeed");
+
+        assert_eq!(goal_run.current_step_index, 1);
+        assert_eq!(goal_run.status, GoalRunStatus::Running);
+        assert!(goal_run.completed_at.is_none());
+        assert!(goal_run.last_error.is_none());
+        assert_eq!(goal_run.steps[1].status, GoalRunStepStatus::Pending);
+        assert!(goal_run.steps[1].task_id.is_none());
+        assert!(goal_run.generated_skill_path.is_some());
+    }
+
+    #[test]
+    fn rerun_goal_run_from_step_resets_following_steps_and_skill_output() {
+        let mut goal_run = sample_goal_run();
+
+        rerun_goal_run_from_step(&mut goal_run, Some(0)).expect("rerun should succeed");
+
+        assert_eq!(goal_run.current_step_index, 0);
+        assert_eq!(goal_run.status, GoalRunStatus::Running);
+        assert!(goal_run.completed_at.is_none());
+        assert!(goal_run.generated_skill_path.is_none());
+        assert!(goal_run.reflection_summary.is_none());
+        assert_eq!(goal_run.steps[0].status, GoalRunStepStatus::Pending);
+        assert_eq!(goal_run.steps[1].status, GoalRunStepStatus::Pending);
+    }
+
+    #[test]
+    fn project_goal_run_snapshot_derives_metrics() {
+        let goal_run = sample_goal_run();
+        let tasks = vec![sample_task("task-b", "goal_test")];
+
+        let projected = project_goal_run_snapshot(goal_run, &tasks, 100);
+
+        assert_eq!(projected.current_step_title.as_deref(), Some("Fix"));
+        assert_eq!(projected.child_task_count, 2);
+        assert_eq!(projected.approval_count, 1);
+        assert_eq!(projected.awaiting_approval_id.as_deref(), Some("apr-1"));
+        assert_eq!(
+            projected.failure_cause.as_deref(),
+            Some("child task failed")
+        );
+        assert_eq!(projected.duration_ms, Some(60));
+    }
+
+    #[test]
+    fn make_goal_run_event_with_todos_preserves_snapshot() {
+        let event = make_goal_run_event_with_todos(
+            "todo",
+            "goal todo updated",
+            None,
+            Some(1),
+            vec![TodoItem {
+                id: "todo-1".to_string(),
+                content: "Inspect failing test".to_string(),
+                status: TodoStatus::InProgress,
+                position: 0,
+                step_index: Some(1),
+                created_at: 10,
+                updated_at: 20,
+            }],
+        );
+
+        assert_eq!(event.phase, "todo");
+        assert_eq!(event.step_index, Some(1));
+        assert_eq!(event.todo_snapshot.len(), 1);
+        assert_eq!(event.todo_snapshot[0].content, "Inspect failing test");
+    }
+
+    #[test]
+    fn planner_required_for_message_detects_multi_step_requests() {
+        assert!(planner_required_for_message(
+            "Investigate the failing tests, then update the parser, and finally rerun the suite."
+        ));
+        assert!(planner_required_for_message(
+            "1. Inspect logs\n2. Find the bad config\n3. Patch it"
+        ));
+    }
+
+    #[test]
+    fn planner_required_for_message_skips_simple_requests() {
+        assert!(!planner_required_for_message("What port is the daemon listening on?"));
+        assert!(!planner_required_for_message("Show me the last error."));
     }
 }

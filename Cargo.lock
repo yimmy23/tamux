@@ -1801,7 +1801,7 @@ dependencies = [
 
 [[package]]
 name = "tamux-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "base64",
@@ -1821,7 +1821,7 @@ dependencies = [
 
 [[package]]
 name = "tamux-daemon"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "base64",
@@ -1856,7 +1856,7 @@ dependencies = [
 
 [[package]]
 name = "tamux-gateway"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "futures",
@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "tamux-mcp"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "futures",
@@ -1890,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "tamux-protocol"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bincode",
  "bytes",

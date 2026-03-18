@@ -5,17 +5,20 @@
 1. Session initialization
    - User opens a workspace and a daemon-backed PTY attaches to the active pane.
    - MEMORY and USER context are hydrated into the mission panel.
-2. Task delegation
-   - Human types directly in the REPL or triggers managed execution from Mission Control or Session Vault replay.
-   - The daemon validates, snapshots, serializes, and policy-checks managed work.
-3. Agent reasoning
+2. Goal creation
+   - Human starts a durable goal run from Mission Control instead of issuing only a single prompt.
+   - The daemon persists the goal immediately so it can survive UI disconnects and restarts.
+3. Planning and child-task delegation
+   - The built-in daemon agent generates a structured plan.
+   - Executable steps are translated into child tasks on the daemon queue.
+4. Agent reasoning and execution
    - INNER_MONOLOGUE and SCRATCHPAD payloads stream into the Reasoning Trace plane.
-   - Operational, cognitive, and contextual telemetry are persisted.
-4. HITL approval
+   - Operational, cognitive, and contextual telemetry are persisted alongside goal-run state.
+5. HITL approval
    - High-risk managed commands pause behind the structured Security Interceptor modal.
-   - Approval decisions flow back to the daemon.
-5. Task completion
-   - Execution completes, telemetry is written to JSONL + SQLite/FTS, and a replayable timeline entry is added.
+   - Approval decisions flow back to the daemon, which resumes the waiting child task and goal run.
+6. Reflection and durable output
+   - On success, the daemon records a final reflection, may append a durable memory update, and may generate a reusable skill from the trajectory.
 
 ## Low-Fidelity Wireframes
 
@@ -29,8 +32,9 @@
 |                         |                                      |                |
 |                         |  [Shared Cursor Badge]              | Threads        |
 |                         |                                      | Trace          |
-|                         |  live output / managed execution     | Context        |
-|                         |                                      | Graph          |
+|                         |  live output / managed execution     | Goal Runners   |
+|                         |                                      | Tasks / Trace  |
+|                         |                                      | Context / Graph|
 +-------------------------+--------------------------------------+----------------+
 | Status Bar: daemon | mission | trace | ops | logs | vault | search | settings   |
 +----------------------------------------------------------------------------------+
@@ -67,10 +71,29 @@
 +----------------------------------------------------------------------------+
 ```
 
+## Goal Runner Model
+
+- A **goal run** is the durable unit of autonomy.
+- A **child task** is the executable unit that runs on the daemon queue.
+- Goal runs own plan generation, replanning, reflection, and durable outputs.
+- Child tasks own queueing, lane scheduling, approval waits, retries, and managed command execution.
+
+Current top-level goal-run states:
+
+- `queued`
+- `planning`
+- `running`
+- `awaiting_approval`
+- `paused`
+- `completed`
+- `failed`
+- `cancelled`
+
 ## Color Taxonomy
 
 - Human input: `var(--success)`
 - Agent-managed execution: `var(--accent)`
+- Goal-run planning and orchestration: `var(--mission)`
 - Reasoning trace: cool blue text on translucent navy surfaces
 - Security warnings: `var(--warning)`
 - Critical danger: `var(--danger)`
@@ -98,5 +121,6 @@
 
 - Human cursor mode is shown for direct keyboard input in the REPL.
 - Agent cursor mode is shown while daemon-managed commands are starting or running.
+- Mission mode should be visually distinct when a long-running goal is planning or coordinating child work.
 - Approval mode is shown while a structured approval request is pending.
 - Idle mode is shown when the lane is quiescent.

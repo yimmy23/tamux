@@ -4,20 +4,20 @@
 //! state (workspace/pane/browser) are not available in daemon mode — only
 //! tools that can execute headlessly are included here.
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use amux_protocol::{
     DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SecurityLevel, SessionId,
 };
-use anyhow::Result;
-use tokio::io::AsyncWriteExt;
+use anyhow::{Context, Result};
+use base64::Engine;
 use tokio::sync::broadcast;
 
 use crate::session_manager::SessionManager;
 
 use super::types::{
-    AgentConfig, AgentEvent, NotificationSeverity, ToolCall, ToolDefinition, ToolFunctionDef,
-    ToolPendingApproval, ToolResult,
+    AgentConfig, AgentEvent, NotificationSeverity, TodoItem, TodoStatus, ToolCall, ToolDefinition,
+    ToolFunctionDef, ToolPendingApproval, ToolResult,
 };
 use super::AgentEngine;
 
@@ -35,13 +35,20 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
     if config.tools.bash {
         tools.push(tool_def(
             "bash_command",
-            "Execute a non-interactive shell command and return stdout, stderr, and exit code. Runs headless (no TTY). For interactive/TUI programs, use type_in_terminal instead.",
+            "Execute a shell command through a tamux-managed terminal session. This does not run as a daemon-native headless subprocess.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "The shell command to execute" },
-                    "timeout_seconds": { "type": "integer", "description": "Max execution time in seconds (default: 30)" },
-                    "cwd": { "type": "string", "description": "Working directory (optional)" }
+                    "command": { "type": "string", "description": "Shell command to execute in a managed terminal session" },
+                    "rationale": { "type": "string", "description": "Why this command should run" },
+                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
+                    "cwd": { "type": "string", "description": "Optional working directory" },
+                    "allow_network": { "type": "boolean", "description": "Whether network access is expected" },
+                    "sandbox_enabled": { "type": "boolean", "description": "Whether sandboxing should be requested" },
+                    "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
+                    "language_hint": { "type": "string", "description": "Optional language hint for validation" },
+                    "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
+                    "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 300, max: 3600)" }
                 },
                 "required": ["command"]
             }),
@@ -51,11 +58,13 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
     if config.tools.file_operations {
         tools.push(tool_def(
             "list_files",
-            "List files and directories at a given path.",
+            "List files and directories at a given path through a tamux-managed terminal session.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Directory path to list" }
+                    "path": { "type": "string", "description": "Directory path to list" },
+                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
+                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 300)" }
                 },
                 "required": ["path"]
             }),
@@ -76,12 +85,14 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
 
         tools.push(tool_def(
             "write_file",
-            "Write content to a file, creating it if it doesn't exist.",
+            "Write content to a file through an existing terminal session managed by tamux. This runs in the terminal's environment, not in a daemon-native filesystem context.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path to write" },
-                    "content": { "type": "string", "description": "File content to write" }
+                    "content": { "type": "string", "description": "File content to write" },
+                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
+                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 300)" }
                 },
                 "required": ["path", "content"]
             }),
@@ -172,6 +183,30 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
     ));
 
     tools.push(tool_def(
+        "update_todo",
+        "Replace the current todo list for this conversation. Use this to enter plan mode for non-trivial work and keep the list current as execution progresses.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "Ordered todo items representing the current plan",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": { "type": "string", "description": "Short todo item text" },
+                            "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "blocked"], "description": "Current execution state" },
+                            "step_index": { "type": "integer", "description": "Optional goal-run step index for this todo item" }
+                        },
+                        "required": ["content", "status"]
+                    }
+                }
+            },
+            "required": ["items"]
+        }),
+    ));
+
+    tools.push(tool_def(
         "update_memory",
         "Update your persistent memory with new knowledge. Persists across sessions and restarts.",
         serde_json::json!({
@@ -180,6 +215,31 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
                 "content": { "type": "string", "description": "Updated memory content (markdown)" }
             },
             "required": ["content"]
+        }),
+    ));
+
+    tools.push(tool_def(
+        "list_skills",
+        "List reusable local skills available to the tamux agent from ~/.tamux/skills (platform dependent).",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Optional name/path filter for relevant skills" },
+                "limit": { "type": "integer", "description": "Max skills to return (default: 20)" }
+            }
+        }),
+    ));
+
+    tools.push(tool_def(
+        "read_skill",
+        "Read a local skill document before acting. Accepts a skill name, relative path, or generated skill filename.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "skill": { "type": "string", "description": "Skill name, file stem, or relative path under the tamux skills directory" },
+                "max_lines": { "type": "integer", "description": "Max lines to read (default: 200)" }
+            },
+            "required": ["skill"]
         }),
     ));
 
@@ -266,16 +326,23 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
             "include_dom": { "type": "boolean", "description": "For browser panels: include page DOM text content. Ignored for terminal panes." }
         }
     })));
-    tools.push(tool_def("run_terminal_command", "Execute a non-interactive shell command and return stdout/stderr. Runs in a headless subprocess — NO TTY. Use ONLY for commands that produce text output (ls, cat, grep, git, curl, etc). Do NOT use for interactive/TUI programs (vim, htop, codex, claude, etc) — use type_in_terminal instead.", serde_json::json!({
+    tools.push(tool_def("run_terminal_command", "Execute a shell command through a tamux-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess).", serde_json::json!({
         "type": "object",
         "properties": {
-            "command": { "type": "string", "description": "Non-interactive shell command to execute" },
-            "cwd": { "type": "string", "description": "Working directory (optional)" },
-            "timeout_seconds": { "type": "integer", "description": "Max execution time in seconds (default: 30)" }
+            "command": { "type": "string", "description": "Shell command to execute in a managed terminal session" },
+            "rationale": { "type": "string", "description": "Why this command should run" },
+            "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
+            "cwd": { "type": "string", "description": "Optional working directory" },
+            "allow_network": { "type": "boolean", "description": "Whether network access is expected" },
+            "sandbox_enabled": { "type": "boolean", "description": "Whether sandboxing should be requested" },
+            "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
+            "language_hint": { "type": "string", "description": "Optional language hint for validation" },
+            "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 300, max: 3600)" }
         },
         "required": ["command"]
     })));
-    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. Use this when the command should run in a real PTY, may need TTY semantics, or should go through the operator approval policy. If session is omitted, uses the first active terminal session.", serde_json::json!({
+    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to run in the managed terminal session" },
@@ -285,7 +352,9 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
             "allow_network": { "type": "boolean", "description": "Whether network access is expected" },
             "sandbox_enabled": { "type": "boolean", "description": "Whether sandboxing should be requested" },
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
-            "language_hint": { "type": "string", "description": "Optional language hint for validation" }
+            "language_hint": { "type": "string", "description": "Optional language hint for validation" },
+            "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 300, max: 3600)" }
         },
         "required": ["command", "rationale"]
     })));
@@ -471,6 +540,8 @@ fn tool_def(name: &str, description: &str, parameters: serde_json::Value) -> Too
 pub async fn execute_tool(
     tool_call: &ToolCall,
     agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
@@ -486,13 +557,38 @@ pub async fn execute_tool(
         "agent tool call"
     );
 
+    if !thread_id.trim().is_empty()
+        && matches!(
+            tool_call.function.name.as_str(),
+            "bash_command" | "execute_managed_command" | "enqueue_task"
+        )
+        && agent.get_todos(thread_id).await.is_empty()
+        && (task_id.is_some() || agent.planner_required_for_thread(thread_id).await)
+    {
+        return ToolResult {
+            tool_call_id: tool_call.id.clone(),
+            name: tool_call.function.name.clone(),
+            content: "Plan required: call update_todo first so tamux can track the live execution plan before running commands or spawning tasks.".to_string(),
+            is_error: true,
+            pending_approval: None,
+        };
+    }
+
     let mut pending_approval = None;
 
     let result = match tool_call.function.name.as_str() {
         // Terminal/session tools (daemon owns sessions directly)
         "list_terminals" | "list_sessions" => execute_list_sessions(session_manager).await,
         "read_active_terminal_content" => execute_read_terminal(&args, session_manager).await,
-        "run_terminal_command" => execute_run_terminal_command(&args, session_manager).await,
+        "run_terminal_command" => {
+            match execute_run_terminal_command(&args, session_manager, session_id).await {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
+        }
         "execute_managed_command" => {
             match execute_managed_command(&args, session_manager, session_id).await {
                 Ok((content, approval)) => {
@@ -535,17 +631,26 @@ pub async fn execute_tool(
             execute_workspace_tool(tool_call.function.name.as_str(), &args, event_tx).await
         }
         // Daemon-native tools
-        "bash_command" => execute_bash(&args).await,
-        "list_files" => execute_list_files(&args).await,
+        "bash_command" => match execute_bash_command(&args, session_manager, session_id).await {
+            Ok((content, approval)) => {
+                pending_approval = approval;
+                Ok(content)
+            }
+            Err(error) => Err(error),
+        },
+        "list_files" => execute_list_files(&args, session_manager, session_id).await,
         "read_file" => execute_read_file(&args).await,
-        "write_file" => execute_write_file(&args).await,
+        "write_file" => execute_write_file(&args, session_manager, session_id).await,
         "search_files" => execute_search_files(&args).await,
         "get_system_info" => execute_system_info().await,
         "list_processes" => execute_list_processes(&args).await,
         "search_history" => execute_search_history(&args, session_manager).await,
         "onecontext_search" => execute_onecontext_search(&args).await,
         "notify_user" => execute_notify(&args, event_tx).await,
+        "update_todo" => execute_update_todo(&args, agent, thread_id, task_id).await,
         "update_memory" => execute_update_memory(&args, agent_data_dir).await,
+        "list_skills" => execute_list_skills(&args, agent_data_dir).await,
+        "read_skill" => execute_read_skill(&args, agent_data_dir).await,
         "web_search" => execute_web_search(&args, http_client).await,
         "fetch_url" => execute_fetch_url(&args, http_client).await,
         other => Err(anyhow::anyhow!("Unknown tool: {other}")),
@@ -553,6 +658,12 @@ pub async fn execute_tool(
 
     match result {
         Ok(content) => {
+            emit_workflow_notice_for_tool(
+                event_tx,
+                thread_id,
+                tool_call.function.name.as_str(),
+                &args,
+            );
             tracing::info!(tool = %tool_call.function.name, result_len = content.len(), "agent tool result: ok");
             ToolResult {
                 tool_call_id: tool_call.id.clone(),
@@ -579,81 +690,36 @@ pub async fn execute_tool(
 // Tool implementations
 // ---------------------------------------------------------------------------
 
-async fn execute_bash(args: &serde_json::Value) -> Result<String> {
-    let command = args
-        .get("command")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'command' argument"))?;
+async fn execute_list_files(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+    preferred_session_id: Option<SessionId>,
+) -> Result<String> {
+    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+    validate_read_path(path)?;
 
     let timeout_secs = args
         .get("timeout_seconds")
         .and_then(|v| v.as_u64())
-        .unwrap_or(30);
+        .unwrap_or(30)
+        .min(300);
 
-    let cwd = args.get("cwd").and_then(|v| v.as_str());
+    let token = format!("amux_ls_{}", uuid::Uuid::new_v4().simple());
+    let path_b64 = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
+    let script = build_list_files_script(&path_b64, &token);
 
-    let mut cmd = tokio::process::Command::new("sh");
-    cmd.arg("-c").arg(command);
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
+    let output = execute_terminal_python_capture(
+        session_manager,
+        preferred_session_id,
+        args.get("session").and_then(|v| v.as_str()),
+        &script,
+        &token,
+        "List directory contents through the active terminal session",
+        timeout_secs,
+    )
+    .await?;
 
-    let output = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output())
-        .await
-        .map_err(|_| anyhow::anyhow!("command timed out after {timeout_secs}s"))??;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let exit_code = output.status.code().unwrap_or(-1);
-
-    // Truncate large output
-    let max_chars = 50_000;
-    let stdout_str = if stdout.len() > max_chars {
-        format!(
-            "{}...\n(truncated, {} chars total)",
-            &stdout[..max_chars],
-            stdout.len()
-        )
-    } else {
-        stdout.to_string()
-    };
-
-    let mut result = format!("Exit code: {exit_code}");
-    if !stdout_str.is_empty() {
-        result.push_str(&format!("\n\nStdout:\n{stdout_str}"));
-    }
-    if !stderr.is_empty() {
-        let stderr_str = if stderr.len() > 5000 {
-            format!("{}...(truncated)", &stderr[..5000])
-        } else {
-            stderr.to_string()
-        };
-        result.push_str(&format!("\n\nStderr:\n{stderr_str}"));
-    }
-
-    Ok(result)
-}
-
-async fn execute_list_files(args: &serde_json::Value) -> Result<String> {
-    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-
-    let mut entries = tokio::fs::read_dir(path).await?;
-    let mut items = Vec::new();
-
-    while let Some(entry) = entries.next_entry().await? {
-        let metadata = entry.metadata().await?;
-        let kind = if metadata.is_dir() { "dir" } else { "file" };
-        let size = metadata.len();
-        let name = entry.file_name().to_string_lossy().to_string();
-        items.push(format!("{kind}\t{size}\t{name}"));
-    }
-
-    items.sort();
-    if items.is_empty() {
-        Ok("(empty directory)".into())
-    } else {
-        Ok(items.join("\n"))
-    }
+    Ok(output)
 }
 
 async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
@@ -681,7 +747,11 @@ async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
     Ok(result)
 }
 
-async fn execute_write_file(args: &serde_json::Value) -> Result<String> {
+async fn execute_write_file(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+    preferred_session_id: Option<SessionId>,
+) -> Result<String> {
     let path = args
         .get("path")
         .and_then(|v| v.as_str())
@@ -693,49 +763,128 @@ async fn execute_write_file(args: &serde_json::Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
 
-    let file_path = Path::new(path);
+    let timeout_secs = args
+        .get("timeout_seconds")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30)
+        .min(300);
 
-    // Ensure parent directory exists
-    if let Some(parent) = file_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+    let sessions = session_manager.list().await;
+    if sessions.is_empty() {
+        anyhow::bail!("No active terminal sessions are available for write_file");
     }
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(file_path)
+    let resolved_session_id =
+        if let Some(session_ref) = args.get("session").and_then(|v| v.as_str()) {
+            sessions
+                .iter()
+                .find(|session| {
+                    session.id.to_string() == session_ref
+                        || session.id.to_string().contains(session_ref)
+                })
+                .map(|session| session.id)
+                .ok_or_else(|| anyhow::anyhow!("session not found: {session_ref}"))?
+        } else {
+            preferred_session_id.unwrap_or(sessions[0].id)
+        };
+
+    let (mut rx, _) = session_manager.subscribe(resolved_session_id).await?;
+    let command = build_write_file_command(path, content);
+    let request = ManagedCommandRequest {
+        command,
+        rationale: format!(
+            "Write {} bytes to file path requested by agent tool call",
+            content.len()
+        ),
+        allow_network: false,
+        sandbox_enabled: false,
+        security_level: SecurityLevel::Lowest,
+        cwd: None,
+        language_hint: Some("shell".to_string()),
+        source: ManagedCommandSource::Agent,
+    };
+
+    let queued = session_manager
+        .execute_managed_command(resolved_session_id, request)
         .await?;
-    file.write_all(content.as_bytes()).await?;
-    file.sync_all().await?;
-    drop(file);
 
-    let metadata = tokio::fs::metadata(file_path).await?;
-    if !metadata.is_file() {
-        return Err(anyhow::anyhow!(
-            "write verification failed: target is not a regular file: {path}"
-        ));
+    let execution_id = match queued {
+        DaemonMessage::ManagedCommandQueued { execution_id, .. } => execution_id,
+        DaemonMessage::ApprovalRequired { approval, .. } => {
+            return Err(anyhow::anyhow!(
+                "write_file requires approval before execution (approval_id: {})",
+                approval.approval_id
+            ));
+        }
+        DaemonMessage::ManagedCommandRejected { message, .. } => {
+            return Err(anyhow::anyhow!("write_file command rejected: {message}"));
+        }
+        other => {
+            return Err(anyhow::anyhow!(
+                "unexpected managed command response for write_file: {}",
+                daemon_message_kind(&other)
+            ));
+        }
+    };
+
+    let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    loop {
+        let remaining = wait_deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(anyhow::anyhow!(
+                "write_file timed out waiting for terminal command completion (execution_id: {execution_id})"
+            ));
+        }
+
+        let event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "write_file timed out waiting for terminal command completion (execution_id: {execution_id})"
+                )
+            })?;
+
+        let msg = match event {
+            Ok(message) => message,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                return Err(anyhow::anyhow!(
+                    "terminal session event stream closed while waiting for write_file result"
+                ));
+            }
+        };
+
+        match msg {
+            DaemonMessage::ManagedCommandFinished {
+                execution_id: finished_id,
+                exit_code,
+                ..
+            } if finished_id == execution_id => {
+                if exit_code == Some(0) {
+                    return Ok(format!(
+                        "Written {} bytes to {path} via session {resolved_session_id} (execution_id: {execution_id})",
+                        content.len()
+                    ));
+                }
+                return Err(anyhow::anyhow!(
+                    "write_file terminal command failed (execution_id: {execution_id}, exit_code: {:?})",
+                    exit_code
+                ));
+            }
+            DaemonMessage::ManagedCommandRejected {
+                execution_id: rejected_id,
+                message,
+                ..
+            } => {
+                if rejected_id.as_deref() == Some(execution_id.as_str()) || rejected_id.is_none() {
+                    return Err(anyhow::anyhow!(
+                        "write_file terminal command rejected (execution_id: {execution_id}): {message}"
+                    ));
+                }
+            }
+            _ => {}
+        }
     }
-
-    let persisted = tokio::fs::read(file_path).await?;
-    if persisted != content.as_bytes() {
-        return Err(anyhow::anyhow!(
-            "write verification failed for {path}: expected {} bytes, found {} bytes",
-            content.len(),
-            persisted.len()
-        ));
-    }
-
-    let resolved_suffix = tokio::fs::canonicalize(file_path)
-        .await
-        .ok()
-        .map(|resolved| format!(" (resolved: {})", resolved.display()))
-        .unwrap_or_default();
-
-    Ok(format!(
-        "Written {} bytes to {path}{resolved_suffix}",
-        content.len()
-    ))
 }
 
 fn validate_write_path(path: &str) -> Result<()> {
@@ -757,6 +906,374 @@ fn validate_write_path(path: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn validate_read_path(path: &str) -> Result<()> {
+    if path.is_empty() {
+        return Err(anyhow::anyhow!("'path' must not be empty"));
+    }
+    if path.trim().is_empty() {
+        return Err(anyhow::anyhow!("'path' must not be blank"));
+    }
+    if path.trim() != path {
+        return Err(anyhow::anyhow!(
+            "invalid 'path': leading/trailing whitespace is not allowed"
+        ));
+    }
+    if path.chars().any(|ch| ch.is_control()) {
+        return Err(anyhow::anyhow!(
+            "invalid 'path': control characters are not allowed"
+        ));
+    }
+
+    Ok(())
+}
+
+fn build_write_file_command(path: &str, content: &str) -> String {
+    let path_b64 = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
+    let content_b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
+    let script = build_write_file_script(&path_b64, &content_b64);
+
+    let script_b64 = base64::engine::general_purpose::STANDARD.encode(script.as_bytes());
+    format!(
+        "if command -v python3 >/dev/null 2>&1; then \
+             python3 -c \"import base64;exec(base64.b64decode('{script_b64}').decode('utf-8'))\"; \
+         else \
+             python -c \"import base64;exec(base64.b64decode('{script_b64}').decode('utf-8'))\"; \
+         fi"
+    )
+}
+
+fn build_write_file_script(path_b64: &str, content_b64: &str) -> String {
+    let mut script = vec![
+        "import base64, pathlib".to_string(),
+        format!("p = pathlib.Path(base64.b64decode('{path_b64}').decode('utf-8'))"),
+        format!("data = base64.b64decode('{content_b64}')"),
+        "p.parent.mkdir(parents=True, exist_ok=True)".to_string(),
+        "p.write_bytes(data)".to_string(),
+        "actual = p.stat().st_size".to_string(),
+        "expected = len(data)".to_string(),
+        "if actual != expected:".to_string(),
+        "    raise SystemExit(f'size mismatch: expected {expected}, got {actual}')".to_string(),
+        "print(f'written {actual} bytes to {p}')".to_string(),
+    ]
+    .join("\n");
+    script.push('\n');
+    script
+}
+
+fn build_list_files_script(path_b64: &str, token: &str) -> String {
+    let mut script = vec![
+        "import base64, pathlib, sys".to_string(),
+        format!("p = pathlib.Path(base64.b64decode('{path_b64}').decode('utf-8'))"),
+        "try:".to_string(),
+        "    rows = []".to_string(),
+        "    for entry in sorted(p.iterdir(), key=lambda item: item.name):".to_string(),
+        "        kind = 'dir' if entry.is_dir() else 'file'".to_string(),
+        "        size = entry.stat().st_size".to_string(),
+        "        rows.append(f'{kind}\\t{size}\\t{entry.name}')".to_string(),
+        "    payload = '\\n'.join(rows) if rows else '(empty directory)'".to_string(),
+        "    status = 0".to_string(),
+        "except Exception as exc:".to_string(),
+        "    payload = f'Error: {exc}'".to_string(),
+        "    status = 1".to_string(),
+        "encoded = base64.b64encode(payload.encode('utf-8')).decode('ascii')".to_string(),
+        format!("print('__AMUX_CAPTURE_BEGIN_{token}__')"),
+        "print(encoded)".to_string(),
+        format!("print(f'__AMUX_CAPTURE_END_{token}__:{{status}}')"),
+        "sys.exit(status)".to_string(),
+    ]
+    .join("\n");
+    script.push('\n');
+    script
+}
+
+fn daemon_message_kind(msg: &DaemonMessage) -> &'static str {
+    match msg {
+        DaemonMessage::ManagedCommandQueued { .. } => "managed_command_queued",
+        DaemonMessage::ApprovalRequired { .. } => "approval_required",
+        DaemonMessage::ManagedCommandRejected { .. } => "managed_command_rejected",
+        DaemonMessage::ManagedCommandStarted { .. } => "managed_command_started",
+        DaemonMessage::ManagedCommandFinished { .. } => "managed_command_finished",
+        _ => "other",
+    }
+}
+
+enum ManagedCommandWaitOutcome {
+    Finished {
+        exit_code: Option<i32>,
+        duration_ms: Option<u64>,
+        output_tail: String,
+    },
+    Rejected {
+        message: String,
+    },
+    Timeout {
+        output_tail: String,
+    },
+}
+
+fn terminal_output_tail(raw: &[u8], max_lines: usize) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+    let stripped = strip_ansi_escapes::strip(raw);
+    let text = String::from_utf8_lossy(&stripped);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    let start = lines.len().saturating_sub(max_lines);
+    let mut result = String::new();
+    if start > 0 {
+        result.push_str(&format!("... ({} earlier lines omitted)\n", start));
+    }
+    result.push_str(&lines[start..].join("\n"));
+    result
+}
+
+async fn wait_for_managed_command_outcome(
+    rx: &mut tokio::sync::broadcast::Receiver<DaemonMessage>,
+    session_id: SessionId,
+    execution_id: &str,
+    timeout_secs: u64,
+) -> Result<ManagedCommandWaitOutcome> {
+    const MAX_CAPTURE_BYTES: usize = 512_000;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    let mut output_buf = Vec::new();
+
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Ok(ManagedCommandWaitOutcome::Timeout {
+                output_tail: terminal_output_tail(&output_buf, 80),
+            });
+        }
+
+        let event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .map_err(|_| anyhow::anyhow!("timed out waiting for managed command result"))?;
+
+        let msg = match event {
+            Ok(message) => message,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                return Err(anyhow::anyhow!(
+                    "terminal session event stream closed while waiting for managed command result"
+                ));
+            }
+        };
+
+        match msg {
+            DaemonMessage::Output { id, data } if id == session_id => {
+                output_buf.extend_from_slice(&data);
+                if output_buf.len() > MAX_CAPTURE_BYTES {
+                    let overflow = output_buf.len() - MAX_CAPTURE_BYTES;
+                    output_buf.drain(..overflow);
+                }
+            }
+            DaemonMessage::ManagedCommandFinished {
+                id,
+                execution_id: finished_id,
+                exit_code,
+                duration_ms,
+                ..
+            } if id == session_id && finished_id == execution_id => {
+                return Ok(ManagedCommandWaitOutcome::Finished {
+                    exit_code,
+                    duration_ms,
+                    output_tail: terminal_output_tail(&output_buf, 80),
+                });
+            }
+            DaemonMessage::ManagedCommandRejected {
+                id,
+                execution_id: rejected_id,
+                message,
+            } if id == session_id
+                && (rejected_id.as_deref() == Some(execution_id) || rejected_id.is_none()) =>
+            {
+                return Ok(ManagedCommandWaitOutcome::Rejected { message });
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn execute_terminal_python_capture(
+    session_manager: &Arc<SessionManager>,
+    preferred_session_id: Option<SessionId>,
+    requested_session: Option<&str>,
+    script: &str,
+    token: &str,
+    rationale: &str,
+    timeout_secs: u64,
+) -> Result<String> {
+    let sessions = session_manager.list().await;
+    if sessions.is_empty() {
+        anyhow::bail!("No active terminal sessions are available");
+    }
+
+    let resolved_session_id = if let Some(session_ref) = requested_session {
+        sessions
+            .iter()
+            .find(|session| {
+                session.id.to_string() == session_ref
+                    || session.id.to_string().contains(session_ref)
+            })
+            .map(|session| session.id)
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_ref}"))?
+    } else {
+        preferred_session_id.unwrap_or(sessions[0].id)
+    };
+
+    let (mut rx, _) = session_manager.subscribe(resolved_session_id).await?;
+    let script_b64 = base64::engine::general_purpose::STANDARD.encode(script.as_bytes());
+    let command = format!(
+        "if command -v python3 >/dev/null 2>&1; then \
+             python3 -c \"import base64;exec(base64.b64decode('{script_b64}').decode('utf-8'))\"; \
+         else \
+             python -c \"import base64;exec(base64.b64decode('{script_b64}').decode('utf-8'))\"; \
+         fi"
+    );
+    let request = ManagedCommandRequest {
+        command,
+        rationale: rationale.to_string(),
+        allow_network: false,
+        sandbox_enabled: false,
+        security_level: SecurityLevel::Lowest,
+        cwd: None,
+        language_hint: Some("python".to_string()),
+        source: ManagedCommandSource::Agent,
+    };
+
+    let queued = session_manager
+        .execute_managed_command(resolved_session_id, request)
+        .await?;
+    let execution_id = match queued {
+        DaemonMessage::ManagedCommandQueued { execution_id, .. } => execution_id,
+        DaemonMessage::ApprovalRequired { approval, .. } => {
+            return Err(anyhow::anyhow!(
+                "terminal capture command requires approval before execution (approval_id: {})",
+                approval.approval_id
+            ));
+        }
+        DaemonMessage::ManagedCommandRejected { message, .. } => {
+            return Err(anyhow::anyhow!(
+                "terminal capture command rejected: {message}"
+            ));
+        }
+        other => {
+            return Err(anyhow::anyhow!(
+                "unexpected managed command response: {}",
+                daemon_message_kind(&other)
+            ));
+        }
+    };
+
+    let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    let mut output_buf: Vec<u8> = Vec::new();
+    loop {
+        let remaining = wait_deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(anyhow::anyhow!(
+                "timed out waiting for terminal capture command completion (execution_id: {execution_id})"
+            ));
+        }
+
+        let event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "timed out waiting for terminal capture command completion (execution_id: {execution_id})"
+                )
+            })?;
+
+        let msg = match event {
+            Ok(message) => message,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                return Err(anyhow::anyhow!(
+                    "terminal session event stream closed while waiting for command output"
+                ));
+            }
+        };
+
+        match msg {
+            DaemonMessage::Output { id, data } if id == resolved_session_id => {
+                output_buf.extend_from_slice(&data);
+            }
+            DaemonMessage::ManagedCommandFinished {
+                id,
+                execution_id: finished_id,
+                exit_code,
+                ..
+            } if id == resolved_session_id && finished_id == execution_id => {
+                let (captured_status, captured_output) = parse_capture_output(&output_buf, token)
+                    .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "failed to parse captured command output (execution_id: {execution_id})"
+                    )
+                })?;
+
+                if captured_status == 0 && exit_code == Some(0) {
+                    return Ok(captured_output);
+                }
+
+                return Err(anyhow::anyhow!(
+                    "terminal capture command failed (execution_id: {execution_id}, exit_code: {:?}): {}",
+                    exit_code,
+                    captured_output
+                ));
+            }
+            DaemonMessage::ManagedCommandRejected {
+                id,
+                execution_id: rejected_id,
+                message,
+            } if id == resolved_session_id
+                && (rejected_id.as_deref() == Some(execution_id.as_str())
+                    || rejected_id.is_none()) =>
+            {
+                return Err(anyhow::anyhow!(
+                    "terminal capture command rejected (execution_id: {execution_id}): {message}"
+                ));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn parse_capture_output(output: &[u8], token: &str) -> Option<(i32, String)> {
+    let stripped = strip_ansi_escapes::strip(output);
+    let text = String::from_utf8_lossy(&stripped);
+
+    let begin_marker = format!("__AMUX_CAPTURE_BEGIN_{token}__");
+    let end_prefix = format!("__AMUX_CAPTURE_END_{token}__:");
+
+    let begin_idx = text.rfind(&begin_marker)?;
+    let after_begin = &text[begin_idx + begin_marker.len()..];
+    let after_begin = after_begin.trim_start_matches(['\r', '\n']);
+
+    let end_idx = after_begin.find(&end_prefix)?;
+    let encoded_payload = after_begin[..end_idx]
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    if encoded_payload.is_empty() {
+        return Some((0, String::new()));
+    }
+
+    let after_end = &after_begin[end_idx + end_prefix.len()..];
+    let status_raw = after_end
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit() || *ch == '-')
+        .collect::<String>();
+    let status = status_raw.parse::<i32>().ok()?;
+
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded_payload)
+        .ok()?;
+    let payload = String::from_utf8_lossy(&decoded).into_owned();
+    Some((status, payload))
 }
 
 async fn execute_search_files(args: &serde_json::Value) -> Result<String> {
@@ -1083,6 +1600,166 @@ async fn execute_update_memory(
     Ok("Memory updated successfully.".into())
 }
 
+async fn execute_list_skills(
+    args: &serde_json::Value,
+    agent_data_dir: &std::path::Path,
+) -> Result<String> {
+    let skills_root = super::skills_dir(agent_data_dir);
+    let query = args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty());
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+
+    let mut files = Vec::new();
+    collect_skill_documents(&skills_root, &mut files)?;
+    if files.is_empty() {
+        return Ok(format!(
+            "No local skills found under {}.",
+            skills_root.display()
+        ));
+    }
+
+    files.sort();
+    let root_canonical = std::fs::canonicalize(&skills_root).unwrap_or(skills_root.clone());
+    let mut entries = files
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(&root_canonical)
+                .or_else(|_| path.strip_prefix(&skills_root))
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("skill");
+            Some((stem.to_string(), relative))
+        })
+        .filter(|(stem, relative)| match query.as_ref() {
+            Some(needle) => {
+                stem.to_lowercase().contains(needle) || relative.to_lowercase().contains(needle)
+            }
+            None => true,
+        })
+        .take(limit)
+        .collect::<Vec<_>>();
+
+    if entries.is_empty() {
+        return Ok(format!(
+            "No local skills matched under {}.",
+            skills_root.display()
+        ));
+    }
+
+    let mut body = format!("Local skills under {}:\n", skills_root.display());
+    for (stem, relative) in entries.drain(..) {
+        body.push_str(&format!("- {} ({})\n", stem, relative));
+    }
+    Ok(body)
+}
+
+async fn execute_read_skill(
+    args: &serde_json::Value,
+    agent_data_dir: &std::path::Path,
+) -> Result<String> {
+    let skill = args
+        .get("skill")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'skill' argument"))?
+        .trim();
+    if skill.is_empty() {
+        return Err(anyhow::anyhow!("'skill' must not be empty"));
+    }
+
+    let max_lines = args
+        .get("max_lines")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(200)
+        .clamp(20, 1000) as usize;
+    let skills_root = super::skills_dir(agent_data_dir);
+    let skill_path = resolve_skill_path(&skills_root, skill)?;
+    let content = tokio::fs::read_to_string(&skill_path).await?;
+    let total_lines = content.lines().count();
+    let lines = content.lines().take(max_lines).collect::<Vec<_>>();
+    let relative = skill_path
+        .strip_prefix(&skills_root)
+        .unwrap_or(skill_path.as_path())
+        .display()
+        .to_string();
+
+    let mut body = format!("Skill {}:\n\n{}", relative, lines.join("\n"));
+    if total_lines > max_lines {
+        body.push_str(&format!(
+            "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
+        ));
+    }
+    Ok(body)
+}
+
+async fn execute_update_todo(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    let raw_items = args
+        .get("items")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| anyhow::anyhow!("missing 'items' argument"))?;
+
+    let now = super::now_millis();
+    let mut items = Vec::new();
+    for (index, raw_item) in raw_items.iter().enumerate() {
+        let content = raw_item
+            .get("content")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("todo item {index} is missing non-empty 'content'"))?;
+        let status = match raw_item
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("pending")
+        {
+            "pending" => TodoStatus::Pending,
+            "in_progress" => TodoStatus::InProgress,
+            "completed" => TodoStatus::Completed,
+            "blocked" => TodoStatus::Blocked,
+            other => {
+                return Err(anyhow::anyhow!(
+                    "todo item {index} has invalid status '{other}'"
+                ));
+            }
+        };
+
+        items.push(TodoItem {
+            id: format!("todo_{}", uuid::Uuid::new_v4()),
+            content: content.to_string(),
+            status,
+            position: index,
+            step_index: raw_item
+                .get("step_index")
+                .and_then(|value| value.as_u64())
+                .map(|value| value as usize),
+            created_at: now,
+            updated_at: now,
+        });
+    }
+
+    agent
+        .replace_thread_todos(thread_id, items.clone(), task_id)
+        .await;
+
+    Ok(format!("Updated todo list with {} item(s).", items.len()))
+}
+
 async fn execute_web_search(
     args: &serde_json::Value,
     http_client: &reqwest::Client,
@@ -1141,6 +1818,147 @@ async fn execute_web_search(
             results.join("\n\n")
         ))
     }
+}
+
+fn emit_workflow_notice_for_tool(
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
+    tool_name: &str,
+    args: &serde_json::Value,
+) {
+    if thread_id.trim().is_empty() {
+        return;
+    }
+
+    let (kind, message, details) = match tool_name {
+        "update_todo" => {
+            let count = args
+                .get("items")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len())
+                .unwrap_or(0);
+            (
+                "plan-mode",
+                format!("Agent updated plan mode with {count} todo item(s)."),
+                None,
+            )
+        }
+        "update_memory" => (
+            "memory-updated",
+            "Agent updated persistent memory.".to_string(),
+            None,
+        ),
+        "list_skills" | "read_skill" => (
+            "skill-consulted",
+            format!("Agent consulted local skills via {tool_name}."),
+            Some(args.to_string()),
+        ),
+        "onecontext_search" => (
+            "history-consulted",
+            "Agent consulted OneContext history.".to_string(),
+            Some(args.to_string()),
+        ),
+        _ => return,
+    };
+
+    let _ = event_tx.send(AgentEvent::WorkflowNotice {
+        thread_id: thread_id.to_string(),
+        kind: kind.to_string(),
+        message,
+        details,
+    });
+}
+
+fn collect_skill_documents(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_skill_documents(&path, out)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+
+        // Include any .md file in the skills tree — covers SKILL.md, generated
+        // skills, and curated skill documents alike.
+        let is_md = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("md"));
+        if is_md {
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn resolve_skill_path(skills_root: &std::path::Path, skill: &str) -> Result<std::path::PathBuf> {
+    validate_read_path(skill)?;
+    let root_canonical = std::fs::canonicalize(skills_root).unwrap_or(skills_root.to_path_buf());
+
+    let direct_candidate = std::path::Path::new(skill);
+    if direct_candidate.components().count() > 1 || direct_candidate.is_absolute() {
+        let candidate = if direct_candidate.is_absolute() {
+            direct_candidate.to_path_buf()
+        } else {
+            skills_root.join(direct_candidate)
+        };
+        let canonical = std::fs::canonicalize(&candidate)
+            .with_context(|| format!("skill '{}' was not found", skill))?;
+        if !canonical.starts_with(&root_canonical) {
+            anyhow::bail!("skill path must stay inside {}", skills_root.display());
+        }
+        return Ok(canonical);
+    }
+
+    let mut files = Vec::new();
+    collect_skill_documents(skills_root, &mut files)?;
+    let normalized = skill.to_lowercase();
+
+    files.sort();
+    for path in &files {
+        let relative = path
+            .strip_prefix(&root_canonical)
+            .or_else(|_| path.strip_prefix(skills_root))
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if stem == normalized || relative.to_lowercase() == normalized {
+            return Ok(path.clone());
+        }
+    }
+
+    for path in &files {
+        let relative = path
+            .strip_prefix(&root_canonical)
+            .or_else(|_| path.strip_prefix(skills_root))
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if stem.contains(&normalized) || relative.to_lowercase().contains(&normalized) {
+            return Ok(path.clone());
+        }
+    }
+
+    anyhow::bail!("skill '{}' was not found under {}", skill, skills_root.display())
 }
 
 async fn execute_fetch_url(
@@ -1246,11 +2064,68 @@ async fn execute_read_terminal(
 
 async fn execute_run_terminal_command(
     args: &serde_json::Value,
-    _session_manager: &Arc<SessionManager>,
-) -> Result<String> {
-    // Agent uses direct process execution — bypasses the managed lane
-    // and approval system. The daemon agent is a trusted process.
-    execute_bash(args).await
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+) -> Result<(String, Option<ToolPendingApproval>)> {
+    let managed_args =
+        managed_alias_args(args, "Run a shell command in a managed terminal session");
+    execute_managed_command(&managed_args, session_manager, session_id).await
+}
+
+async fn execute_bash_command(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+) -> Result<(String, Option<ToolPendingApproval>)> {
+    let managed_args =
+        managed_alias_args(args, "Run a shell command in a managed terminal session");
+    execute_managed_command(&managed_args, session_manager, session_id).await
+}
+
+fn managed_alias_args(args: &serde_json::Value, fallback_rationale: &str) -> serde_json::Value {
+    let command = args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let rationale = args
+        .get("rationale")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback_rationale);
+
+    let mut mapped = serde_json::Map::new();
+    mapped.insert(
+        "command".to_string(),
+        serde_json::Value::String(command.to_string()),
+    );
+    mapped.insert(
+        "rationale".to_string(),
+        serde_json::Value::String(rationale.to_string()),
+    );
+
+    for key in [
+        "session",
+        "cwd",
+        "allow_network",
+        "sandbox_enabled",
+        "security_level",
+        "language_hint",
+        "wait_for_completion",
+        "timeout_seconds",
+    ] {
+        if let Some(value) = args.get(key) {
+            mapped.insert(key.to_string(), value.clone());
+        }
+    }
+    if !mapped.contains_key("security_level") {
+        mapped.insert(
+            "security_level".to_string(),
+            serde_json::Value::String("lowest".to_string()),
+        );
+    }
+
+    serde_json::Value::Object(mapped)
 }
 
 async fn execute_managed_command(
@@ -1293,12 +2168,26 @@ async fn execute_managed_command(
     let security_level = match args
         .get("security_level")
         .and_then(|value| value.as_str())
-        .unwrap_or("moderate")
+        .unwrap_or("lowest")
     {
         "highest" => SecurityLevel::Highest,
         "lowest" => SecurityLevel::Lowest,
         "yolo" => SecurityLevel::Yolo,
         _ => SecurityLevel::Moderate,
+    };
+    let wait_for_completion = args
+        .get("wait_for_completion")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let timeout_secs = args
+        .get("timeout_seconds")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(300)
+        .min(3600);
+    let mut wait_rx = if wait_for_completion {
+        Some(session_manager.subscribe(resolved_session_id).await?.0)
+    } else {
+        None
     };
 
     let request = ManagedCommandRequest {
@@ -1333,18 +2222,94 @@ async fn execute_managed_command(
             position,
             snapshot,
             ..
-        } => Ok((
-            format!(
+        } => {
+            let snapshot_suffix = snapshot
+                .as_ref()
+                .map(|item| format!(" (snapshot: {})", item.snapshot_id))
+                .unwrap_or_default();
+            let queued_summary = format!(
                 "Managed command queued in session {} as {} at lane position {}{}",
+                resolved_session_id, execution_id, position, snapshot_suffix
+            );
+
+            if !wait_for_completion {
+                return Ok((
+                    format!(
+                        "{queued_summary}\nNot waiting for completion because wait_for_completion=false."
+                    ),
+                    None,
+                ));
+            }
+
+            let Some(ref mut rx) = wait_rx else {
+                return Ok((queued_summary, None));
+            };
+
+            match wait_for_managed_command_outcome(
+                rx,
                 resolved_session_id,
-                execution_id,
-                position,
-                snapshot
-                    .map(|item| format!(" (snapshot: {})", item.snapshot_id))
-                    .unwrap_or_default(),
-            ),
-            None,
-        )),
+                &execution_id,
+                timeout_secs,
+            )
+            .await?
+            {
+                ManagedCommandWaitOutcome::Finished {
+                    exit_code,
+                    duration_ms,
+                    output_tail,
+                } => {
+                    let timing = duration_ms
+                        .map(|value| format!(" in {}ms", value))
+                        .unwrap_or_default();
+                    if exit_code == Some(0) {
+                        let output_section = if output_tail.trim().is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n\nTerminal output (tail):\n{output_tail}")
+                        };
+                        Ok((
+                            format!(
+                                "Managed command finished{timing} in session {} (execution_id: {}, exit_code: 0).{}",
+                                resolved_session_id, execution_id, output_section
+                            ),
+                            None,
+                        ))
+                    } else {
+                        let output_section = if output_tail.trim().is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n\nTerminal output (tail):\n{output_tail}")
+                        };
+                        Err(anyhow::anyhow!(
+                            "Managed command failed in session {} (execution_id: {}, exit_code: {:?}).{}",
+                            resolved_session_id,
+                            execution_id,
+                            exit_code,
+                            output_section
+                        ))
+                    }
+                }
+                ManagedCommandWaitOutcome::Rejected { message } => Err(anyhow::anyhow!(
+                    "Managed command rejected after queueing (execution_id: {}): {}",
+                    execution_id,
+                    message
+                )),
+                ManagedCommandWaitOutcome::Timeout { output_tail } => {
+                    let output_section = if output_tail.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n\nTerminal output so far (tail):\n{output_tail}")
+                    };
+                    Ok((
+                        format!(
+                            "{queued_summary}\nStill running after {}s. Do not queue the same command again; continue monitoring this execution_id in the same session.{}",
+                            timeout_secs, output_section
+                        ),
+                        None,
+                    ))
+                }
+            }
+        }
         DaemonMessage::ApprovalRequired { approval, .. } => Ok((
             format!(
                 "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}",
@@ -1430,6 +2395,7 @@ async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> 
             dependencies,
             scheduled_at,
             "agent",
+            None,
         )
         .await;
 
@@ -2118,75 +3084,119 @@ mod urlencoding {
 
 #[cfg(test)]
 mod tests {
-    use super::execute_write_file;
-    use serde_json::json;
-    use std::path::PathBuf;
+    use super::{
+        build_list_files_script, build_write_file_command, build_write_file_script,
+        managed_alias_args, parse_capture_output, resolve_skill_path, validate_read_path,
+        validate_write_path,
+    };
+    use base64::Engine;
+    use std::fs;
 
-    fn test_root() -> PathBuf {
-        std::env::temp_dir().join(format!("tamux-write-file-test-{}", uuid::Uuid::new_v4()))
-    }
-
-    #[tokio::test]
-    async fn write_file_persists_content() {
-        let root = test_root();
-        let _ = tokio::fs::remove_dir_all(&root).await;
-
-        let path = root.join("nested").join("Dockerfile");
-        let content = "FROM scratch\n";
-        let args = json!({
-            "path": path.to_string_lossy().to_string(),
-            "content": content
-        });
-
-        let result = execute_write_file(&args)
-            .await
-            .expect("write_file should succeed");
-
-        assert!(result.contains("Written"));
-        assert!(result.contains(path.to_string_lossy().as_ref()));
-
-        let written = tokio::fs::read_to_string(&path)
-            .await
-            .expect("written file should exist");
-        assert_eq!(written, content);
-
-        let metadata = tokio::fs::metadata(&path)
-            .await
-            .expect("written file metadata should be readable");
-        assert!(metadata.is_file());
-
-        let _ = tokio::fs::remove_dir_all(&root).await;
-    }
-
-    #[tokio::test]
-    async fn write_file_rejects_paths_with_trailing_whitespace() {
-        let root = test_root();
-        let bad_path = format!("{} ", root.join("Dockerfile").display());
-        let args = json!({
-            "path": bad_path,
-            "content": "x"
-        });
-
-        let error = execute_write_file(&args)
-            .await
+    #[test]
+    fn write_file_rejects_paths_with_trailing_whitespace() {
+        let error = validate_write_path("/tmp/Dockerfile ")
             .expect_err("write_file should reject trailing whitespace");
-        let message = error.to_string();
-        assert!(message.contains("leading/trailing whitespace"));
+        assert!(error.to_string().contains("leading/trailing whitespace"));
     }
 
-    #[tokio::test]
-    async fn write_file_rejects_paths_with_control_characters() {
-        let root = test_root();
-        let bad_path = format!("{}/dock\nerfile", root.display());
-        let args = json!({
-            "path": bad_path,
-            "content": "x"
-        });
-
-        let error = execute_write_file(&args)
-            .await
+    #[test]
+    fn write_file_rejects_paths_with_control_characters() {
+        let error = validate_write_path("/tmp/dock\nerfile")
             .expect_err("write_file should reject control characters");
-        let message = error.to_string();
-        assert!(message.contains("control characters"));
+        assert!(error.to_string().contains("control characters"));
+    }
+
+    #[test]
+    fn write_file_command_encodes_path_and_content() {
+        let command = build_write_file_command("/tmp/Dockerfile", "FROM scratch\n");
+        assert!(command.contains("python3 -c"));
+        assert!(command.contains("base64.b64decode"));
+        assert!(!command.contains("/tmp/Dockerfile"));
+        assert!(!command.contains("FROM scratch"));
+    }
+
+    #[test]
+    fn write_file_script_keeps_python_block_indentation() {
+        let script = build_write_file_script("cGF0aA==", "Y29udGVudA==");
+        assert!(script.contains("\nif actual != expected:\n    raise SystemExit("));
+    }
+
+    #[test]
+    fn list_files_rejects_paths_with_control_characters() {
+        let error = validate_read_path("/tmp/ba\td")
+            .expect_err("list_files should reject control characters");
+        assert!(error.to_string().contains("control characters"));
+    }
+
+    #[test]
+    fn parse_capture_output_decodes_payload_and_status() {
+        let token = "tok123";
+        let payload = "file\t12\tDockerfile\n";
+        let encoded = base64::engine::general_purpose::STANDARD.encode(payload.as_bytes());
+        let output = format!(
+            "prefix\n__AMUX_CAPTURE_BEGIN_{token}__\n{encoded}\n__AMUX_CAPTURE_END_{token}__:0\nsuffix"
+        );
+
+        let parsed =
+            parse_capture_output(output.as_bytes(), token).expect("capture output should parse");
+        assert_eq!(parsed.0, 0);
+        assert_eq!(parsed.1, payload);
+    }
+
+    #[test]
+    fn list_files_script_keeps_python_try_indentation() {
+        let script = build_list_files_script("L3RtcA==", "tok123");
+        assert!(script.contains("\ntry:\n    rows = []\n    for entry in sorted("));
+        assert!(script.contains("\nexcept Exception as exc:\n    payload = f'Error: {exc}'"));
+    }
+
+    #[test]
+    fn managed_alias_defaults_security_level_to_lowest() {
+        let args = serde_json::json!({
+            "command": "echo hello"
+        });
+        let mapped = managed_alias_args(&args, "test rationale");
+        let level = mapped
+            .get("security_level")
+            .and_then(|value| value.as_str())
+            .expect("security_level should be set");
+        assert_eq!(level, "lowest");
+    }
+
+    #[test]
+    fn managed_alias_preserves_wait_controls() {
+        let args = serde_json::json!({
+            "command": "echo hello",
+            "wait_for_completion": false,
+            "timeout_seconds": 42
+        });
+        let mapped = managed_alias_args(&args, "test rationale");
+        assert_eq!(
+            mapped
+                .get("wait_for_completion")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+        assert_eq!(
+            mapped
+                .get("timeout_seconds")
+                .and_then(|value| value.as_u64()),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn resolve_skill_path_finds_generated_skill_by_stem() {
+        let root = std::env::temp_dir().join(format!("tamux-skill-test-{}", uuid::Uuid::new_v4()));
+        let generated = root.join("generated");
+        fs::create_dir_all(&generated).expect("skill test directory should be created");
+        let skill_path = generated.join("build-release.md");
+        fs::write(&skill_path, "# Build release\n").expect("skill file should be written");
+
+        let resolved =
+            resolve_skill_path(&root, "build-release").expect("generated skill should resolve");
+        assert_eq!(resolved, skill_path);
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

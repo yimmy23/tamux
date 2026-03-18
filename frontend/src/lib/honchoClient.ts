@@ -19,6 +19,15 @@ type HonchoCtor = new (options?: {
 }) => unknown;
 
 const syncedMessageIds = new Set<string>();
+const SYNCED_IDS_MAX = 10_000;
+
+function trackSyncedId(id: string): void {
+    syncedMessageIds.add(id);
+    if (syncedMessageIds.size > SYNCED_IDS_MAX) {
+        const first = syncedMessageIds.values().next().value;
+        if (first !== undefined) syncedMessageIds.delete(first);
+    }
+}
 let honchoCtorPromise: Promise<HonchoCtor> | null = null;
 
 function isEnabled(settings: AgentSettings): boolean {
@@ -157,7 +166,7 @@ export async function syncMessagesToHoncho(
 
         await session.addMessages(pending.map((entry) => entry.payload));
         for (const entry of pending) {
-            syncedMessageIds.add(entry.id);
+            trackSyncedId(entry.id);
         }
     } catch (error) {
         console.warn("Honcho sync failed", error);

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { abortThreadStream, clearThreadAbortController, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
-import type { AgentMessage, AgentThread } from "../../lib/agentStore";
+import type { AgentMessage, AgentThread, AgentTodoItem } from "../../lib/agentStore";
 import { sendChatCompletion, messagesToApiFormat } from "../../lib/agentClient";
 import { buildHonchoContext, syncMessagesToHoncho } from "../../lib/honchoClient";
 import { getAvailableTools, executeTool, getToolCapabilityDescription } from "../../lib/agentTools";
@@ -11,6 +11,8 @@ import { useSnippetStore } from "../../lib/snippetStore";
 import { getTerminalController } from "../../lib/terminalRegistry";
 import { useTranscriptStore } from "../../lib/transcriptStore";
 import { useWorkspaceStore } from "../../lib/workspaceStore";
+import { fetchAllThreadTodos, fetchThreadTodos } from "../../lib/agentTodos";
+import { fetchGoalRuns, goalRunSupportAvailable, normalizeGoalRun, startGoalRun, type GoalRun } from "../../lib/goalRuns";
 import { AgentExecutionGraph } from "../AgentExecutionGraph";
 import { AITrainingView } from "./AITrainingView";
 import { ChatView } from "./ChatView";
@@ -45,6 +47,9 @@ type AgentChatPanelRuntimeValue = {
     searchQuery: string;
     setSearchQuery: (query: string) => void;
     messages: AgentMessage[];
+    todos: AgentTodoItem[];
+    daemonTodosByThread: Record<string, AgentTodoItem[]>;
+    goalRunsForTrace: GoalRun[];
     allMessagesByThread: Record<string, AgentMessage[]>;
     pendingApprovals: AgentMissionStoreState["approvals"];
     scopedOperationalEvents: AgentMissionStoreState["operationalEvents"];
@@ -77,6 +82,8 @@ type AgentChatPanelRuntimeValue = {
     stopStreaming: (threadId?: string | null) => void;
     handleSend: () => void;
     handleKeyDown: (event: React.KeyboardEvent) => void;
+    canStartGoalRun: boolean;
+    startGoalRunFromPrompt: (text: string) => Promise<boolean>;
     tabItems: Array<{ id: AgentChatPanelView; label: string; count: number | null }>;
 };
 
@@ -95,11 +102,15 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     const setActiveThread = useAgentStore((s) => s.setActiveThread);
     const addMessage = useAgentStore((s) => s.addMessage);
     const updateLastAssistantMessage = useAgentStore((s) => s.updateLastAssistantMessage);
+    const setThreadTodos = useAgentStore((s) => s.setThreadTodos);
+    const setThreadDaemonId = useAgentStore((s) => s.setThreadDaemonId);
     const agentSettings = useAgentStore((s) => s.agentSettings);
     const searchQuery = useAgentStore((s) => s.searchQuery);
     const setSearchQuery = useAgentStore((s) => s.setSearchQuery);
     const storeMessages = useAgentStore((s) => activeThreadId ? s.messages[activeThreadId] : undefined);
+    const storeTodos = useAgentStore((s) => activeThreadId ? s.todos[activeThreadId] : undefined);
     const allMessagesByThread = useAgentStore((s) => s.messages);
+    const activeThread = threads.find((thread) => thread.id === activeThreadId);
 
     const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
     const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
@@ -120,6 +131,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     const [view, setView] = useState<AgentChatPanelView>("threads");
     const [historyQuery, setHistoryQuery] = useState("");
     const [symbolQuery, setSymbolQuery] = useState("");
+    const [daemonTodosByThread, setDaemonTodosByThread] = useState<Record<string, AgentTodoItem[]>>({});
+    const [goalRunsForTrace, setGoalRunsForTrace] = useState<GoalRun[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -134,7 +147,34 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     useEffect(() => {
         daemonThreadIdRef.current = null;
         daemonLocalThreadRef.current = null;
+        setDaemonTodosByThread({});
+        setGoalRunsForTrace([]);
     }, [agentSettings.agentBackend]);
+
+    useEffect(() => {
+        if (agentSettings.agentBackend === "legacy") return;
+        void fetchAllThreadTodos().then(setDaemonTodosByThread);
+        void fetchGoalRuns().then(setGoalRunsForTrace);
+    }, [agentSettings.agentBackend]);
+
+    useEffect(() => {
+        if (!activeThread) {
+            daemonThreadIdRef.current = null;
+            daemonLocalThreadRef.current = null;
+            return;
+        }
+        daemonLocalThreadRef.current = activeThread.id;
+        daemonThreadIdRef.current = activeThread.daemonThreadId ?? null;
+    }, [activeThread]);
+
+    useEffect(() => {
+        threads.forEach((thread) => {
+            if (!thread.daemonThreadId) return;
+            const items = daemonTodosByThread[thread.daemonThreadId];
+            if (!items) return;
+            setThreadTodos(thread.id, items);
+        });
+    }, [daemonTodosByThread, setThreadTodos, threads]);
 
     // Sync provider config to daemon whenever settings change in daemon mode
     useEffect(() => {
@@ -280,6 +320,9 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 case "thread_created": {
                     if (event.thread_id) {
                         daemonThreadIdRef.current = event.thread_id;
+                        if (daemonLocalThreadRef.current) {
+                            setThreadDaemonId(daemonLocalThreadRef.current, event.thread_id);
+                        }
 
                         // Auto-create a local thread if none exists (e.g. gateway message)
                         if (!daemonLocalThreadRef.current) {
@@ -293,8 +336,15 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                                 title: event.title || "Gateway conversation",
                             });
                             daemonLocalThreadRef.current = localId;
+                            setThreadDaemonId(localId, event.thread_id);
                             setActiveThread(localId);
                             setView("chat");
+                            if (event.thread_id) {
+                                void fetchThreadTodos(event.thread_id).then((items) => {
+                                    setThreadTodos(localId, items);
+                                    setDaemonTodosByThread((current) => ({ ...current, [event.thread_id]: items }));
+                                });
+                            }
 
                             // Flush any buffered gateway messages
                             for (const buffered of pendingGatewayMessagesRef.current) {
@@ -361,6 +411,101 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                         });
                     }
 
+                    break;
+                }
+                case "goal_run_update":
+                case "goal_run_created": {
+                    const goalRun = normalizeGoalRun(event.goal_run ?? event.goalRun ?? event.run ?? null);
+                    if (!goalRun) break;
+                    void fetchGoalRuns().then(setGoalRunsForTrace);
+
+                    if (goalRun.status === "awaiting_approval") {
+                        addNotification({
+                            title: "Goal runner awaiting approval",
+                            body: goalRun.title,
+                            subtitle: goalRun.current_step_title || "Managed command paused",
+                            icon: "shield",
+                            source: "system",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            paneId: activePaneId ?? null,
+                            panelId: activePaneId ?? null,
+                        });
+                    }
+
+                    if (goalRun.status === "completed") {
+                        addNotification({
+                            title: "Goal runner completed",
+                            body: goalRun.title,
+                            subtitle: goalRun.generated_skill_path ? "Skill generated from successful run" : "Long-running autonomy",
+                            icon: "check",
+                            source: "system",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            paneId: activePaneId ?? null,
+                            panelId: activePaneId ?? null,
+                        });
+                    }
+
+                    if (goalRun.status === "failed") {
+                        addNotification({
+                            title: "Goal runner failed",
+                            body: goalRun.title,
+                            subtitle: goalRun.last_error || goalRun.error || goalRun.current_step_title || "Review the latest reflection",
+                            icon: "alert-triangle",
+                            source: "system",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            paneId: activePaneId ?? null,
+                            panelId: activePaneId ?? null,
+                        });
+                    }
+
+                    break;
+                }
+                case "todo_update": {
+                    const daemonThreadId = typeof event.thread_id === "string" ? event.thread_id : null;
+                    const localThreadId = daemonThreadId && daemonThreadIdRef.current === daemonThreadId
+                        ? daemonLocalThreadRef.current
+                        : null;
+                    if (!Array.isArray(event.items)) break;
+
+                    const todos = event.items
+                        .map((item: any, index: number): AgentTodoItem | null => {
+                            const content = typeof item?.content === "string" ? item.content.trim() : "";
+                            if (!content) return null;
+                            return {
+                                id: typeof item?.id === "string" ? item.id : `todo-${index}`,
+                                content,
+                                status: item?.status === "in_progress" || item?.status === "completed" || item?.status === "blocked"
+                                    ? item.status
+                                    : "pending",
+                                position: typeof item?.position === "number" ? item.position : index,
+                                stepIndex: typeof item?.step_index === "number"
+                                    ? item.step_index
+                                    : typeof item?.stepIndex === "number"
+                                        ? item.stepIndex
+                                        : null,
+                                createdAt: typeof item?.created_at === "number"
+                                    ? item.created_at
+                                    : typeof item?.createdAt === "number"
+                                        ? item.createdAt
+                                        : null,
+                                updatedAt: typeof item?.updated_at === "number"
+                                    ? item.updated_at
+                                    : typeof item?.updatedAt === "number"
+                                        ? item.updatedAt
+                                        : null,
+                            };
+                        })
+                        .filter((item: AgentTodoItem | null): item is AgentTodoItem => Boolean(item));
+                    if (daemonThreadId) {
+                        setDaemonTodosByThread((current) => ({ ...current, [daemonThreadId]: todos }));
+                    }
+                    if (localThreadId) {
+                        setThreadTodos(localThreadId, todos);
+                    }
+                    break;
+                }
+                case "workflow_notice": {
+                    recordDaemonWorkflowNotice(event);
                     break;
                 }
                 case "workspace_command": {
@@ -440,10 +585,20 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         });
 
         return unsubscribe;
-    }, [agentSettings.agentBackend, addMessage, updateLastAssistantMessage, setActiveThread]);
+    }, [agentSettings.agentBackend, addMessage, updateLastAssistantMessage, setActiveThread, setThreadDaemonId, setThreadTodos]);
 
-    const activeThread = threads.find((thread) => thread.id === activeThreadId);
     const messages = storeMessages ?? EMPTY_MESSAGES;
+    const todos = storeTodos ?? [];
+
+    useEffect(() => {
+        const daemonThreadId = daemonThreadIdRef.current;
+        const localThreadId = daemonLocalThreadRef.current;
+        if (!daemonThreadId || !localThreadId || localThreadId !== activeThreadId) return;
+        void fetchThreadTodos(daemonThreadId).then((items) => {
+            setThreadTodos(localThreadId, items);
+            setDaemonTodosByThread((current) => ({ ...current, [daemonThreadId]: items }));
+        });
+    }, [activeThreadId, setThreadTodos]);
     const scopePaneId = activeThread?.paneId ?? activePaneId;
     const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
     const scopeController = getTerminalController(scopePaneId);
@@ -491,6 +646,32 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         : threads;
 
     const isStreamingResponse = messages.some((message) => message.role === "assistant" && message.isStreaming);
+
+    function recordDaemonWorkflowNotice(event: any) {
+        const daemonThreadId = typeof event?.thread_id === "string" ? event.thread_id : null;
+        const localThreadId = daemonThreadId && daemonThreadIdRef.current === daemonThreadId
+            ? daemonLocalThreadRef.current
+            : daemonLocalThreadRef.current;
+        const thread = localThreadId
+            ? useAgentStore.getState().threads.find((entry) => entry.id === localThreadId)
+            : undefined;
+        const paneId = thread?.paneId ?? activePaneId ?? "agent";
+        const workspaceId = thread?.workspaceId ?? activeWorkspace?.id ?? null;
+        const surfaceId = thread?.surfaceId ?? activeWorkspace?.surfaces?.[0]?.id ?? null;
+        const kind = typeof event?.kind === "string" ? event.kind : "tool-call";
+        const message = typeof event?.message === "string" ? event.message : null;
+        const details = typeof event?.details === "string" ? event.details : null;
+
+        useAgentMissionStore.getState().recordOperationalEvent({
+            paneId,
+            workspaceId,
+            surfaceId,
+            sessionId: daemonThreadId,
+            kind: kind as any,
+            command: kind,
+            message: details ? `${message ?? ""}${message ? "\n" : ""}${details}` : message,
+        });
+    }
 
     function stopStreaming(threadId?: string | null) {
         const targetThreadId = threadId ?? activeThreadId;
@@ -852,6 +1033,47 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         }
     }
 
+    async function startGoalRunFromPrompt(text: string): Promise<boolean> {
+        const goal = text.trim();
+        if (!goal || !goalRunSupportAvailable()) {
+            return false;
+        }
+
+        const run = await startGoalRun({
+            goal,
+            title: goal.slice(0, 72),
+            priority: "normal",
+            threadId: daemonThreadIdRef.current,
+        });
+
+        if (!run) {
+            addNotification({
+                title: "Goal runner unavailable",
+                body: "Could not start long-running goal",
+                subtitle: "Backend goal-run IPC is not available yet.",
+                icon: "alert-triangle",
+                source: "system",
+                workspaceId: activeWorkspace?.id ?? null,
+                paneId: activePaneId ?? null,
+                panelId: activePaneId ?? null,
+            });
+            return false;
+        }
+
+        addNotification({
+            title: "Goal runner started",
+            body: run.title,
+            subtitle: run.plan_summary || "The daemon is planning the run.",
+            icon: "sparkles",
+            source: "system",
+            workspaceId: activeWorkspace?.id ?? null,
+            paneId: activePaneId ?? null,
+            panelId: activePaneId ?? null,
+        });
+        setView("tasks");
+        return true;
+    }
+
     const tabItems = [
         { id: "threads", label: "Threads", count: threads.length },
         { id: "chat", label: "Chat", count: null },
@@ -877,6 +1099,9 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         searchQuery,
         setSearchQuery,
         messages,
+        todos,
+        daemonTodosByThread,
+        goalRunsForTrace,
         allMessagesByThread,
         pendingApprovals,
         scopedOperationalEvents,
@@ -909,6 +1134,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         stopStreaming,
         handleSend,
         handleKeyDown,
+        canStartGoalRun: goalRunSupportAvailable(),
+        startGoalRunFromPrompt,
         tabItems,
     }), [
         togglePanel,
@@ -923,6 +1150,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         searchQuery,
         setSearchQuery,
         messages,
+        todos,
+        daemonTodosByThread,
         allMessagesByThread,
         pendingApprovals,
         scopedOperationalEvents,
@@ -945,6 +1174,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         usageMessageCount,
         filteredThreads,
         isStreamingResponse,
+        startGoalRunFromPrompt,
         tabItems,
     ]);
 
@@ -1137,6 +1367,7 @@ export function AgentChatPanelChatSurface() {
     return (
         <ChatView
             messages={runtime.messages}
+            todos={runtime.todos}
             input={runtime.input}
             setInput={runtime.setInput}
             inputRef={runtime.inputRef}
@@ -1147,17 +1378,21 @@ export function AgentChatPanelChatSurface() {
             messagesEndRef={runtime.messagesEndRef}
             onSendMessage={runtime.sendMessage}
             onStopStreaming={() => runtime.stopStreaming(runtime.activeThreadId)}
+            canStartGoalRun={runtime.canStartGoalRun}
+            onStartGoalRun={runtime.startGoalRunFromPrompt}
         />
     );
 }
 
 export function AgentChatPanelTraceSurface() {
-    const { scopedOperationalEvents, scopedCognitiveEvents, pendingApprovals } = useAgentChatPanelRuntime();
+    const { scopedOperationalEvents, scopedCognitiveEvents, pendingApprovals, daemonTodosByThread, goalRunsForTrace } = useAgentChatPanelRuntime();
     return (
         <TraceView
             operationalEvents={scopedOperationalEvents}
             cognitiveEvents={scopedCognitiveEvents}
             pendingApprovals={pendingApprovals}
+            todosByThread={daemonTodosByThread}
+            goalRuns={goalRunsForTrace}
         />
     );
 }

@@ -1040,6 +1040,7 @@ where
                             dependencies,
                             scheduled_at,
                             "user",
+                            None,
                         )
                         .await;
                     tracing::info!(task_id = %task.id, "agent task added");
@@ -1061,6 +1062,76 @@ where
                     let json = serde_json::to_string(&tasks).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentTaskList { tasks_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentStartGoalRun {
+                    goal,
+                    title,
+                    thread_id,
+                    session_id,
+                    priority,
+                } => {
+                    let goal_run = agent
+                        .start_goal_run(goal, title, thread_id, session_id, priority.as_deref())
+                        .await;
+                    let json = serde_json::to_string(&goal_run).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentGoalRunStarted {
+                            goal_run_json: json,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::AgentListGoalRuns => {
+                    let goal_runs = agent.list_goal_runs().await;
+                    let json = serde_json::to_string(&goal_runs).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentGoalRunList {
+                            goal_runs_json: json,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetGoalRun { goal_run_id } => {
+                    let goal_run = agent.get_goal_run(&goal_run_id).await;
+                    let json = serde_json::to_string(&goal_run).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentGoalRunDetail {
+                            goal_run_json: json,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::AgentControlGoalRun {
+                    goal_run_id,
+                    action,
+                    step_index,
+                } => {
+                    let ok = agent
+                        .control_goal_run(&goal_run_id, &action, step_index)
+                        .await;
+                    framed
+                        .send(DaemonMessage::AgentGoalRunControlled { goal_run_id, ok })
+                        .await?;
+                }
+
+                ClientMessage::AgentListTodos => {
+                    let todos = agent.list_todos().await;
+                    let json = serde_json::to_string(&todos).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentTodoList { todos_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetTodos { thread_id } => {
+                    let todos = agent.get_todos(&thread_id).await;
+                    let json = serde_json::to_string(&todos).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentTodoDetail {
+                            thread_id,
+                            todos_json: json,
+                        })
                         .await?;
                 }
 

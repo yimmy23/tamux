@@ -3,11 +3,12 @@ import type React from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentMessage, AgentThread } from "../../lib/agentStore";
+import type { AgentMessage, AgentThread, AgentTodoItem } from "../../lib/agentStore";
 import { inputStyle } from "./shared";
 
 export function ChatView({
     messages,
+    todos,
     input,
     setInput,
     inputRef,
@@ -18,8 +19,11 @@ export function ChatView({
     messagesEndRef,
     onSendMessage,
     onStopStreaming,
+    canStartGoalRun,
+    onStartGoalRun,
 }: {
     messages: AgentMessage[];
+    todos: AgentTodoItem[];
     input: string;
     setInput: (v: string) => void;
     inputRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -30,14 +34,26 @@ export function ChatView({
     messagesEndRef: React.RefObject<HTMLDivElement | null>;
     onSendMessage: (text: string) => void;
     onStopStreaming: () => void;
+    canStartGoalRun: boolean;
+    onStartGoalRun: (text: string) => Promise<boolean>;
 }) {
     const [searchQuery, setSearchQuery] = useState("");
+    const [todoExpanded, setTodoExpanded] = useState(true);
 
     const handleSendClick = () => {
         const text = input.trim();
         if (!text) return;
         onSendMessage(text);
         setInput("");
+    };
+
+    const handleStartGoalRun = async () => {
+        const text = input.trim();
+        if (!text) return;
+        const started = await onStartGoalRun(text);
+        if (started) {
+            setInput("");
+        }
     };
 
     const displayItems = useMemo(() => {
@@ -145,6 +161,16 @@ export function ChatView({
         };
     }, [messages]);
 
+    const todoPreview = useMemo(
+        () => todos
+            .slice()
+            .sort((a, b) => a.position - b.position)
+            .slice(0, 2)
+            .map((item) => item.content)
+            .join(" • "),
+        [todos],
+    );
+
     return (
         <>
             <div
@@ -232,6 +258,76 @@ export function ChatView({
                 </div>
             )}
 
+            {todos.length > 0 && (
+                <div
+                    style={{
+                        borderTop: "1px solid var(--border)",
+                        background: "var(--bg-secondary)",
+                        padding: "var(--space-2) var(--space-3)",
+                    }}
+                >
+                    <button
+                        type="button"
+                        onClick={() => setTodoExpanded((current) => !current)}
+                        style={{
+                            width: "100%",
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "var(--space-2)",
+                            cursor: "pointer",
+                            color: "var(--text-primary)",
+                        }}
+                    >
+                        <span style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}>
+                            Todo
+                        </span>
+                        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {todos.length} item{todos.length === 1 ? "" : "s"}{todoPreview ? ` · ${todoPreview}` : ""}
+                        </span>
+                    </button>
+                    {todoExpanded && (
+                        <div style={{ marginTop: "var(--space-2)", display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+                            {todos
+                                .slice()
+                                .sort((a, b) => a.position - b.position)
+                                .map((item) => (
+                                    <div
+                                        key={item.id}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "var(--space-2)",
+                                            padding: "6px 8px",
+                                            borderRadius: "var(--radius-sm)",
+                                            background: "var(--bg-tertiary)",
+                                        }}
+                                    >
+                                        <span
+                                            style={{
+                                                width: 8,
+                                                height: 8,
+                                                borderRadius: "50%",
+                                                background: todoStatusColor(item.status),
+                                                flexShrink: 0,
+                                            }}
+                                        />
+                                        <span style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", flex: 1 }}>
+                                            {item.content}
+                                        </span>
+                                        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "capitalize" }}>
+                                            {item.status.replace(/_/g, " ")}
+                                        </span>
+                                    </div>
+                                ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div
                 style={{
                     padding: "var(--space-3)",
@@ -299,6 +395,26 @@ export function ChatView({
                         Enter send, Shift+Enter newline
                     </span>
                     <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                        {canStartGoalRun && (
+                            <button
+                                type="button"
+                                onClick={() => { void handleStartGoalRun(); }}
+                                disabled={!agentSettings.enabled || !input.trim()}
+                                style={{
+                                    border: "1px solid var(--mission-border)",
+                                    background: "var(--mission-soft)",
+                                    color: "var(--mission)",
+                                    borderRadius: "var(--radius-sm)",
+                                    padding: "6px 12px",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: !agentSettings.enabled || !input.trim() ? "not-allowed" : "pointer",
+                                    opacity: !agentSettings.enabled || !input.trim() ? 0.5 : 1,
+                                }}
+                            >
+                                Goal Run
+                            </button>
+                        )}
                         {isStreamingResponse && (
                             <button
                                 type="button"
@@ -342,9 +458,22 @@ export function ChatView({
     );
 }
 
+function todoStatusColor(status: AgentTodoItem["status"]): string {
+    switch (status) {
+        case "in_progress":
+            return "var(--accent)";
+        case "completed":
+            return "var(--success)";
+        case "blocked":
+            return "var(--warning)";
+        default:
+            return "var(--text-muted)";
+    }
+}
+
 const markdownComponents: Components = {
     p: ({ children }) => (
-        <p style={{ margin: "4px 0" }}>{children}</p>
+        <p style={{}}>{children}</p>
     ),
     a: ({ href, children }) => (
         <a
@@ -506,7 +635,7 @@ function ToolEventRow({
     const shortId = (group.toolCallId || group.key).slice(-8);
 
     return (
-        <div style={{ marginLeft: 24, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)" }}>
             <button
                 type="button"
                 onClick={() => setCollapsed((prev) => !prev)}
@@ -520,22 +649,27 @@ function ToolEventRow({
                     fontSize: "var(--text-sm)",
                     display: "flex",
                     alignItems: "center",
+                    width: "100%",
                     gap: 8,
                 }}
             >
                 <span style={{ color: "#DE600A" }}>{collapsed ? "▸" : "▾"}</span>
-                <span style={{ color: "#DE600A" }}>{"tool"}</span>
-                <span>{group.toolName}</span>
-                <span style={{ color: "#BA4400", fontSize: 11 }}>#{shortId}</span>
-                <span style={{ color: "#BA4400", fontSize: 11 }}>{statusLabel}</span>
+                <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "space-between", flex: 1 }}>
+                    {/* <span style={{ color: "#DE600A" }}>{"tool"}</span> */}
+                    <span>{group.toolName}</span>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8 }}>
+                        <span style={{ color: "#BA4400", fontSize: 11 }}>#{shortId}</span>
+                        <span style={{ color: "#BA4400", fontSize: 11 }}>{statusLabel}</span>
+                    </div>
+                </div>
             </button>
 
             {!collapsed && (
-                <div style={{ marginLeft: 20, marginTop: 6, display: "grid", gap: 6 }}>
+                <div style={{ marginLeft: 0, marginTop: 0, display: "grid", gap: 6 }}>
                     {group.toolArguments && (
                         <div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>args</div>
-                            <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>
+                            <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
                                 {(() => {
                                     try {
                                         return JSON.stringify(JSON.parse(group.toolArguments), null, 2);
@@ -550,7 +684,7 @@ function ToolEventRow({
                     {group.resultContent && (
                         <div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>result</div>
-                            <div style={{ fontSize: 12, lineHeight: 1.45 }}>{group.resultContent}</div>
+                            <div style={{ fontSize: 12, lineHeight: 1.45, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>{group.resultContent}</div>
                         </div>
                     )}
                 </div>
@@ -607,7 +741,6 @@ function MessageBubble({
                 style={{
                     maxWidth: "85%",
                     position: "relative",
-                    padding: "var(--space-3)",
                     borderRadius: "var(--radius-lg)",
                     fontSize: "var(--text-sm)",
                     lineHeight: 1.6,
@@ -626,8 +759,7 @@ function MessageBubble({
                     wordBreak: "break-word",
                     userSelect: "auto",
                     fontFamily: "var(--font-mono)",
-                    paddingLeft: isAssistant ? 0 : "var(--space-3)",
-                    paddingRight: isAssistant ? 0 : "var(--space-3)",
+                    padding: isAssistant ? 0 : "var(--space-3)",
                 }}
                 onMouseEnter={() => setHovered(true)}
                 onMouseLeave={() => setHovered(false)}

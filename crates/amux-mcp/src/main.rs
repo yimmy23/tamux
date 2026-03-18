@@ -14,6 +14,7 @@
 //! ```
 
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use amux_protocol::{
     AmuxCodec, ClientMessage, DaemonMessage, ManagedCommandRequest, ManagedCommandSource,
@@ -327,6 +328,139 @@ fn tool_definitions() -> Value {
             }
         },
         {
+            "name": "list_todos",
+            "description": "List daemon-managed planner todos for all agent threads.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "get_todos",
+            "description": "Fetch daemon-managed planner todos for a specific agent thread.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": {
+                        "type": "string",
+                        "description": "Agent thread ID"
+                    }
+                },
+                "required": ["thread_id"]
+            }
+        },
+        {
+            "name": "list_skills",
+            "description": "List reusable local tamux skills from the platform-specific ~/.tamux/skills directory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Optional skill name or path filter"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum skills to return"
+                    }
+                }
+            }
+        },
+        {
+            "name": "read_skill",
+            "description": "Read a local tamux skill document by name, stem, or relative path under the skills directory.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill": {
+                        "type": "string",
+                        "description": "Skill name, file stem, or relative path"
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "description": "Maximum lines to read"
+                    }
+                },
+                "required": ["skill"]
+            }
+        },
+        {
+            "name": "start_goal_run",
+            "description": "Start a durable goal run that plans, executes child tasks, handles approvals, and reflects on outcomes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "The long-running objective to pursue"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional short title for the goal run"
+                    },
+                    "thread_id": {
+                        "type": "string",
+                        "description": "Optional existing agent thread to attach to"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional preferred terminal session"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["low", "normal", "high", "urgent"],
+                        "description": "Goal priority"
+                    }
+                },
+                "required": ["goal"]
+            }
+        },
+        {
+            "name": "list_goal_runs",
+            "description": "List durable goal runs with status, current step, metrics, and history metadata.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "get_goal_run",
+            "description": "Fetch a specific goal run with full plan, events, and derived metrics.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_run_id": {
+                        "type": "string",
+                        "description": "Goal run ID"
+                    }
+                },
+                "required": ["goal_run_id"]
+            }
+        },
+        {
+            "name": "control_goal_run",
+            "description": "Control a goal run lifecycle or rerun a specific step. Supported actions: pause, resume, cancel, retry_step, rerun_from_step.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal_run_id": {
+                        "type": "string",
+                        "description": "Goal run ID"
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["pause", "resume", "cancel", "retry_step", "rerun_from_step"],
+                        "description": "Control action"
+                    },
+                    "step_index": {
+                        "type": "integer",
+                        "description": "Optional zero-based step index for retry_step or rerun_from_step"
+                    }
+                },
+                "required": ["goal_run_id", "action"]
+            }
+        },
+        {
             "name": "get_git_status",
             "description": "Get git status for a working directory, showing modified, staged, and untracked files.",
             "inputSchema": {
@@ -419,6 +553,14 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         "enqueue_task" => tool_enqueue_task(args).await,
         "list_tasks" => tool_list_tasks().await,
         "cancel_task" => tool_cancel_task(args).await,
+        "list_todos" => tool_list_todos().await,
+        "get_todos" => tool_get_todos(args).await,
+        "list_skills" => tool_list_skills(args).await,
+        "read_skill" => tool_read_skill(args).await,
+        "start_goal_run" => tool_start_goal_run(args).await,
+        "list_goal_runs" => tool_list_goal_runs().await,
+        "get_goal_run" => tool_get_goal_run(args).await,
+        "control_goal_run" => tool_control_goal_run(args).await,
         "get_git_status" => tool_get_git_status(args).await,
         _ => anyhow::bail!("unknown tool: {name}"),
     }
@@ -854,6 +996,364 @@ async fn tool_cancel_task(args: &Value) -> Result<Value> {
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected daemon response: {other:?}"),
     }
+}
+
+async fn tool_list_todos() -> Result<Value> {
+    let resp = daemon_roundtrip(ClientMessage::AgentListTodos).await?;
+
+    match resp {
+        DaemonMessage::AgentTodoList { todos_json } => Ok(serde_json::json!({
+            "todos": serde_json::from_str::<Value>(&todos_json).unwrap_or(Value::Object(Default::default())),
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+async fn tool_get_todos(args: &Value) -> Result<Value> {
+    let thread_id = args
+        .get("thread_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: thread_id"))?
+        .to_string();
+
+    let resp = daemon_roundtrip(ClientMessage::AgentGetTodos {
+        thread_id: thread_id.clone(),
+    })
+    .await?;
+
+    match resp {
+        DaemonMessage::AgentTodoDetail {
+            thread_id,
+            todos_json,
+        } => Ok(serde_json::json!({
+            "thread_id": thread_id,
+            "items": serde_json::from_str::<Value>(&todos_json).unwrap_or(Value::Array(Vec::new())),
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+async fn tool_list_skills(args: &Value) -> Result<Value> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_lowercase());
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+
+    let skills_root = tamux_skills_dir();
+    let mut files = Vec::new();
+    collect_skill_documents(&skills_root, &mut files)?;
+    files.sort();
+
+    let skills = files
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(&skills_root)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            let stem = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("skill")
+                .to_string();
+            Some(serde_json::json!({
+                "name": stem,
+                "path": relative,
+            }))
+        })
+        .filter(|entry| match query.as_ref() {
+            Some(needle) => {
+                entry.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase().contains(needle)
+                    || entry.get("path").and_then(|v| v.as_str()).unwrap_or("").to_lowercase().contains(needle)
+            }
+            None => true,
+        })
+        .take(limit)
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::json!({
+        "skills_root": skills_root,
+        "skills": skills,
+    }))
+}
+
+async fn tool_read_skill(args: &Value) -> Result<Value> {
+    let skill = args
+        .get("skill")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: skill"))?;
+    let max_lines = args
+        .get("max_lines")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(200)
+        .clamp(20, 1000) as usize;
+
+    let skills_root = tamux_skills_dir();
+    let skill_path = resolve_skill_path(&skills_root, skill)?;
+    let content = std::fs::read_to_string(&skill_path)
+        .with_context(|| format!("failed to read {}", skill_path.display()))?;
+    let total_lines = content.lines().count();
+    let excerpt = content.lines().take(max_lines).collect::<Vec<_>>().join("\n");
+
+    Ok(serde_json::json!({
+        "skills_root": skills_root,
+        "path": skill_path.strip_prefix(&skills_root).unwrap_or(skill_path.as_path()).display().to_string(),
+        "content": excerpt,
+        "truncated": total_lines > max_lines,
+        "total_lines": total_lines,
+    }))
+}
+
+async fn tool_start_goal_run(args: &Value) -> Result<Value> {
+    let goal = args
+        .get("goal")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: goal"))?
+        .to_string();
+
+    let title = args
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    let thread_id = args
+        .get("thread_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    let priority = args
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+
+    let resp = daemon_roundtrip(ClientMessage::AgentStartGoalRun {
+        goal,
+        title,
+        thread_id,
+        session_id,
+        priority,
+    })
+    .await?;
+
+    match resp {
+        DaemonMessage::AgentGoalRunStarted { goal_run_json } => Ok(serde_json::json!({
+            "goal_run": serde_json::from_str::<Value>(&goal_run_json).unwrap_or(Value::Null),
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+async fn tool_list_goal_runs() -> Result<Value> {
+    let resp = daemon_roundtrip(ClientMessage::AgentListGoalRuns).await?;
+
+    match resp {
+        DaemonMessage::AgentGoalRunList { goal_runs_json } => Ok(serde_json::json!({
+            "goal_runs": serde_json::from_str::<Value>(&goal_runs_json).unwrap_or(Value::Array(Vec::new())),
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+async fn tool_get_goal_run(args: &Value) -> Result<Value> {
+    let goal_run_id = args
+        .get("goal_run_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: goal_run_id"))?
+        .to_string();
+
+    let resp = daemon_roundtrip(ClientMessage::AgentGetGoalRun {
+        goal_run_id: goal_run_id.clone(),
+    })
+    .await?;
+
+    match resp {
+        DaemonMessage::AgentGoalRunDetail { goal_run_json } => Ok(serde_json::json!({
+            "goal_run_id": goal_run_id,
+            "goal_run": serde_json::from_str::<Value>(&goal_run_json).unwrap_or(Value::Null),
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+async fn tool_control_goal_run(args: &Value) -> Result<Value> {
+    let goal_run_id = args
+        .get("goal_run_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: goal_run_id"))?
+        .to_string();
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: action"))?
+        .to_string();
+    let step_index = args
+        .get("step_index")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+
+    let resp = daemon_roundtrip(ClientMessage::AgentControlGoalRun {
+        goal_run_id: goal_run_id.clone(),
+        action: action.clone(),
+        step_index,
+    })
+    .await?;
+
+    match resp {
+        DaemonMessage::AgentGoalRunControlled { goal_run_id, ok } => Ok(serde_json::json!({
+            "goal_run_id": goal_run_id,
+            "action": action,
+            "step_index": step_index,
+            "ok": ok,
+        })),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+fn tamux_root_dir() -> PathBuf {
+    if cfg!(windows) {
+        std::env::var("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                std::env::var("USERPROFILE")
+                    .map(PathBuf::from)
+                    .unwrap_or_default()
+                    .join("AppData")
+                    .join("Local")
+            })
+            .join("tamux")
+    } else {
+        std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join(".tamux")
+    }
+}
+
+fn tamux_skills_dir() -> PathBuf {
+    tamux_root_dir().join("skills")
+}
+
+fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_skill_documents(&path, out)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or("");
+        let include = file_name.eq_ignore_ascii_case("SKILL.md")
+            || (path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+                && path.components().any(|component| component.as_os_str() == "generated"));
+        if include {
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn resolve_skill_path(skills_root: &Path, skill: &str) -> Result<PathBuf> {
+    if skill.trim().is_empty() {
+        anyhow::bail!("skill must not be empty");
+    }
+
+    let root_canonical = std::fs::canonicalize(skills_root).unwrap_or(skills_root.to_path_buf());
+    let candidate = Path::new(skill);
+    if candidate.components().count() > 1 || candidate.is_absolute() {
+        let full = if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else {
+            skills_root.join(candidate)
+        };
+        let canonical = std::fs::canonicalize(&full)
+            .with_context(|| format!("skill '{}' was not found", skill))?;
+        if !canonical.starts_with(&root_canonical) {
+            anyhow::bail!("skill path must stay inside {}", skills_root.display());
+        }
+        return Ok(canonical);
+    }
+
+    let mut files = Vec::new();
+    collect_skill_documents(skills_root, &mut files)?;
+    files.sort();
+    let normalized = skill.to_lowercase();
+
+    for path in &files {
+        let relative = path
+            .strip_prefix(&root_canonical)
+            .or_else(|_| path.strip_prefix(skills_root))
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or("").to_lowercase();
+        if stem == normalized || relative.to_lowercase() == normalized {
+            return Ok(path.clone());
+        }
+    }
+
+    for path in &files {
+        let relative = path
+            .strip_prefix(&root_canonical)
+            .or_else(|_| path.strip_prefix(skills_root))
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or("").to_lowercase();
+        if stem.contains(&normalized) || relative.to_lowercase().contains(&normalized) {
+            return Ok(path.clone());
+        }
+    }
+
+    anyhow::bail!("skill '{}' was not found under {}", skill, skills_root.display())
 }
 
 fn default_task_title(description: &str, command: Option<&str>) -> String {

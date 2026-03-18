@@ -1,4 +1,7 @@
-use crate::agent::types::{AgentTask, AgentTaskLogEntry, TaskLogLevel, TaskPriority, TaskStatus};
+use crate::agent::types::{
+    AgentTask, AgentTaskLogEntry, GoalRun, GoalRunEvent, GoalRunStatus, GoalRunStep,
+    GoalRunStepKind, GoalRunStepStatus, TaskLogLevel, TaskPriority, TaskStatus,
+};
 use amux_protocol::{
     AgentDbMessage, AgentDbThread, AgentEventRow, CommandLogEntry, HistorySearchHit,
     SnapshotIndexEntry, TranscriptIndexEntry, WormChainTip,
@@ -635,8 +638,8 @@ impl HistoryStore {
 
         transaction.execute(
             "INSERT OR REPLACE INTO agent_tasks \
-             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 &task.id,
                 &task.title,
@@ -655,6 +658,7 @@ impl HistoryStore {
                 notify_channels_json,
                 &task.command,
                 &task.session_id,
+                &task.goal_run_id,
                 task.retry_count as i64,
                 task.max_retries as i64,
                 task.next_retry_at.map(|value| value as i64),
@@ -745,7 +749,7 @@ impl HistoryStore {
         }
 
         let mut stmt = connection.prepare(
-            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
+            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
              FROM agent_tasks \
              ORDER BY CASE status \
                  WHEN 'in_progress' THEN 0 \
@@ -785,14 +789,15 @@ impl HistoryStore {
                 dependencies: Vec::new(),
                 command: row.get(15)?,
                 session_id: row.get(16)?,
-                retry_count: row.get::<_, i64>(17)? as u32,
-                max_retries: row.get::<_, i64>(18)? as u32,
-                next_retry_at: row.get::<_, Option<i64>>(19)?.map(|value| value as u64),
-                scheduled_at: row.get::<_, Option<i64>>(20)?.map(|value| value as u64),
-                blocked_reason: row.get(21)?,
-                awaiting_approval_id: row.get(22)?,
-                lane_id: row.get(23)?,
-                last_error: row.get(24)?,
+                goal_run_id: row.get(17)?,
+                retry_count: row.get::<_, i64>(18)? as u32,
+                max_retries: row.get::<_, i64>(19)? as u32,
+                next_retry_at: row.get::<_, Option<i64>>(20)?.map(|value| value as u64),
+                scheduled_at: row.get::<_, Option<i64>>(21)?.map(|value| value as u64),
+                blocked_reason: row.get(22)?,
+                awaiting_approval_id: row.get(23)?,
+                lane_id: row.get(24)?,
+                last_error: row.get(25)?,
                 logs: Vec::new(),
             })
         })?;
@@ -805,6 +810,211 @@ impl HistoryStore {
             tasks.push(task);
         }
         Ok(tasks)
+    }
+
+    pub fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
+        let mut connection = self.open_connection()?;
+        let transaction = connection.transaction()?;
+        let memory_updates_json = serde_json::to_string(&goal_run.memory_updates)?;
+        let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids)?;
+
+        transaction.execute(
+            "INSERT OR REPLACE INTO goal_runs \
+             (id, title, goal, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![
+                &goal_run.id,
+                &goal_run.title,
+                &goal_run.goal,
+                goal_run_status_to_str(goal_run.status),
+                task_priority_to_str(goal_run.priority),
+                goal_run.created_at as i64,
+                goal_run.updated_at as i64,
+                goal_run.started_at.map(|value| value as i64),
+                goal_run.completed_at.map(|value| value as i64),
+                &goal_run.thread_id,
+                &goal_run.session_id,
+                goal_run.current_step_index as i64,
+                goal_run.replan_count as i64,
+                goal_run.max_replans as i64,
+                &goal_run.plan_summary,
+                &goal_run.reflection_summary,
+                memory_updates_json,
+                &goal_run.generated_skill_path,
+                &goal_run.last_error,
+                child_task_ids_json,
+            ],
+        )?;
+
+        transaction.execute(
+            "DELETE FROM goal_run_steps WHERE goal_run_id = ?1",
+            params![&goal_run.id],
+        )?;
+        for step in &goal_run.steps {
+            transaction.execute(
+                "INSERT OR REPLACE INTO goal_run_steps \
+                 (id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                params![
+                    &step.id,
+                    &goal_run.id,
+                    step.position as i64,
+                    &step.title,
+                    &step.instructions,
+                    goal_run_step_kind_to_str(step.kind),
+                    &step.success_criteria,
+                    &step.session_id,
+                    goal_run_step_status_to_str(step.status),
+                    &step.task_id,
+                    &step.summary,
+                    &step.error,
+                    step.started_at.map(|value| value as i64),
+                    step.completed_at.map(|value| value as i64),
+                ],
+            )?;
+        }
+
+        transaction.execute(
+            "DELETE FROM goal_run_events WHERE goal_run_id = ?1",
+            params![&goal_run.id],
+        )?;
+        for event in &goal_run.events {
+            let todo_snapshot_json = serde_json::to_string(&event.todo_snapshot)?;
+            transaction.execute(
+                "INSERT OR REPLACE INTO goal_run_events (id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    &event.id,
+                    &goal_run.id,
+                    event.timestamp as i64,
+                    &event.phase,
+                    &event.message,
+                    &event.details,
+                    event.step_index.map(|value| value as i64),
+                    todo_snapshot_json,
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn list_goal_runs(&self) -> Result<Vec<GoalRun>> {
+        let connection = self.open_connection()?;
+        let mut step_stmt = connection.prepare(
+            "SELECT id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at \
+             FROM goal_run_steps ORDER BY goal_run_id ASC, ordinal ASC",
+        )?;
+        let step_rows = step_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                GoalRunStep {
+                    id: row.get(0)?,
+                    position: row.get::<_, i64>(2)? as usize,
+                    title: row.get(3)?,
+                    instructions: row.get(4)?,
+                    kind: parse_goal_run_step_kind(&row.get::<_, String>(5)?),
+                    success_criteria: row.get(6)?,
+                    session_id: row.get(7)?,
+                    status: parse_goal_run_step_status(&row.get::<_, String>(8)?),
+                    task_id: row.get(9)?,
+                    summary: row.get(10)?,
+                    error: row.get(11)?,
+                    started_at: row.get::<_, Option<i64>>(12)?.map(|value| value as u64),
+                    completed_at: row.get::<_, Option<i64>>(13)?.map(|value| value as u64),
+                },
+            ))
+        })?;
+        let mut step_map = std::collections::HashMap::<String, Vec<GoalRunStep>>::new();
+        for row in step_rows {
+            let (goal_run_id, step) = row?;
+            step_map.entry(goal_run_id).or_default().push(step);
+        }
+
+        let mut event_stmt = connection.prepare(
+            "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json FROM goal_run_events ORDER BY timestamp ASC",
+        )?;
+        let event_rows = event_stmt.query_map([], |row| {
+            let todo_snapshot_json: Option<String> = row.get(7)?;
+            Ok((
+                row.get::<_, String>(1)?,
+                GoalRunEvent {
+                    id: row.get(0)?,
+                    timestamp: row.get::<_, i64>(2)? as u64,
+                    phase: row.get(3)?,
+                    message: row.get(4)?,
+                    details: row.get(5)?,
+                    step_index: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
+                    todo_snapshot: todo_snapshot_json
+                        .as_deref()
+                        .and_then(|json| serde_json::from_str(json).ok())
+                        .unwrap_or_default(),
+                },
+            ))
+        })?;
+        let mut event_map = std::collections::HashMap::<String, Vec<GoalRunEvent>>::new();
+        for row in event_rows {
+            let (goal_run_id, event) = row?;
+            event_map.entry(goal_run_id).or_default().push(event);
+        }
+
+        let mut stmt = connection.prepare(
+            "SELECT id, title, goal, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json \
+             FROM goal_runs ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let memory_updates_json: String = row.get(16)?;
+            let child_task_ids_json: String = row.get(19)?;
+            Ok(GoalRun {
+                id,
+                title: row.get(1)?,
+                goal: row.get(2)?,
+                status: parse_goal_run_status(&row.get::<_, String>(3)?),
+                priority: parse_task_priority(&row.get::<_, String>(4)?),
+                created_at: row.get::<_, i64>(5)? as u64,
+                updated_at: row.get::<_, i64>(6)? as u64,
+                started_at: row.get::<_, Option<i64>>(7)?.map(|value| value as u64),
+                completed_at: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
+                thread_id: row.get(9)?,
+                session_id: row.get(10)?,
+                current_step_index: row.get::<_, i64>(11)? as usize,
+                current_step_title: None,
+                current_step_kind: None,
+                replan_count: row.get::<_, i64>(12)? as u32,
+                max_replans: row.get::<_, i64>(13)? as u32,
+                plan_summary: row.get(14)?,
+                reflection_summary: row.get(15)?,
+                memory_updates: serde_json::from_str(&memory_updates_json).unwrap_or_default(),
+                generated_skill_path: row.get(17)?,
+                last_error: row.get(18)?,
+                failure_cause: None,
+                awaiting_approval_id: None,
+                active_task_id: None,
+                duration_ms: None,
+                child_task_ids: serde_json::from_str(&child_task_ids_json).unwrap_or_default(),
+                child_task_count: 0,
+                approval_count: 0,
+                steps: Vec::new(),
+                events: Vec::new(),
+            })
+        })?;
+
+        let mut goal_runs = Vec::new();
+        for row in rows {
+            let mut goal_run = row?;
+            goal_run.steps = step_map.remove(&goal_run.id).unwrap_or_default();
+            goal_run.events = event_map.remove(&goal_run.id).unwrap_or_default();
+            goal_runs.push(goal_run);
+        }
+        Ok(goal_runs)
+    }
+
+    pub fn get_goal_run(&self, goal_run_id: &str) -> Result<Option<GoalRun>> {
+        Ok(self
+            .list_goal_runs()?
+            .into_iter()
+            .find(|goal_run| goal_run.id == goal_run_id))
     }
 
     fn init_schema(&self) -> Result<()> {
@@ -906,6 +1116,7 @@ impl HistoryStore {
                 notify_channels_json TEXT NOT NULL DEFAULT '[]',
                 command              TEXT,
                 session_id           TEXT,
+                goal_run_id          TEXT,
                 retry_count          INTEGER NOT NULL DEFAULT 0,
                 max_retries          INTEGER NOT NULL DEFAULT 3,
                 next_retry_at        INTEGER,
@@ -957,13 +1168,68 @@ impl HistoryStore {
                 details_json TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_snapshot_ts ON snapshot_index(created_at DESC);
+            CREATE TABLE IF NOT EXISTS goal_runs (
+                id                  TEXT PRIMARY KEY,
+                title               TEXT NOT NULL,
+                goal                TEXT NOT NULL,
+                status              TEXT NOT NULL,
+                priority            TEXT NOT NULL,
+                created_at          INTEGER NOT NULL,
+                updated_at          INTEGER NOT NULL,
+                started_at          INTEGER,
+                completed_at        INTEGER,
+                thread_id           TEXT,
+                session_id          TEXT,
+                current_step_index  INTEGER NOT NULL DEFAULT 0,
+                replan_count        INTEGER NOT NULL DEFAULT 0,
+                max_replans         INTEGER NOT NULL DEFAULT 2,
+                plan_summary        TEXT,
+                reflection_summary  TEXT,
+                memory_updates_json TEXT NOT NULL DEFAULT '[]',
+                generated_skill_path TEXT,
+                last_error          TEXT,
+                child_task_ids_json TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS goal_run_steps (
+                id                TEXT PRIMARY KEY,
+                goal_run_id       TEXT NOT NULL REFERENCES goal_runs(id) ON DELETE CASCADE,
+                ordinal           INTEGER NOT NULL,
+                title             TEXT NOT NULL,
+                instructions      TEXT NOT NULL,
+                kind              TEXT NOT NULL,
+                success_criteria  TEXT NOT NULL,
+                session_id        TEXT,
+                status            TEXT NOT NULL,
+                task_id           TEXT,
+                summary           TEXT,
+                error             TEXT,
+                started_at        INTEGER,
+                completed_at      INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_goal_run_steps_goal_run ON goal_run_steps(goal_run_id, ordinal ASC);
+            CREATE TABLE IF NOT EXISTS goal_run_events (
+                id          TEXT PRIMARY KEY,
+                goal_run_id TEXT NOT NULL REFERENCES goal_runs(id) ON DELETE CASCADE,
+                timestamp   INTEGER NOT NULL,
+                phase       TEXT NOT NULL,
+                message     TEXT NOT NULL,
+                details     TEXT,
+                step_index  INTEGER,
+                todo_snapshot_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_goal_run_events_goal_run_ts ON goal_run_events(goal_run_id, timestamp ASC);
             ",
         )?;
-        let _ = connection.execute("ALTER TABLE agent_tasks ADD COLUMN session_id TEXT", []);
-        let _ = connection.execute(
-            "ALTER TABLE agent_tasks ADD COLUMN scheduled_at INTEGER",
+        ensure_column(&connection, "agent_tasks", "session_id", "TEXT")?;
+        ensure_column(&connection, "agent_tasks", "scheduled_at", "INTEGER")?;
+        ensure_column(&connection, "agent_tasks", "goal_run_id", "TEXT")?;
+        ensure_column(&connection, "goal_run_events", "step_index", "INTEGER")?;
+        ensure_column(&connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)",
             [],
-        );
+        )?;
         Ok(())
     }
 
@@ -1246,6 +1512,72 @@ fn parse_task_log_level(value: &str) -> TaskLogLevel {
     }
 }
 
+fn goal_run_status_to_str(value: GoalRunStatus) -> &'static str {
+    match value {
+        GoalRunStatus::Queued => "queued",
+        GoalRunStatus::Planning => "planning",
+        GoalRunStatus::Running => "running",
+        GoalRunStatus::AwaitingApproval => "awaiting_approval",
+        GoalRunStatus::Paused => "paused",
+        GoalRunStatus::Completed => "completed",
+        GoalRunStatus::Failed => "failed",
+        GoalRunStatus::Cancelled => "cancelled",
+    }
+}
+
+fn parse_goal_run_status(value: &str) -> GoalRunStatus {
+    match value {
+        "planning" => GoalRunStatus::Planning,
+        "running" => GoalRunStatus::Running,
+        "awaiting_approval" => GoalRunStatus::AwaitingApproval,
+        "paused" => GoalRunStatus::Paused,
+        "completed" => GoalRunStatus::Completed,
+        "failed" => GoalRunStatus::Failed,
+        "cancelled" => GoalRunStatus::Cancelled,
+        _ => GoalRunStatus::Queued,
+    }
+}
+
+fn goal_run_step_kind_to_str(value: GoalRunStepKind) -> &'static str {
+    match value {
+        GoalRunStepKind::Reason => "reason",
+        GoalRunStepKind::Command => "command",
+        GoalRunStepKind::Research => "research",
+        GoalRunStepKind::Memory => "memory",
+        GoalRunStepKind::Skill => "skill",
+    }
+}
+
+fn parse_goal_run_step_kind(value: &str) -> GoalRunStepKind {
+    match value {
+        "reason" => GoalRunStepKind::Reason,
+        "command" => GoalRunStepKind::Command,
+        "memory" => GoalRunStepKind::Memory,
+        "skill" => GoalRunStepKind::Skill,
+        _ => GoalRunStepKind::Research,
+    }
+}
+
+fn goal_run_step_status_to_str(value: GoalRunStepStatus) -> &'static str {
+    match value {
+        GoalRunStepStatus::Pending => "pending",
+        GoalRunStepStatus::InProgress => "in_progress",
+        GoalRunStepStatus::Completed => "completed",
+        GoalRunStepStatus::Failed => "failed",
+        GoalRunStepStatus::Skipped => "skipped",
+    }
+}
+
+fn parse_goal_run_step_status(value: &str) -> GoalRunStepStatus {
+    match value {
+        "in_progress" => GoalRunStepStatus::InProgress,
+        "completed" => GoalRunStepStatus::Completed,
+        "failed" => GoalRunStepStatus::Failed,
+        "skipped" => GoalRunStepStatus::Skipped,
+        _ => GoalRunStepStatus::Pending,
+    }
+}
+
 fn append_line(path: &PathBuf, line: &str) -> Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{line}")?;
@@ -1467,4 +1799,198 @@ fn now_ts() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn ensure_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    if table_has_column(connection, table, column)? {
+        return Ok(());
+    }
+
+    connection.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+        [],
+    )?;
+    Ok(())
+}
+
+fn table_has_column(connection: &Connection, table: &str, column: &str) -> Result<bool> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = connection.prepare(&pragma)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for row in rows {
+        if row? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use uuid::Uuid;
+
+    fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
+        let root = std::env::temp_dir().join(format!("tamux-history-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join("history"))?;
+        fs::create_dir_all(root.join("skills/generated"))?;
+        fs::create_dir_all(root.join("semantic-logs/worm"))?;
+        Ok((
+            HistoryStore {
+                db_path: root.join("history/command-history.db"),
+                skill_dir: root.join("skills/generated"),
+                telemetry_dir: root.join("semantic-logs"),
+                worm_dir: root.join("semantic-logs/worm"),
+            },
+            root,
+        ))
+    }
+
+    #[test]
+    fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        let connection = Connection::open(&store.db_path)?;
+        connection.execute_batch(
+            "
+            CREATE TABLE agent_tasks (
+                id                   TEXT PRIMARY KEY,
+                title                TEXT NOT NULL,
+                description          TEXT NOT NULL,
+                status               TEXT NOT NULL,
+                priority             TEXT NOT NULL,
+                progress             INTEGER NOT NULL DEFAULT 0,
+                created_at           INTEGER NOT NULL,
+                started_at           INTEGER,
+                completed_at         INTEGER,
+                error                TEXT,
+                result               TEXT,
+                thread_id            TEXT,
+                source               TEXT NOT NULL DEFAULT 'user',
+                notify_on_complete   INTEGER NOT NULL DEFAULT 0,
+                notify_channels_json TEXT NOT NULL DEFAULT '[]',
+                command              TEXT,
+                retry_count          INTEGER NOT NULL DEFAULT 0,
+                max_retries          INTEGER NOT NULL DEFAULT 3,
+                next_retry_at        INTEGER,
+                blocked_reason       TEXT,
+                awaiting_approval_id TEXT,
+                lane_id              TEXT,
+                last_error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, priority, created_at DESC);
+            ",
+        )?;
+        drop(connection);
+
+        store.init_schema()?;
+
+        let connection = Connection::open(&store.db_path)?;
+        assert!(table_has_column(&connection, "agent_tasks", "session_id")?);
+        assert!(table_has_column(
+            &connection,
+            "agent_tasks",
+            "scheduled_at"
+        )?);
+        assert!(table_has_column(&connection, "agent_tasks", "goal_run_id")?);
+
+        let index_name: Option<String> = connection
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        assert_eq!(index_name.as_deref(), Some("idx_agent_tasks_goal_run"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+
+        let goal_run = GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal".to_string(),
+            goal: "Do the thing".to_string(),
+            status: GoalRunStatus::Running,
+            priority: TaskPriority::Normal,
+            created_at: 1,
+            updated_at: 2,
+            started_at: Some(1),
+            completed_at: None,
+            thread_id: Some("thread-1".to_string()),
+            session_id: None,
+            current_step_index: 0,
+            current_step_title: Some("Inspect".to_string()),
+            current_step_kind: Some(GoalRunStepKind::Research),
+            replan_count: 0,
+            max_replans: 2,
+            plan_summary: Some("Plan".to_string()),
+            reflection_summary: None,
+            memory_updates: Vec::new(),
+            generated_skill_path: None,
+            last_error: None,
+            failure_cause: None,
+            child_task_ids: Vec::new(),
+            child_task_count: 0,
+            approval_count: 0,
+            awaiting_approval_id: None,
+            active_task_id: None,
+            duration_ms: None,
+            steps: vec![GoalRunStep {
+                id: "step-1".to_string(),
+                position: 0,
+                title: "Inspect".to_string(),
+                instructions: "Inspect state".to_string(),
+                kind: GoalRunStepKind::Research,
+                success_criteria: "Know state".to_string(),
+                session_id: None,
+                status: GoalRunStepStatus::InProgress,
+                task_id: None,
+                summary: None,
+                error: None,
+                started_at: Some(1),
+                completed_at: None,
+            }],
+            events: vec![GoalRunEvent {
+                id: "event-1".to_string(),
+                timestamp: 3,
+                phase: "todo".to_string(),
+                message: "goal todo updated".to_string(),
+                details: None,
+                step_index: Some(0),
+                todo_snapshot: vec![crate::agent::types::TodoItem {
+                    id: "todo-1".to_string(),
+                    content: "Inspect state".to_string(),
+                    status: crate::agent::types::TodoStatus::InProgress,
+                    position: 0,
+                    step_index: Some(0),
+                    created_at: 3,
+                    updated_at: 3,
+                }],
+            }],
+        };
+
+        store.upsert_goal_run(&goal_run)?;
+        let loaded = store
+            .get_goal_run("goal-1")?
+            .expect("goal run should exist after upsert");
+
+        assert_eq!(loaded.events.len(), 1);
+        assert_eq!(loaded.events[0].step_index, Some(0));
+        assert_eq!(loaded.events[0].todo_snapshot.len(), 1);
+        assert_eq!(loaded.events[0].todo_snapshot[0].content, "Inspect state");
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
 }

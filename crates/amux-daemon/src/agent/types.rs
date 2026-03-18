@@ -150,6 +150,27 @@ impl Default for ToolsConfig {
 // Agent events (broadcast to frontend subscribers)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub id: String,
+    pub content: String,
+    pub status: TodoStatus,
+    pub position: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_index: Option<usize>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -201,6 +222,30 @@ pub enum AgentEvent {
         message: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         task: Option<AgentTask>,
+    },
+    GoalRunUpdate {
+        goal_run_id: String,
+        status: GoalRunStatus,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_step_index: Option<usize>,
+        message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        goal_run: Option<GoalRun>,
+    },
+    TodoUpdate {
+        thread_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        goal_run_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        step_index: Option<usize>,
+        items: Vec<TodoItem>,
+    },
+    WorkflowNotice {
+        thread_id: String,
+        kind: String,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
     },
     HeartbeatResult {
         item_id: String,
@@ -258,6 +303,10 @@ pub struct AgentMessage {
     pub tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_arguments: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_status: Option<String>,
     #[serde(default)]
     pub input_tokens: u64,
     #[serde(default)]
@@ -416,6 +465,8 @@ pub struct AgentTask {
     pub command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_run_id: Option<String>,
     #[serde(default)]
     pub retry_count: u32,
     #[serde(default = "default_max_task_retries")]
@@ -442,6 +493,134 @@ fn default_source() -> String {
 
 fn default_max_task_retries() -> u32 {
     3
+}
+
+// ---------------------------------------------------------------------------
+// Goal runner
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalRunStatus {
+    Queued,
+    Planning,
+    Running,
+    AwaitingApproval,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalRunStepKind {
+    Reason,
+    Command,
+    Research,
+    Memory,
+    Skill,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalRunStepStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalRunStep {
+    pub id: String,
+    pub position: usize,
+    pub title: String,
+    pub instructions: String,
+    pub kind: GoalRunStepKind,
+    pub success_criteria: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub status: GoalRunStepStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalRunEvent {
+    pub id: String,
+    pub timestamp: u64,
+    pub phase: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub todo_snapshot: Vec<TodoItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoalRun {
+    pub id: String,
+    pub title: String,
+    pub goal: String,
+    pub status: GoalRunStatus,
+    pub priority: TaskPriority,
+    pub created_at: u64,
+    pub updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub current_step_index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_step_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_step_kind: Option<GoalRunStepKind>,
+    pub replan_count: u32,
+    pub max_replans: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reflection_summary: Option<String>,
+    #[serde(default)]
+    pub memory_updates: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_skill_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_cause: Option<String>,
+    #[serde(default)]
+    pub child_task_ids: Vec<String>,
+    #[serde(default)]
+    pub child_task_count: u32,
+    #[serde(default)]
+    pub approval_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub awaiting_approval_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub steps: Vec<GoalRunStep>,
+    #[serde(default)]
+    pub events: Vec<GoalRunEvent>,
 }
 
 // ---------------------------------------------------------------------------

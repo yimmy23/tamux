@@ -236,11 +236,39 @@ pub enum ClientMessage {
         dependencies: Vec<String>,
     },
 
+    /// Start a durable autonomous goal run.
+    AgentStartGoalRun {
+        goal: String,
+        title: Option<String>,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+        priority: Option<String>,
+    },
+
     /// Cancel a queued or running agent task.
     AgentCancelTask { task_id: String },
 
     /// List all agent tasks.
     AgentListTasks,
+
+    /// List all goal runs.
+    AgentListGoalRuns,
+
+    /// Get a specific goal run.
+    AgentGetGoalRun { goal_run_id: String },
+
+    /// Control a goal run lifecycle.
+    AgentControlGoalRun {
+        goal_run_id: String,
+        action: String,
+        step_index: Option<usize>,
+    },
+
+    /// List daemon-side todos for all threads.
+    AgentListTodos,
+
+    /// Get daemon-side todos for a specific thread.
+    AgentGetTodos { thread_id: String },
 
     /// Get current agent configuration.
     AgentGetConfig,
@@ -467,6 +495,27 @@ pub enum DaemonMessage {
 
     /// Response to AgentCancelTask.
     AgentTaskCancelled { task_id: String, cancelled: bool },
+
+    /// Response to AgentStartGoalRun.
+    AgentGoalRunStarted { goal_run_json: String },
+
+    /// Response to AgentListGoalRuns.
+    AgentGoalRunList { goal_runs_json: String },
+
+    /// Response to AgentGetGoalRun.
+    AgentGoalRunDetail { goal_run_json: String },
+
+    /// Response to AgentControlGoalRun.
+    AgentGoalRunControlled { goal_run_id: String, ok: bool },
+
+    /// Response to AgentListTodos.
+    AgentTodoList { todos_json: String },
+
+    /// Response to AgentGetTodos.
+    AgentTodoDetail {
+        thread_id: String,
+        todos_json: String,
+    },
 
     /// Response to AgentGetConfig.
     AgentConfigResponse { config_json: String },

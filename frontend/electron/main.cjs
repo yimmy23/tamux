@@ -3187,7 +3187,19 @@ function registerIpcHandlers() {
 
                 // Response types from daemon queries — resolve oldest pending
                 // request of the matching type (FIFO order).
-                if (['thread-list', 'thread-detail', 'task-list', 'config', 'heartbeat-items'].includes(event.type)) {
+                if ([
+                    'thread-list',
+                    'thread-detail',
+                    'task-list',
+                    'todo-list',
+                    'todo-detail',
+                    'goal-run-started',
+                    'goal-run-list',
+                    'goal-run-detail',
+                    'goal-run-controlled',
+                    'config',
+                    'heartbeat-items',
+                ].includes(event.type)) {
                     let oldest = null;
                     for (const [reqId, handler] of agentBridge.pending.entries()) {
                         if (handler.responseType === event.type) {
@@ -3277,6 +3289,22 @@ function registerIpcHandlers() {
 
                 if (event.type === 'ready') {
                     dbBridge.ready = true;
+                    continue;
+                }
+
+                if (event.type === 'error') {
+                    // Reject the oldest pending request with the error message
+                    let oldest = null;
+                    for (const [reqId, handler] of dbBridge.pending.entries()) {
+                        if (!oldest || handler.ts < oldest.ts) {
+                            oldest = { reqId, handler, ts: handler.ts };
+                        }
+                    }
+                    if (oldest) {
+                        oldest.handler.resolve(null);
+                        dbBridge.pending.delete(oldest.reqId);
+                    }
+                    logToFile('warn', 'db bridge error', { message: event.message || event.data });
                     continue;
                 }
 
@@ -3496,6 +3524,66 @@ function registerIpcHandlers() {
             return await sendAgentQuery({ type: 'list-tasks' }, 'task-list');
         } catch {
             return [];
+        }
+    });
+
+    ipcMain.handle('agent-list-todos', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-todos' }, 'todo-list');
+        } catch {
+            return {};
+        }
+    });
+
+    ipcMain.handle('agent-get-todos', async (_event, threadId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-todos', thread_id: threadId }, 'todo-detail');
+        } catch {
+            return { thread_id: threadId, items: [] };
+        }
+    });
+
+    ipcMain.handle('agent-start-goal-run', async (_event, payload) => {
+        try {
+            return await sendAgentQuery({
+                type: 'start-goal-run',
+                goal: payload?.goal,
+                title: typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : null,
+                thread_id: typeof payload?.threadId === 'string' && payload.threadId.trim() ? payload.threadId.trim() : null,
+                session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
+                priority: typeof payload?.priority === 'string' && payload.priority.trim() ? payload.priority.trim() : null,
+            }, 'goal-run-started');
+        } catch (err) {
+            return { ok: false, error: err?.message || String(err) };
+        }
+    });
+
+    ipcMain.handle('agent-list-goal-runs', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-goal-runs' }, 'goal-run-list');
+        } catch {
+            return [];
+        }
+    });
+
+    ipcMain.handle('agent-get-goal-run', async (_event, goalRunId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-goal-run', goal_run_id: goalRunId }, 'goal-run-detail');
+        } catch {
+            return null;
+        }
+    });
+
+    ipcMain.handle('agent-control-goal-run', async (_event, goalRunId, action, stepIndex) => {
+        try {
+            return await sendAgentQuery({
+                type: 'control-goal-run',
+                goal_run_id: goalRunId,
+                action,
+                step_index: Number.isFinite(stepIndex) ? Math.trunc(stepIndex) : null,
+            }, 'goal-run-controlled');
+        } catch {
+            return { ok: false };
         }
     });
 

@@ -23,7 +23,12 @@ export interface OperationalEvent {
     | "approval-requested"
     | "approval-approved"
     | "approval-denied"
-    | "tool-call";
+    | "tool-call"
+    | "plan-mode"
+    | "memory-consulted"
+    | "memory-updated"
+    | "skill-consulted"
+    | "history-consulted";
     command: string | null;
     message: string | null;
     exitCode: number | null;
@@ -254,6 +259,10 @@ function syncCounters(state: PersistedMissionState): void {
     }
 }
 
+/**
+ * Bulk-persist all mission state to SQLite. Used only during initial hydration /
+ * migration so that legacy JSON-file data is back-filled into the DB.
+ */
 function persistMissionState(state: PersistedMissionState): void {
     const payload: PersistedMissionState = {
         operationalEvents: limitItems(state.operationalEvents ?? [], MAX_OPERATIONAL_EVENTS),
@@ -279,6 +288,24 @@ function persistMissionState(state: PersistedMissionState): void {
             await api.dbUpsertAgentEvent?.(serializeApprovalRequest(approval));
         }
         for (const [sessionKey, commands] of Object.entries(payload.sessionAllowlist ?? {})) {
+            await api.dbUpsertAgentEvent?.(serializeAllowlistEntry(sessionKey, commands));
+        }
+    })();
+}
+
+/** Persist a single pre-serialized event row to SQLite (fire-and-forget). */
+function persistSingleMissionEvent(row: AgentEventRow): void {
+    const api = getMissionDbApi();
+    if (!api?.dbUpsertAgentEvent) return;
+    void api.dbUpsertAgentEvent(row);
+}
+
+/** Persist the full allowlist map to SQLite (the allowlist is a map, not individual events). */
+function persistAllowlist(sessionAllowlist: Record<string, string[]>): void {
+    const api = getMissionDbApi();
+    if (!api?.dbUpsertAgentEvent) return;
+    void (async () => {
+        for (const [sessionKey, commands] of Object.entries(sessionAllowlist)) {
             await api.dbUpsertAgentEvent?.(serializeAllowlistEntry(sessionKey, commands));
         }
     })();
@@ -567,6 +594,7 @@ export interface AgentMissionState {
     recordCommandFinished: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; command?: string | null; exitCode?: number | null; durationMs?: number | null }) => void;
     recordSessionExited: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; exitCode?: number | null }) => void;
     recordError: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; message: string }) => void;
+    recordOperationalEvent: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; kind: OperationalEvent["kind"]; command?: string | null; message?: string | null; exitCode?: number | null; durationMs?: number | null; riskLevel?: RiskLevel | null; blastRadius?: string | null }) => void;
     recordCognitiveOutput: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; text: string }) => void;
     requestApproval: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; command: string; reasons: string[]; riskLevel: RiskLevel; blastRadius: string }) => string;
     resolveApproval: (id: string, status: "approved-once" | "approved-session" | "denied") => void;
@@ -610,13 +638,6 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             const memory = { ...state.memory, [kind]: bounded };
 
             scheduleTextWrite(kind === "frozenSnapshot" ? MEMORY_FILE : USER_FILE, bounded, 200);
-            persistMissionState({
-                operationalEvents: state.operationalEvents,
-                cognitiveEvents: state.cognitiveEvents,
-                contextSnapshots: state.contextSnapshots,
-                approvals: state.approvals,
-                sessionAllowlist: state.sessionAllowlist,
-            });
 
             return { memory };
         });
@@ -641,7 +662,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -674,7 +695,8 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
             const contextSnapshots = limitItems([snapshot, ...state.contextSnapshots], MAX_CONTEXT_SNAPSHOTS);
-            persistMissionState({ ...state, operationalEvents, contextSnapshots });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
+            persistSingleMissionEvent(serializeContextSnapshot(snapshot));
             return { operationalEvents, contextSnapshots };
         });
     },
@@ -698,7 +720,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -722,7 +744,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -746,7 +768,30 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
+            return { operationalEvents };
+        });
+    },
+
+    recordOperationalEvent: (opts) => {
+        set((state) => {
+            const event: OperationalEvent = {
+                id: nextId("op", "operational"),
+                timestamp: Date.now(),
+                paneId: opts.paneId,
+                workspaceId: opts.workspaceId ?? null,
+                surfaceId: opts.surfaceId ?? null,
+                sessionId: opts.sessionId ?? null,
+                kind: opts.kind,
+                command: opts.command ?? null,
+                message: opts.message ?? null,
+                exitCode: opts.exitCode ?? null,
+                durationMs: opts.durationMs ?? null,
+                riskLevel: opts.riskLevel ?? null,
+                blastRadius: opts.blastRadius ?? null,
+            };
+            const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -770,7 +815,9 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             cognitiveId += events.length;
 
             const cognitiveEvents = limitItems([...events.reverse(), ...state.cognitiveEvents], MAX_COGNITIVE_EVENTS);
-            persistMissionState({ ...state, cognitiveEvents });
+            for (const ev of events) {
+                persistSingleMissionEvent(serializeCognitiveEvent(ev));
+            }
             return { cognitiveEvents };
         });
     },
@@ -819,7 +866,8 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
                 ...state.approvals.filter((entry) => entry.id !== opts.id),
             ], MAX_APPROVALS);
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, approvals, operationalEvents });
+            persistSingleMissionEvent(serializeApprovalRequest(approval));
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { approvals, operationalEvents };
         });
     },
@@ -859,7 +907,10 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, approvals, operationalEvents, sessionAllowlist });
+            const resolvedApproval = approvals.find((entry) => entry.id === id);
+            if (resolvedApproval) persistSingleMissionEvent(serializeApprovalRequest(resolvedApproval));
+            persistSingleMissionEvent(serializeOperationalEvent(event));
+            if (status === "approved-session") persistAllowlist(sessionAllowlist);
             return { approvals, operationalEvents, sessionAllowlist };
         });
     },
@@ -870,7 +921,8 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
                 if (entry.id !== id || entry.handledAt) return entry;
                 return { ...entry, handledAt: Date.now() };
             });
-            persistMissionState({ ...state, approvals });
+            const updatedApproval = approvals.find((entry) => entry.id === id);
+            if (updatedApproval) persistSingleMissionEvent(serializeApprovalRequest(updatedApproval));
             return { approvals };
         });
     },
@@ -897,7 +949,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
                 blastRadius: null,
             };
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },

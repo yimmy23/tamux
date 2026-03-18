@@ -718,7 +718,8 @@ export function getAvailableTools(options: {
   }
 
   if (useAgentStore.getState().agentSettings.enableHonchoMemory) {
-    tools.push(SYSTEM_TOOLS[SYSTEM_TOOLS.length - 1]);
+    const honchoTool = SYSTEM_TOOLS.find(t => t.function.name === 'agent_query_memory');
+    if (honchoTool) tools.push(honchoTool);
   }
 
   const registeredNames = new Set(tools.map((tool) => tool.function.name));
@@ -1713,7 +1714,7 @@ async function executeBrowserClick(
     const script = selector
       ? `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
-          if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
+          if (!el) return { ok: false, error: 'Element not found: ' + ${JSON.stringify(selector)} };
           el.scrollIntoView({ block: 'center' });
           el.click();
           return { ok: true, tag: el.tagName, text: (el.textContent || '').slice(0, 100) };
@@ -1759,7 +1760,7 @@ async function executeBrowserType(
     const shouldClear = clear !== false;
     const script = `(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
+      if (!el) return { ok: false, error: 'Element not found: ' + ${JSON.stringify(selector)} };
       el.focus();
       ${shouldClear ? `
       if ('value' in el) { el.value = ''; }

@@ -1,4 +1,4 @@
-use amux_protocol::{ApprovalPayload, ManagedCommandRequest, WorkspaceId};
+use amux_protocol::{ApprovalPayload, ManagedCommandRequest, SecurityLevel, WorkspaceId};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -84,6 +84,10 @@ pub fn evaluate_command(
     request: &ManagedCommandRequest,
     workspace_id: Option<WorkspaceId>,
 ) -> PolicyDecision {
+    if matches!(request.security_level, SecurityLevel::Yolo) {
+        return PolicyDecision::Allow;
+    }
+
     let normalized = request.command.trim().to_ascii_lowercase();
     let mut risk_level = "medium".to_string();
     let mut blast_radius = "current session".to_string();
@@ -117,4 +121,64 @@ pub fn evaluate_command(
         workspace_id,
         allow_network: request.allow_network,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{evaluate_command, PolicyDecision};
+    use amux_protocol::{ManagedCommandRequest, ManagedCommandSource, SecurityLevel};
+
+    fn request(
+        command: &str,
+        security_level: SecurityLevel,
+        allow_network: bool,
+    ) -> ManagedCommandRequest {
+        ManagedCommandRequest {
+            command: command.to_string(),
+            rationale: "test".to_string(),
+            allow_network,
+            sandbox_enabled: false,
+            security_level,
+            cwd: None,
+            language_hint: None,
+            source: ManagedCommandSource::Agent,
+        }
+    }
+
+    #[test]
+    fn yolo_bypasses_approval_even_for_risky_commands() {
+        let req = request("rm -rf /", SecurityLevel::Yolo, false);
+        let decision = evaluate_command("exec_1".to_string(), &req, None);
+        assert!(matches!(decision, PolicyDecision::Allow));
+    }
+
+    #[test]
+    fn lowest_requires_approval_for_risky_commands() {
+        let req = request("rm -rf /", SecurityLevel::Lowest, false);
+        let decision = evaluate_command("exec_2".to_string(), &req, None);
+        match decision {
+            PolicyDecision::RequireApproval(payload) => {
+                assert!(payload
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.contains("destructive recursive delete")));
+            }
+            PolicyDecision::Allow => panic!("expected approval for risky command at lowest level"),
+        }
+    }
+
+    #[test]
+    fn lowest_requires_approval_when_network_requested() {
+        let req = request("echo hello", SecurityLevel::Lowest, true);
+        let decision = evaluate_command("exec_3".to_string(), &req, None);
+        match decision {
+            PolicyDecision::RequireApproval(payload) => {
+                assert!(payload
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.contains("network access requested")));
+            }
+            PolicyDecision::Allow => panic!("expected approval when network access is requested"),
+        }
+    }
 }

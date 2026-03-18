@@ -91,6 +91,26 @@ enum AgentBridgeCommand {
         task_id: String,
     },
     ListTasks,
+    StartGoalRun {
+        goal: String,
+        title: Option<String>,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+        priority: Option<String>,
+    },
+    ListGoalRuns,
+    GetGoalRun {
+        goal_run_id: String,
+    },
+    ControlGoalRun {
+        goal_run_id: String,
+        action: String,
+        step_index: Option<usize>,
+    },
+    ListTodos,
+    GetTodos {
+        thread_id: String,
+    },
     GetConfig,
     SetConfig {
         config_json: String,
@@ -871,6 +891,46 @@ pub async fn run_agent_bridge() -> Result<()> {
                             AgentBridgeCommand::ListTasks => {
                                 framed.send(ClientMessage::AgentListTasks).await?;
                             }
+                            AgentBridgeCommand::StartGoalRun {
+                                goal,
+                                title,
+                                thread_id,
+                                session_id,
+                                priority,
+                            } => {
+                                framed.send(ClientMessage::AgentStartGoalRun {
+                                    goal,
+                                    title,
+                                    thread_id,
+                                    session_id,
+                                    priority,
+                                }).await?;
+                            }
+                            AgentBridgeCommand::ListGoalRuns => {
+                                framed.send(ClientMessage::AgentListGoalRuns).await?;
+                            }
+                            AgentBridgeCommand::GetGoalRun { goal_run_id } => {
+                                framed.send(ClientMessage::AgentGetGoalRun { goal_run_id }).await?;
+                            }
+                            AgentBridgeCommand::ControlGoalRun {
+                                goal_run_id,
+                                action,
+                                step_index,
+                            } => {
+                                framed
+                                    .send(ClientMessage::AgentControlGoalRun {
+                                        goal_run_id,
+                                        action,
+                                        step_index,
+                                    })
+                                    .await?;
+                            }
+                            AgentBridgeCommand::ListTodos => {
+                                framed.send(ClientMessage::AgentListTodos).await?;
+                            }
+                            AgentBridgeCommand::GetTodos { thread_id } => {
+                                framed.send(ClientMessage::AgentGetTodos { thread_id }).await?;
+                            }
                             AgentBridgeCommand::GetConfig => {
                                 framed.send(ClientMessage::AgentGetConfig).await?;
                             }
@@ -915,6 +975,30 @@ pub async fn run_agent_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::AgentTaskCancelled { task_id, cancelled })) => {
                         let msg = serde_json::json!({"type":"task-cancelled","task_id":task_id,"cancelled":cancelled});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentGoalRunStarted { goal_run_json })) => {
+                        let msg = serde_json::json!({"type":"goal-run-started","data":serde_json::from_str::<serde_json::Value>(&goal_run_json).unwrap_or_default()});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentGoalRunList { goal_runs_json })) => {
+                        let msg = serde_json::json!({"type":"goal-run-list","data":serde_json::from_str::<serde_json::Value>(&goal_runs_json).unwrap_or_default()});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentGoalRunDetail { goal_run_json })) => {
+                        let msg = serde_json::json!({"type":"goal-run-detail","data":serde_json::from_str::<serde_json::Value>(&goal_run_json).unwrap_or_default()});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentGoalRunControlled { goal_run_id, ok })) => {
+                        let msg = serde_json::json!({"type":"goal-run-controlled","data":{"goal_run_id":goal_run_id,"ok":ok}});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentTodoList { todos_json })) => {
+                        let msg = serde_json::json!({"type":"todo-list","data":serde_json::from_str::<serde_json::Value>(&todos_json).unwrap_or_default()});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentTodoDetail { thread_id, todos_json })) => {
+                        let msg = serde_json::json!({"type":"todo-detail","data":{"thread_id":thread_id,"items":serde_json::from_str::<serde_json::Value>(&todos_json).unwrap_or_default()}});
                         emit_agent_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::AgentConfigResponse { config_json })) => {

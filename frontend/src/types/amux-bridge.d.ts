@@ -78,6 +78,69 @@ declare global {
         error?: string;
     };
 
+    type AmuxGoalRunStatus =
+        | "queued"
+        | "planning"
+        | "running"
+        | "awaiting_approval"
+        | "paused"
+        | "completed"
+        | "failed"
+        | "cancelled";
+
+    type AmuxGoalRunControlAction = "pause" | "resume" | "cancel" | "retry_step" | "rerun_from_step";
+
+    type AmuxTodoItem = {
+        id: string;
+        content: string;
+        status: "pending" | "in_progress" | "completed" | "blocked";
+        position: number;
+        step_index?: number | null;
+        created_at?: number | null;
+        updated_at?: number | null;
+    };
+
+    type AmuxGoalRunStep = {
+        id: string;
+        title: string;
+        kind: string;
+        status?: string | null;
+        success_condition?: string | null;
+        session_id?: string | null;
+    };
+
+    type AmuxGoalRun = {
+        id: string;
+        title: string;
+        goal: string;
+        status: AmuxGoalRunStatus;
+        priority?: string | null;
+        created_at: number;
+        started_at?: number | null;
+        completed_at?: number | null;
+        thread_id?: string | null;
+        current_step_index?: number | null;
+        current_step_title?: string | null;
+        current_step_kind?: string | null;
+        replan_count?: number | null;
+        plan_summary?: string | null;
+        reflection_summary?: string | null;
+        result?: string | null;
+        error?: string | null;
+        last_error?: string | null;
+        failure_cause?: string | null;
+        memory_updates?: string[];
+        generated_skill_path?: string | null;
+        child_task_ids?: string[];
+        child_task_count?: number | null;
+        approval_count?: number | null;
+        duration_ms?: number | null;
+        session_id?: string | null;
+        awaiting_approval_id?: string | null;
+        active_task_id?: string | null;
+        steps?: AmuxGoalRunStep[];
+    };
+
     type AmuxBridge = {
         checkSetupPrereqs?: (profile?: "source" | "desktop") => Promise<AmuxSetupPrereqReport>;
         discoverCodingAgents?: () => Promise<AmuxCodingAgentDiscoveryResult[]>;
@@ -102,6 +165,12 @@ declare global {
         dbAddMessage?: (message: unknown) => Promise<boolean>;
         dbListMessages?: (threadId: string, limit?: number | null) => Promise<unknown[]>;
         agentAddTask?: (payload: { title: string; description: string; priority?: string; command?: string | null; sessionId?: string | null; scheduledAt?: number | null; dependencies?: string[] }) => Promise<unknown>;
+        agentListTodos?: () => Promise<Record<string, AmuxTodoItem[]> | unknown>;
+        agentGetTodos?: (threadId: string) => Promise<{ thread_id: string; items: AmuxTodoItem[] } | AmuxTodoItem[] | unknown>;
+        agentStartGoalRun?: (payload: { goal: string; title?: string | null; sessionId?: string | null; priority?: string | null; threadId?: string | null }) => Promise<AmuxGoalRun | unknown>;
+        agentListGoalRuns?: () => Promise<AmuxGoalRun[] | unknown>;
+        agentGetGoalRun?: (goalRunId: string) => Promise<AmuxGoalRun | unknown>;
+        agentControlGoalRun?: (goalRunId: string, action: AmuxGoalRunControlAction, stepIndex?: number | null) => Promise<boolean | { ok?: boolean; success?: boolean } | unknown>;
         dbUpsertTranscriptIndex?: (entry: unknown) => Promise<boolean>;
         dbListTranscriptIndex?: (workspaceId?: string | null) => Promise<unknown[]>;
         dbUpsertSnapshotIndex?: (entry: unknown) => Promise<boolean>;

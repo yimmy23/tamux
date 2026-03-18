@@ -23,11 +23,26 @@ use tokio_util::codec::Framed;
 
 use crate::router::{GatewayAction, GatewayMessage, GatewayResponse};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PendingAgentRequestKind {
     EnqueueTask,
     ListTasks,
     CancelTask,
+}
+
+/// Remove and return the first pending request matching `kind`.
+///
+/// Unlike `pop_front()`, this scans the deque so that concurrent requests
+/// of different kinds from different channels don't get mis-routed.
+fn take_pending_by_kind(
+    pending: &mut VecDeque<(String, PendingAgentRequestKind)>,
+    kind: PendingAgentRequestKind,
+) -> Option<String> {
+    if let Some(idx) = pending.iter().position(|(_, k)| *k == kind) {
+        pending.remove(idx).map(|(channel_id, _)| channel_id)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +411,7 @@ impl Gateway {
                             }
                         }
                         Ok(DaemonMessage::AgentTaskEnqueued { task_json }) => {
-                            if let Some((channel_id, PendingAgentRequestKind::EnqueueTask)) = pending_agent_requests.pop_front() {
+                            if let Some(channel_id) = take_pending_by_kind(&mut pending_agent_requests, PendingAgentRequestKind::EnqueueTask) {
                                 let text = format_task_enqueued_message(&task_json);
                                 let _ = response_tx.send((
                                     channel_id.clone(),
@@ -408,7 +423,7 @@ impl Gateway {
                             }
                         }
                         Ok(DaemonMessage::AgentTaskList { tasks_json }) => {
-                            if let Some((channel_id, PendingAgentRequestKind::ListTasks)) = pending_agent_requests.pop_front() {
+                            if let Some(channel_id) = take_pending_by_kind(&mut pending_agent_requests, PendingAgentRequestKind::ListTasks) {
                                 let text = format_task_list_message(&tasks_json);
                                 let _ = response_tx.send((
                                     channel_id.clone(),
@@ -420,7 +435,7 @@ impl Gateway {
                             }
                         }
                         Ok(DaemonMessage::AgentTaskCancelled { task_id, cancelled }) => {
-                            if let Some((channel_id, PendingAgentRequestKind::CancelTask)) = pending_agent_requests.pop_front() {
+                            if let Some(channel_id) = take_pending_by_kind(&mut pending_agent_requests, PendingAgentRequestKind::CancelTask) {
                                 let text = if cancelled {
                                     format!("Cancelled task {task_id}")
                                 } else {
