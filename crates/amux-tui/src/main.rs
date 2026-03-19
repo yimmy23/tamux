@@ -23,6 +23,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 use crate::app::TuiModel;
 use crate::client::DaemonClient;
 use crate::state::DaemonCommand;
+use crate::wire::FetchedModel;
 
 fn main() -> Result<()> {
     let log_file = std::fs::File::create(std::env::temp_dir().join("tamux-tui.log"))?;
@@ -147,8 +148,20 @@ fn start_daemon_bridge(
                             DaemonCommand::SendMessage { thread_id, content, session_id } => {
                                 let _ = client.send_message(thread_id, content, session_id);
                             }
-                            DaemonCommand::FetchModels { provider_id, base_url, api_key } => {
-                                let _ = client.fetch_models(provider_id, base_url, api_key);
+                            DaemonCommand::FetchModels { provider_id: _, base_url, api_key } => {
+                                // Fetch models directly from provider API
+                                let tx = daemon_event_tx.clone();
+                                tokio::spawn(async move {
+                                    match fetch_models_http(&base_url, &api_key).await {
+                                        Ok(models) => {
+                                            let _ = tx.send(client::ClientEvent::ModelsFetched(models));
+                                        }
+                                        Err(err) => {
+                                            tracing::warn!("Model fetch failed: {}", err);
+                                            // Don't send error — hardcoded fallback will be used
+                                        }
+                                    }
+                                });
                             }
                             DaemonCommand::SetConfigJson(config_json) => {
                                 let _ = client.set_config_json(config_json);
@@ -168,4 +181,71 @@ fn start_daemon_bridge(
             }
         });
     });
+}
+
+/// Fetch models from a provider's /models API endpoint.
+/// Most OpenAI-compatible providers expose GET /models (or /v1/models).
+async fn fetch_models_http(base_url: &str, api_key: &str) -> Result<Vec<FetchedModel>> {
+    // Normalize URL: ensure it ends with /models
+    let url = if base_url.ends_with("/models") {
+        base_url.to_string()
+    } else {
+        let base = base_url.trim_end_matches('/');
+        if base.ends_with("/v1") {
+            format!("{}/models", base)
+        } else {
+            format!("{}/v1/models", base)
+        }
+    };
+
+    // ureq is sync — run in blocking task
+    let api_key = api_key.to_string();
+    let result = tokio::task::spawn_blocking(move || -> Result<Vec<FetchedModel>> {
+        let mut resp = ureq::get(&url)
+            .header("Authorization", &format!("Bearer {}", api_key))
+            .header("Accept", "application/json")
+            .call()
+            .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+
+        let body: serde_json::Value = resp.body_mut()
+            .read_json()
+            .map_err(|e| anyhow::anyhow!("JSON parse failed: {}", e))?;
+
+        let mut models = Vec::new();
+        if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+            for item in data {
+                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                // Skip embedding/tts/whisper/dall-e models
+                if id.contains("embedding") || id.contains("tts") || id.contains("whisper")
+                    || id.contains("dall-e") || id.contains("davinci") || id.contains("babbage")
+                    || id.contains("moderation")
+                {
+                    continue;
+                }
+                let name = item.get("name").and_then(|v| v.as_str()).map(String::from);
+                let context_window = item
+                    .get("context_window")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                models.push(FetchedModel {
+                    id,
+                    name,
+                    context_window,
+                });
+            }
+        }
+
+        // Sort: longer context windows first, then alphabetical
+        models.sort_by(|a, b| {
+            b.context_window.unwrap_or(0).cmp(&a.context_window.unwrap_or(0))
+                .then(a.id.cmp(&b.id))
+        });
+
+        Ok(models)
+    }).await??;
+
+    Ok(result)
 }

@@ -876,12 +876,18 @@ impl TuiModel {
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker)),
             "model" => {
-                // Populate with known models for current provider (offline, no daemon needed)
+                // Show hardcoded models immediately as fallback
                 let models = known_models_for_provider(&self.config.provider);
                 if !models.is_empty() {
                     self.config
                         .reduce(config::ConfigAction::ModelsFetched(models));
                 }
+                // Also trigger async fetch from provider API (will update list when done)
+                self.send_daemon_command(DaemonCommand::FetchModels {
+                    provider_id: self.config.provider.clone(),
+                    base_url: self.config.base_url.clone(),
+                    api_key: self.config.api_key.clone(),
+                });
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
             }
