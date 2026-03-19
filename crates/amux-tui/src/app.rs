@@ -110,8 +110,11 @@ impl TuiModel {
 
     /// Load saved settings from ~/.tamux/agent-settings.json on startup.
     pub fn load_saved_settings(&mut self) {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default();
         let path = format!("{}/.tamux/agent-settings.json", home);
+        tracing::info!("Loading settings from: {}", path);
         let Ok(data) = std::fs::read_to_string(&path) else {
             return;
         };
@@ -1104,9 +1107,31 @@ impl TuiModel {
             return;
         }
 
-        // Send user message to daemon
         let thread_id = self.chat.active_thread_id().map(String::from);
 
+        // Add user message to local thread so it's visible immediately
+        if thread_id.is_none() {
+            // New thread — create one locally
+            self.chat.reduce(chat::ChatAction::ThreadCreated {
+                thread_id: format!("local-{}", self.tick_counter),
+                title: if prompt.len() > 40 { format!("{}...", &prompt[..40]) } else { prompt.clone() },
+            });
+        }
+
+        // Add user message to the active thread
+        if let Some(thread) = self.chat.active_thread_mut() {
+            thread.messages.push(chat::AgentMessage {
+                role: chat::MessageRole::User,
+                content: prompt.clone(),
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+                ..Default::default()
+            });
+        }
+
+        // Send to daemon
         self.send_daemon_command(DaemonCommand::SendMessage {
             thread_id,
             content: prompt,

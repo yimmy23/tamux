@@ -93,7 +93,8 @@ pub fn render(
         all_lines[start..end].to_vec()
     };
 
-    let paragraph = Paragraph::new(visible_lines);
+    let paragraph = Paragraph::new(visible_lines)
+        .wrap(ratatui::widgets::Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
