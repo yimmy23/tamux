@@ -1,5 +1,6 @@
 mod app;
 mod client;
+mod projection;
 mod state;
 mod theme;
 mod widgets;
