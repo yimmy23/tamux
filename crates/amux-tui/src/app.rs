@@ -594,12 +594,12 @@ impl TuiModel {
             "model" => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker)),
-            "tools" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ToolsPicker)),
-            "effort" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker)),
+            "tools" => {
+                self.status_line = "Tools config: use /settings → Tools tab".to_string();
+            }
+            "effort" => {
+                self.status_line = "Effort config: use /settings → Reasoning tab".to_string();
+            }
             "thread" => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker)),
@@ -607,10 +607,25 @@ impl TuiModel {
             "settings" => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Settings)),
-            "view" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ViewPicker)),
-            "quit" => {} // Will be handled as Cmd::quit() via normal mode 'q'
+            "view" => {
+                // Cycle transcript mode
+                let next = match self.chat.transcript_mode() {
+                    chat::TranscriptMode::Compact => chat::TranscriptMode::Tools,
+                    chat::TranscriptMode::Tools => chat::TranscriptMode::Full,
+                    chat::TranscriptMode::Full => chat::TranscriptMode::Compact,
+                };
+                self.chat.reduce(chat::ChatAction::SetTranscriptMode(next));
+                self.status_line = format!("View: {:?}", next);
+            }
+            "quit" => {
+                self.status_line = "Press 'q' in normal mode to quit".to_string();
+            }
+            "prompt" => {
+                self.status_line = "System prompt: use /settings → Agent tab".to_string();
+            }
+            "goal" => {
+                self.status_line = "Goal runs: type your goal as a message".to_string();
+            }
             _ => self.status_line = format!("Unknown command: {}", command),
         }
     }
@@ -775,8 +790,10 @@ impl StringModel for TuiModel {
             } else {
                 (w * 28) / 100  // 28% for medium/narrow
             };
-            // Ensure total never exceeds screen width
+            // Ensure total fits exactly — chat gets the remainder
             let chat_w = w.saturating_sub(sidebar_w + gap);
+            // Sanity: if rounding causes total > w, shrink sidebar
+            let sidebar_w = w.saturating_sub(chat_w + gap);
 
             let chat_lines = crate::widgets::chat::chat_widget(
                 &self.chat, &self.theme, self.focus == FocusArea::Chat, chat_w, body_h,
