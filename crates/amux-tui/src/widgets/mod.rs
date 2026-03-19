@@ -81,13 +81,28 @@ pub fn strip_ansi_len(s: &str) -> usize {
     strip_markup_len(s)
 }
 
-/// Pad a string (containing markup tags) to a visible width
+/// Pad a string (containing markup tags) to a visible width.
+/// If the string is shorter, pads with spaces. If longer, returns as-is
+/// (use `fit_to_width` to both truncate and pad).
 pub fn pad_to_width(s: &str, width: usize) -> String {
     let visible = strip_markup_len(s);
     if visible < width {
         format!("{}{}", s, " ".repeat(width - visible))
     } else {
         s.to_string()
+    }
+}
+
+/// Truncate AND pad a string to exactly `width` visible characters.
+/// This ensures the string takes exactly `width` columns — no more, no less.
+pub fn fit_to_width(s: &str, width: usize) -> String {
+    let visible = strip_markup_len(s);
+    if visible <= width {
+        // Pad short strings
+        format!("{}{}", s, " ".repeat(width - visible))
+    } else {
+        // Truncate long strings
+        truncate_to_width(s, width)
     }
 }
 

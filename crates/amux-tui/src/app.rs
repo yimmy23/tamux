@@ -783,14 +783,13 @@ impl StringModel for TuiModel {
                 self.focus == FocusArea::Sidebar, sidebar_w, body_h,
             );
 
-            // Merge side-by-side
+            // Merge side-by-side — both panes fitted to exact width
             for i in 0..body_h {
                 let left = chat_lines.get(i).cloned().unwrap_or_default();
                 let right = sidebar_lines.get(i).cloned().unwrap_or_default();
-                // Pad left to chat_w visible chars, add gap, then right
-                let left_padded = crate::widgets::pad_to_width(&left, chat_w);
-                let right_padded = crate::widgets::truncate_to_width(&right, sidebar_w);
-                lines.push(format!("{}{}{}", left_padded, " ".repeat(gap), right_padded));
+                let left_fitted = crate::widgets::fit_to_width(&left, chat_w);
+                let right_fitted = crate::widgets::fit_to_width(&right, sidebar_w);
+                lines.push(format!("{}{}{}", left_fitted, " ".repeat(gap), right_fitted));
             }
         } else {
             // Single pane: full-width chat
