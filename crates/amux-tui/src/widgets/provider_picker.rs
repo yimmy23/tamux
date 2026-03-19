@@ -3,26 +3,10 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
 
+use crate::providers::PROVIDERS;
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
-
-/// All supported LLM providers.
-pub const PROVIDERS: &[&str] = &[
-    "OpenAI",
-    "Anthropic",
-    "Groq",
-    "Ollama",
-    "Together",
-    "DeepInfra",
-    "Cerebras",
-    "Z.AI (GLM)",
-    "Kimi/Moonshot",
-    "Qwen (Alibaba)",
-    "MiniMax",
-    "OpenRouter",
-    "Custom",
-];
 
 pub fn render(
     frame: &mut Frame,
@@ -56,20 +40,15 @@ pub fn render(
     let list_items: Vec<ListItem> = PROVIDERS
         .iter()
         .enumerate()
-        .map(|(i, &provider)| {
+        .map(|(i, provider_def)| {
             let is_selected = i == cursor;
-            let is_active = provider.eq_ignore_ascii_case(active_provider)
-                || active_provider
-                    .to_lowercase()
-                    .contains(&provider.to_lowercase())
-                || provider
-                    .to_lowercase()
-                    .contains(&active_provider.to_lowercase());
+            let is_active = provider_def.id == active_provider
+                || provider_def.name.eq_ignore_ascii_case(active_provider);
 
             if is_selected {
                 ListItem::new(Line::from(vec![
                     Span::raw(" > "),
-                    Span::raw(provider),
+                    Span::raw(provider_def.name),
                 ]))
                 .style(
                     Style::default()
@@ -80,14 +59,14 @@ pub fn render(
                 ListItem::new(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(
-                        format!("\u{2022} {}", provider),
+                        format!("\u{2022} {}", provider_def.name),
                         theme.accent_secondary,
                     ),
                 ]))
             } else {
                 ListItem::new(Line::from(vec![
                     Span::raw("   "),
-                    Span::styled(provider, theme.fg_active),
+                    Span::styled(provider_def.name, theme.fg_active),
                 ]))
             }
         })
@@ -114,8 +93,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_list_has_13_entries() {
-        assert_eq!(PROVIDERS.len(), 13);
+    fn provider_list_has_17_entries() {
+        assert_eq!(PROVIDERS.len(), 17);
     }
 
     #[test]

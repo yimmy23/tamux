@@ -5,7 +5,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
     Provider,
-    Model,
     Tools,
     Reasoning,
     Gateway,
@@ -15,7 +14,6 @@ pub enum SettingsTab {
 impl SettingsTab {
     const ALL: &'static [SettingsTab] = &[
         SettingsTab::Provider,
-        SettingsTab::Model,
         SettingsTab::Tools,
         SettingsTab::Reasoning,
         SettingsTab::Gateway,
@@ -119,9 +117,9 @@ impl SettingsState {
                 1 => "base_url",
                 2 => "api_key",
                 3 => "model",
+                4 => "reasoning_effort",
                 _ => "",
             },
-            SettingsTab::Model => "model",
             SettingsTab::Reasoning => match self.field_cursor {
                 0 => "reasoning_effort",
                 _ => "",
@@ -137,8 +135,7 @@ impl SettingsState {
     /// Number of navigable fields in the current tab (for cursor clamping).
     pub fn field_count(&self) -> usize {
         match self.active_tab {
-            SettingsTab::Provider => 4,
-            SettingsTab::Model => 1,
+            SettingsTab::Provider => 5,
             SettingsTab::Tools => 6,
             SettingsTab::Reasoning => 4,
             SettingsTab::Gateway => 5,
@@ -301,8 +298,8 @@ mod tests {
         state.reduce(SettingsAction::EditField);
         assert!(state.editing_field().is_some());
 
-        state.reduce(SettingsAction::SwitchTab(SettingsTab::Model));
-        assert_eq!(state.active_tab(), SettingsTab::Model);
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
+        assert_eq!(state.active_tab(), SettingsTab::Tools);
         assert_eq!(state.field_cursor(), 0);
         assert!(state.editing_field().is_none());
     }
@@ -326,9 +323,9 @@ mod tests {
     #[test]
     fn navigate_field_clamps_at_max() {
         let mut state = SettingsState::new();
-        // Provider tab has 4 fields (0..3)
+        // Provider tab has 5 fields (0..4)
         state.reduce(SettingsAction::NavigateField(100));
-        assert_eq!(state.field_cursor(), 3);
+        assert_eq!(state.field_cursor(), 4);
     }
 
     #[test]
@@ -409,8 +406,8 @@ mod tests {
     }
 
     #[test]
-    fn all_tabs_covers_six_variants() {
-        assert_eq!(SettingsTab::all().len(), 6);
+    fn all_tabs_covers_five_variants() {
+        assert_eq!(SettingsTab::all().len(), 5);
     }
 
     #[test]
@@ -484,14 +481,14 @@ mod tests {
         assert_eq!(state.current_field_name(), "api_key");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "model");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "reasoning_effort");
     }
 
     #[test]
     fn field_count_per_tab() {
         let mut state = SettingsState::new();
-        assert_eq!(state.field_count(), 4); // Provider
-        state.reduce(SettingsAction::SwitchTab(SettingsTab::Model));
-        assert_eq!(state.field_count(), 1);
+        assert_eq!(state.field_count(), 5); // Provider (provider, base_url, api_key, model, effort)
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
         assert_eq!(state.field_count(), 6);
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));

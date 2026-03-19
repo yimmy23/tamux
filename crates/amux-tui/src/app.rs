@@ -12,6 +12,7 @@ use ratatui::widgets::Clear;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::client::ClientEvent;
+use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
@@ -105,6 +106,61 @@ impl TuiModel {
         })) {
             self.send_daemon_command(DaemonCommand::SetConfigJson(json));
         }
+    }
+
+    /// Load saved settings from ~/.tamux/agent-settings.json on startup.
+    pub fn load_saved_settings(&mut self) {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path = format!("{}/.tamux/agent-settings.json", home);
+        let Ok(data) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(&data) else {
+            return;
+        };
+
+        // Get active provider
+        let provider_id = json
+            .get("activeProvider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("openai");
+
+        // Get provider-specific config
+        if let Some(provider_config) = json.get(provider_id) {
+            let base_url = provider_config
+                .get("baseUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let model = provider_config
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let api_key = provider_config
+                .get("apiKey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            self.config.provider = provider_id.to_string();
+            if !base_url.is_empty() {
+                self.config.base_url = base_url.to_string();
+            } else if let Some(def) = providers::find_by_id(provider_id) {
+                self.config.base_url = def.default_base_url.to_string();
+            }
+            if !model.is_empty() {
+                self.config.model = model.to_string();
+            }
+            if !api_key.is_empty() {
+                self.config.api_key = api_key.to_string();
+            }
+        }
+
+        // Store the full JSON for per-provider API keys
+        self.config.agent_config_raw = Some(json);
+
+        self.status_line = format!(
+            "Loaded settings: {} / {}",
+            self.config.provider, self.config.model
+        );
     }
 
     // ── Rendering ─────────────────────────────────────────────────────────────
@@ -887,41 +943,43 @@ impl TuiModel {
                 }
             }
             modal::ModalKind::ProviderPicker => {
-                // Provider list is hardcoded in the widget; map cursor to provider name
-                let providers = [
-                    "openai",
-                    "anthropic",
-                    "groq",
-                    "ollama",
-                    "together",
-                    "deepinfra",
-                    "cerebras",
-                    "zai",
-                    "kimi",
-                    "qwen",
-                    "minimax",
-                    "openrouter",
-                    "custom",
-                ];
                 let cursor = self.modal.picker_cursor();
-                if let Some(&provider) = providers.get(cursor) {
-                    self.config
-                        .reduce(config::ConfigAction::SetProvider(provider.to_string()));
-                    // Repopulate models for new provider
-                    let models = known_models_for_provider(provider);
+                if let Some(def) = providers::PROVIDERS.get(cursor) {
+                    let old_base_url = self.config.base_url.clone();
+                    self.config.provider = def.id.to_string();
+
+                    // Auto-set base_url if it was empty or matched a previous provider's default
+                    if old_base_url.is_empty() || providers::is_known_default_url(&old_base_url) {
+                        self.config.base_url = def.default_base_url.to_string();
+                    }
+
+                    // Auto-set default model
+                    self.config.model = def.default_model.to_string();
+
+                    // Restore saved API key for this provider from agent_config_raw
+                    if let Some(raw) = &self.config.agent_config_raw {
+                        if let Some(provider_config) = raw.get(def.id) {
+                            if let Some(key) = provider_config.get("apiKey").and_then(|v| v.as_str()) {
+                                if !key.is_empty() {
+                                    self.config.api_key = key.to_string();
+                                }
+                            }
+                            // Also restore saved model if available
+                            if let Some(saved_model) = provider_config.get("model").and_then(|v| v.as_str()) {
+                                if !saved_model.is_empty() {
+                                    self.config.model = saved_model.to_string();
+                                }
+                            }
+                        }
+                    }
+
+                    // Repopulate hardcoded models for new provider
+                    let models = providers::known_models_for_provider(def.id);
                     self.config
                         .reduce(config::ConfigAction::ModelsFetched(models));
-                    // Auto-select first model
-                    if let Some(first) = known_models_for_provider(provider).first() {
-                        self.config
-                            .reduce(config::ConfigAction::SetModel(first.id.clone()));
-                    }
-                    self.status_line = format!("Provider: {}", provider);
-                    if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                        "provider": provider,
-                    })) {
-                        self.send_daemon_command(DaemonCommand::SetConfigJson(json));
-                    }
+
+                    self.status_line = format!("Provider: {}", def.name);
+                    self.sync_config_to_daemon();
                 }
                 self.modal.reduce(modal::ModalAction::Pop);
             }
@@ -981,11 +1039,11 @@ impl TuiModel {
         match command {
             "provider" => {
                 self.modal.reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-                self.modal.set_picker_item_count(13); // 13 providers
+                self.modal.set_picker_item_count(providers::PROVIDERS.len());
             }
             "model" => {
                 // Show hardcoded models immediately as fallback
-                let models = known_models_for_provider(&self.config.provider);
+                let models = providers::known_models_for_provider(&self.config.provider);
                 if !models.is_empty() {
                     self.config
                         .reduce(config::ConfigAction::ModelsFetched(models));
@@ -1352,77 +1410,3 @@ fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
     }
 }
 
-// ── Offline model catalogue ───────────────────────────────────────────────────
-
-/// Return a hardcoded list of known models for the given provider so the model
-/// picker works without a live daemon fetch.
-fn known_models_for_provider(provider: &str) -> Vec<config::FetchedModel> {
-    let models: &[(&str, &str, u32)] = match provider {
-        "openai" => &[
-            ("gpt-5.4", "GPT-5.4", 1_000_000),
-            ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
-            ("gpt-5.4-nano", "GPT-5.4 Nano", 400_000),
-            ("o4-mini", "o4 Mini", 200_000),
-            ("o3", "o3", 200_000),
-            ("gpt-4.1", "GPT-4.1", 1_000_000),
-            ("gpt-4.1-mini", "GPT-4.1 Mini", 1_000_000),
-            ("gpt-4.1-nano", "GPT-4.1 Nano", 1_000_000),
-            ("gpt-4o", "GPT-4o", 128_000),
-            ("gpt-4o-mini", "GPT-4o Mini", 128_000),
-        ],
-        "anthropic" => &[
-            ("claude-opus-4-6", "Claude Opus 4.6", 1_000_000),
-            ("claude-sonnet-4-6", "Claude Sonnet 4.6", 200_000),
-            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5", 200_000),
-        ],
-        "groq" => &[
-            ("llama-3.3-70b-versatile", "Llama 3.3 70B", 128_000),
-            ("llama-3.1-8b-instant", "Llama 3.1 8B", 131_072),
-            ("gemma2-9b-it", "Gemma 2 9B", 8_192),
-        ],
-        "ollama" => &[
-            ("llama3.3", "Llama 3.3", 128_000),
-            ("qwen2.5-coder", "Qwen 2.5 Coder", 32_768),
-            ("deepseek-r1", "DeepSeek R1", 64_000),
-            ("mistral", "Mistral", 32_768),
-        ],
-        "together" => &[
-            ("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B", 128_000),
-            ("deepseek-ai/DeepSeek-R1", "DeepSeek R1", 64_000),
-            ("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen 2.5 72B", 32_768),
-        ],
-        "deepinfra" => &[
-            ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", 128_000),
-            ("Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen 2.5 Coder 32B", 32_768),
-        ],
-        "zai" => &[
-            ("glm-4-plus", "GLM-4 Plus", 128_000),
-            ("glm-4-air", "GLM-4 Air", 128_000),
-            ("glm-4-flash", "GLM-4 Flash", 128_000),
-        ],
-        "kimi" => &[
-            ("moonshot-v1-128k", "Moonshot v1 128K", 128_000),
-            ("moonshot-v1-32k", "Moonshot v1 32K", 32_768),
-        ],
-        "qwen" => &[
-            ("qwen-max", "Qwen Max", 32_768),
-            ("qwen-plus", "Qwen Plus", 131_072),
-            ("qwen-turbo", "Qwen Turbo", 131_072),
-        ],
-        "openrouter" => &[
-            ("anthropic/claude-opus-4-6", "Claude Opus 4.6", 1_000_000),
-            ("openai/gpt-4.1", "GPT-4.1", 1_000_000),
-            ("google/gemini-2.5-pro", "Gemini 2.5 Pro", 1_000_000),
-            ("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B", 128_000),
-        ],
-        _ => &[],
-    };
-    models
-        .iter()
-        .map(|(id, name, ctx)| config::FetchedModel {
-            id: id.to_string(),
-            name: Some(name.to_string()),
-            context_window: Some(*ctx),
-        })
-        .collect()
-}

@@ -39,14 +39,13 @@ pub fn render(
 
     // Tab bar
     let active = settings.active_tab();
-    let tab_labels = vec!["Provider", "Model", "Tools", "Reasoning", "Gateway", "Agent"];
+    let tab_labels = vec!["Provider", "Tools", "Reasoning", "Gateway", "Agent"];
     let tab_index = match active {
         SettingsTab::Provider => 0,
-        SettingsTab::Model => 1,
-        SettingsTab::Tools => 2,
-        SettingsTab::Reasoning => 3,
-        SettingsTab::Gateway => 4,
-        SettingsTab::Agent => 5,
+        SettingsTab::Tools => 1,
+        SettingsTab::Reasoning => 2,
+        SettingsTab::Gateway => 3,
+        SettingsTab::Agent => 4,
     };
     let tabs = Tabs::new(tab_labels)
         .select(tab_index)
@@ -99,7 +98,6 @@ fn render_tab_content<'a>(
 ) -> Vec<Line<'a>> {
     match settings.active_tab() {
         SettingsTab::Provider => render_provider_tab(settings, config, theme),
-        SettingsTab::Model => render_model_tab(settings, config, theme),
         SettingsTab::Tools => render_tools_tab(theme),
         SettingsTab::Reasoning => render_reasoning_tab(config, theme),
         SettingsTab::Gateway => render_gateway_tab(theme),
@@ -138,13 +136,19 @@ fn render_provider_tab<'a>(
         config.model().to_string()
     };
     let api_key_val = mask_api_key(config.api_key());
+    let effort_val = if config.reasoning_effort().is_empty() {
+        "off".to_string()
+    } else {
+        config.reasoning_effort().to_string()
+    };
 
     // Field definitions: (index, label, value, field_name, hint)
-    let fields: [(usize, &str, String, &str, &str); 4] = [
-        (0, "Provider", provider_val, "provider", " [Enter: pick]"),
-        (1, "Base URL", base_url_val, "base_url", " [Enter: edit]"),
-        (2, "API Key",  api_key_val,  "api_key",  " [Enter: edit]"),
-        (3, "Model",    model_val,    "model",    " [Enter: pick]"),
+    let fields: [(usize, &str, String, &str, &str); 5] = [
+        (0, "Provider", provider_val, "provider",         " [Enter: pick]"),
+        (1, "Base URL", base_url_val, "base_url",         " [Enter: edit]"),
+        (2, "API Key",  api_key_val,  "api_key",          " [Enter: edit]"),
+        (3, "Model",    model_val,    "model",             " [Enter: pick]"),
+        (4, "Effort",   effort_val,   "reasoning_effort",  " [Enter: pick]"),
     ];
 
     for (idx, label, value, field_name, hint) in &fields {
@@ -191,74 +195,6 @@ fn render_provider_tab<'a>(
         }
 
         lines.push(Line::from(spans));
-    }
-
-    lines
-}
-
-fn render_model_tab<'a>(
-    settings: &'a SettingsState,
-    config: &'a ConfigState,
-    theme: &ThemeTokens,
-) -> Vec<Line<'a>> {
-    let mut lines = Vec::new();
-
-    lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  Model", theme.fg_active)));
-    lines.push(Line::from(Span::styled(
-        "  Select model for current provider",
-        theme.fg_dim,
-    )));
-    lines.push(Line::raw(""));
-
-    let current = if config.model().is_empty() {
-        "(not set)"
-    } else {
-        config.model()
-    };
-
-    let is_selected = settings.field_cursor() == 0;
-    let marker = if is_selected { ">" } else { " " };
-    let marker_style = if is_selected {
-        theme.accent_primary
-    } else {
-        theme.fg_dim
-    };
-
-    lines.push(Line::from(vec![
-        Span::styled(format!(" {} ", marker), marker_style),
-        Span::styled("Current:  ", theme.fg_dim),
-        Span::styled(current, theme.fg_active),
-        if is_selected {
-            Span::styled(" [Enter: pick model]", theme.fg_dim)
-        } else {
-            Span::raw("")
-        },
-    ]));
-
-    let models = config.fetched_models();
-    if models.is_empty() {
-        lines.push(Line::from(vec![
-            Span::styled("   Available:  ", theme.fg_dim),
-            Span::styled("(press Enter to fetch)", theme.fg_dim),
-        ]));
-    } else {
-        lines.push(Line::from(Span::styled("   Available:", theme.fg_dim)));
-        for m in models {
-            let display_name = m.name.as_deref().unwrap_or(&m.id);
-            let is_active = m.id == config.model() || display_name == config.model();
-            if is_active {
-                lines.push(Line::from(vec![
-                    Span::raw("     "),
-                    Span::styled(format!("> {}", display_name), theme.accent_secondary),
-                ]));
-            } else {
-                lines.push(Line::from(vec![
-                    Span::raw("     "),
-                    Span::styled(format!("  {}", display_name), theme.fg_dim),
-                ]));
-            }
-        }
     }
 
     lines

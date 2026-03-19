@@ -1,6 +1,7 @@
 mod app;
 mod client;
 mod projection;
+mod providers;
 mod state;
 mod theme;
 mod widgets;
@@ -48,6 +49,7 @@ fn main() -> Result<()> {
 
     // Create model
     let mut model = TuiModel::new(daemon_event_rx, daemon_cmd_tx);
+    model.load_saved_settings();
 
     // Main loop
     let tick_rate = Duration::from_millis(50);
