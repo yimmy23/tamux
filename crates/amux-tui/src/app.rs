@@ -1006,6 +1006,33 @@ impl TuiModel {
         if kind == modal::ModalKind::Settings {
             // When actively editing a text field, route all keys to the edit buffer
             if self.settings.is_editing() {
+                // Textarea mode: Enter inserts newline, Ctrl+Enter confirms
+                if self.settings.is_textarea() {
+                    match code {
+                        KeyCode::Enter if _modifiers.contains(KeyModifiers::CONTROL) => {
+                            // Ctrl+Enter: confirm textarea edit (fall through to apply logic below)
+                        }
+                        KeyCode::Enter => {
+                            // Plain Enter: insert newline in textarea
+                            self.settings.reduce(SettingsAction::InsertChar('\n'));
+                            return false;
+                        }
+                        KeyCode::Esc => {
+                            self.settings.reduce(SettingsAction::CancelEdit);
+                            return false;
+                        }
+                        KeyCode::Backspace => {
+                            self.settings.reduce(SettingsAction::Backspace);
+                            return false;
+                        }
+                        KeyCode::Char(c) => {
+                            self.settings.reduce(SettingsAction::InsertChar(c));
+                            return false;
+                        }
+                        _ => return false,
+                    }
+                }
+
                 match code {
                     KeyCode::Enter => {
                         // Apply the edit buffer value to config

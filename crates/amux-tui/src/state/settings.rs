@@ -57,6 +57,7 @@ pub struct SettingsState {
     field_cursor: usize,
     editing_field: Option<String>,
     edit_buffer: String,
+    textarea_mode: bool, // true for multi-line edit (system_prompt)
     dropdown_open: bool,
     dropdown_cursor: usize,
     dirty: bool,
@@ -69,6 +70,7 @@ impl SettingsState {
             field_cursor: 0,
             editing_field: None,
             edit_buffer: String::new(),
+            textarea_mode: false,
             dropdown_open: false,
             dropdown_cursor: 0,
             dirty: false,
@@ -107,10 +109,15 @@ impl SettingsState {
         self.dirty
     }
 
+    pub fn is_textarea(&self) -> bool {
+        self.textarea_mode
+    }
+
     /// Start inline editing for a field, pre-populated with its current value.
     pub fn start_editing(&mut self, field: &str, current_value: &str) {
         self.editing_field = Some(field.to_string());
         self.edit_buffer = current_value.to_string();
+        self.textarea_mode = field == "system_prompt";
     }
 
     /// Map `field_cursor` to the field name for the active tab.
@@ -274,12 +281,12 @@ impl SettingsState {
 
             SettingsAction::ConfirmEdit => {
                 self.editing_field = None;
-                // edit_buffer is left intact so the caller can read the final value
-                // before this action; it will be cleared on next start_editing/open.
+                self.textarea_mode = false;
             }
 
             SettingsAction::CancelEdit => {
                 self.editing_field = None;
+                self.textarea_mode = false;
                 self.edit_buffer.clear();
             }
 

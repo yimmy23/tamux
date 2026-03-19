@@ -719,12 +719,61 @@ fn render_agent_tab<'a>(
         let marker = if is_selected { "> " } else { "  " };
         let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
 
+        // System prompt: textarea mode when editing
+        if *field_name == "system_prompt" && is_editing && settings.is_textarea() {
+            lines.push(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(*label, theme.fg_dim),
+                Span::styled(" [Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
+            ]));
+            // Render the edit buffer as a multi-line textarea with border
+            lines.push(Line::from(Span::styled("  ╭──────────────────────────────────────────╮", theme.fg_dim)));
+            for buf_line in settings.edit_buffer().split('\n') {
+                lines.push(Line::from(vec![
+                    Span::styled("  │ ", theme.fg_dim),
+                    Span::styled(buf_line.to_string(), theme.fg_active),
+                ]));
+            }
+            lines.push(Line::from(vec![
+                Span::styled("  │ ", theme.fg_dim),
+                Span::raw("\u{2588}"),
+            ]));
+            lines.push(Line::from(Span::styled("  ╰──────────────────────────────────────────╯", theme.fg_dim)));
+            continue;
+        }
+
+        // System prompt: show truncated preview when NOT editing
+        if *field_name == "system_prompt" && !is_editing {
+            let preview = if value.is_empty() {
+                "(not set)".to_string()
+            } else {
+                // Show first 2 lines, truncated
+                let first_lines: Vec<&str> = value.lines().take(2).collect();
+                let preview = first_lines.join(" ");
+                if preview.chars().count() > 45 {
+                    let truncated: String = preview.chars().take(42).collect();
+                    format!("{}...", truncated)
+                } else if value.lines().count() > 2 {
+                    format!("{} ...", preview)
+                } else {
+                    preview
+                }
+            };
+            let hint_text = if is_selected { " [Enter: edit]" } else { "" };
+            lines.push(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(*label, theme.fg_dim),
+                Span::styled(preview, if is_selected { theme.fg_active } else { theme.fg_dim }),
+                Span::styled(hint_text.to_string(), theme.fg_dim),
+            ]));
+            continue;
+        }
+
         let display_value: String = if is_editing {
             format!("{}\u{2588}", settings.edit_buffer())
         } else if value.is_empty() {
             "(not set)".to_string()
         } else {
-            // Truncate long values for display
             let v = value.as_str();
             if v.chars().count() > 40 {
                 let truncated: String = v.chars().take(37).collect();
