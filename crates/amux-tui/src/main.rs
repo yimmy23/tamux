@@ -1,11 +1,7 @@
 mod app;
-mod actions;
 mod client;
-mod layout;
-mod modal;
-mod panes;
 mod state;
-mod theme;
+mod widgets;
 
 use std::{sync::mpsc, thread};
 
