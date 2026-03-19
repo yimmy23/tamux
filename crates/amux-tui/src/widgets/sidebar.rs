@@ -46,22 +46,15 @@ pub fn sidebar_widget(
         RESET,
     ));
 
-    // Body — placeholder for now (Tasks 18-19 fill this in)
-    let task_count = tasks.tasks().len();
-    let goal_count = tasks.goal_runs().len();
-
-    let info_line = format!(
-        " {}{} tasks · {} goals{}",
-        theme.fg_dim.fg(), task_count, goal_count, RESET,
-    );
-
-    let mut body_lines = vec![crate::widgets::pad_to_width(&info_line, inner_width)];
-
-    // Pad remaining
-    while body_lines.len() < inner_height {
-        body_lines.push(" ".repeat(inner_width));
-    }
-    body_lines.truncate(inner_height);
+    // Body — routed to real widgets based on active tab
+    let body_lines = match sidebar.active_tab() {
+        crate::state::sidebar::SidebarTab::Tasks => {
+            super::task_tree::task_tree_widget(tasks, sidebar, theme, inner_width, inner_height)
+        }
+        crate::state::sidebar::SidebarTab::Subagents => {
+            super::subagents::subagents_widget(tasks, sidebar, theme, inner_width, inner_height)
+        }
+    };
 
     for line in &body_lines {
         result.push(format!("{}{}{}{}{}", bc, b.vertical, line, b.vertical, RESET));
