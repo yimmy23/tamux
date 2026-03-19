@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // ── SettingsTab ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

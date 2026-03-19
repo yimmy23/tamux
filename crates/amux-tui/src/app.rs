@@ -58,6 +58,12 @@ pub struct TuiModel {
     status_line: String,
     default_session_id: Option<String>,
     tick_counter: u64,
+
+    // Vim motion state
+    pending_g: bool,
+
+    // Responsive layout override: when Some, overrides breakpoint-based sidebar visibility
+    show_sidebar_override: Option<bool>,
 }
 
 impl TuiModel {
@@ -87,6 +93,9 @@ impl TuiModel {
             status_line: "Starting...".to_string(),
             default_session_id: None,
             tick_counter: 0,
+
+            pending_g: false,
+            show_sidebar_override: None,
         }
     }
 
@@ -289,6 +298,11 @@ impl TuiModel {
     fn handle_key_normal(&mut self, code: KeyCode, modifiers: Modifiers) -> Cmd<Msg> {
         let ctrl = modifiers.contains(Modifiers::CTRL);
 
+        // Clear pending_g on any key that isn't 'g'
+        if code != KeyCode::Char('g') {
+            self.pending_g = false;
+        }
+
         match code {
             KeyCode::Char('q') if !ctrl => return Cmd::quit(),
             KeyCode::Char('p') if ctrl => {
@@ -298,6 +312,11 @@ impl TuiModel {
             KeyCode::Char('t') if ctrl => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+            }
+            // Ctrl+B: toggle sidebar visibility override (useful in narrow terminals)
+            KeyCode::Char('b') if ctrl => {
+                let current = self.show_sidebar_override.unwrap_or(self.width >= 80);
+                self.show_sidebar_override = Some(!current);
             }
             KeyCode::Tab => self.focus_next(),
             KeyCode::BackTab => self.focus_prev(),
@@ -312,6 +331,29 @@ impl TuiModel {
                 self.focus = FocusArea::Input;
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+            }
+            // Vim motions
+            KeyCode::Char('G') if !ctrl => {
+                // Jump to bottom (most recent)
+                self.chat.reduce(chat::ChatAction::ScrollChat(-(self.chat.scroll_offset() as i32)));
+            }
+            KeyCode::Char('g') if !ctrl => {
+                if self.pending_g {
+                    // gg = scroll to top
+                    self.chat.reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
+                    self.pending_g = false;
+                } else {
+                    self.pending_g = true;
+                }
+                return Cmd::none();
+            }
+            KeyCode::Char('d') if ctrl => {
+                let half_page = (self.height / 2) as i32;
+                self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
+            }
+            KeyCode::Char('u') if ctrl => {
+                let half_page = (self.height / 2) as i32;
+                self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
             }
             KeyCode::Char('j') | KeyCode::Down => match self.focus {
                 FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(-1)),
@@ -608,10 +650,46 @@ impl StringModel for TuiModel {
             Msg::Event(Event::Resize { width, height }) => {
                 self.width = width;
                 self.height = height;
+                // Clear sidebar override on resize so layout recalculates from breakpoints
+                self.show_sidebar_override = None;
                 Cmd::none()
             }
-            Msg::Event(Event::Mouse(_mouse)) => {
-                // Mouse handling -- placeholder for Phase 4
+            Msg::Event(Event::Mouse(mouse)) => {
+                match mouse.kind {
+                    ftui_core::event::MouseEventKind::ScrollUp => {
+                        match self.focus {
+                            FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(3)),
+                            FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Scroll(3)),
+                            _ => {}
+                        }
+                    }
+                    ftui_core::event::MouseEventKind::ScrollDown => {
+                        match self.focus {
+                            FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(-3)),
+                            FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Scroll(-3)),
+                            _ => {}
+                        }
+                    }
+                    ftui_core::event::MouseEventKind::Down(ftui_core::event::MouseButton::Left) => {
+                        // Click-to-focus: determine which pane was clicked
+                        let sidebar_start = if self.width >= 80 {
+                            (self.width as usize * 65 / 100) as u16
+                        } else {
+                            self.width // no sidebar
+                        };
+                        if mouse.y >= 3 && mouse.y < self.height.saturating_sub(4) {
+                            if mouse.x < sidebar_start {
+                                self.focus = FocusArea::Chat;
+                            } else {
+                                self.focus = FocusArea::Sidebar;
+                            }
+                        } else if mouse.y >= self.height.saturating_sub(4) {
+                            self.focus = FocusArea::Input;
+                            self.input.set_mode(input::InputMode::Insert);
+                        }
+                    }
+                    _ => {}
+                }
                 Cmd::none()
             }
             _ => Cmd::none(),
@@ -641,16 +719,20 @@ impl StringModel for TuiModel {
         }
 
         // Two-pane layout calculation
-        let show_sidebar = w >= 80; // Hide sidebar below 80 cols
+        // Responsive breakpoints:
+        //   >= 120: full two-pane (65/35)
+        //   100-119: compressed (70/30)
+        //   80-99: single pane + sidebar toggle (Ctrl+B)
+        //   < 80: single pane only
+        let default_show_sidebar = w >= 80;
+        let show_sidebar = self.show_sidebar_override.unwrap_or(default_show_sidebar);
 
         if show_sidebar {
             let gap = 1; // 1 col gap between panes
             let sidebar_w = if w >= 120 {
-                (w * 35) / 100  // 35% for wide terminals
-            } else if w >= 100 {
-                (w * 30) / 100  // 30% for medium
+                (w * 35) / 100  // 35% for wide terminals (65/35 split)
             } else {
-                (w * 30) / 100  // 30% for narrow (80-99)
+                (w * 30) / 100  // 30% for medium/narrow (70/30 split)
             };
             let chat_w = w.saturating_sub(sidebar_w + gap);
 
@@ -836,25 +918,3 @@ fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
     }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn truncate_or_pad(s: &str, width: usize) -> String {
-    if s.len() >= width {
-        s[..width].to_string()
-    } else {
-        format!("{}{}", s, " ".repeat(width - s.len()))
-    }
-}
-
-fn center_str(s: &str, width: usize) -> String {
-    if s.len() >= width {
-        return s[..width].to_string();
-    }
-    let pad = (width - s.len()) / 2;
-    format!(
-        "{}{}{}",
-        " ".repeat(pad),
-        s,
-        " ".repeat(width - pad - s.len())
-    )
-}

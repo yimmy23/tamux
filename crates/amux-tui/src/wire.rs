@@ -1,19 +1,16 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     System,
     User,
     Assistant,
     Tool,
+    #[default]
     Unknown,
-}
-
-impl Default for MessageRole {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

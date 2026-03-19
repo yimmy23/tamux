@@ -1,4 +1,5 @@
 // Local wire type copies (will be replaced by crate::wire imports in Task 9)
+#![allow(dead_code)]
 
 #[derive(Debug, Clone, Default)]
 pub struct FetchedModel {

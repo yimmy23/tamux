@@ -133,7 +133,7 @@ pub fn approval_widget(
     }
 
     // Fill remaining inner lines up to the action row
-    let content_rows_used = result.len() - y_pad - 1; // subtract top padding + top border
+    let _content_rows_used = result.len() - y_pad - 1; // subtract top padding + top border
     let rows_before_action = inner_h.saturating_sub(2); // leave 1 for separator, 1 for actions
     while result.len() - y_pad - 1 < rows_before_action {
         push_line(&mut result, "");

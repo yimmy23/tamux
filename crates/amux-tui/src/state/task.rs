@@ -1,5 +1,6 @@
 // Local wire type copies (will be replaced by crate::wire imports in Task 9)
 // These mirror the types in state.rs
+#![allow(dead_code)]
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStatus {

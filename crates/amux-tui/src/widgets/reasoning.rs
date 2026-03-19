@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::theme::{ThemeTokens, RESET};
 
 /// Render a reasoning block — collapsed (1 line) or expanded (header + content with dark blue border).

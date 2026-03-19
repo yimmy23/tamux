@@ -19,6 +19,7 @@ pub enum FocusArea {
 
 // ── Daemon commands ───────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum DaemonCommand {
     Refresh,
@@ -55,17 +56,26 @@ pub enum DaemonCommand {
 // ── Placeholder sub-action enums ──────────────────────────────────────────────
 // These will be filled in by later tasks.
 
+#[allow(unused_imports)]
 pub use chat::{ChatState, ChatAction, TranscriptMode, ToolCallVm, ToolCallStatus};
+#[allow(unused_imports)]
 pub use task::{TaskState, TaskAction};
+#[allow(unused_imports)]
 pub use sidebar::{SidebarState, SidebarAction, SidebarTab};
+#[allow(unused_imports)]
 pub use input::{InputState, InputAction, InputMode};
+#[allow(unused_imports)]
 pub use modal::{ModalState, ModalAction, ModalKind, CommandItem};
+#[allow(unused_imports)]
 pub use config::{ConfigState, ConfigAction};
+#[allow(unused_imports)]
 pub use approval::{ApprovalState, ApprovalAction, RiskLevel, PendingApproval};
+#[allow(unused_imports)]
 pub use settings::{SettingsState, SettingsAction, SettingsTab};
 
 // ── Top-level app action ──────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum AppAction {
     Chat(ChatAction),
@@ -87,4 +97,5 @@ pub enum AppAction {
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
+#[allow(unused_imports)]
 pub use AppAction as Action;

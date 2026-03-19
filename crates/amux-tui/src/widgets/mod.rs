@@ -18,7 +18,7 @@ pub mod model_picker;
 // Shared utilities
 
 pub fn repeat_char(c: char, n: usize) -> String {
-    std::iter::repeat(c).take(n).collect()
+    std::iter::repeat_n(c, n).collect()
 }
 
 /// Approximate visible length by stripping ANSI escape sequences

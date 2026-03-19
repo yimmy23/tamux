@@ -1,5 +1,6 @@
 // Temporary local copies until wire.rs rename (Task 9)
 // These mirror the types in state.rs
+#![allow(dead_code)]
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentThread {

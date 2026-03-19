@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! DaemonProjection — maps wire-format ClientEvent into typed AppAction.
 //!
 //! This is a pure function with no side effects. Each ClientEvent variant maps
