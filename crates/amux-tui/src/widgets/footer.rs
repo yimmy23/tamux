@@ -1,4 +1,5 @@
 use ratatui::prelude::*;
+use ratatui::style::Color;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 
@@ -11,7 +12,9 @@ pub fn render(
     input: &InputState,
     theme: &ThemeTokens,
     connected: bool,
-    has_error: bool,
+    error_active: bool,
+    tick: u64,
+    error_tick: u64,
     focused: bool,
 ) {
     let border_style = if focused {
@@ -56,16 +59,24 @@ pub fn render(
 
     // Daemon connection status (always shown)
     if connected {
-        spans.push(Span::styled("\u{25cf}", theme.accent_success)); // green ●
+        spans.push(Span::styled("\u{25cf}", theme.accent_success));
         spans.push(Span::styled(" daemon  ", theme.fg_dim));
     } else {
-        spans.push(Span::styled("\u{25cf}", theme.accent_danger)); // red ●
+        spans.push(Span::styled("\u{25cf}", theme.accent_danger));
         spans.push(Span::styled(" daemon  ", theme.fg_dim));
     }
 
-    // Error indicator (shown only when there's an error)
-    if has_error {
-        spans.push(Span::styled("\u{25cf}", theme.accent_danger)); // red ●
+    // Error indicator with pulse animation
+    if error_active {
+        // Pulse: alternate between bright red and dim red every ~500ms (10 ticks at 50ms)
+        let elapsed = tick.saturating_sub(error_tick);
+        let pulse_phase = (elapsed / 10) % 2;
+        let error_color = if pulse_phase == 0 {
+            Style::default().fg(Color::Indexed(203)) // bright red
+        } else {
+            Style::default().fg(Color::Indexed(88))  // dim red
+        };
+        spans.push(Span::styled("\u{25cf}", error_color));
         spans.push(Span::styled(" error  ", theme.fg_dim));
     }
 
@@ -76,6 +87,10 @@ pub fn render(
     spans.push(Span::styled(":cmd  ", theme.fg_dim));
     spans.push(Span::styled("/", theme.fg_active));
     spans.push(Span::styled(":slash  ", theme.fg_dim));
+    if error_active {
+        spans.push(Span::styled("!", theme.accent_danger));
+        spans.push(Span::styled(":error  ", theme.fg_dim));
+    }
     spans.push(Span::styled("q", theme.fg_active));
     spans.push(Span::styled(":quit", theme.fg_dim));
 

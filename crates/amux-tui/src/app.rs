@@ -44,8 +44,12 @@ pub struct TuiModel {
     connected: bool,
     status_line: String,
     default_session_id: Option<String>,
-    #[allow(dead_code)]
     tick_counter: u64,
+
+    // Error state
+    last_error: Option<String>,     // stored for viewing via '!' key
+    error_active: bool,             // active indicator (pulsing dot, clears on next action)
+    error_tick: u64,                // tick when error occurred (for pulse animation)
 
     // Vim motion state
     pending_g: bool,
@@ -84,6 +88,9 @@ impl TuiModel {
             status_line: "Starting...".to_string(),
             default_session_id: None,
             tick_counter: 0,
+            last_error: None,
+            error_active: false,
+            error_tick: 0,
 
             pending_g: false,
             show_sidebar_override: None,
@@ -224,14 +231,15 @@ impl TuiModel {
         }
 
         // Render footer
-        let has_error = self.status_line.starts_with("Error");
         widgets::footer::render(
             frame,
             chunks[2],
             &self.input,
             &self.theme,
             self.connected,
-            has_error,
+            self.error_active,
+            self.tick_counter,
+            self.error_tick,
             self.focus == FocusArea::Input,
         );
 
@@ -493,6 +501,9 @@ impl TuiModel {
                 });
             }
             ClientEvent::Error(message) => {
+                self.last_error = Some(message.clone());
+                self.error_active = true;
+                self.error_tick = self.tick_counter;
                 self.status_line = format!("Error: {}", message);
                 // Also show error in chat as a system message
                 if let Some(thread) = self.chat.active_thread_mut() {
@@ -531,6 +542,14 @@ impl TuiModel {
 
         match code {
             KeyCode::Char('q') if !ctrl => return true,
+            KeyCode::Char('!') => {
+                // Show last error in status, or clear error dot
+                if let Some(err) = &self.last_error {
+                    self.status_line = err.clone();
+                }
+                self.error_active = false;
+                self.last_error = None;
+            }
             KeyCode::Char('p') if ctrl => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
@@ -1151,6 +1170,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
         self.input.set_mode(input::InputMode::Normal);
         self.status_line = "Prompt sent".to_string();
+        self.error_active = false; // Clear error on new message
     }
 
     fn focus_next(&mut self) {
