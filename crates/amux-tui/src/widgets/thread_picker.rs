@@ -142,12 +142,13 @@ pub fn thread_picker_widget(
                 let tokens = thread.total_input_tokens + thread.total_output_tokens;
                 let token_str = format_tokens(tokens);
 
-                // Title truncated
+                // Title truncated — escape brackets to prevent markup interference
+                let raw_title = super::escape_markup(&thread.title);
                 let max_title = inner_w.saturating_sub(25);
-                let title = if thread.title.len() > max_title && max_title > 3 {
-                    format!("{}...", &thread.title[..max_title - 3])
+                let title = if raw_title.len() > max_title && max_title > 3 {
+                    format!("{}...", &raw_title[..max_title - 3])
                 } else {
-                    thread.title.clone()
+                    raw_title
                 };
 
                 if is_selected {

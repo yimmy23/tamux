@@ -71,12 +71,13 @@ pub fn subagents_widget(
         let dot = goal_run_dot(run.status, theme);
 
         // Parent "agent" line  — title doubles as agent label
+        let escaped_title = super::escape_markup(&run.title);
         let parent_line = format!(
             "{}{}{} {} {} {}",
             theme.fg_active.fg(),
             arrow,
             FG_CLOSE,
-            run.title,
+            escaped_title,
             dot,
             match run.status {
                 Some(GoalRunStatus::Running) => {
@@ -109,7 +110,8 @@ pub fn subagents_widget(
                 for task in child_tasks {
                     let dot = status_dot_for_task(task.status, theme);
                     let status_lbl = status_label_for_task(task.status, theme);
-                    let task_line = format!("  {} {} {}", dot, task.title, status_lbl);
+                    let escaped_task_title = super::escape_markup(&task.title);
+                    let task_line = format!("  {} {} {}", dot, escaped_task_title, status_lbl);
                     lines.push(fit_to_width(&task_line, width));
 
                     // If there's a session thread, show it as └ thread: <id>
@@ -150,7 +152,8 @@ pub fn subagents_widget(
             for task in daemon_tasks {
                 let dot = status_dot_for_task(task.status, theme);
                 let status_lbl = status_label_for_task(task.status, theme);
-                let task_line = format!("  {} {} {}", dot, task.title, status_lbl);
+                let escaped_task_title = super::escape_markup(&task.title);
+                let task_line = format!("  {} {} {}", dot, escaped_task_title, status_lbl);
                 lines.push(fit_to_width(&task_line, width));
             }
         }

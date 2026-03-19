@@ -64,6 +64,9 @@ pub struct TuiModel {
 
     // Responsive layout override: when Some, overrides breakpoint-based sidebar visibility
     show_sidebar_override: Option<bool>,
+
+    // Set by /quit command; checked after modal enter to issue Cmd::quit()
+    pending_quit: bool,
 }
 
 impl TuiModel {
@@ -96,6 +99,7 @@ impl TuiModel {
 
             pending_g: false,
             show_sidebar_override: None,
+            pending_quit: false,
         }
     }
 
@@ -541,6 +545,10 @@ impl TuiModel {
             }
             KeyCode::Enter => {
                 self.handle_modal_enter(kind);
+                if self.pending_quit {
+                    self.pending_quit = false;
+                    return Cmd::quit();
+                }
             }
             KeyCode::Backspace if is_searchable => {
                 self.input.reduce(input::InputAction::Backspace);
@@ -609,17 +617,19 @@ impl TuiModel {
                 self.modal.reduce(modal::ModalAction::Pop);
             }
             modal::ModalKind::ModelPicker => {
-                let cursor = self.modal.picker_cursor();
                 let models = self.config.fetched_models();
                 if models.is_empty() {
-                    // Fetch models from daemon
+                    // Still waiting for models — don't pop, re-fetch
                     self.send_daemon_command(DaemonCommand::FetchModels {
                         provider_id: self.config.provider.clone(),
                         base_url: self.config.base_url.clone(),
                         api_key: self.config.api_key.clone(),
                     });
-                    self.status_line = "Fetching models...".to_string();
-                } else if let Some(model) = models.get(cursor) {
+                    self.status_line = "Waiting for models...".to_string();
+                    return; // don't pop
+                }
+                let cursor = self.modal.picker_cursor();
+                if let Some(model) = models.get(cursor) {
                     let model_id = model.id.clone();
                     self.config.reduce(config::ConfigAction::SetModel(model_id.clone()));
                     self.status_line = format!("Model: {}", model_id);
@@ -644,14 +654,38 @@ impl TuiModel {
             "provider" => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker)),
-            "model" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker)),
+            "model" => {
+                // Auto-fetch models when opening picker
+                self.send_daemon_command(DaemonCommand::FetchModels {
+                    provider_id: self.config.provider.clone(),
+                    base_url: self.config.base_url.clone(),
+                    api_key: self.config.api_key.clone(),
+                });
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+            }
             "tools" => {
                 self.status_line = "Tools config: use /settings → Tools tab".to_string();
             }
             "effort" => {
-                self.status_line = "Effort config: use /settings → Reasoning tab".to_string();
+                // Cycle: "" → "low" → "medium" → "high" → ""
+                let next = match self.config.reasoning_effort() {
+                    "" => "low",
+                    "low" => "medium",
+                    "medium" => "high",
+                    _ => "",
+                };
+                self.config.reduce(config::ConfigAction::SetReasoningEffort(next.to_string()));
+                if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                    "reasoning_effort": next,
+                })) {
+                    self.send_daemon_command(DaemonCommand::SetConfigJson(json));
+                }
+                self.status_line = if next.is_empty() {
+                    "Effort: default".to_string()
+                } else {
+                    format!("Effort: {}", next)
+                };
             }
             "thread" => self
                 .modal
@@ -671,7 +705,7 @@ impl TuiModel {
                 self.status_line = format!("View: {:?}", next);
             }
             "quit" => {
-                self.status_line = "Press 'q' in normal mode to quit".to_string();
+                self.pending_quit = true;
             }
             "prompt" => {
                 self.status_line = "System prompt: use /settings → Agent tab".to_string();

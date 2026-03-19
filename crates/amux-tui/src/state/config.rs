@@ -26,6 +26,7 @@ pub enum ConfigAction {
     ModelsFetched(Vec<FetchedModel>),
     SetProvider(String),
     SetModel(String),
+    SetReasoningEffort(String),
 }
 
 // ── ConfigState ───────────────────────────────────────────────────────────────
@@ -105,6 +106,10 @@ impl ConfigState {
 
             ConfigAction::SetModel(model) => {
                 self.model = model;
+            }
+
+            ConfigAction::SetReasoningEffort(effort) => {
+                self.reasoning_effort = effort;
             }
         }
     }

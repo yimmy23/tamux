@@ -14,7 +14,7 @@ pub fn sidebar_widget(
     let border_color = if focused { theme.accent_primary } else { theme.fg_dim };
     let bc = border_color.fg();
     let b = &ROUNDED_BORDER;
-    let inner_width = width.saturating_sub(2);
+    let inner_width = width.saturating_sub(3); // extra col safety margin for wide Unicode glyphs
     let inner_height = height.saturating_sub(2);
 
     let mut result = Vec::new();

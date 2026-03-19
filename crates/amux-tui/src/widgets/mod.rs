@@ -21,6 +21,12 @@ pub fn repeat_char(c: char, n: usize) -> String {
     std::iter::repeat_n(c, n).collect()
 }
 
+/// Escape `[` characters in user-provided text so they are not
+/// misinterpreted as markup tag openers by the renderer.
+pub fn escape_markup(s: &str) -> String {
+    s.replace('[', "\\[")
+}
+
 /// Approximate visible length by stripping ftui markup tags.
 ///
 /// Markup tags are `[tagname]`, `[tagname=value]`, `[/tagname]`.
@@ -202,6 +208,13 @@ mod tests {
     fn pad_to_width_does_not_truncate_long_string() {
         let padded = pad_to_width("hello world", 5);
         assert_eq!(padded, "hello world");
+    }
+
+    #[test]
+    fn escape_markup_escapes_brackets() {
+        assert_eq!(escape_markup("hello [world]"), "hello \\[world]");
+        assert_eq!(escape_markup("no brackets"), "no brackets");
+        assert_eq!(escape_markup("[a][b]"), "\\[a]\\[b]");
     }
 
     #[test]

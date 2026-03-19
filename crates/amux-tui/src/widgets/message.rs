@@ -47,7 +47,9 @@ fn render_compact(msg: &AgentMessage, theme: &ThemeTokens, width: usize, indent:
         return;
     }
 
-    let content_lines = wrap_text(content, content_width);
+    // Escape brackets in user-provided content to prevent markup tag interference
+    let escaped_content = super::escape_markup(content);
+    let content_lines = wrap_text(&escaped_content, content_width);
 
     if let Some(first) = content_lines.first() {
         lines.push(format!(
@@ -127,7 +129,8 @@ fn render_full(msg: &AgentMessage, theme: &ThemeTokens, width: usize, indent: us
                 FG_CLOSE,
             ));
             let reasoning_width = width.saturating_sub(indent + 2);
-            for line in wrap_text(reasoning, reasoning_width) {
+            let escaped_reasoning = super::escape_markup(reasoning);
+            for line in wrap_text(&escaped_reasoning, reasoning_width) {
                 lines.push(format!(
                     "{}{}\u{2502}{} {}{}{}",
                     " ".repeat(indent),

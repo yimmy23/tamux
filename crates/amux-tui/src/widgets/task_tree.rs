@@ -88,12 +88,13 @@ pub fn task_tree_widget(
             }
         };
 
+        let escaped_title = super::escape_markup(&run.title);
         let header = format!(
             "{}{}{} {} {} {}",
             theme.fg_active.fg(),
             arrow,
             FG_CLOSE,
-            run.title,
+            escaped_title,
             dot,
             status_label,
         );
@@ -122,8 +123,9 @@ pub fn task_tree_widget(
                         format!("{}\\[C]{}", theme.fg_dim.fg(), FG_CLOSE)
                     }
                 };
+                let escaped_step_title = super::escape_markup(&step.title);
                 let step_line =
-                    format!("  {} {}", chip, step.title);
+                    format!("  {} {}", chip, escaped_step_title);
                 lines.push(fit_to_width(&step_line, width));
             }
         }
@@ -150,7 +152,8 @@ pub fn task_tree_widget(
 
         for task in standalone {
             let chip = task_status_chip(task.status, theme);
-            let task_line = format!("  {} {}", chip, task.title);
+            let escaped_task_title = super::escape_markup(&task.title);
+            let task_line = format!("  {} {}", chip, escaped_task_title);
             lines.push(fit_to_width(&task_line, width));
         }
     }
