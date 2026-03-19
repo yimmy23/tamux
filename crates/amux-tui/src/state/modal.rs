@@ -35,6 +35,8 @@ pub struct ModalState {
     command_items: Vec<CommandItem>,
     filtered_indices: Vec<usize>,
     picker_cursor: usize,
+    /// Override item count for non-command-palette pickers (providers, models, etc.)
+    picker_item_count: Option<usize>,
 }
 
 impl ModalState {
@@ -47,6 +49,7 @@ impl ModalState {
             command_items: items,
             filtered_indices: filtered,
             picker_cursor: 0,
+            picker_item_count: None,
         }
     }
 
@@ -57,6 +60,7 @@ impl ModalState {
     pub fn command_items(&self) -> &[CommandItem] { &self.command_items }
     pub fn filtered_items(&self) -> &[usize] { &self.filtered_indices }
     pub fn picker_cursor(&self) -> usize { self.picker_cursor }
+    pub fn set_picker_item_count(&mut self, count: usize) { self.picker_item_count = Some(count); }
 
     pub fn reduce(&mut self, action: ModalAction) {
         match action {
@@ -64,6 +68,7 @@ impl ModalState {
                 self.stack.push(kind);
                 self.command_query.clear();
                 self.picker_cursor = 0;
+                self.picker_item_count = None;
                 self.refilter();
             }
             ModalAction::Pop => {
@@ -78,7 +83,7 @@ impl ModalState {
                 self.picker_cursor = 0;
             }
             ModalAction::Navigate(delta) => {
-                let len = self.filtered_indices.len();
+                let len = self.picker_item_count.unwrap_or(self.filtered_indices.len());
                 if len == 0 { return; }
                 if delta > 0 {
                     self.picker_cursor = (self.picker_cursor + delta as usize).min(len - 1);

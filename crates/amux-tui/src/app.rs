@@ -168,7 +168,7 @@ impl TuiModel {
                 modal::ModalKind::ApprovalOverlay => centered_rect(60, 40, area),
                 modal::ModalKind::CommandPalette => centered_rect(50, 40, area),
                 modal::ModalKind::ThreadPicker => centered_rect(60, 50, area),
-                modal::ModalKind::ProviderPicker => centered_rect(35, 50, area),
+                modal::ModalKind::ProviderPicker => centered_rect(35, 65, area),
                 modal::ModalKind::ModelPicker => centered_rect(45, 50, area),
                 modal::ModalKind::EffortPicker => centered_rect(35, 30, area),
                 modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
@@ -568,12 +568,20 @@ impl TuiModel {
                 if let Some(prompt) = self.input.take_submitted() {
                     // Slash commands: /command args
                     if prompt.starts_with('/') {
-                        let cmd = prompt
-                            .trim_start_matches('/')
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("");
-                        self.execute_command(cmd);
+                        let trimmed = prompt.trim_start_matches('/');
+                        let cmd = trimmed.split_whitespace().next().unwrap_or("");
+                        let args = trimmed[cmd.len()..].trim();
+                        if cmd == "apikey" && !args.is_empty() {
+                            self.config.api_key = args.to_string();
+                            self.status_line = format!("API key set ({}...)", &args[..args.len().min(8)]);
+                            if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                                "api_key": args,
+                            })) {
+                                self.send_daemon_command(DaemonCommand::SetConfigJson(json));
+                            }
+                        } else {
+                            self.execute_command(cmd);
+                        }
                     } else {
                         self.submit_prompt(prompt);
                     }
@@ -621,7 +629,7 @@ impl TuiModel {
         _modifiers: KeyModifiers,
         kind: modal::ModalKind,
     ) -> bool {
-        // Settings modal: Tab cycles tabs, Esc closes
+        // Settings modal: Tab cycles tabs, j/k navigate fields, Enter edits
         if kind == modal::ModalKind::Settings {
             match code {
                 KeyCode::Tab => {
@@ -646,6 +654,22 @@ impl TuiModel {
                         .unwrap_or(0);
                     self.settings
                         .reduce(SettingsAction::SwitchTab(all[prev_idx]));
+                    return false;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.settings.reduce(SettingsAction::NavigateField(1));
+                    return false;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.settings.reduce(SettingsAction::NavigateField(-1));
+                    return false;
+                }
+                KeyCode::Enter => {
+                    self.settings.reduce(SettingsAction::EditField);
+                    return false;
+                }
+                KeyCode::Char(' ') => {
+                    self.settings.reduce(SettingsAction::ToggleCheckbox);
                     return false;
                 }
                 _ => {
@@ -872,9 +896,10 @@ impl TuiModel {
     fn execute_command(&mut self, command: &str) {
         tracing::info!("execute_command: {:?}", command);
         match command {
-            "provider" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker)),
+            "provider" => {
+                self.modal.reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+                self.modal.set_picker_item_count(13); // 13 providers
+            }
             "model" => {
                 // Show hardcoded models immediately as fallback
                 let models = known_models_for_provider(&self.config.provider);
@@ -888,15 +913,17 @@ impl TuiModel {
                     base_url: self.config.base_url.clone(),
                     api_key: self.config.api_key.clone(),
                 });
+                let count = self.config.fetched_models().len().max(1);
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+                self.modal.set_picker_item_count(count);
             }
             "tools" => {
                 self.status_line = "Tools config: use /settings -> Tools tab".to_string();
             }
             "effort" => {
-                self.modal
-                    .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
+                self.modal.reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
+                self.modal.set_picker_item_count(5);
             }
             "thread" => self
                 .modal
