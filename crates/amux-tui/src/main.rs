@@ -4,6 +4,7 @@ mod projection;
 mod state;
 mod theme;
 mod widgets;
+mod wire;
 
 use std::{sync::mpsc, thread};
 
@@ -11,8 +12,9 @@ use anyhow::Result;
 use ftui_runtime::{string_model::StringModelAdapter, App, ScreenMode};
 use tokio::sync::mpsc as tokio_mpsc;
 
-use crate::app::{DaemonCommand, TuiModel};
+use crate::app::TuiModel;
 use crate::client::DaemonClient;
+use crate::state::DaemonCommand;
 
 fn main() -> Result<()> {
     let log_file = std::fs::File::create(std::env::temp_dir().join("tamux-tui.log"))?;

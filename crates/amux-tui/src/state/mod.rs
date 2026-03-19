@@ -66,6 +66,7 @@ pub use settings::{SettingsState, SettingsAction, SettingsTab};
 
 // ── Top-level app action ──────────────────────────────────────────────────────
 
+#[derive(Debug)]
 pub enum AppAction {
     Chat(ChatAction),
     Task(TaskAction),

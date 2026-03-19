@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use amux_protocol::{default_tcp_addr, AmuxCodec, ClientMessage, DaemonMessage};
 
-use crate::state::{
+use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, FetchedModel, GoalRun, GoalRunStatus,
     HeartbeatItem, TaskStatus,
 };
@@ -255,14 +255,6 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }
             }
-            DaemonMessage::AgentModelsResponse { models_json } => {
-                match serde_json::from_str::<Vec<FetchedModel>>(&models_json) {
-                    Ok(models) => {
-                        let _ = event_tx.send(ClientEvent::ModelsFetched(models)).await;
-                    }
-                    Err(err) => warn!("Failed to parse models response: {}", err),
-                }
-            }
             DaemonMessage::AgentHeartbeatItems { items_json } => {
                 match serde_json::from_str::<Vec<HeartbeatItem>>(&items_json) {
                     Ok(items) => {
@@ -278,7 +270,7 @@ impl DaemonClient {
                     })
                     .await;
             }
-            DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            DaemonMessage::Error { message } => {
                 let _ = event_tx.send(ClientEvent::Error(message)).await;
             }
             other => {
@@ -446,11 +438,10 @@ impl DaemonClient {
         content: String,
         session_id: Option<String>,
     ) -> Result<()> {
+        let _ = session_id; // reserved for future use
         self.send(ClientMessage::AgentSendMessage {
             thread_id,
             content,
-            session_id,
-            context_messages_json: None,
         })
     }
 
@@ -479,12 +470,10 @@ impl DaemonClient {
         })
     }
 
-    pub fn fetch_models(&self, provider_id: String, base_url: String, api_key: String) -> Result<()> {
-        self.send(ClientMessage::AgentFetchModels {
-            provider_id,
-            base_url,
-            api_key,
-        })
+    pub fn fetch_models(&self, _provider_id: String, _base_url: String, _api_key: String) -> Result<()> {
+        // Models fetching is not yet supported in the protocol; no-op stub.
+        warn!("fetch_models: not supported by current protocol");
+        Ok(())
     }
 
     pub fn set_config_json(&self, config_json: String) -> Result<()> {
@@ -492,7 +481,16 @@ impl DaemonClient {
     }
 
     pub fn resolve_task_approval(&self, approval_id: String, decision: String) -> Result<()> {
-        self.send(ClientMessage::AgentResolveTaskApproval {
+        use amux_protocol::ApprovalDecision;
+        let decision = match decision.as_str() {
+            "allow_once" | "approve_once" => ApprovalDecision::ApproveOnce,
+            "allow_session" | "approve_session" => ApprovalDecision::ApproveSession,
+            _ => ApprovalDecision::Deny,
+        };
+        // ResolveApproval requires a SessionId; we use a nil UUID as placeholder
+        // since the daemon routes by approval_id.
+        self.send(ClientMessage::ResolveApproval {
+            id: uuid::Uuid::nil(),
             approval_id,
             decision,
         })
