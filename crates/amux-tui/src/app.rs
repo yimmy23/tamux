@@ -736,7 +736,10 @@ impl StringModel for TuiModel {
 
     fn view_string(&self) -> String {
         let mut lines = Vec::new();
-        let w = self.width as usize;
+        // Use actual terminal size, not stored (which may be stale/default)
+        let (term_w, term_h) = crossterm::terminal::size().unwrap_or((self.width, self.height));
+        let w = term_w as usize;
+        let h = term_h as usize;
 
         // Header (3 lines)
         let header_lines = crate::widgets::header::header_widget(
@@ -750,7 +753,7 @@ impl StringModel for TuiModel {
         );
 
         // Body height
-        let body_h = (self.height as usize).saturating_sub(lines.len() + footer_lines.len());
+        let body_h = (h).saturating_sub(lines.len() + footer_lines.len());
         if body_h == 0 {
             lines.extend(footer_lines);
             return lines.join("\n");
@@ -807,34 +810,34 @@ impl StringModel for TuiModel {
             match modal_kind {
                 crate::state::modal::ModalKind::CommandPalette => {
                     let overlay = crate::widgets::command_palette::command_palette_widget(
-                        &self.modal, &self.theme, w, self.height as usize,
+                        &self.modal, &self.theme, w, h,
                     );
                     // Replace lines with overlay
                     lines = overlay;
                 }
                 crate::state::modal::ModalKind::ThreadPicker => {
                     lines = crate::widgets::thread_picker::thread_picker_widget(
-                        &self.chat, &self.modal, &self.theme, w, self.height as usize,
+                        &self.chat, &self.modal, &self.theme, w, h,
                     );
                 }
                 crate::state::modal::ModalKind::ApprovalOverlay => {
                     lines = crate::widgets::approval::approval_widget(
-                        &self.approval, &self.theme, w, self.height as usize,
+                        &self.approval, &self.theme, w, h,
                     );
                 }
                 crate::state::modal::ModalKind::Settings => {
                     lines = crate::widgets::settings::settings_widget(
-                        &self.settings, &self.config, &self.theme, w, self.height as usize,
+                        &self.settings, &self.config, &self.theme, w, h,
                     );
                 }
                 crate::state::modal::ModalKind::ProviderPicker => {
                     lines = crate::widgets::provider_picker::provider_picker_widget(
-                        &self.modal, &self.config, &self.theme, w, self.height as usize,
+                        &self.modal, &self.config, &self.theme, w, h,
                     );
                 }
                 crate::state::modal::ModalKind::ModelPicker => {
                     lines = crate::widgets::model_picker::model_picker_widget(
-                        &self.modal, &self.config, &self.theme, w, self.height as usize,
+                        &self.modal, &self.config, &self.theme, w, h,
                     );
                 }
                 // Other modals will be added in later tasks
