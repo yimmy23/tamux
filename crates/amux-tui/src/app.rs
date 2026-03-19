@@ -59,6 +59,10 @@ pub struct TuiModel {
 
     // Set by /quit command; checked after modal enter to issue quit
     pending_quit: bool,
+
+    // Double-Esc stream stop state
+    pending_stop: bool,
+    pending_stop_tick: u64,
 }
 
 impl TuiModel {
@@ -95,6 +99,8 @@ impl TuiModel {
             pending_g: false,
             show_sidebar_override: None,
             pending_quit: false,
+            pending_stop: false,
+            pending_stop_tick: 0,
         }
     }
 
@@ -529,20 +535,16 @@ impl TuiModel {
 
     // ── Key handling ─────────────────────────────────────────────────────────
 
-    /// Returns true if the app should quit
+    /// Returns true if the app should quit.
+    /// The input is always in "insert" mode -- there is no Normal/Insert concept exposed to
+    /// the user.  Navigation keys (j/k/G/gg/Ctrl-D/U) only apply when focus is Chat or
+    /// Sidebar; when focus is Input all printable characters go to the input buffer.
     pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
         // Modal takes priority
         if let Some(modal_kind) = self.modal.top() {
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
 
-        match self.input.mode() {
-            input::InputMode::Normal => self.handle_key_normal(code, modifiers),
-            input::InputMode::Insert => self.handle_key_insert(code, modifiers),
-        }
-    }
-
-    fn handle_key_normal(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
         let ctrl = modifiers.contains(KeyModifiers::CONTROL);
 
         // Clear pending_g on any key that isn't 'g'
@@ -550,16 +552,13 @@ impl TuiModel {
             self.pending_g = false;
         }
 
+        // Clear pending_stop on any non-Esc key
+        if code != KeyCode::Esc {
+            self.pending_stop = false;
+        }
+
         match code {
-            KeyCode::Char('q') if !ctrl => return true,
-            KeyCode::Char('!') => {
-                // Show last error in status, or clear error dot
-                if let Some(err) = &self.last_error {
-                    self.status_line = err.clone();
-                }
-                self.error_active = false;
-                self.last_error = None;
-            }
+            // ── Global Ctrl shortcuts (work regardless of focus) ──────────────
             KeyCode::Char('p') if ctrl => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
@@ -568,41 +567,9 @@ impl TuiModel {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
             }
-            // Ctrl+B: toggle sidebar visibility override (useful in narrow terminals)
             KeyCode::Char('b') if ctrl => {
                 let current = self.show_sidebar_override.unwrap_or(self.width >= 80);
                 self.show_sidebar_override = Some(!current);
-            }
-            KeyCode::Tab => self.focus_next(),
-            KeyCode::BackTab => self.focus_prev(),
-            KeyCode::Char('i') | KeyCode::Enter => {
-                self.focus = FocusArea::Input;
-                self.input.set_mode(input::InputMode::Insert);
-            }
-            KeyCode::Char('/') => {
-                self.input.reduce(input::InputAction::Clear);
-                self.input.reduce(input::InputAction::InsertChar('/'));
-                self.input.set_mode(input::InputMode::Insert);
-                self.focus = FocusArea::Input;
-                self.modal
-                    .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
-            }
-            // Vim motions
-            KeyCode::Char('G') if !ctrl => {
-                // Jump to bottom (most recent)
-                self.chat
-                    .reduce(chat::ChatAction::ScrollChat(-(self.chat.scroll_offset() as i32)));
-            }
-            KeyCode::Char('g') if !ctrl => {
-                if self.pending_g {
-                    // gg = scroll to top
-                    self.chat
-                        .reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
-                    self.pending_g = false;
-                } else {
-                    self.pending_g = true;
-                }
-                return false;
             }
             KeyCode::Char('d') if ctrl => {
                 let half_page = (self.height / 2) as i32;
@@ -612,72 +579,99 @@ impl TuiModel {
                 let half_page = (self.height / 2) as i32;
                 self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
             }
-            KeyCode::Char('j') | KeyCode::Down => match self.focus {
+
+            // ── Esc: close modal > stop stream (double) > move focus to Chat ──
+            KeyCode::Esc => {
+                if self.chat.is_streaming() {
+                    if self.pending_stop
+                        && (self.tick_counter.saturating_sub(self.pending_stop_tick)) < 40
+                    {
+                        // Double-Esc within ~2 s: force stop
+                        self.chat.reduce(chat::ChatAction::ForceStopStreaming);
+                        self.status_line = "Stream stopped".to_string();
+                        self.pending_stop = false;
+                    } else {
+                        self.pending_stop = true;
+                        self.pending_stop_tick = self.tick_counter;
+                        self.status_line = "Press Esc again to stop stream".to_string();
+                    }
+                } else {
+                    // Not streaming: move focus to Chat (away from input)
+                    self.pending_stop = false;
+                    if self.focus == FocusArea::Input {
+                        self.focus = FocusArea::Chat;
+                    }
+                }
+            }
+
+            // ── Tab/BackTab: cycle focus ──────────────────────────────────────
+            KeyCode::Tab => self.focus_next(),
+            KeyCode::BackTab => self.focus_prev(),
+
+            // ── Error shortcut ────────────────────────────────────────────────
+            KeyCode::Char('!') if !ctrl && self.focus != FocusArea::Input => {
+                if let Some(err) = &self.last_error {
+                    self.status_line = err.clone();
+                }
+                self.error_active = false;
+                self.last_error = None;
+            }
+
+            // ── Quit (only when focus is NOT on input) ────────────────────────
+            KeyCode::Char('q') if !ctrl && self.focus != FocusArea::Input => return true,
+
+            // ── Vim scroll motions (only when focus is Chat or Sidebar) ───────
+            KeyCode::Char('G') if !ctrl && self.focus == FocusArea::Chat => {
+                self.chat
+                    .reduce(chat::ChatAction::ScrollChat(-(self.chat.scroll_offset() as i32)));
+            }
+            KeyCode::Char('g') if !ctrl && self.focus == FocusArea::Chat => {
+                if self.pending_g {
+                    self.chat
+                        .reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
+                    self.pending_g = false;
+                } else {
+                    self.pending_g = true;
+                }
+                return false;
+            }
+            KeyCode::Char('j') if !ctrl && self.focus != FocusArea::Input => match self.focus {
                 FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(-1)),
-                FocusArea::Sidebar => self
-                    .sidebar
-                    .reduce(sidebar::SidebarAction::Navigate(1)),
+                FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Navigate(1)),
                 _ => {}
             },
-            KeyCode::Char('k') | KeyCode::Up => match self.focus {
+            KeyCode::Char('k') if !ctrl && self.focus != FocusArea::Input => match self.focus {
                 FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(1)),
-                FocusArea::Sidebar => self
-                    .sidebar
-                    .reduce(sidebar::SidebarAction::Navigate(-1)),
+                FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Navigate(-1)),
                 _ => {}
             },
-            KeyCode::Char('[') => self
+            KeyCode::Down if self.focus != FocusArea::Input => match self.focus {
+                FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(-1)),
+                FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Navigate(1)),
+                _ => {}
+            },
+            KeyCode::Up if self.focus != FocusArea::Input => match self.focus {
+                FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(1)),
+                FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Navigate(-1)),
+                _ => {}
+            },
+            KeyCode::Char('[') if self.focus != FocusArea::Input => self
                 .sidebar
                 .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Tasks)),
-            KeyCode::Char(']') => self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
-                sidebar::SidebarTab::Subagents,
-            )),
-            KeyCode::Esc => {
-                // Already in normal mode, no modal -- do nothing
-            }
-            _ => {}
-        }
+            KeyCode::Char(']') if self.focus != FocusArea::Input => self
+                .sidebar
+                .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Subagents)),
 
-        false
-    }
-
-    fn handle_key_insert(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
-        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-
-        // Global shortcuts even in insert mode
-        if ctrl {
-            match code {
-                KeyCode::Char('p') => {
-                    self.modal
-                        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
-                    return false;
-                }
-                KeyCode::Char('t') => {
-                    self.modal
-                        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
-                    return false;
-                }
-                _ => {}
-            }
-        }
-
-        match code {
-            KeyCode::Esc => {
-                self.input.set_mode(input::InputMode::Normal);
-            }
+            // ── Input-only: Enter submits, Backspace deletes, chars type ──────
             KeyCode::Enter => {
-                // If command palette is open, Enter selects from palette
-                if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
-                    self.handle_modal_enter(modal::ModalKind::CommandPalette);
-                    if self.pending_quit {
-                        self.pending_quit = false;
-                        return true;
-                    }
+                // Activate input focus on Enter if not already there
+                if self.focus != FocusArea::Input {
+                    self.focus = FocusArea::Input;
+                    self.input.set_mode(input::InputMode::Insert);
                     return false;
                 }
                 self.input.reduce(input::InputAction::Submit);
                 if let Some(prompt) = self.input.take_submitted() {
-                    // Slash commands: /command args
                     if prompt.starts_with('/') {
                         let trimmed = prompt.trim_start_matches('/');
                         let cmd = trimmed.split_whitespace().next().unwrap_or("");
@@ -699,35 +693,50 @@ impl TuiModel {
                 }
             }
             KeyCode::Backspace => {
-                self.input.reduce(input::InputAction::Backspace);
-                // Update command palette filter if open
-                if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
-                    self.modal.reduce(modal::ModalAction::SetQuery(
-                        self.input.buffer().to_string(),
-                    ));
+                if self.focus == FocusArea::Input {
+                    self.input.reduce(input::InputAction::Backspace);
+                    if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
+                        self.modal.reduce(modal::ModalAction::SetQuery(
+                            self.input.buffer().to_string(),
+                        ));
+                    }
                 }
             }
-            KeyCode::Tab => {
-                self.input.set_mode(input::InputMode::Normal);
-                self.focus_next();
+
+            // ── Slash in any focus: jump to input + open command palette ──────
+            KeyCode::Char('/') if self.focus != FocusArea::Input => {
+                self.input.reduce(input::InputAction::Clear);
+                self.input.reduce(input::InputAction::InsertChar('/'));
+                self.input.set_mode(input::InputMode::Insert);
+                self.focus = FocusArea::Input;
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
             }
+
+            // ── All printable chars when focus is Input ───────────────────────
             KeyCode::Char(c) => {
-                self.input.reduce(input::InputAction::InsertChar(c));
-                // Auto-open command palette on first '/'
-                if c == '/'
-                    && self.input.buffer() == "/"
-                    && self.modal.top() != Some(modal::ModalKind::CommandPalette)
-                {
-                    self.modal
-                        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
-                }
-                // Update command palette filter
-                if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
-                    self.modal.reduce(modal::ModalAction::SetQuery(
-                        self.input.buffer().to_string(),
-                    ));
+                if self.focus == FocusArea::Input {
+                    self.input.reduce(input::InputAction::InsertChar(c));
+                    if c == '/'
+                        && self.input.buffer() == "/"
+                        && self.modal.top() != Some(modal::ModalKind::CommandPalette)
+                    {
+                        self.modal
+                            .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+                    }
+                    if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
+                        self.modal.reduce(modal::ModalAction::SetQuery(
+                            self.input.buffer().to_string(),
+                        ));
+                    }
+                } else {
+                    // When not in input, typing shifts focus to input
+                    self.focus = FocusArea::Input;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.input.reduce(input::InputAction::InsertChar(c));
                 }
             }
+
             _ => {}
         }
 
@@ -1178,7 +1187,8 @@ impl TuiModel {
         });
 
         self.focus = FocusArea::Chat;
-        self.input.set_mode(input::InputMode::Normal);
+        // Keep insert mode so the user can immediately type the next message
+        self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
         self.error_active = false; // Clear error on new message
     }
@@ -1189,11 +1199,8 @@ impl TuiModel {
             FocusArea::Sidebar => FocusArea::Input,
             FocusArea::Input => FocusArea::Chat,
         };
-        if self.focus == FocusArea::Input {
-            self.input.set_mode(input::InputMode::Insert);
-        } else {
-            self.input.set_mode(input::InputMode::Normal);
-        }
+        // Always keep input mode as Insert -- the UI has no Normal mode concept
+        self.input.set_mode(input::InputMode::Insert);
     }
 
     fn focus_prev(&mut self) {
@@ -1202,11 +1209,8 @@ impl TuiModel {
             FocusArea::Sidebar => FocusArea::Chat,
             FocusArea::Input => FocusArea::Sidebar,
         };
-        if self.focus == FocusArea::Input {
-            self.input.set_mode(input::InputMode::Insert);
-        } else {
-            self.input.set_mode(input::InputMode::Normal);
-        }
+        // Always keep input mode as Insert -- the UI has no Normal mode concept
+        self.input.set_mode(input::InputMode::Insert);
     }
 
     pub fn handle_resize(&mut self, w: u16, h: u16) {
@@ -1247,8 +1251,9 @@ impl TuiModel {
                     }
                 } else if mouse.row >= self.height.saturating_sub(4) {
                     self.focus = FocusArea::Input;
-                    self.input.set_mode(input::InputMode::Insert);
                 }
+                // Always keep Insert mode active
+                self.input.set_mode(input::InputMode::Insert);
             }
             _ => {}
         }

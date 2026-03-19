@@ -56,7 +56,21 @@ pub fn render(
         }
     }
 
-    // Append active tool calls
+    // Append streaming reasoning FIRST (thinking happens before tool calls)
+    if !chat.streaming_reasoning().is_empty() {
+        all_lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("\u{25be} Reasoning...", theme.fg_dim),
+        ]));
+        for reasoning_line in chat.streaming_reasoning().lines() {
+            all_lines.push(Line::from(vec![
+                Span::styled("  \u{2502} ", Style::default().fg(Color::Indexed(24))),
+                Span::styled(reasoning_line, theme.fg_dim),
+            ]));
+        }
+    }
+
+    // Append active tool calls (after reasoning, before final response)
     for tc in chat.active_tool_calls() {
         let status_span = match tc.status {
             crate::state::chat::ToolCallStatus::Running => {
@@ -78,21 +92,7 @@ pub fn render(
         ]));
     }
 
-    // Append streaming reasoning if present
-    if !chat.streaming_reasoning().is_empty() {
-        all_lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("\u{25be} Reasoning...", theme.fg_dim),
-        ]));
-        for reasoning_line in chat.streaming_reasoning().lines() {
-            all_lines.push(Line::from(vec![
-                Span::styled("  \u{2502} ", Style::default().fg(Color::Indexed(24))),
-                Span::styled(reasoning_line, theme.fg_dim),
-            ]));
-        }
-    }
-
-    // Append streaming content if present
+    // Append streaming content last (final response)
     if !chat.streaming_content().is_empty() {
         all_lines.push(Line::from(vec![
             Span::styled(
@@ -108,8 +108,10 @@ pub fn render(
     }
 
     // Apply scroll offset (0 = following tail = show last `height` lines)
-    let scroll = chat.scroll_offset();
+    // Clamp scroll to prevent overscroll past the top of content
     let total = all_lines.len();
+    let max_scroll = total.saturating_sub(inner_height);
+    let scroll = chat.scroll_offset().min(max_scroll);
 
     let visible_lines = if total <= inner_height {
         // All lines fit -- pad at top to push content to bottom
@@ -120,7 +122,7 @@ pub fn render(
         padded.extend(all_lines);
         padded
     } else if scroll == 0 {
-        // Following tail: show last `height` lines
+        // Following tail: show last `inner_height` lines, no top padding
         all_lines[total - inner_height..].to_vec()
     } else {
         // Scrolled up: show lines from (end - height - scroll) to (end - scroll)
@@ -129,8 +131,9 @@ pub fn render(
         all_lines[start..end].to_vec()
     };
 
-    let paragraph = Paragraph::new(visible_lines)
-        .wrap(ratatui::widgets::Wrap { trim: false });
+    // Do not use .wrap() -- lines are already individual Line objects; wrapping
+    // would re-wrap the manually-sliced visible lines and cause double-wrapping.
+    let paragraph = Paragraph::new(visible_lines);
     frame.render_widget(paragraph, inner);
 }
 

@@ -3,10 +3,10 @@ use ratatui::style::Color;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 
-use crate::state::input::{InputMode, InputState};
+use crate::state::input::InputState;
 use crate::theme::ThemeTokens;
 
-/// Render the bordered input box (mode + prompt text)
+/// Render the bordered input box (always-insert prompt)
 pub fn render_input(
     frame: &mut Frame,
     area: Rect,
@@ -31,18 +31,9 @@ pub fn render_input(
         return;
     }
 
-    let mode_span = match input.mode() {
-        InputMode::Normal => Span::styled("NORMAL", theme.fg_dim),
-        InputMode::Insert => Span::styled("INSERT", theme.accent_primary),
-    };
-    let cursor = if input.mode() == InputMode::Insert {
-        "\u{2588}"
-    } else {
-        ""
-    };
+    // Always show the block cursor to signal readiness for input
+    let cursor = "\u{2588}";
     let input_line = Line::from(vec![
-        Span::raw(" "),
-        mode_span,
         Span::raw(" "),
         Span::styled("\u{25b6}", theme.accent_primary),
         Span::raw(" "),
@@ -110,6 +101,7 @@ pub fn render_status_bar(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::input::InputMode;
 
     #[test]
     fn footer_handles_empty_state() {

@@ -97,6 +97,7 @@ pub enum ChatAction {
     ScrollChat(i32),
     NewThread,
     SetTranscriptMode(TranscriptMode),
+    ForceStopStreaming,
 }
 
 // ── ChatState ─────────────────────────────────────────────────────────────────
@@ -341,6 +342,30 @@ impl ChatState {
 
             ChatAction::SetTranscriptMode(mode) => {
                 self.transcript_mode = mode;
+            }
+
+            ChatAction::ForceStopStreaming => {
+                // Finalize current streaming as incomplete message with [stopped] marker
+                if !self.streaming_content.is_empty() || !self.streaming_reasoning.is_empty() {
+                    let content = std::mem::take(&mut self.streaming_content);
+                    let reasoning = std::mem::take(&mut self.streaming_reasoning);
+                    let stopped_content = if content.is_empty() {
+                        "[stopped]".to_string()
+                    } else {
+                        format!("{} [stopped]", content)
+                    };
+                    if let Some(thread) = self.active_thread_mut() {
+                        thread.messages.push(AgentMessage {
+                            role: MessageRole::Assistant,
+                            content: stopped_content,
+                            reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+                            ..Default::default()
+                        });
+                    }
+                }
+                self.streaming_content.clear();
+                self.streaming_reasoning.clear();
+                self.active_tool_calls.clear();
             }
         }
     }
