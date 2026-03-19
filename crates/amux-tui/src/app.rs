@@ -149,10 +149,17 @@ impl TuiModel {
             "search_timeout_secs": self.config.search_timeout_secs,
             "gateway": {
                 "enabled": self.config.gateway_enabled,
-                "slack_token": &self.config.slack_token,
-                "telegram_token": &self.config.telegram_token,
-                "discord_token": &self.config.discord_token,
                 "command_prefix": &self.config.gateway_prefix,
+                "slack_token": &self.config.slack_token,
+                "slack_channel_filter": &self.config.slack_channel_filter,
+                "telegram_token": &self.config.telegram_token,
+                "telegram_allowed_chats": &self.config.telegram_allowed_chats,
+                "discord_token": &self.config.discord_token,
+                "discord_channel_filter": &self.config.discord_channel_filter,
+                "discord_allowed_users": &self.config.discord_allowed_users,
+                "whatsapp_allowed_contacts": &self.config.whatsapp_allowed_contacts,
+                "whatsapp_token": &self.config.whatsapp_token,
+                "whatsapp_phone_id": &self.config.whatsapp_phone_id,
             },
         })) {
             self.send_daemon_command(DaemonCommand::SetConfigJson(json));
@@ -236,10 +243,17 @@ impl TuiModel {
         if let Ok(settings_data) = std::fs::read_to_string(&settings_path) {
             if let Ok(settings_json) = serde_json::from_str::<serde_json::Value>(&settings_data) {
                 self.config.gateway_enabled = settings_json.get("gatewayEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                self.config.slack_token = settings_json.get("slackToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                self.config.telegram_token = settings_json.get("telegramToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                self.config.discord_token = settings_json.get("discordToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 self.config.gateway_prefix = settings_json.get("gatewayCommandPrefix").and_then(|v| v.as_str()).unwrap_or("!tamux").to_string();
+                self.config.slack_token = settings_json.get("slackToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.slack_channel_filter = settings_json.get("slackChannelFilter").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.telegram_token = settings_json.get("telegramToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.telegram_allowed_chats = settings_json.get("telegramAllowedChats").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.discord_token = settings_json.get("discordToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.discord_channel_filter = settings_json.get("discordChannelFilter").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.discord_allowed_users = settings_json.get("discordAllowedUsers").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.whatsapp_allowed_contacts = settings_json.get("whatsappAllowedContacts").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.whatsapp_token = settings_json.get("whatsappToken").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                self.config.whatsapp_phone_id = settings_json.get("whatsappPhoneNumberId").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 if self.config.gateway_enabled {
                     self.config.tool_gateway = true;
                 }
@@ -315,13 +329,17 @@ impl TuiModel {
                 serde_json::json!({})
             };
         settings_json["gatewayEnabled"] = serde_json::Value::Bool(self.config.gateway_enabled);
+        settings_json["gatewayCommandPrefix"] = serde_json::Value::String(self.config.gateway_prefix.clone());
         settings_json["slackToken"] = serde_json::Value::String(self.config.slack_token.clone());
-        settings_json["telegramToken"] =
-            serde_json::Value::String(self.config.telegram_token.clone());
-        settings_json["discordToken"] =
-            serde_json::Value::String(self.config.discord_token.clone());
-        settings_json["gatewayCommandPrefix"] =
-            serde_json::Value::String(self.config.gateway_prefix.clone());
+        settings_json["slackChannelFilter"] = serde_json::Value::String(self.config.slack_channel_filter.clone());
+        settings_json["telegramToken"] = serde_json::Value::String(self.config.telegram_token.clone());
+        settings_json["telegramAllowedChats"] = serde_json::Value::String(self.config.telegram_allowed_chats.clone());
+        settings_json["discordToken"] = serde_json::Value::String(self.config.discord_token.clone());
+        settings_json["discordChannelFilter"] = serde_json::Value::String(self.config.discord_channel_filter.clone());
+        settings_json["discordAllowedUsers"] = serde_json::Value::String(self.config.discord_allowed_users.clone());
+        settings_json["whatsappAllowedContacts"] = serde_json::Value::String(self.config.whatsapp_allowed_contacts.clone());
+        settings_json["whatsappToken"] = serde_json::Value::String(self.config.whatsapp_token.clone());
+        settings_json["whatsappPhoneNumberId"] = serde_json::Value::String(self.config.whatsapp_phone_id.clone());
         if let Ok(data) = serde_json::to_string_pretty(&settings_json) {
             if let Err(e) = std::fs::write(&settings_path, data) {
                 tracing::warn!("Failed to write settings.json: {}", e);
@@ -950,10 +968,17 @@ impl TuiModel {
                         match field.as_str() {
                             "base_url" => self.config.base_url = value,
                             "api_key" => self.config.api_key = value,
-                            "slack_token" => self.config.slack_token = value,
-                            "telegram_token" => self.config.telegram_token = value,
-                            "discord_token" => self.config.discord_token = value,
                             "gateway_prefix" => self.config.gateway_prefix = value,
+                            "slack_token" => self.config.slack_token = value,
+                            "slack_channel_filter" => self.config.slack_channel_filter = value,
+                            "telegram_token" => self.config.telegram_token = value,
+                            "telegram_allowed_chats" => self.config.telegram_allowed_chats = value,
+                            "discord_token" => self.config.discord_token = value,
+                            "discord_channel_filter" => self.config.discord_channel_filter = value,
+                            "discord_allowed_users" => self.config.discord_allowed_users = value,
+                            "whatsapp_allowed_contacts" => self.config.whatsapp_allowed_contacts = value,
+                            "whatsapp_token" => self.config.whatsapp_token = value,
+                            "whatsapp_phone_id" => self.config.whatsapp_phone_id = value,
                             "firecrawl_api_key" => self.config.firecrawl_api_key = value,
                             "exa_api_key" => self.config.exa_api_key = value,
                             "tavily_api_key" => self.config.tavily_api_key = value,
@@ -1060,21 +1085,49 @@ impl TuiModel {
                             self.settings.start_editing("api_key", &current);
                         }
                         // Gateway tab inline text edits
+                        "gateway_prefix" => {
+                            let current = self.config.gateway_prefix.clone();
+                            self.settings.start_editing("gateway_prefix", &current);
+                        }
                         "slack_token" => {
                             let current = self.config.slack_token.clone();
                             self.settings.start_editing("slack_token", &current);
+                        }
+                        "slack_channel_filter" => {
+                            let current = self.config.slack_channel_filter.clone();
+                            self.settings.start_editing("slack_channel_filter", &current);
                         }
                         "telegram_token" => {
                             let current = self.config.telegram_token.clone();
                             self.settings.start_editing("telegram_token", &current);
                         }
+                        "telegram_allowed_chats" => {
+                            let current = self.config.telegram_allowed_chats.clone();
+                            self.settings.start_editing("telegram_allowed_chats", &current);
+                        }
                         "discord_token" => {
                             let current = self.config.discord_token.clone();
                             self.settings.start_editing("discord_token", &current);
                         }
-                        "gateway_prefix" => {
-                            let current = self.config.gateway_prefix.clone();
-                            self.settings.start_editing("gateway_prefix", &current);
+                        "discord_channel_filter" => {
+                            let current = self.config.discord_channel_filter.clone();
+                            self.settings.start_editing("discord_channel_filter", &current);
+                        }
+                        "discord_allowed_users" => {
+                            let current = self.config.discord_allowed_users.clone();
+                            self.settings.start_editing("discord_allowed_users", &current);
+                        }
+                        "whatsapp_allowed_contacts" => {
+                            let current = self.config.whatsapp_allowed_contacts.clone();
+                            self.settings.start_editing("whatsapp_allowed_contacts", &current);
+                        }
+                        "whatsapp_token" => {
+                            let current = self.config.whatsapp_token.clone();
+                            self.settings.start_editing("whatsapp_token", &current);
+                        }
+                        "whatsapp_phone_id" => {
+                            let current = self.config.whatsapp_phone_id.clone();
+                            self.settings.start_editing("whatsapp_phone_id", &current);
                         }
                         // Web Search tab
                         "search_provider" => {

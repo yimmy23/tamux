@@ -60,10 +60,17 @@ pub struct ConfigState {
 
     // Gateway config
     pub gateway_enabled: bool,
-    pub slack_token: String,
-    pub telegram_token: String,
-    pub discord_token: String,
     pub gateway_prefix: String,
+    pub slack_token: String,
+    pub slack_channel_filter: String,
+    pub telegram_token: String,
+    pub telegram_allowed_chats: String,
+    pub discord_token: String,
+    pub discord_channel_filter: String,
+    pub discord_allowed_users: String,
+    pub whatsapp_allowed_contacts: String,
+    pub whatsapp_token: String,
+    pub whatsapp_phone_id: String,
 }
 
 impl ConfigState {
@@ -90,10 +97,17 @@ impl ConfigState {
             search_max_results: 8,
             search_timeout_secs: 20,
             gateway_enabled: false,
-            slack_token: String::new(),
-            telegram_token: String::new(),
-            discord_token: String::new(),
             gateway_prefix: "!tamux".to_string(),
+            slack_token: String::new(),
+            slack_channel_filter: String::new(),
+            telegram_token: String::new(),
+            telegram_allowed_chats: String::new(),
+            discord_token: String::new(),
+            discord_channel_filter: String::new(),
+            discord_allowed_users: String::new(),
+            whatsapp_allowed_contacts: String::new(),
+            whatsapp_token: String::new(),
+            whatsapp_phone_id: String::new(),
         }
     }
 

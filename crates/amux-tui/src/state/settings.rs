@@ -147,12 +147,19 @@ impl SettingsState {
                 _ => "",
             },
             SettingsTab::Gateway => match self.field_cursor {
-                0 => "gateway_enabled",
-                1 => "slack_token",
-                2 => "telegram_token",
-                3 => "discord_token",
-                4 => "gateway_prefix",
-                _ => "",
+                0  => "gateway_enabled",
+                1  => "gateway_prefix",
+                2  => "slack_token",
+                3  => "slack_channel_filter",
+                4  => "telegram_token",
+                5  => "telegram_allowed_chats",
+                6  => "discord_token",
+                7  => "discord_channel_filter",
+                8  => "discord_allowed_users",
+                9  => "whatsapp_allowed_contacts",
+                10 => "whatsapp_token",
+                11 => "whatsapp_phone_id",
+                _  => "",
             },
             SettingsTab::Agent => match self.field_cursor {
                 0 => "agent_name",
@@ -170,7 +177,7 @@ impl SettingsState {
             SettingsTab::Tools => 7,
             SettingsTab::WebSearch => 7,
             SettingsTab::Reasoning => 1,
-            SettingsTab::Gateway => 5,
+            SettingsTab::Gateway => 12,
             SettingsTab::Agent => 3,
         }
     }
@@ -542,13 +549,27 @@ mod tests {
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
         assert_eq!(state.current_field_name(), "gateway_enabled");
         state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "gateway_prefix");
+        state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "slack_token");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "slack_channel_filter");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "telegram_token");
         state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "telegram_allowed_chats");
+        state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "discord_token");
         state.reduce(SettingsAction::NavigateField(1));
-        assert_eq!(state.current_field_name(), "gateway_prefix");
+        assert_eq!(state.current_field_name(), "discord_channel_filter");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "discord_allowed_users");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "whatsapp_allowed_contacts");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "whatsapp_token");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "whatsapp_phone_id");
     }
 
     #[test]
@@ -584,7 +605,7 @@ mod tests {
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Reasoning));
         assert_eq!(state.field_count(), 1); // effort only
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
-        assert_eq!(state.field_count(), 5); // enabled, slack, telegram, discord, prefix
+        assert_eq!(state.field_count(), 12); // enabled, prefix, slack×2, telegram×2, discord×3, whatsapp×3
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
         assert_eq!(state.field_count(), 3); // name, prompt, backend
     }

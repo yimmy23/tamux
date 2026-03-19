@@ -494,7 +494,7 @@ fn render_gateway_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 0: gateway_enabled (checkbox)
+    // ── Field 0: gateway_enabled (toggle) ─────────────────────────────────────
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -506,7 +506,7 @@ fn render_gateway_tab<'a>(
             Span::styled(marker, marker_style),
             Span::styled(check, check_style),
             Span::raw(" "),
-            Span::styled("Gateway Enabled", label_style),
+            Span::styled("Enable Gateway", label_style),
         ];
         if is_selected {
             spans.push(Span::styled("  [Space: toggle]", theme.fg_dim));
@@ -514,56 +514,82 @@ fn render_gateway_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Text fields: index, label, value, field_name
-    let text_fields: [(usize, &str, &str, &str); 4] = [
-        (1, "Slack Token   ", config.slack_token.as_str(),    "slack_token"),
-        (2, "Telegram Token", config.telegram_token.as_str(), "telegram_token"),
-        (3, "Discord Token ", config.discord_token.as_str(),  "discord_token"),
-        (4, "Command Prefix", config.gateway_prefix.as_str(), "gateway_prefix"),
-    ];
+    // ── Field 1: gateway_prefix (plain text) ──────────────────────────────────
+    render_gateway_text_field(settings, theme, &mut lines, 1, "Command Prefix", &config.gateway_prefix, "gateway_prefix", false);
 
-    for (idx, label, value, field_name) in &text_fields {
-        let is_selected = settings.field_cursor() == *idx;
-        let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
-        let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+    // ── Slack section ─────────────────────────────────────────────────────────
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} Slack \u{2500}\u{2500}", theme.fg_dim)));
+    render_gateway_text_field(settings, theme, &mut lines, 2, "Bot Token",      &config.slack_token,          "slack_token",          true);
+    render_gateway_text_field(settings, theme, &mut lines, 3, "Channel Filter", &config.slack_channel_filter, "slack_channel_filter", false);
 
-        let display_value: String = if is_editing {
-            format!("{}\u{2588}", settings.edit_buffer())
-        } else if value.is_empty() {
-            "(not set)".to_string()
-        } else {
-            // Mask tokens; prefix visible
-            let v = *value;
-            let chars: Vec<char> = v.chars().collect();
-            if chars.len() > 8 {
-                let prefix: String = chars[..4].iter().collect();
-                format!("{}\u{2022}\u{2022}\u{2022}\u{2022}", prefix)
-            } else {
-                v.to_string()
-            }
-        };
+    // ── Telegram section ──────────────────────────────────────────────────────
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} Telegram \u{2500}\u{2500}", theme.fg_dim)));
+    render_gateway_text_field(settings, theme, &mut lines, 4, "Bot Token",     &config.telegram_token,         "telegram_token",         true);
+    render_gateway_text_field(settings, theme, &mut lines, 5, "Allowed Chats", &config.telegram_allowed_chats, "telegram_allowed_chats", false);
 
-        let value_style = if is_editing {
-            theme.fg_active
-        } else if is_selected {
-            theme.accent_primary
-        } else {
-            theme.fg_active
-        };
+    // ── Discord section ───────────────────────────────────────────────────────
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} Discord \u{2500}\u{2500}", theme.fg_dim)));
+    render_gateway_text_field(settings, theme, &mut lines, 6, "Bot Token",      &config.discord_token,          "discord_token",          true);
+    render_gateway_text_field(settings, theme, &mut lines, 7, "Channel Filter", &config.discord_channel_filter, "discord_channel_filter", false);
+    render_gateway_text_field(settings, theme, &mut lines, 8, "Allowed Users",  &config.discord_allowed_users,  "discord_allowed_users",  false);
 
-        let mut spans = vec![
-            Span::styled(marker, marker_style),
-            Span::styled(format!("{:<16} ", label), theme.fg_dim),
-            Span::styled(display_value, value_style),
-        ];
-        if is_selected && !is_editing {
-            spans.push(Span::styled("  [Enter: edit]", theme.fg_dim));
-        }
-        lines.push(Line::from(spans));
-    }
+    // ── WhatsApp section ──────────────────────────────────────────────────────
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} WhatsApp \u{2500}\u{2500}", theme.fg_dim)));
+    render_gateway_text_field(settings, theme, &mut lines, 9,  "Allowed Contacts", &config.whatsapp_allowed_contacts, "whatsapp_allowed_contacts", false);
+    render_gateway_text_field(settings, theme, &mut lines, 10, "API Token",        &config.whatsapp_token,            "whatsapp_token",            true);
+    render_gateway_text_field(settings, theme, &mut lines, 11, "Phone Number ID",  &config.whatsapp_phone_id,         "whatsapp_phone_id",         false);
 
     lines
+}
+
+/// Render a single editable gateway field row.
+/// `password` — if true and value is non-empty, the stored value is masked (dots).
+fn render_gateway_text_field<'a>(
+    settings: &SettingsState,
+    theme: &ThemeTokens,
+    lines: &mut Vec<Line<'a>>,
+    field_idx: usize,
+    label: &'a str,
+    value: &str,
+    field_name: &'a str,
+    password: bool,
+) {
+    let is_selected = settings.field_cursor() == field_idx;
+    let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
+    let marker = if is_selected { "> " } else { "  " };
+    let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+
+    let display_value: String = if is_editing {
+        format!("{}\u{2588}", settings.edit_buffer())
+    } else if value.is_empty() {
+        "(not set)".to_string()
+    } else if password {
+        mask_api_key(value)
+    } else {
+        value.to_string()
+    };
+
+    let value_style = if is_editing {
+        theme.fg_active
+    } else if is_selected {
+        theme.accent_primary
+    } else {
+        theme.fg_active
+    };
+
+    let mut spans = vec![
+        Span::styled(marker, marker_style),
+        Span::styled(format!("{:<16} ", label), theme.fg_dim),
+        Span::styled(display_value, value_style),
+    ];
+    if is_selected && !is_editing {
+        spans.push(Span::styled("  [Enter: edit]", theme.fg_dim));
+    }
+    lines.push(Line::from(spans));
 }
 
 fn render_agent_tab<'a>(
