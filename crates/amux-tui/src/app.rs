@@ -1243,12 +1243,14 @@ fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
 fn known_models_for_provider(provider: &str) -> Vec<config::FetchedModel> {
     let models: &[(&str, &str, u32)] = match provider {
         "openai" => &[
+            ("gpt-5.4", "GPT-5.4", 1_000_000),
+            ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
+            ("gpt-5.4-nano", "GPT-5.4 Nano", 400_000),
+            ("o4-mini", "o4 Mini", 200_000),
+            ("o3", "o3", 200_000),
             ("gpt-4.1", "GPT-4.1", 1_000_000),
             ("gpt-4.1-mini", "GPT-4.1 Mini", 1_000_000),
             ("gpt-4.1-nano", "GPT-4.1 Nano", 1_000_000),
-            ("o3", "o3", 200_000),
-            ("o3-mini", "o3 Mini", 200_000),
-            ("o4-mini", "o4 Mini", 200_000),
             ("gpt-4o", "GPT-4o", 128_000),
             ("gpt-4o-mini", "GPT-4o Mini", 128_000),
         ],

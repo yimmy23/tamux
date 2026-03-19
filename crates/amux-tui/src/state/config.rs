@@ -46,7 +46,7 @@ impl ConfigState {
         Self {
             provider: "openai".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            model: "gpt-4o".to_string(),
+            model: "gpt-5.4".to_string(),
             api_key: String::new(),
             reasoning_effort: String::new(),
             fetched_models: Vec::new(),

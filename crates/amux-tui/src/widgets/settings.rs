@@ -343,7 +343,7 @@ mod tests {
         let config = ConfigState::new();
         let _theme = ThemeTokens::default();
         assert_eq!(settings.active_tab(), SettingsTab::Provider);
-        assert_eq!(config.model(), "gpt-4o");
+        assert_eq!(config.model(), "gpt-5.4");
     }
 
     #[test]
