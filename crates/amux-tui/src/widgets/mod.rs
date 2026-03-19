@@ -91,6 +91,51 @@ pub fn pad_to_width(s: &str, width: usize) -> String {
     }
 }
 
+/// Truncate a string (containing markup tags) to a maximum visible width.
+/// Preserves markup tags but removes visible characters beyond the limit.
+pub fn truncate_to_width(s: &str, width: usize) -> String {
+    let mut result = String::new();
+    let mut visible = 0;
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if visible >= width {
+            break;
+        }
+
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                if next == '[' || next == '\\' {
+                    if visible < width {
+                        result.push(c);
+                        result.push(chars.next().unwrap());
+                        visible += 1;
+                    }
+                    continue;
+                }
+            }
+            result.push(c);
+            visible += 1;
+        } else if c == '[' {
+            // Consume the entire tag (zero visible width)
+            result.push(c);
+            for tc in chars.by_ref() {
+                result.push(tc);
+                if tc == ']' {
+                    break;
+                }
+            }
+        } else {
+            result.push(c);
+            visible += 1;
+        }
+    }
+
+    // Close any unclosed tags by appending remaining markup
+    // (the fix_nested_tags preprocessor handles this)
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

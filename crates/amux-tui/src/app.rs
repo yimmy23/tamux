@@ -730,10 +730,11 @@ impl StringModel for TuiModel {
         if show_sidebar {
             let gap = 1; // 1 col gap between panes
             let sidebar_w = if w >= 120 {
-                (w * 35) / 100  // 35% for wide terminals (65/35 split)
+                (w * 33) / 100  // 33% for wide terminals
             } else {
-                (w * 30) / 100  // 30% for medium/narrow (70/30 split)
+                (w * 28) / 100  // 28% for medium/narrow
             };
+            // Ensure total never exceeds screen width
             let chat_w = w.saturating_sub(sidebar_w + gap);
 
             let chat_lines = crate::widgets::chat::chat_widget(
@@ -750,7 +751,8 @@ impl StringModel for TuiModel {
                 let right = sidebar_lines.get(i).cloned().unwrap_or_default();
                 // Pad left to chat_w visible chars, add gap, then right
                 let left_padded = crate::widgets::pad_to_width(&left, chat_w);
-                lines.push(format!("{}{}{}", left_padded, " ".repeat(gap), right));
+                let right_padded = crate::widgets::truncate_to_width(&right, sidebar_w);
+                lines.push(format!("{}{}{}", left_padded, " ".repeat(gap), right_padded));
             }
         } else {
             // Single pane: full-width chat
