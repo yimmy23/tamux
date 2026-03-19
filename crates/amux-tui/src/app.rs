@@ -118,6 +118,30 @@ impl TuiModel {
         let _ = self.daemon_cmd_tx.send(command);
     }
 
+    /// Calculate the dynamic input area height based on buffer content.
+    /// Grows from 3 (border + 1 line + border) to a max of 10 rows.
+    fn input_height(&self) -> u16 {
+        let line_count = self.input.buffer().matches('\n').count() + 1;
+        (line_count + 2).clamp(3, 10) as u16 // +2 for borders, min 3, max 10
+    }
+
+    /// Handle pasted text (from bracketed paste). Inserts all characters
+    /// including newlines into the input buffer without triggering submit.
+    pub fn handle_paste(&mut self, text: String) {
+        // Ensure focus is on input when pasting
+        if self.focus != FocusArea::Input {
+            self.focus = FocusArea::Input;
+            self.input.set_mode(input::InputMode::Insert);
+        }
+        for c in text.chars() {
+            if c == '\n' || c == '\r' {
+                self.input.reduce(input::InputAction::InsertNewline);
+            } else {
+                self.input.reduce(input::InputAction::InsertChar(c));
+            }
+        }
+    }
+
     /// Push the current config state to the daemon via SetConfigJson.
     /// TUI explicitly disables frontend-only tools (workspace, terminal management,
     /// managed commands) since those require the Electron GUI.
@@ -399,14 +423,15 @@ impl TuiModel {
         let area = frame.area();
         let w = area.width;
 
-        // Layout: header (3) + body (flex) + input (3) + status bar (1)
+        // Layout: header (3) + body (flex) + input (dynamic 3-10) + status bar (1)
+        let input_height = self.input_height();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // header
-                Constraint::Min(1),    // body
-                Constraint::Length(3), // input (bordered)
-                Constraint::Length(1), // status bar (bare, below input)
+                Constraint::Length(3),            // header
+                Constraint::Min(1),              // body
+                Constraint::Length(input_height), // input (bordered, grows with content)
+                Constraint::Length(1),            // status bar (bare, below input)
             ])
             .split(area);
 
@@ -891,6 +916,17 @@ impl TuiModel {
 
             // ── Input-only: Enter submits, Backspace deletes, chars type ──────
             KeyCode::Enter => {
+                // Shift+Enter or Alt+Enter inserts newline in input (does not submit)
+                let shift = modifiers.contains(KeyModifiers::SHIFT);
+                let alt = modifiers.contains(KeyModifiers::ALT);
+                if shift || alt {
+                    if self.focus != FocusArea::Input {
+                        self.focus = FocusArea::Input;
+                        self.input.set_mode(input::InputMode::Insert);
+                    }
+                    self.input.reduce(input::InputAction::InsertNewline);
+                    return false;
+                }
                 // When Chat is focused and a message is selected: toggle tool expansion
                 if self.focus == FocusArea::Chat {
                     if let Some(sel) = self.chat.selected_message() {
@@ -964,6 +1000,18 @@ impl TuiModel {
                 self.focus = FocusArea::Input;
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+            }
+
+            // ── Copy selected message to clipboard ──────────────────────────
+            KeyCode::Char('c') if self.focus == FocusArea::Chat && self.chat.selected_message().is_some() => {
+                if let Some(sel) = self.chat.selected_message() {
+                    if let Some(thread) = self.chat.active_thread() {
+                        if let Some(msg) = thread.messages.get(sel) {
+                            copy_to_clipboard(&msg.content);
+                            self.status_line = "Copied to clipboard".to_string();
+                        }
+                    }
+                }
             }
 
             // ── All printable chars when focus is Input ───────────────────────
@@ -2079,5 +2127,14 @@ fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
         message: h.last_message,
         timestamp: 0,
     }
+}
+
+/// Copy text to the system clipboard using the OSC 52 escape sequence.
+/// This works in most modern terminals (iTerm2, kitty, alacritty, Windows Terminal, etc.)
+fn copy_to_clipboard(text: &str) {
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(text);
+    // OSC 52: set clipboard content — \x1b]52;c;<base64>\x07
+    print!("\x1b]52;c;{}\x07", encoded);
 }
 

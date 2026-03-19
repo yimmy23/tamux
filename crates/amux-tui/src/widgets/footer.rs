@@ -34,25 +34,53 @@ pub fn render_input(
         return;
     }
 
-    let input_line = if modal_open {
+    if modal_open {
         // When a modal is open, show dimmed hint instead of actual input
-        Line::from(vec![
+        let input_line = Line::from(vec![
             Span::raw(" "),
             Span::styled("\u{25b6}", theme.fg_dim),
             Span::styled(" (modal open)", theme.fg_dim),
-        ])
+        ]);
+        frame.render_widget(Paragraph::new(vec![input_line]), inner);
     } else {
         let cursor = "\u{2588}";
-        Line::from(vec![
-            Span::raw(" "),
-            Span::styled("\u{25b6}", theme.accent_primary),
-            Span::raw(" "),
-            Span::raw(input.buffer()),
-            Span::raw(cursor),
-        ])
-    };
+        let buf = input.buffer();
+        let raw_lines: Vec<&str> = buf.split('\n').collect();
+        let mut lines: Vec<Line> = Vec::with_capacity(raw_lines.len());
 
-    frame.render_widget(Paragraph::new(vec![input_line]), inner);
+        for (i, line_text) in raw_lines.iter().enumerate() {
+            let is_first = i == 0;
+            let is_last = i == raw_lines.len() - 1;
+
+            let mut spans = Vec::new();
+            if is_first {
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled("\u{25b6}", theme.accent_primary));
+                spans.push(Span::raw(" "));
+            } else {
+                // Continuation lines: indent to match prompt
+                spans.push(Span::raw("   "));
+            }
+            spans.push(Span::raw(line_text.to_string()));
+            if is_last {
+                spans.push(Span::raw(cursor));
+            }
+            lines.push(Line::from(spans));
+        }
+
+        // Scroll to show the last lines if content exceeds visible area
+        let visible_height = inner.height as usize;
+        let scroll_offset = if lines.len() > visible_height {
+            (lines.len() - visible_height) as u16
+        } else {
+            0
+        };
+
+        frame.render_widget(
+            Paragraph::new(lines).scroll((scroll_offset, 0)),
+            inner,
+        );
+    }
 }
 
 /// Render the bare status bar below the input (no border, 1 line)
