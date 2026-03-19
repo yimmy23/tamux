@@ -1,5 +1,5 @@
 // Sub-module declarations — uncomment as modules are implemented
-// pub mod chat;
+pub mod chat;
 pub mod input;
 // pub mod modal;
 // pub mod sidebar;
@@ -55,7 +55,7 @@ pub enum DaemonCommand {
 // ── Placeholder sub-action enums ──────────────────────────────────────────────
 // These will be filled in by later tasks.
 
-pub enum ChatAction {}
+pub use chat::{ChatState, ChatAction, TranscriptMode, ToolCallVm, ToolCallStatus};
 pub enum TaskAction {}
 pub enum SidebarAction {}
 pub use input::{InputState, InputAction, InputMode};
