@@ -78,7 +78,7 @@ pub fn render(
     // Hints
     let hints = Line::from(vec![
         Span::raw(" "),
-        Span::styled("j/k", theme.fg_active),
+        Span::styled("↑↓", theme.fg_active),
         Span::styled(" nav  ", theme.fg_dim),
         Span::styled("Enter", theme.fg_active),
         Span::styled(" sel  ", theme.fg_dim),

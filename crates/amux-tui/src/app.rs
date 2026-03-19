@@ -303,13 +303,14 @@ impl TuiModel {
             );
         }
 
-        // Render input box (bordered)
+        // Render input box (bordered) — dim when modal is open
         widgets::footer::render_input(
             frame,
             chunks[2],
             &self.input,
             &self.theme,
             self.focus == FocusArea::Input,
+            self.modal.top().is_some(),
         );
 
         // Render status bar (bare, below input)
@@ -865,11 +866,25 @@ impl TuiModel {
                         match field.as_str() {
                             "base_url" => self.config.base_url = value,
                             "api_key" => self.config.api_key = value,
+                            "slack_token" => self.config.slack_token = value,
+                            "telegram_token" => self.config.telegram_token = value,
+                            "discord_token" => self.config.discord_token = value,
+                            "gateway_prefix" => self.config.gateway_prefix = value,
                             "agent_name" => {
-                                // Update agent name in raw config
                                 if let Some(ref mut raw) = self.config.agent_config_raw {
                                     raw["agent_name"] =
                                         serde_json::Value::String(value);
+                                }
+                            }
+                            "system_prompt" => {
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    raw["system_prompt"] =
+                                        serde_json::Value::String(value);
+                                } else {
+                                    let mut raw = serde_json::json!({});
+                                    raw["system_prompt"] =
+                                        serde_json::Value::String(value);
+                                    self.config.agent_config_raw = Some(raw);
                                 }
                             }
                             _ => {}
@@ -928,14 +943,17 @@ impl TuiModel {
                 KeyCode::Enter => {
                     let field = self.settings.current_field_name().to_string();
                     match field.as_str() {
+                        // Provider tab pickers
                         "provider" => {
-                            // Open provider picker overlay
                             self.execute_command("provider");
                         }
                         "model" => {
-                            // Open model picker overlay
                             self.execute_command("model");
                         }
+                        "reasoning_effort" => {
+                            self.execute_command("effort");
+                        }
+                        // Provider tab inline text edits
                         "base_url" => {
                             let current = self.config.base_url.clone();
                             self.settings.start_editing("base_url", &current);
@@ -944,9 +962,24 @@ impl TuiModel {
                             let current = self.config.api_key.clone();
                             self.settings.start_editing("api_key", &current);
                         }
-                        "reasoning_effort" => {
-                            self.execute_command("effort");
+                        // Gateway tab inline text edits
+                        "slack_token" => {
+                            let current = self.config.slack_token.clone();
+                            self.settings.start_editing("slack_token", &current);
                         }
+                        "telegram_token" => {
+                            let current = self.config.telegram_token.clone();
+                            self.settings.start_editing("telegram_token", &current);
+                        }
+                        "discord_token" => {
+                            let current = self.config.discord_token.clone();
+                            self.settings.start_editing("discord_token", &current);
+                        }
+                        "gateway_prefix" => {
+                            let current = self.config.gateway_prefix.clone();
+                            self.settings.start_editing("gateway_prefix", &current);
+                        }
+                        // Agent tab inline text edits
                         "agent_name" => {
                             let current = if let Some(raw) = self.config.agent_config_raw.as_ref() {
                                 raw.get("agent_name")
@@ -958,12 +991,37 @@ impl TuiModel {
                             };
                             self.settings.start_editing("agent_name", &current);
                         }
+                        "system_prompt" => {
+                            let current = if let Some(raw) = self.config.agent_config_raw.as_ref() {
+                                raw.get("system_prompt")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string()
+                            } else {
+                                String::new()
+                            };
+                            self.settings.start_editing("system_prompt", &current);
+                        }
                         _ => {}
                     }
                     return false;
                 }
                 KeyCode::Char(' ') => {
-                    self.settings.reduce(SettingsAction::ToggleCheckbox);
+                    let field = self.settings.current_field_name().to_string();
+                    match field.as_str() {
+                        "gateway_enabled" => {
+                            self.config.gateway_enabled = !self.config.gateway_enabled;
+                            self.sync_config_to_daemon();
+                        }
+                        f if f.starts_with("tool_") => {
+                            let tool_name = f.strip_prefix("tool_").unwrap_or(f).to_string();
+                            self.config.reduce(config::ConfigAction::ToggleTool(tool_name));
+                            self.sync_config_to_daemon();
+                        }
+                        _ => {
+                            self.settings.reduce(SettingsAction::ToggleCheckbox);
+                        }
+                    }
                     return false;
                 }
                 _ => {
@@ -1515,7 +1573,7 @@ fn render_effort_picker(
 
     // Hints
     let hints = Line::from(vec![
-        Span::styled("j/k", theme.fg_active),
+        Span::styled("↑↓", theme.fg_active),
         Span::styled(" nav  ", theme.fg_dim),
         Span::styled("Enter", theme.fg_active),
         Span::styled(" sel  ", theme.fg_dim),

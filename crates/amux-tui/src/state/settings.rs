@@ -120,15 +120,34 @@ impl SettingsState {
                 4 => "reasoning_effort",
                 _ => "",
             },
+            SettingsTab::Tools => match self.field_cursor {
+                0 => "tool_bash",
+                1 => "tool_file_ops",
+                2 => "tool_web_search",
+                3 => "tool_web_browse",
+                4 => "tool_vision",
+                5 => "tool_system_info",
+                6 => "tool_gateway",
+                _ => "",
+            },
             SettingsTab::Reasoning => match self.field_cursor {
                 0 => "reasoning_effort",
                 _ => "",
             },
-            SettingsTab::Agent => match self.field_cursor {
-                0 => "agent_name",
+            SettingsTab::Gateway => match self.field_cursor {
+                0 => "gateway_enabled",
+                1 => "slack_token",
+                2 => "telegram_token",
+                3 => "discord_token",
+                4 => "gateway_prefix",
                 _ => "",
             },
-            _ => "",
+            SettingsTab::Agent => match self.field_cursor {
+                0 => "agent_name",
+                1 => "system_prompt",
+                2 => "backend",
+                _ => "",
+            },
         }
     }
 
@@ -136,8 +155,8 @@ impl SettingsState {
     pub fn field_count(&self) -> usize {
         match self.active_tab {
             SettingsTab::Provider => 5,
-            SettingsTab::Tools => 6,
-            SettingsTab::Reasoning => 4,
+            SettingsTab::Tools => 7,
+            SettingsTab::Reasoning => 1,
             SettingsTab::Gateway => 5,
             SettingsTab::Agent => 3,
         }
@@ -486,13 +505,73 @@ mod tests {
     }
 
     #[test]
+    fn current_field_name_tools_tab() {
+        let mut state = SettingsState::new();
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
+        assert_eq!(state.current_field_name(), "tool_bash");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "tool_file_ops");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "tool_web_search");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "tool_web_browse");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "tool_vision");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "tool_system_info");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "tool_gateway");
+    }
+
+    #[test]
+    fn current_field_name_gateway_tab() {
+        let mut state = SettingsState::new();
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
+        assert_eq!(state.current_field_name(), "gateway_enabled");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "slack_token");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "telegram_token");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "discord_token");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "gateway_prefix");
+    }
+
+    #[test]
+    fn current_field_name_agent_tab() {
+        let mut state = SettingsState::new();
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
+        assert_eq!(state.current_field_name(), "agent_name");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "system_prompt");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "backend");
+    }
+
+    #[test]
+    fn current_field_name_reasoning_tab() {
+        let mut state = SettingsState::new();
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Reasoning));
+        assert_eq!(state.current_field_name(), "reasoning_effort");
+        // Only 1 field, can't navigate past it
+        state.reduce(SettingsAction::NavigateField(5));
+        assert_eq!(state.current_field_name(), "reasoning_effort");
+        assert_eq!(state.field_cursor(), 0);
+    }
+
+    #[test]
     fn field_count_per_tab() {
         let mut state = SettingsState::new();
         assert_eq!(state.field_count(), 5); // Provider (provider, base_url, api_key, model, effort)
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
-        assert_eq!(state.field_count(), 6);
+        assert_eq!(state.field_count(), 7); // 7 tool checkboxes
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Reasoning));
+        assert_eq!(state.field_count(), 1); // effort only
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
+        assert_eq!(state.field_count(), 5); // enabled, slack, telegram, discord, prefix
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
-        assert_eq!(state.field_count(), 3);
+        assert_eq!(state.field_count(), 3); // name, prompt, backend
     }
 
     #[test]

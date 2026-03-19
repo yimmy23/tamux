@@ -13,8 +13,11 @@ pub fn render_input(
     input: &InputState,
     theme: &ThemeTokens,
     focused: bool,
+    modal_open: bool,
 ) {
-    let border_style = if focused {
+    let border_style = if modal_open {
+        theme.fg_dim
+    } else if focused {
         theme.accent_primary
     } else {
         theme.fg_dim
@@ -31,15 +34,23 @@ pub fn render_input(
         return;
     }
 
-    // Always show the block cursor to signal readiness for input
-    let cursor = "\u{2588}";
-    let input_line = Line::from(vec![
-        Span::raw(" "),
-        Span::styled("\u{25b6}", theme.accent_primary),
-        Span::raw(" "),
-        Span::raw(input.buffer()),
-        Span::raw(cursor),
-    ]);
+    let input_line = if modal_open {
+        // When a modal is open, show dimmed hint instead of actual input
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("\u{25b6}", theme.fg_dim),
+            Span::styled(" (modal open)", theme.fg_dim),
+        ])
+    } else {
+        let cursor = "\u{2588}";
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled("\u{25b6}", theme.accent_primary),
+            Span::raw(" "),
+            Span::raw(input.buffer()),
+            Span::raw(cursor),
+        ])
+    };
 
     frame.render_widget(Paragraph::new(vec![input_line]), inner);
 }

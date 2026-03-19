@@ -78,10 +78,12 @@ pub fn render(
     } else {
         Line::from(vec![
             Span::raw(" "),
-            Span::styled("j/k", theme.fg_active),
+            Span::styled("↑↓", theme.fg_active),
             Span::styled(" navigate  ", theme.fg_dim),
             Span::styled("Enter", theme.fg_active),
             Span::styled(" edit/select  ", theme.fg_dim),
+            Span::styled("Space", theme.fg_active),
+            Span::styled(" toggle  ", theme.fg_dim),
             Span::styled("Tab", theme.fg_active),
             Span::styled(" switch tab  ", theme.fg_dim),
             Span::styled("Esc", theme.fg_active),
@@ -98,10 +100,10 @@ fn render_tab_content<'a>(
 ) -> Vec<Line<'a>> {
     match settings.active_tab() {
         SettingsTab::Provider => render_provider_tab(settings, config, theme),
-        SettingsTab::Tools => render_tools_tab(theme),
-        SettingsTab::Reasoning => render_reasoning_tab(config, theme),
-        SettingsTab::Gateway => render_gateway_tab(theme),
-        SettingsTab::Agent => render_agent_tab(config, theme),
+        SettingsTab::Tools => render_tools_tab(settings, config, theme),
+        SettingsTab::Reasoning => render_reasoning_tab(settings, config, theme),
+        SettingsTab::Gateway => render_gateway_tab(settings, config, theme),
+        SettingsTab::Agent => render_agent_tab(settings, config, theme),
     }
 }
 
@@ -200,7 +202,11 @@ fn render_provider_tab<'a>(
     lines
 }
 
-fn render_tools_tab(theme: &ThemeTokens) -> Vec<Line<'static>> {
+fn render_tools_tab<'a>(
+    settings: &'a SettingsState,
+    config: &'a ConfigState,
+    theme: &ThemeTokens,
+) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
@@ -211,33 +217,57 @@ fn render_tools_tab(theme: &ThemeTokens) -> Vec<Line<'static>> {
     )));
     lines.push(Line::raw(""));
 
-    let tools = [
-        (true, "Terminal / Bash"),
-        (true, "File Operations"),
-        (true, "Web Search"),
-        (false, "Web Browse"),
-        (true, "Workspace"),
-        (false, "Messaging Gateway"),
+    let tools: [(bool, &str); 7] = [
+        (config.tool_bash, "Terminal / Bash"),
+        (config.tool_file_ops, "File Operations"),
+        (config.tool_web_search, "Web Search"),
+        (config.tool_web_browse, "Web Browse"),
+        (config.tool_vision, "Vision"),
+        (config.tool_system_info, "System Info"),
+        (config.tool_gateway, "Gateway Messaging"),
     ];
 
-    for (enabled, name) in &tools {
-        let checkbox = if *enabled {
-            Span::styled("[x]", theme.accent_success)
+    for (i, (enabled, name)) in tools.iter().enumerate() {
+        let is_selected = settings.field_cursor() == i;
+        let check = if *enabled { "[x]" } else { "[ ]" };
+        let marker = if is_selected { "> " } else { "  " };
+
+        let marker_style = if is_selected {
+            theme.accent_primary
         } else {
-            Span::styled("[ ]", theme.fg_dim)
+            theme.fg_dim
         };
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            checkbox,
+        let check_style = if *enabled {
+            theme.accent_success
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(check, check_style),
             Span::raw(" "),
-            Span::styled(*name, theme.fg_active),
-        ]));
+            Span::styled(*name, label_style),
+        ];
+        if is_selected {
+            spans.push(Span::styled("  [Space: toggle]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
     }
 
     lines
 }
 
-fn render_reasoning_tab<'a>(config: &'a ConfigState, theme: &ThemeTokens) -> Vec<Line<'a>> {
+fn render_reasoning_tab<'a>(
+    settings: &'a SettingsState,
+    config: &'a ConfigState,
+    theme: &ThemeTokens,
+) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
@@ -250,16 +280,27 @@ fn render_reasoning_tab<'a>(config: &'a ConfigState, theme: &ThemeTokens) -> Vec
 
     let current_effort = config.reasoning_effort();
     let effort_display = if current_effort.is_empty() {
-        "Medium"
+        "off"
     } else {
         current_effort
     };
 
-    lines.push(Line::from(vec![
-        Span::styled("  Effort:  ", theme.fg_dim),
-        Span::styled(format!("(\u{25cf}) {}", effort_display), theme.accent_secondary),
-        Span::styled(" <- current", theme.fg_dim),
-    ]));
+    // Only one field: effort
+    let is_selected = settings.field_cursor() == 0;
+    let marker = if is_selected { "> " } else { "  " };
+    let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+    let value_style = if is_selected { theme.accent_primary } else { theme.accent_secondary };
+
+    let mut spans = vec![
+        Span::styled(marker, marker_style),
+        Span::styled("Effort:  ", theme.fg_dim),
+        Span::styled(effort_display.to_string(), value_style),
+    ];
+    if is_selected {
+        spans.push(Span::styled("  [Enter: pick]", theme.fg_dim));
+    }
+    lines.push(Line::from(spans));
+
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
         Span::styled("  Options:  ", theme.fg_dim),
@@ -272,7 +313,11 @@ fn render_reasoning_tab<'a>(config: &'a ConfigState, theme: &ThemeTokens) -> Vec
     lines
 }
 
-fn render_gateway_tab(theme: &ThemeTokens) -> Vec<Line<'static>> {
+fn render_gateway_tab<'a>(
+    settings: &'a SettingsState,
+    config: &'a ConfigState,
+    theme: &ThemeTokens,
+) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
@@ -283,15 +328,83 @@ fn render_gateway_tab(theme: &ThemeTokens) -> Vec<Line<'static>> {
     )));
     lines.push(Line::raw(""));
 
-    lines.push(Line::from(vec![
-        Span::styled("  Gateway Enabled:  ", theme.fg_dim),
-        Span::styled("[x] Yes", theme.accent_success),
-    ]));
+    // Field 0: gateway_enabled (checkbox)
+    {
+        let is_selected = settings.field_cursor() == 0;
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let check = if config.gateway_enabled { "[x]" } else { "[ ]" };
+        let check_style = if config.gateway_enabled { theme.accent_success } else { theme.fg_dim };
+        let label_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(check, check_style),
+            Span::raw(" "),
+            Span::styled("Gateway Enabled", label_style),
+        ];
+        if is_selected {
+            spans.push(Span::styled("  [Space: toggle]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    // Text fields: index, label, value, field_name
+    let text_fields: [(usize, &str, &str, &str); 4] = [
+        (1, "Slack Token   ", config.slack_token.as_str(),    "slack_token"),
+        (2, "Telegram Token", config.telegram_token.as_str(), "telegram_token"),
+        (3, "Discord Token ", config.discord_token.as_str(),  "discord_token"),
+        (4, "Command Prefix", config.gateway_prefix.as_str(), "gateway_prefix"),
+    ];
+
+    for (idx, label, value, field_name) in &text_fields {
+        let is_selected = settings.field_cursor() == *idx;
+        let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+
+        let display_value: String = if is_editing {
+            format!("{}\u{2588}", settings.edit_buffer())
+        } else if value.is_empty() {
+            "(not set)".to_string()
+        } else {
+            // Mask tokens; prefix visible
+            let v = *value;
+            let chars: Vec<char> = v.chars().collect();
+            if chars.len() > 8 {
+                let prefix: String = chars[..4].iter().collect();
+                format!("{}\u{2022}\u{2022}\u{2022}\u{2022}", prefix)
+            } else {
+                v.to_string()
+            }
+        };
+
+        let value_style = if is_editing {
+            theme.fg_active
+        } else if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(format!("{:<16} ", label), theme.fg_dim),
+            Span::styled(display_value, value_style),
+        ];
+        if is_selected && !is_editing {
+            spans.push(Span::styled("  [Enter: edit]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
 
     lines
 }
 
-fn render_agent_tab<'a>(config: &'a ConfigState, theme: &ThemeTokens) -> Vec<Line<'a>> {
+fn render_agent_tab<'a>(
+    settings: &'a SettingsState,
+    config: &'a ConfigState,
+    theme: &ThemeTokens,
+) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
@@ -311,14 +424,73 @@ fn render_agent_tab<'a>(config: &'a ConfigState, theme: &ThemeTokens) -> Vec<Lin
         "Sisyphus".to_string()
     };
 
-    lines.push(Line::from(vec![
-        Span::styled("  Agent Name:  ", theme.fg_dim),
-        Span::styled(agent_name, theme.fg_active),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  Backend:     ", theme.fg_dim),
-        Span::styled("daemon", theme.fg_active),
-    ]));
+    let system_prompt = if let Some(raw) = config.agent_config_raw() {
+        raw.get("system_prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        String::new()
+    };
+
+    // (field_index, label, value, field_name, hint)
+    let editable_fields: [(usize, &str, String, &str, &str); 2] = [
+        (0, "Agent Name    ", agent_name,      "agent_name",   " [Enter: edit]"),
+        (1, "System Prompt ", system_prompt,   "system_prompt"," [Enter: edit]"),
+    ];
+
+    for (idx, label, value, field_name, hint) in &editable_fields {
+        let is_selected = settings.field_cursor() == *idx;
+        let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+
+        let display_value: String = if is_editing {
+            format!("{}\u{2588}", settings.edit_buffer())
+        } else if value.is_empty() {
+            "(not set)".to_string()
+        } else {
+            // Truncate long values for display
+            let v = value.as_str();
+            if v.chars().count() > 40 {
+                let truncated: String = v.chars().take(37).collect();
+                format!("{}...", truncated)
+            } else {
+                v.to_string()
+            }
+        };
+
+        let value_style = if is_editing {
+            theme.fg_active
+        } else if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(format!("{:<16} ", label), theme.fg_dim),
+            Span::styled(display_value, value_style),
+        ];
+        if is_selected && !is_editing {
+            spans.push(Span::styled(*hint, theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    // Field 2: backend (read-only)
+    {
+        let is_selected = settings.field_cursor() == 2;
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let value_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        lines.push(Line::from(vec![
+            Span::styled(marker, marker_style),
+            Span::styled("Backend           ", theme.fg_dim),
+            Span::styled("daemon", value_style),
+        ]));
+    }
 
     lines
 }
