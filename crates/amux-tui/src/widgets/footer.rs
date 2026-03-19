@@ -8,6 +8,7 @@ pub fn footer_widget(
     _focus: FocusArea,
     focused: bool,
     width: usize,
+    status_line: &str,
 ) -> Vec<String> {
     let border_color = if focused { theme.accent_primary } else { theme.fg_dim };
     let bc = border_color.fg();
@@ -30,22 +31,31 @@ pub fn footer_widget(
     );
     let padded_input = pad_to_width(&input_line, inner_width);
 
-    // Line 2: context-sensitive hints
-    let hints = format!(
-        " {}tab{}:focus  {}ctrl+p{}:commands  {}ctrl+t{}:threads  {}/{}:slash  {}q{}:quit",
-        theme.fg_active.fg(),
-        theme.fg_dim.fg(),
-        theme.fg_active.fg(),
-        theme.fg_dim.fg(),
-        theme.fg_active.fg(),
-        theme.fg_dim.fg(),
-        theme.fg_active.fg(),
-        theme.fg_dim.fg(),
-        theme.fg_active.fg(),
-        theme.fg_dim.fg(),
-    );
-    let padded_hints_raw = format!("{}{}", hints, FG_CLOSE);
-    let padded_hints = pad_to_width(&padded_hints_raw, inner_width);
+    // Line 2: status line (if present) or context-sensitive hints
+    let line2 = if !status_line.is_empty() {
+        format!(
+            " {}{}{}",
+            theme.accent_success.fg(),
+            super::escape_markup(status_line),
+            FG_CLOSE,
+        )
+    } else {
+        format!(
+            " {}tab{}:focus  {}ctrl+p{}:commands  {}ctrl+t{}:threads  {}/{}:slash  {}q{}:quit{}",
+            theme.fg_active.fg(),
+            theme.fg_dim.fg(),
+            theme.fg_active.fg(),
+            theme.fg_dim.fg(),
+            theme.fg_active.fg(),
+            theme.fg_dim.fg(),
+            theme.fg_active.fg(),
+            theme.fg_dim.fg(),
+            theme.fg_active.fg(),
+            theme.fg_dim.fg(),
+            FG_CLOSE,
+        )
+    };
+    let padded_hints = pad_to_width(&line2, inner_width);
 
     vec![
         format!(
@@ -89,7 +99,7 @@ mod tests {
     fn footer_widget_returns_four_lines() {
         let input = InputState::new();
         let theme = ThemeTokens::default();
-        let lines = footer_widget(&input, &theme, FocusArea::Input, true, 80);
+        let lines = footer_widget(&input, &theme, FocusArea::Input, true, 80, "");
         assert_eq!(lines.len(), 4);
     }
 
@@ -97,8 +107,8 @@ mod tests {
     fn footer_widget_focused_vs_unfocused() {
         let input = InputState::new();
         let theme = ThemeTokens::default();
-        let focused = footer_widget(&input, &theme, FocusArea::Input, true, 80);
-        let unfocused = footer_widget(&input, &theme, FocusArea::Chat, false, 80);
+        let focused = footer_widget(&input, &theme, FocusArea::Input, true, 80, "");
+        let unfocused = footer_widget(&input, &theme, FocusArea::Chat, false, 80, "");
         assert_ne!(focused[0], unfocused[0]);
     }
 
@@ -107,7 +117,7 @@ mod tests {
         let mut input = InputState::new();
         input.set_mode(InputMode::Normal);
         let theme = ThemeTokens::default();
-        let lines = footer_widget(&input, &theme, FocusArea::Chat, false, 80);
+        let lines = footer_widget(&input, &theme, FocusArea::Chat, false, 80, "");
         assert!(lines[1].contains("NORMAL"));
     }
 
@@ -116,7 +126,7 @@ mod tests {
         let mut input = InputState::new();
         input.set_mode(InputMode::Insert);
         let theme = ThemeTokens::default();
-        let lines = footer_widget(&input, &theme, FocusArea::Input, true, 80);
+        let lines = footer_widget(&input, &theme, FocusArea::Input, true, 80, "");
         assert!(lines[1].contains("INSERT"));
     }
 }

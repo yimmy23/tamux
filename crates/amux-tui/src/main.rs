@@ -21,7 +21,7 @@ mod markup_adapter;
 fn main() -> Result<()> {
     let log_file = std::fs::File::create(std::env::temp_dir().join("tamux-tui.log"))?;
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .with_writer(log_file)
         .init();
 

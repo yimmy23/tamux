@@ -48,11 +48,19 @@ pub fn header_widget(
 
     let inner_width = width.saturating_sub(2); // border chars
 
+    // Effort level indicator
+    let effort = if config.reasoning_effort.is_empty() {
+        String::new()
+    } else {
+        format!(" {}\\[{}]{}", theme.accent_secondary.fg(), config.reasoning_effort, FG_CLOSE)
+    };
+
     let content = format!(
-        " {} {} {} {}",
+        " {} {} {}{}  {}",
         logo,
         if config.provider.is_empty() { "" } else { &config.provider },
         model,
+        effort,
         usage,
     );
 

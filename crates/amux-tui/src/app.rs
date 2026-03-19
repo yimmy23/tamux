@@ -592,9 +592,11 @@ impl TuiModel {
     }
 
     fn handle_modal_enter(&mut self, kind: modal::ModalKind) {
+        tracing::info!("handle_modal_enter: {:?}", kind);
         match kind {
             modal::ModalKind::CommandPalette => {
                 let cmd_name = self.modal.selected_command().map(|c| c.command.clone());
+                tracing::info!("selected_command: {:?}, cursor: {}, filtered: {:?}", cmd_name, self.modal.picker_cursor(), self.modal.filtered_items());
                 self.modal.reduce(modal::ModalAction::Pop);
                 self.input.reduce(input::InputAction::Clear);
                 if let Some(command) = cmd_name {
@@ -668,6 +670,7 @@ impl TuiModel {
     }
 
     fn execute_command(&mut self, command: &str) {
+        tracing::info!("execute_command: {:?}", command);
         match command {
             "provider" => self
                 .modal
@@ -870,6 +873,7 @@ impl StringModel for TuiModel {
         // Footer (4 lines)
         let footer_lines = crate::widgets::footer::footer_widget(
             &self.input, &self.theme, self.focus.clone(), self.focus == FocusArea::Input, w,
+            &self.status_line,
         );
 
         // Body height
