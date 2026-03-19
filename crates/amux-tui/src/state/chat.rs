@@ -176,7 +176,9 @@ impl ChatState {
     }
 
     pub fn is_streaming(&self) -> bool {
-        !self.streaming_content.is_empty() || !self.streaming_reasoning.is_empty()
+        !self.streaming_content.is_empty()
+            || !self.streaming_reasoning.is_empty()
+            || self.active_tool_calls.iter().any(|tc| tc.status == ToolCallStatus::Running)
     }
 
     pub fn expanded_reasoning(&self) -> &std::collections::HashSet<usize> {
