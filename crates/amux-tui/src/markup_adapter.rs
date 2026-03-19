@@ -46,13 +46,26 @@ where
     fn view(&self, frame: &mut Frame) {
         let s = self.inner.view_string();
         let fixed = fix_nested_tags(&s);
-        let text = match parse_markup(&fixed) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("Markup parse error: {:?}", e);
-                Text::raw(&fixed)
+        // parse_markup() doesn't split on \n — it produces a single Line.
+        // We must split the view string into lines first, parse each one
+        // separately, then combine into a multi-line Text.
+        let mut all_lines = Vec::new();
+        for line_str in fixed.split('\n') {
+            match parse_markup(line_str) {
+                Ok(parsed) => {
+                    // Take the first (and only) line from the parsed result
+                    if let Some(line) = parsed.lines().first() {
+                        all_lines.push(line.clone());
+                    } else {
+                        all_lines.push(ftui_text::Line::raw(""));
+                    }
+                }
+                Err(_) => {
+                    all_lines.push(ftui_text::Line::raw(line_str));
+                }
             }
-        };
+        }
+        let text = Text::from_lines(all_lines);
         render_text_to_frame(&text, frame);
     }
 }
