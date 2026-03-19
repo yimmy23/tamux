@@ -1,6 +1,7 @@
 mod app;
 mod client;
 mod state;
+mod theme;
 mod widgets;
 
 use std::{sync::mpsc, thread};
