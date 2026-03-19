@@ -1221,35 +1221,55 @@ impl TuiModel {
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        // Calculate layout boundaries to match the actual render() layout.
+        // Vertical: header=3 rows, body=flex, input=3 rows, status=1 row.
+        // Body starts at row 3, ends at height-4 (exclusive).
+        // Input occupies rows [height-4, height-1), status is the last row.
+        let body_start_row: u16 = 3;
+        let input_start_row: u16 = self.height.saturating_sub(4);
+
+        // Horizontal: sidebar is shown when width >= 80 (or overridden).
+        // Chat takes (100 - sidebar_pct)% of the body width.
+        let default_show_sidebar = self.width >= 80;
+        let show_sidebar = self.show_sidebar_override.unwrap_or(default_show_sidebar);
+        let sidebar_pct: u16 = if self.width >= 120 { 33 } else { 28 };
+        // sidebar_start_col is where the sidebar begins (column index).
+        // chat occupies [0, sidebar_start_col), sidebar occupies [sidebar_start_col, width).
+        let sidebar_start_col: u16 = if show_sidebar {
+            self.width * (100 - sidebar_pct) / 100
+        } else {
+            self.width // no sidebar visible
+        };
+
+        // Determine which pane the mouse cursor is in (for position-based scroll).
+        let cursor_in_body = mouse.row >= body_start_row && mouse.row < input_start_row;
+        let cursor_in_sidebar = show_sidebar && cursor_in_body && mouse.column >= sidebar_start_col;
+        let cursor_in_chat = cursor_in_body && mouse.column < sidebar_start_col;
+        let cursor_in_input = mouse.row >= input_start_row && mouse.row < self.height.saturating_sub(1);
+
         match mouse.kind {
-            MouseEventKind::ScrollUp => match self.focus {
-                FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(3)),
-                FocusArea::Sidebar => {
-                    self.sidebar.reduce(sidebar::SidebarAction::Scroll(3))
+            // Scroll based on where the cursor IS, not just the current focus.
+            MouseEventKind::ScrollUp => {
+                if cursor_in_chat {
+                    self.chat.reduce(chat::ChatAction::ScrollChat(3));
+                } else if cursor_in_sidebar {
+                    self.sidebar.reduce(sidebar::SidebarAction::Scroll(3));
                 }
-                _ => {}
-            },
-            MouseEventKind::ScrollDown => match self.focus {
-                FocusArea::Chat => self.chat.reduce(chat::ChatAction::ScrollChat(-3)),
-                FocusArea::Sidebar => {
-                    self.sidebar.reduce(sidebar::SidebarAction::Scroll(-3))
+            }
+            MouseEventKind::ScrollDown => {
+                if cursor_in_chat {
+                    self.chat.reduce(chat::ChatAction::ScrollChat(-3));
+                } else if cursor_in_sidebar {
+                    self.sidebar.reduce(sidebar::SidebarAction::Scroll(-3));
                 }
-                _ => {}
-            },
+            }
             MouseEventKind::Down(MouseButton::Left) => {
-                // Click-to-focus: determine which pane was clicked
-                let sidebar_start = if self.width >= 80 {
-                    (self.width as usize * 65 / 100) as u16
-                } else {
-                    self.width // no sidebar
-                };
-                if mouse.row >= 3 && mouse.row < self.height.saturating_sub(4) {
-                    if mouse.column < sidebar_start {
-                        self.focus = FocusArea::Chat;
-                    } else {
-                        self.focus = FocusArea::Sidebar;
-                    }
-                } else if mouse.row >= self.height.saturating_sub(4) {
+                // Click-to-focus: set focus based on which pane was clicked.
+                if cursor_in_chat {
+                    self.focus = FocusArea::Chat;
+                } else if cursor_in_sidebar {
+                    self.focus = FocusArea::Sidebar;
+                } else if cursor_in_input {
                     self.focus = FocusArea::Input;
                 }
                 // Always keep Insert mode active

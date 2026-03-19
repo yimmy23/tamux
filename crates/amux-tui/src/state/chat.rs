@@ -221,6 +221,27 @@ impl ChatState {
             } => {
                 // Only finalize if this is for the active thread
                 if self.active_thread_id.as_deref() == Some(&thread_id) {
+                    // First, persist active tool calls as Tool messages so they appear
+                    // in history with the same style as live indicators.
+                    let tool_calls = std::mem::take(&mut self.active_tool_calls);
+                    if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                        for tc in tool_calls {
+                            let status_str = match tc.status {
+                                ToolCallStatus::Done => "done".to_string(),
+                                ToolCallStatus::Error => "error".to_string(),
+                                ToolCallStatus::Running => "done".to_string(), // treat unresolved as done
+                            };
+                            thread.messages.push(AgentMessage {
+                                role: MessageRole::Tool,
+                                tool_name: Some(tc.name),
+                                tool_status: Some(status_str),
+                                tool_arguments: Some(tc.arguments),
+                                content: tc.result.unwrap_or_default(),
+                                ..Default::default()
+                            });
+                        }
+                    }
+
                     let content = std::mem::take(&mut self.streaming_content);
                     let reasoning = std::mem::take(&mut self.streaming_reasoning);
 
@@ -243,9 +264,6 @@ impl ChatState {
                             thread.total_output_tokens += output_tokens;
                         }
                     }
-
-                    // Clear active tool calls on turn completion
-                    self.active_tool_calls.clear();
                 }
             }
 

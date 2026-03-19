@@ -94,6 +94,16 @@ fn render_compact(
                 Span::styled(status_text, status_style),
             ]));
         }
+
+        // Show collapsed reasoning hint if reasoning is present in history messages
+        if let Some(reasoning) = &msg.reasoning {
+            if !reasoning.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::raw(" ".repeat(indent)),
+                    Span::styled("\u{25b6} [+] Reasoning", theme.fg_dim),
+                ]));
+            }
+        }
     }
 }
 
