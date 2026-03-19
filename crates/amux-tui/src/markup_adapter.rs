@@ -45,9 +45,13 @@ where
 
     fn view(&self, frame: &mut Frame) {
         let s = self.inner.view_string();
-        let text = match parse_markup(&s) {
+        let fixed = fix_nested_tags(&s);
+        let text = match parse_markup(&fixed) {
             Ok(t) => t,
-            Err(_) => Text::raw(&s),
+            Err(e) => {
+                tracing::warn!("Markup parse error: {:?}", e);
+                Text::raw(&fixed)
+            }
         };
         render_text_to_frame(&text, frame);
     }
@@ -120,4 +124,96 @@ fn apply_style(cell: &mut Cell, style: ftui_style::Style) {
         let cell_flags: ftui_render::cell::StyleFlags = attrs.into();
         cell.attrs = cell.attrs.with_flags(cell_flags);
     }
+}
+
+/// Fix nested [fg=...] and [bg=...] tags by auto-closing before each new open.
+///
+/// The ftui markup parser does not support nested `[fg]` tags — each opening
+/// tag must have a matching close before another can be opened. Our widget code
+/// emits colors in an "override" style (like ANSI), where a new `[fg=...]`
+/// implicitly replaces the previous color. This function inserts the missing
+/// `[/fg]` and `[/bg]` close tags.
+///
+/// Processes each line independently since markup doesn't span across newlines.
+fn fix_nested_tags(input: &str) -> String {
+    let mut result = String::with_capacity(input.len() + input.len() / 4);
+
+    for (line_idx, line) in input.split('\n').enumerate() {
+        if line_idx > 0 {
+            result.push('\n');
+        }
+
+        let mut fg_open = false;
+        let mut bg_open = false;
+        let bytes = line.as_bytes();
+        let len = bytes.len();
+        let mut i = 0;
+
+        while i < len {
+            // Check for escaped bracket
+            if bytes[i] == b'\\' && i + 1 < len && bytes[i + 1] == b'[' {
+                result.push('\\');
+                result.push('[');
+                i += 2;
+                continue;
+            }
+
+            // Check for tag opening
+            if bytes[i] == b'[' {
+                // Find end of tag
+                if let Some(close_bracket) = line[i..].find(']') {
+                    let tag_content = &line[i + 1..i + close_bracket];
+
+                    if tag_content.starts_with("fg=") {
+                        // Opening fg tag — close previous if open
+                        if fg_open {
+                            result.push_str("[/fg]");
+                        }
+                        result.push_str(&line[i..i + close_bracket + 1]);
+                        fg_open = true;
+                        i += close_bracket + 1;
+                        continue;
+                    } else if tag_content == "/fg" {
+                        if fg_open {
+                            result.push_str("[/fg]");
+                            fg_open = false;
+                        }
+                        // Skip the tag either way (don't emit unmatched close)
+                        i += close_bracket + 1;
+                        continue;
+                    } else if tag_content.starts_with("bg=") {
+                        if bg_open {
+                            result.push_str("[/bg]");
+                        }
+                        result.push_str(&line[i..i + close_bracket + 1]);
+                        bg_open = true;
+                        i += close_bracket + 1;
+                        continue;
+                    } else if tag_content == "/bg" {
+                        if bg_open {
+                            result.push_str("[/bg]");
+                            bg_open = false;
+                        }
+                        i += close_bracket + 1;
+                        continue;
+                    }
+                }
+            }
+
+            // Regular character
+            let ch = line[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
+        }
+
+        // Close any open tags at end of line
+        if fg_open {
+            result.push_str("[/fg]");
+        }
+        if bg_open {
+            result.push_str("[/bg]");
+        }
+    }
+
+    result
 }
