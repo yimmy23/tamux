@@ -72,7 +72,7 @@ pub fn header_widget(
         content
     };
 
-    vec![
+    let lines = vec![
         format!(
             "{}{}{}{}{}",
             bc,
@@ -90,7 +90,11 @@ pub fn header_widget(
             b.bottom_right,
             FG_CLOSE
         ),
-    ]
+    ];
+    // Guarantee every line is exactly `width` visible chars
+    lines.into_iter()
+        .map(|line| super::fit_to_width(&line, width))
+        .collect()
 }
 
 #[cfg(test)]

@@ -694,12 +694,11 @@ impl TuiModel {
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker)),
             "model" => {
-                // Auto-fetch models when opening picker
-                self.send_daemon_command(DaemonCommand::FetchModels {
-                    provider_id: self.config.provider.clone(),
-                    base_url: self.config.base_url.clone(),
-                    api_key: self.config.api_key.clone(),
-                });
+                // Populate with known models for current provider (offline, no daemon needed)
+                let models = known_models_for_provider(&self.config.provider);
+                if !models.is_empty() {
+                    self.config.reduce(config::ConfigAction::ModelsFetched(models));
+                }
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
             }
@@ -1218,5 +1217,49 @@ fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
         message: h.last_message,
         timestamp: 0,
     }
+}
+
+// ── Offline model catalogue ───────────────────────────────────────────────────
+
+/// Return a hardcoded list of known models for the given provider so the model
+/// picker works without a live daemon fetch.
+fn known_models_for_provider(provider: &str) -> Vec<config::FetchedModel> {
+    let models: &[(&str, &str, u32)] = match provider {
+        "openai" => &[
+            ("gpt-4o", "GPT-4o", 128_000),
+            ("gpt-4o-mini", "GPT-4o Mini", 128_000),
+            ("gpt-4-turbo", "GPT-4 Turbo", 128_000),
+            ("o1", "o1", 200_000),
+            ("o1-mini", "o1 Mini", 128_000),
+            ("o3", "o3", 200_000),
+            ("gpt-3.5-turbo", "GPT-3.5 Turbo", 16_384),
+        ],
+        "anthropic" => &[
+            ("claude-opus-4-6", "Claude Opus 4.6", 1_000_000),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6", 200_000),
+            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5", 200_000),
+            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet", 200_000),
+        ],
+        "groq" => &[
+            ("llama-3.3-70b-versatile", "Llama 3.3 70B", 128_000),
+            ("mixtral-8x7b-32768", "Mixtral 8x7B", 32_768),
+            ("llama-3.1-8b-instant", "Llama 3.1 8B", 131_072),
+        ],
+        "ollama" => &[
+            ("llama3.3", "Llama 3.3", 128_000),
+            ("qwen2.5-coder", "Qwen 2.5 Coder", 32_768),
+            ("deepseek-r1", "DeepSeek R1", 64_000),
+            ("mistral", "Mistral", 32_768),
+        ],
+        _ => &[],
+    };
+    models
+        .iter()
+        .map(|(id, name, ctx)| config::FetchedModel {
+            id: id.to_string(),
+            name: Some(name.to_string()),
+            context_window: Some(*ctx),
+        })
+        .collect()
 }
 

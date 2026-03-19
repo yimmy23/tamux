@@ -71,6 +71,10 @@ pub fn sidebar_widget(
         FG_CLOSE,
     ));
 
+    // Guarantee every line is exactly `width` visible chars
+    let result: Vec<String> = result.into_iter()
+        .map(|line| super::fit_to_width(&line, width))
+        .collect();
     result
 }
 

@@ -57,7 +57,7 @@ pub fn footer_widget(
     };
     let padded_hints = pad_to_width(&line2, inner_width);
 
-    vec![
+    let lines = vec![
         format!(
             "{}{}{}{}{}",
             bc,
@@ -76,7 +76,11 @@ pub fn footer_widget(
             b.bottom_right,
             FG_CLOSE
         ),
-    ]
+    ];
+    // Guarantee every line is exactly `width` visible chars
+    lines.into_iter()
+        .map(|line| super::fit_to_width(&line, width))
+        .collect()
 }
 
 fn pad_to_width(s: &str, width: usize) -> String {
