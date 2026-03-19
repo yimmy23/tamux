@@ -12,9 +12,19 @@ The daemon owns all durable state: LLM streams, tool execution, task scheduling,
 
 Communication is unidirectional for events (Daemon → TUI via `ClientEvent`) and command-oriented for mutations (TUI → Daemon via `DaemonCommand`). The TUI never mutates domain state locally — it issues commands and re-renders from daemon projections.
 
-### 1.2 Elm-Delegated + Projection Layer
+### 1.2 Migration Context
 
-The architecture combines frankentui's Elm-style update/view loop with decomposed state modules and a projection layer:
+This spec describes a **rewrite** of the existing TUI architecture. The current crate has a flat structure (`app.rs` with a monolithic ~3,500-line `TuiModel`, `client.rs`, `state.rs`, `actions.rs`, `layout.rs`, `modal.rs`, `panes.rs`, `theme.rs`) using `ftui-runtime`'s `StringModel` adapter for line-by-line character painting.
+
+The rewrite replaces the `StringModel` line-painting approach with a proper `ftui-core` widget tree, decomposes the monolithic `TuiModel` into focused state modules, and changes the layout from three-pane (Threads | Chat | Mission) to two-pane (Chat | Sidebar) with threads as a modal picker.
+
+**What is preserved:** `client.rs` (daemon communication) and `state.rs` (wire-format types: `AgentThread`, `AgentMessage`, `AgentTask`, `GoalRun`, etc.) are reused. The existing `FocusArea` variants (`Threads`, `Chat`, `Mission`, `Composer`) are replaced with three: `Chat`, `Sidebar`, `Input`. The existing `panes.rs` and `layout.rs` are replaced entirely by the `widgets/` directory.
+
+Implementation must include a **Phase 0** that sets up the new module structure and migrates the entry point before any feature work.
+
+### 1.3 Elm-Delegated + Projection Layer
+
+The architecture combines `ftui-runtime`'s Elm-style update/view loop with decomposed state modules and a projection layer:
 
 ```
 frankentui event loop
@@ -54,13 +64,16 @@ frankentui event loop
 
 **Root model (TuiModel)** composes all state modules and delegates. The `update()` method pumps daemon events through the projection, maps crossterm events to actions, dispatches to sub-modules, and collects effects. The `view()` method builds the widget tree from state slices.
 
-### 1.3 Daemon Client
+### 1.4 Daemon Client & Bridge
 
 Reuse the existing `client.rs` unchanged. It handles:
 - Unix socket + TCP fallback with WSL IP auto-detection.
 - `amux-protocol`'s `AmuxCodec` framing.
 - All daemon message types (threads, tasks, goal runs, streaming events, config, approvals, heartbeat).
-- Bidirectional channels: `mpsc::Sender<ClientEvent>` for inbound, `mpsc::UnboundedSender<DaemonCommand>` for outbound.
+
+**Channel architecture:** The `DaemonClient` internally sends/receives `ClientMessage` (the wire protocol type from `amux-protocol`). The bridge thread in `main.rs` translates between the TUI's `DaemonCommand` enum and the protocol's `ClientMessage` enum. From the TUI model's perspective, the interface is:
+- Inbound: `mpsc::Sender<ClientEvent>` (daemon → TUI, typed events)
+- Outbound: `tokio_mpsc::UnboundedSender<DaemonCommand>` (TUI → bridge → `ClientMessage`)
 
 ## 2. Module Structure
 
@@ -123,8 +136,17 @@ pub enum ChatAction {
     Delta { thread_id: String, content: String },
     Reasoning { thread_id: String, content: String },
     ToolCall { thread_id: String, call_id: String, name: String, args: String },
-    ToolResult { thread_id: String, call_id: String, content: String, is_error: bool },
-    TurnDone { thread_id: String, tokens: TokenUsage },
+    ToolResult { thread_id: String, call_id: String, name: String, content: String, is_error: bool },
+    TurnDone {
+        thread_id: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cost: Option<f64>,
+        provider: Option<String>,
+        model: Option<String>,
+        tps: Option<f64>,
+        generation_ms: Option<u64>,
+    },
     ThreadListReceived(Vec<AgentThread>),
     ThreadDetailReceived(AgentThread),
     ThreadCreated { thread_id: String, title: String },
@@ -243,15 +265,30 @@ pub struct ApprovalState {
     session_allowlist: HashSet<String>,
 }
 
+/// RiskLevel is a TUI-side enum parsed from the protocol's string field.
+/// Mapping: "low" → Low, "medium" → Medium, "high" → High, "critical" → Critical.
+/// Unknown strings default to Medium.
+pub enum RiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
 pub struct PendingApproval {
     approval_id: String,
+    task_id: String,
+    task_title: Option<String>,
+    /// Extracted from AgentTask.blocked_reason or goal step context.
+    /// May be empty if daemon does not provide command text.
     command: String,
     risk_level: RiskLevel,
     blast_radius: String,
-    task_title: Option<String>,
 }
 
 pub enum ApprovalAction {
+    /// Derived from TaskState: when a task has awaiting_approval_id set,
+    /// the TUI constructs a PendingApproval from available task metadata.
     ApprovalRequired(PendingApproval),
     Resolve { approval_id: String, decision: String },
     AllowSession(String),
@@ -475,6 +512,8 @@ Actions — single-key, no navigation needed:
 
 Sends `DaemonCommand::ResolveTaskApproval { approval_id, decision }`.
 
+**Data source:** The daemon does not currently push a dedicated `ApprovalRequired` event with command text and risk metadata. Instead, pending approvals are derived from `AgentTask` records where `awaiting_approval_id` is set. The `blocked_reason` field may contain the command text. Risk level and blast radius must be inferred TUI-side from the command pattern (same heuristics as the frontend's `agentMissionStore`), or the daemon protocol should be extended to include `risk_level` and `blast_radius` fields on `AgentTask`. For Phase 2 implementation, the TUI will use heuristic classification; a protocol extension is recommended for Phase 4.
+
 ### 6.10 Thread Picker
 
 Triggered by `Ctrl+T` or `/thread`. Sharp amber border. Search filters by title. Green dot = active/streaming, grey dot = idle. Shows time ago and token count. First item always "+ New conversation". Enter selects and loads thread history from daemon.
@@ -572,6 +611,14 @@ Every tick (~16ms):
 4. **Diff & render** — frankentui handles diffing and only updates changed terminal cells.
 
 ## 9. Implementation Phases
+
+### Phase 0: Architectural Migration
+- Set up new module structure (`state/`, `widgets/`, `projection.rs`).
+- Migrate `main.rs` entry point to use new `TuiModel` compositor.
+- Preserve `client.rs` and `state.rs` (wire types) unchanged.
+- Remove old modules: `panes.rs`, `layout.rs`, old `modal.rs`, old `theme.rs`, old `actions.rs`.
+- Establish new `ThemeTokens` with the retro-hacker color palette.
+- Verify the crate compiles and connects to daemon (blank screen OK).
 
 ### Phase 1: Shell & Chat
 - Crate skeleton with widget tree rendering (replace StringModel line painting).
