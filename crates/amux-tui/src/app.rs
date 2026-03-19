@@ -536,20 +536,24 @@ impl TuiModel {
                 self.modal.reduce(modal::ModalAction::Navigate(-1));
             }
             KeyCode::Enter => {
-                // Execute selected command
                 if kind == modal::ModalKind::CommandPalette {
-                    if let Some(cmd) = self.modal.selected_command() {
-                        let command = cmd.command.clone();
+                    // Grab the command name, pop the palette FIRST, then execute.
+                    // execute_command may push a sub-modal (e.g. ProviderPicker),
+                    // so we must pop the palette before that push.
+                    let cmd_name = self.modal.selected_command()
+                        .map(|c| c.command.clone());
+                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.input.reduce(input::InputAction::Clear);
+                    if let Some(command) = cmd_name {
                         self.execute_command(&command);
                     }
                 } else if kind == modal::ModalKind::ThreadPicker {
-                    // Thread selection
                     let cursor = self.modal.picker_cursor();
+                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.input.reduce(input::InputAction::Clear);
                     if cursor == 0 {
-                        // "+ New conversation"
                         self.chat.reduce(chat::ChatAction::NewThread);
                     } else {
-                        // Select thread at index cursor-1
                         let threads = self.chat.threads();
                         if let Some(thread) = threads.get(cursor - 1) {
                             let thread_id = thread.id.clone();
@@ -557,9 +561,11 @@ impl TuiModel {
                             self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
                         }
                     }
+                } else {
+                    // Generic modal: just pop
+                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.input.reduce(input::InputAction::Clear);
                 }
-                self.modal.reduce(modal::ModalAction::Pop);
-                self.input.reduce(input::InputAction::Clear);
             }
             KeyCode::Backspace if is_searchable => {
                 self.input.reduce(input::InputAction::Backspace);
