@@ -6,15 +6,12 @@ use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 use crate::state::input::{InputMode, InputState};
 use crate::theme::ThemeTokens;
 
-pub fn render(
+/// Render the bordered input box (mode + prompt text)
+pub fn render_input(
     frame: &mut Frame,
     area: Rect,
     input: &InputState,
     theme: &ThemeTokens,
-    connected: bool,
-    error_active: bool,
-    tick: u64,
-    error_tick: u64,
     focused: bool,
 ) {
     let border_style = if focused {
@@ -30,11 +27,10 @@ pub fn render(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    if inner.height < 2 {
+    if inner.height < 1 {
         return;
     }
 
-    // Line 1: mode + input
     let mode_span = match input.mode() {
         InputMode::Normal => Span::styled("NORMAL", theme.fg_dim),
         InputMode::Insert => Span::styled("INSERT", theme.accent_primary),
@@ -54,33 +50,46 @@ pub fn render(
         Span::raw(cursor),
     ]);
 
-    // Line 2: status dots + keyboard hints
+    frame.render_widget(Paragraph::new(vec![input_line]), inner);
+}
+
+/// Render the bare status bar below the input (no border, 1 line)
+pub fn render_status_bar(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &ThemeTokens,
+    connected: bool,
+    error_active: bool,
+    tick: u64,
+    error_tick: u64,
+) {
     let mut spans = vec![Span::raw(" ")];
 
-    // Daemon connection status (always shown)
+    // Daemon connection status
     if connected {
         spans.push(Span::styled("\u{25cf}", theme.accent_success));
-        spans.push(Span::styled(" daemon  ", theme.fg_dim));
+        spans.push(Span::styled(" daemon", theme.fg_dim));
     } else {
         spans.push(Span::styled("\u{25cf}", theme.accent_danger));
-        spans.push(Span::styled(" daemon  ", theme.fg_dim));
+        spans.push(Span::styled(" daemon", theme.fg_dim));
     }
 
-    // Error indicator with pulse animation
+    // Error indicator with pulse
     if error_active {
-        // Pulse: alternate between bright red and dim red every ~500ms (10 ticks at 50ms)
         let elapsed = tick.saturating_sub(error_tick);
         let pulse_phase = (elapsed / 10) % 2;
         let error_color = if pulse_phase == 0 {
-            Style::default().fg(Color::Indexed(203)) // bright red
+            Style::default().fg(Color::Indexed(203))
         } else {
-            Style::default().fg(Color::Indexed(88))  // dim red
+            Style::default().fg(Color::Indexed(88))
         };
+        spans.push(Span::raw("  "));
         spans.push(Span::styled("\u{25cf}", error_color));
-        spans.push(Span::styled(" error  ", theme.fg_dim));
+        spans.push(Span::styled(" error", theme.fg_dim));
     }
 
-    // Keyboard hints
+    // Spacer then keyboard hints (right-aligned feel)
+    spans.push(Span::raw("    "));
     spans.push(Span::styled("tab", theme.fg_active));
     spans.push(Span::styled(":focus  ", theme.fg_dim));
     spans.push(Span::styled("ctrl+p", theme.fg_active));
@@ -94,10 +103,8 @@ pub fn render(
     spans.push(Span::styled("q", theme.fg_active));
     spans.push(Span::styled(":quit", theme.fg_dim));
 
-    let line2 = Line::from(spans);
-
-    let paragraph = Paragraph::new(vec![input_line, line2]);
-    frame.render_widget(paragraph, inner);
+    let line = Line::from(spans);
+    frame.render_widget(Paragraph::new(vec![line]), area);
 }
 
 #[cfg(test)]

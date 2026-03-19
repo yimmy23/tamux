@@ -179,13 +179,14 @@ impl TuiModel {
         let area = frame.area();
         let w = area.width;
 
-        // Layout: header (3) + body (flex) + footer (4)
+        // Layout: header (3) + body (flex) + input (3) + status bar (1)
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3),  // header
                 Constraint::Min(1),    // body
-                Constraint::Length(4), // footer
+                Constraint::Length(3), // input (bordered)
+                Constraint::Length(1), // status bar (bare, below input)
             ])
             .split(area);
 
@@ -230,17 +231,24 @@ impl TuiModel {
             );
         }
 
-        // Render footer
-        widgets::footer::render(
+        // Render input box (bordered)
+        widgets::footer::render_input(
             frame,
             chunks[2],
             &self.input,
+            &self.theme,
+            self.focus == FocusArea::Input,
+        );
+
+        // Render status bar (bare, below input)
+        widgets::footer::render_status_bar(
+            frame,
+            chunks[3],
             &self.theme,
             self.connected,
             self.error_active,
             self.tick_counter,
             self.error_tick,
-            self.focus == FocusArea::Input,
         );
 
         // Modal overlay
