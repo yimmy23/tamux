@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { allLeafIds, findLeaf } from "../../lib/bspTree";
 import {
     controlGoalRun,
     fetchGoalRuns,
@@ -23,6 +24,12 @@ import {
     taskStatusColor,
     type AgentQueueTask,
 } from "../../lib/agentTaskQueue";
+import { fetchAgentRuns, formatRunStatus, runStatusColor, type AgentRun } from "../../lib/agentRuns";
+import { provisionAgentWorkspaceTerminals } from "../../lib/agentWorkspace";
+import { fetchThreadTodos } from "../../lib/agentTodos";
+import { useAgentStore } from "../../lib/agentStore";
+import type { Workspace } from "../../lib/types";
+import { shortenHomePath, useWorkspaceStore } from "../../lib/workspaceStore";
 import { EmptyPanel, SectionTitle, ActionButton, iconButtonStyle } from "./shared";
 
 interface HeartbeatItem {
@@ -42,8 +49,170 @@ const heartbeatColors: Record<string, string> = {
     error: "var(--danger)",
 };
 
-export function TasksView() {
+type TaskWorkspaceLocation = {
+    workspaceId: string;
+    workspaceName: string;
+    surfaceId: string;
+    surfaceName: string;
+    paneId: string;
+    cwd: string | null;
+};
+
+type TasksViewProps = {
+    onOpenThreadView?: () => void;
+};
+
+type RemoteAgentMessage = {
+    role: "user" | "assistant" | "system" | "tool";
+    content: string;
+    input_tokens?: number;
+    output_tokens?: number;
+    reasoning?: string | null;
+    tool_calls?: unknown[] | null;
+    tool_name?: string | null;
+    tool_call_id?: string | null;
+    tool_arguments?: string | null;
+    tool_status?: string | null;
+    timestamp?: number;
+};
+
+type RemoteAgentThread = {
+    id: string;
+    title: string;
+    messages: RemoteAgentMessage[];
+};
+
+type ThreadTarget = {
+    title: string;
+    thread_id?: string | null;
+    session_id?: string | null;
+};
+
+type GitStatusKind = "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "conflict";
+
+type GitStatusEntry = {
+    code: string;
+    path: string;
+    previousPath: string | null;
+    kind: GitStatusKind;
+};
+
+function classifyGitStatus(code: string): GitStatusKind {
+    const compact = code.replace(/\s/g, "");
+    if (compact === "??") return "untracked";
+    if (compact.includes("U")) return "conflict";
+    if (compact.includes("R")) return "renamed";
+    if (compact.includes("C")) return "copied";
+    if (compact.includes("A")) return "added";
+    if (compact.includes("D")) return "deleted";
+    return "modified";
+}
+
+function parseGitStatus(output: string): GitStatusEntry[] {
+    return output
+        .split(/\r?\n/)
+        .map((line) => {
+            if (!line.trim() || line.length < 4) {
+                return null;
+            }
+
+            const code = line.slice(0, 2);
+            const rawPath = line.slice(3).trim();
+            if (!rawPath) {
+                return null;
+            }
+
+            const renameParts = rawPath.split(" -> ");
+            const previousPath = renameParts.length > 1 ? renameParts[0]?.trim() || null : null;
+            const nextPath = renameParts.length > 1 ? renameParts[renameParts.length - 1]?.trim() : rawPath;
+            if (!nextPath) {
+                return null;
+            }
+
+            return {
+                code,
+                path: nextPath,
+                previousPath,
+                kind: classifyGitStatus(code),
+            } satisfies GitStatusEntry;
+        })
+        .filter((entry): entry is GitStatusEntry => Boolean(entry));
+}
+
+function gitStatusLabel(kind: GitStatusKind): string {
+    switch (kind) {
+        case "added":
+            return "Added";
+        case "deleted":
+            return "Deleted";
+        case "renamed":
+            return "Renamed";
+        case "copied":
+            return "Copied";
+        case "untracked":
+            return "Untracked";
+        case "conflict":
+            return "Conflict";
+        default:
+            return "Modified";
+    }
+}
+
+function gitStatusColor(kind: GitStatusKind): string {
+    switch (kind) {
+        case "added":
+        case "copied":
+        case "untracked":
+            return "var(--success)";
+        case "deleted":
+            return "var(--danger)";
+        case "renamed":
+            return "var(--accent)";
+        case "conflict":
+            return "var(--warning)";
+        default:
+            return "var(--text-secondary)";
+    }
+}
+
+function taskLooksLikeCoding(task: AgentQueueTask): boolean {
+    const haystack = `${task.title} ${task.description} ${task.command ?? ""}`.toLowerCase();
+    return /(code|coding|repo|git|diff|patch|file|files|test|build|compile|fix|bug|rust|typescript|frontend|backend|refactor|implement)/.test(haystack);
+}
+
+function findTaskWorkspaceLocation(workspaces: Workspace[], sessionId: string | null | undefined): TaskWorkspaceLocation | null {
+    if (!sessionId) {
+        return null;
+    }
+
+    for (const workspace of workspaces) {
+        for (const surface of workspace.surfaces) {
+            for (const paneId of allLeafIds(surface.layout)) {
+                const leafSessionId = findLeaf(surface.layout, paneId)?.sessionId ?? null;
+                const panel = surface.canvasPanels.find((entry) => entry.paneId === paneId) ?? null;
+                const paneSessionId = panel?.sessionId ?? leafSessionId;
+                if (paneSessionId !== sessionId) {
+                    continue;
+                }
+
+                return {
+                    workspaceId: workspace.id,
+                    workspaceName: workspace.name,
+                    surfaceId: surface.id,
+                    surfaceName: surface.name,
+                    paneId,
+                    cwd: panel?.cwd ?? workspace.cwd ?? null,
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+export function TasksView({ onOpenThreadView }: TasksViewProps) {
     const [tasks, setTasks] = useState<AgentQueueTask[]>([]);
+    const [runs, setRuns] = useState<AgentRun[]>([]);
     const [goalRuns, setGoalRuns] = useState<GoalRun[]>([]);
     const [heartbeatItems, setHeartbeatItems] = useState<HeartbeatItem[]>([]);
     const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -66,11 +235,23 @@ export function TasksView() {
 
     const amux = (window as any).tamux ?? (window as any).amux;
     const goalRunsSupported = goalRunSupportAvailable();
+    const activeWorkspace = useWorkspaceStore((state) => state.activeWorkspace());
+    const createThread = useAgentStore((state) => state.createThread);
+    const addMessage = useAgentStore((state) => state.addMessage);
+    const setActiveThread = useAgentStore((state) => state.setActiveThread);
+    const setThreadDaemonId = useAgentStore((state) => state.setThreadDaemonId);
+    const setThreadTodos = useAgentStore((state) => state.setThreadTodos);
+    const threads = useAgentStore((state) => state.threads);
 
     const refreshTasks = useCallback(async () => {
         const result = await fetchAgentTasks();
         setTasks(result);
         setSelectedTaskId((current) => current ?? result[0]?.id ?? null);
+    }, []);
+
+    const refreshRuns = useCallback(async () => {
+        const result = await fetchAgentRuns();
+        setRuns(result);
     }, []);
 
     const refreshGoalRuns = useCallback(async () => {
@@ -96,15 +277,17 @@ export function TasksView() {
 
     useEffect(() => {
         void refreshTasks();
+        void refreshRuns();
         void refreshGoalRuns();
         void refreshHeartbeat();
         const interval = setInterval(() => {
             void refreshTasks();
+            void refreshRuns();
             void refreshGoalRuns();
             void refreshHeartbeat();
         }, 5000);
         return () => clearInterval(interval);
-    }, [refreshGoalRuns, refreshHeartbeat, refreshTasks]);
+    }, [refreshGoalRuns, refreshHeartbeat, refreshRuns, refreshTasks]);
 
     useEffect(() => {
         if (!amux?.onAgentEvent) return;
@@ -115,10 +298,11 @@ export function TasksView() {
             }
             if (event.type === "task_update") {
                 void refreshTasks();
+                void refreshRuns();
             }
         });
         return () => unsubscribe?.();
-    }, [amux, refreshGoalRuns, refreshTasks]);
+    }, [amux, refreshGoalRuns, refreshRuns, refreshTasks]);
 
     const addTask = async () => {
         if (!newTaskTitle.trim() || !amux?.agentAddTask) return;
@@ -139,16 +323,23 @@ export function TasksView() {
         setNewTaskSessionId("");
         setNewTaskDependencies("");
         void refreshTasks();
+        void refreshRuns();
     };
 
     const addGoalRun = async () => {
         if (!goalRunsSupported || !newGoalPrompt.trim()) return;
 
         setGoalStartError(null);
+        const provision = newGoalSessionId.trim()
+            ? null
+            : await provisionAgentWorkspaceTerminals({
+                title: newGoalTitle.trim() || newGoalPrompt.trim(),
+                cwd: activeWorkspace?.cwd ?? null,
+            });
         const goalRun = await startGoalRun({
             goal: newGoalPrompt.trim(),
             title: newGoalTitle.trim() || null,
-            sessionId: newGoalSessionId.trim() || null,
+            sessionId: newGoalSessionId.trim() || provision?.coordinatorSessionId || null,
             priority: "normal",
         });
 
@@ -182,11 +373,97 @@ export function TasksView() {
         if (!amux?.agentCancelTask) return;
         await amux.agentCancelTask(taskId);
         void refreshTasks();
+        void refreshRuns();
     };
 
-    const activeTasks = tasks.filter(isTaskActive);
-    const completedTasks = tasks.filter((task) => !isTaskActive(task));
-    const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? tasks[0] ?? null;
+    const openTaskThread = useCallback(async (task: ThreadTarget) => {
+        if (!task.thread_id || !amux?.agentGetThread) {
+            return;
+        }
+
+        const existingThread = threads.find((entry) => entry.daemonThreadId === task.thread_id);
+        if (existingThread) {
+            setActiveThread(existingThread.id);
+            onOpenThreadView?.();
+            return;
+        }
+
+        const remoteThread = await amux.agentGetThread(task.thread_id) as RemoteAgentThread | null;
+        if (!remoteThread) {
+            return;
+        }
+
+        const location = findTaskWorkspaceLocation(useWorkspaceStore.getState().workspaces, task.session_id);
+        const localThreadId = createThread({
+            workspaceId: location?.workspaceId ?? null,
+            surfaceId: location?.surfaceId ?? null,
+            paneId: location?.paneId ?? null,
+            title: remoteThread.title || task.title,
+        });
+        setThreadDaemonId(localThreadId, remoteThread.id);
+
+        for (const message of remoteThread.messages ?? []) {
+            addMessage(localThreadId, {
+                role: message.role,
+                content: message.content ?? "",
+                provider: undefined,
+                model: undefined,
+                toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls as any : undefined,
+                toolName: message.tool_name ?? undefined,
+                toolCallId: message.tool_call_id ?? undefined,
+                toolArguments: message.tool_arguments ?? undefined,
+                toolStatus: message.tool_status === "requested" || message.tool_status === "executing" || message.tool_status === "done" || message.tool_status === "error"
+                    ? message.tool_status
+                    : undefined,
+                inputTokens: message.input_tokens ?? 0,
+                outputTokens: message.output_tokens ?? 0,
+                totalTokens: (message.input_tokens ?? 0) + (message.output_tokens ?? 0),
+                reasoning: message.reasoning ?? undefined,
+                isCompactionSummary: false,
+                isStreaming: false,
+            });
+        }
+
+        const todos = await fetchThreadTodos(remoteThread.id).catch(() => []);
+        setThreadTodos(localThreadId, todos);
+        setActiveThread(localThreadId);
+        onOpenThreadView?.();
+    }, [addMessage, amux, createThread, onOpenThreadView, setActiveThread, setThreadDaemonId, setThreadTodos, threads]);
+
+    const topLevelTasks = useMemo(
+        () => tasks.filter((task) => !task.parent_task_id),
+        [tasks],
+    );
+    const subagentRunsByParent = useMemo(() => {
+        const grouped = new Map<string, AgentRun[]>();
+        for (const run of runs) {
+            if (run.kind !== "subagent") {
+                continue;
+            }
+            const parentKey = run.parent_run_id
+                ? `task:${run.parent_run_id}`
+                : run.parent_thread_id
+                    ? `thread:${run.parent_thread_id}`
+                    : null;
+            if (!parentKey) {
+                continue;
+            }
+            const bucket = grouped.get(parentKey) ?? [];
+            bucket.push(run);
+            grouped.set(parentKey, bucket);
+        }
+        return grouped;
+    }, [runs]);
+    const activeTasks = topLevelTasks.filter(isTaskActive);
+    const completedTasks = topLevelTasks.filter((task) => !isTaskActive(task));
+    const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? topLevelTasks[0] ?? tasks[0] ?? null;
+    const selectedTaskSubagents = useMemo(() => {
+        if (!selectedTask) {
+            return [] as AgentRun[];
+        }
+        const directChildren = subagentRunsByParent.get(`task:${selectedTask.id}`) ?? [];
+        return directChildren.slice().sort((a, b) => b.created_at - a.created_at);
+    }, [selectedTask, subagentRunsByParent]);
 
     const activeGoalRuns = useMemo(() => goalRuns.filter(isGoalRunActive), [goalRuns]);
     const historicalGoalRuns = useMemo(() => goalRuns.filter((goalRun) => !isGoalRunActive(goalRun)), [goalRuns]);
@@ -445,7 +722,12 @@ export function TasksView() {
             {selectedTask && (
                 <div style={{ marginBottom: "var(--space-5)" }}>
                     <SectionTitle title="Post-Mortem" subtitle="Latest trajectory for the selected task" />
-                    <TaskPostMortem task={selectedTask} />
+                    <TaskPostMortem
+                        task={selectedTask}
+                        subagents={selectedTaskSubagents}
+                        onSelectTask={setSelectedTaskId}
+                        onOpenTaskThread={(task) => void openTaskThread(task)}
+                    />
                 </div>
             )}
 
@@ -855,6 +1137,16 @@ function TaskCard({
                     <div style={{ fontSize: "var(--text-sm)", fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {task.title}
                     </div>
+                    {task.goal_run_title && (
+                        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            Goal: {task.goal_run_title}
+                        </div>
+                    )}
+                    {task.source === "subagent" && (
+                        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            Subagent · runtime {task.runtime ?? "daemon"}
+                        </div>
+                    )}
                     <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: 2 }}>
                         <span style={{ color: statusColor, fontWeight: 600 }}>{formatTaskStatus(task)}</span>
                         {task.status === "in_progress" && task.progress > 0 && (
@@ -864,7 +1156,9 @@ function TaskCard({
                             {formatTaskTimestamp(task.created_at)}
                         </span>
                         {typeof task.retry_count === "number" && typeof task.max_retries === "number" && (
-                            <span style={{ marginLeft: "var(--space-2)" }}>retry {task.retry_count}/{task.max_retries}</span>
+                            <span style={{ marginLeft: "var(--space-2)" }}>
+                                retry {task.retry_count}/{task.max_retries === 0 ? "∞" : task.max_retries}
+                            </span>
                         )}
                     </div>
                 </div>
@@ -888,8 +1182,36 @@ function TaskCard({
     );
 }
 
-function TaskPostMortem({ task }: { task: AgentQueueTask }) {
+function TaskPostMortem({
+    task,
+    subagents,
+    onSelectTask,
+    onOpenTaskThread,
+}: {
+    task: AgentQueueTask;
+    subagents: AgentRun[];
+    onSelectTask: (taskId: string) => void;
+    onOpenTaskThread: (task: ThreadTarget) => void;
+}) {
+    const workspaces = useWorkspaceStore((state) => state.workspaces);
+    const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
+    const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface);
+    const setActivePaneId = useWorkspaceStore((state) => state.setActivePaneId);
+    const focusCanvasPanel = useWorkspaceStore((state) => state.focusCanvasPanel);
     const logs = [...(task.logs ?? [])].slice(-8).reverse();
+    const location = useMemo(
+        () => findTaskWorkspaceLocation(workspaces, task.session_id),
+        [task.session_id, workspaces],
+    );
+    const openTaskSession = useCallback(() => {
+        if (!location) {
+            return;
+        }
+        setActiveWorkspace(location.workspaceId);
+        setActiveSurface(location.surfaceId);
+        focusCanvasPanel(location.paneId, { storePreviousView: true });
+        setActivePaneId(location.paneId);
+    }, [focusCanvasPanel, location, setActivePaneId, setActiveSurface, setActiveWorkspace]);
 
     return (
         <div
@@ -901,6 +1223,12 @@ function TaskPostMortem({ task }: { task: AgentQueueTask }) {
             }}
         >
             <div style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", fontWeight: 600 }}>{task.title}</div>
+            {task.goal_run_title && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>
+                    Goal: {task.goal_run_title}
+                    {task.goal_step_title && task.goal_step_title !== task.title ? ` · Step: ${task.goal_step_title}` : ""}
+                </div>
+            )}
             <div style={{ fontSize: "var(--text-xs)", color: taskStatusColor(task.status), marginTop: 4 }}>
                 {formatTaskStatus(task)}
             </div>
@@ -914,9 +1242,37 @@ function TaskPostMortem({ task }: { task: AgentQueueTask }) {
                     Session: {task.session_id}
                 </div>
             )}
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>
+                Runtime: {task.runtime ?? "daemon"}
+            </div>
+            {location && (
+                <div style={{ marginTop: "var(--space-2)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                        Workspace: {location.workspaceName} · Surface: {location.surfaceName}
+                        {location.cwd ? ` · ${shortenHomePath(location.cwd)}` : ""}
+                    </div>
+                    <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                        {task.thread_id && <ActionButton onClick={() => onOpenTaskThread(task)}>Open Chat</ActionButton>}
+                        <ActionButton onClick={openTaskSession}>Open Session</ActionButton>
+                    </div>
+                </div>
+            )}
+            {!location && task.thread_id && (
+                <div style={{ marginTop: "var(--space-2)", display: "flex", justifyContent: "flex-end" }}>
+                    <ActionButton onClick={() => onOpenTaskThread(task)}>Open Chat</ActionButton>
+                </div>
+            )}
             {task.dependencies && task.dependencies.length > 0 && (
                 <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>
                     Depends on: {task.dependencies.join(", ")}
+                </div>
+            )}
+            {task.parent_task_id && (
+                <div style={{ marginTop: 4, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+                        Parent task: {task.parent_task_id}
+                    </div>
+                    <ActionButton onClick={() => onSelectTask(task.parent_task_id!)}>Back To Parent</ActionButton>
                 </div>
             )}
             {task.last_error && (
@@ -924,6 +1280,51 @@ function TaskPostMortem({ task }: { task: AgentQueueTask }) {
                     {task.last_error}
                 </div>
             )}
+            <TaskCodePreview task={task} location={location} />
+            <div style={{ marginTop: "var(--space-3)" }}>
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-2)" }}>
+                    Subagents ({subagents.length})
+                </div>
+                {subagents.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                        {subagents.map((subagent) => (
+                            <div
+                                key={subagent.id}
+                                style={{
+                                    padding: "var(--space-2)",
+                                    borderRadius: "var(--radius-sm)",
+                                    background: "var(--bg-tertiary)",
+                                    border: `1px solid ${runStatusColor(subagent.status)}`,
+                                }}
+                            >
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                                    <div>
+                                        <div style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)", fontWeight: 600 }}>{subagent.title}</div>
+                                        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 2 }}>
+                                            {formatRunStatus(subagent)} · runtime {subagent.runtime ?? "daemon"}
+                                            {subagent.classification ? ` · ${subagent.classification}` : ""}
+                                            {subagent.session_id ? ` · session ${subagent.session_id}` : ""}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                                        {subagent.thread_id && (
+                                            <ActionButton onClick={() => onOpenTaskThread(subagent)}>Open Chat</ActionButton>
+                                        )}
+                                        <ActionButton onClick={() => onSelectTask(subagent.id)}>Inspect</ActionButton>
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: "var(--space-2)" }}>
+                                    {subagent.description}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                        No child subagents have been spawned for this task.
+                    </div>
+                )}
+            </div>
             <div style={{ marginTop: "var(--space-3)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
                 {logs.length > 0 ? logs.map((log) => (
                     <div key={log.id} style={{ padding: "var(--space-2)", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)" }}>
@@ -939,6 +1340,218 @@ function TaskPostMortem({ task }: { task: AgentQueueTask }) {
                     <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>No task logs recorded yet.</div>
                 )}
             </div>
+        </div>
+    );
+}
+
+function TaskCodePreview({
+    task,
+    location,
+}: {
+    task: AgentQueueTask;
+    location: TaskWorkspaceLocation | null;
+}) {
+    const [entries, setEntries] = useState<GitStatusEntry[]>([]);
+    const [selectedPath, setSelectedPath] = useState<string | null>(null);
+    const [diffText, setDiffText] = useState("");
+    const [loadingEntries, setLoadingEntries] = useState(false);
+    const [loadingDiff, setLoadingDiff] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const amux = (window as any).tamux ?? (window as any).amux;
+    const codingTask = taskLooksLikeCoding(task);
+
+    useEffect(() => {
+        if (!location?.cwd || !amux?.gitStatus) {
+            setEntries([]);
+            setSelectedPath(null);
+            setDiffText("");
+            setLoadingEntries(false);
+            setLoadingDiff(false);
+            setError(null);
+            return;
+        }
+
+        let cancelled = false;
+        setLoadingEntries(true);
+        setError(null);
+
+        void amux.gitStatus(location.cwd)
+            .then((output: string) => {
+                if (cancelled) {
+                    return;
+                }
+
+                const nextEntries = parseGitStatus(output);
+                setEntries(nextEntries);
+                setSelectedPath((current) => (
+                    current && nextEntries.some((entry) => entry.path === current)
+                        ? current
+                        : nextEntries[0]?.path ?? null
+                ));
+            })
+            .catch((reason: unknown) => {
+                if (cancelled) {
+                    return;
+                }
+                setEntries([]);
+                setSelectedPath(null);
+                setDiffText("");
+                setError(reason instanceof Error ? reason.message : String(reason));
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setLoadingEntries(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [amux, location?.cwd, task.id]);
+
+    useEffect(() => {
+        if (!location?.cwd || !selectedPath || !amux?.gitDiff) {
+            setDiffText("");
+            setLoadingDiff(false);
+            return;
+        }
+
+        let cancelled = false;
+        setLoadingDiff(true);
+
+        void amux.gitDiff(location.cwd, selectedPath)
+            .then((output: string) => {
+                if (!cancelled) {
+                    setDiffText(output);
+                }
+            })
+            .catch((reason: unknown) => {
+                if (!cancelled) {
+                    setDiffText("");
+                    setError(reason instanceof Error ? reason.message : String(reason));
+                }
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setLoadingDiff(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [amux, location?.cwd, selectedPath]);
+
+    if (!location?.cwd || (!codingTask && entries.length === 0 && !loadingEntries && !error)) {
+        return null;
+    }
+
+    return (
+        <div style={{ marginTop: "var(--space-3)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            <div style={detailLabelStyle}>Code Preview</div>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                Repo: {shortenHomePath(location.cwd)}
+                <span style={{ marginLeft: "var(--space-2)" }}>
+                    {loadingEntries ? "Scanning changes..." : `${entries.length} changed file${entries.length === 1 ? "" : "s"}`}
+                </span>
+            </div>
+            {error && (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--danger)" }}>
+                    {error}
+                </div>
+            )}
+            {entries.length > 0 ? (
+                <div
+                    style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)",
+                        gap: "var(--space-2)",
+                    }}
+                >
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "var(--space-1)",
+                            maxHeight: 320,
+                            overflow: "auto",
+                        }}
+                    >
+                        {entries.map((entry) => {
+                            const selected = entry.path === selectedPath;
+                            return (
+                                <button
+                                    key={`${entry.code}:${entry.path}`}
+                                    type="button"
+                                    onClick={() => setSelectedPath(entry.path)}
+                                    style={{
+                                        textAlign: "left",
+                                        padding: "var(--space-2)",
+                                        borderRadius: "var(--radius-sm)",
+                                        border: selected ? `1px solid ${gitStatusColor(entry.kind)}` : "1px solid var(--border)",
+                                        background: selected ? "var(--bg-tertiary)" : "var(--bg-secondary)",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: 4, flexWrap: "wrap" }}>
+                                        <span style={{ fontSize: "var(--text-xs)", color: gitStatusColor(entry.kind), fontWeight: 600 }}>
+                                            {gitStatusLabel(entry.kind)}
+                                        </span>
+                                        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                            {entry.code}
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-primary)", fontFamily: "var(--font-mono)", wordBreak: "break-word" }}>
+                                        {entry.path}
+                                    </div>
+                                    {entry.previousPath && (
+                                        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: 4, wordBreak: "break-word" }}>
+                                            from {entry.previousPath}
+                                        </div>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div
+                        style={{
+                            minHeight: 220,
+                            maxHeight: 320,
+                            overflow: "auto",
+                            padding: "var(--space-2)",
+                            borderRadius: "var(--radius-sm)",
+                            background: "var(--bg-tertiary)",
+                            border: "1px solid var(--border)",
+                        }}
+                    >
+                        {loadingDiff ? (
+                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>Loading diff...</div>
+                        ) : diffText.trim() ? (
+                            <pre
+                                style={{
+                                    margin: 0,
+                                    fontSize: "var(--text-xs)",
+                                    lineHeight: 1.5,
+                                    color: "var(--text-primary)",
+                                    fontFamily: "var(--font-mono)",
+                                    whiteSpace: "pre-wrap",
+                                    wordBreak: "break-word",
+                                }}
+                            >
+                                {diffText}
+                            </pre>
+                        ) : (
+                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                                No diff preview available for the selected file.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", padding: "var(--space-2)", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)" }}>
+                    {loadingEntries ? "Scanning repository state..." : "No changed files detected in the task workspace."}
+                </div>
+            )}
         </div>
     );
 }

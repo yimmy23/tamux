@@ -13,7 +13,7 @@ import { useSettingsStore } from "./lib/settingsStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
 import { useHotkeys } from "./hooks/useHotkeys";
 import { saveSession, startAutoSave } from "./lib/sessionPersistence";
-import { sendChatCompletion, messagesToApiFormat } from "./lib/agentClient";
+import { buildApiMessagesForRequest, sendChatCompletion } from "./lib/agentClient";
 import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./lib/agentTools";
 import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
 
@@ -411,10 +411,16 @@ export default function App() {
         isStreaming: true,
       });
 
-      const maxToolLoops = Math.max(1, Math.min(100, Number(agentState.agentSettings.maxToolLoops ?? 25)));
+      const configuredToolLoops = Number(agentState.agentSettings.maxToolLoops ?? 0);
+      const maxToolLoops = Number.isFinite(configuredToolLoops) && configuredToolLoops > 0
+        ? Math.min(1000, configuredToolLoops)
+        : Infinity;
       let loopCount = 0;
       let finalReply = "";
-      let apiMessages = messagesToApiFormat(useAgentStore.getState().getThreadMessages(threadId).slice(0, -1));
+      let apiMessages = buildApiMessagesForRequest(
+        useAgentStore.getState().getThreadMessages(threadId).slice(0, -1),
+        agentState.agentSettings,
+      );
       const controller = new AbortController();
       setThreadAbortController(threadId, controller);
       let lastPersistedReasoning: string | null = null;
@@ -442,7 +448,6 @@ export default function App() {
           let accumulatedReasoning = "";
           const responseStartedAt = Date.now();
           let receivedToolCalls = false;
-          let roundToolCalls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> = [];
 
           for await (const chunk of sendChatCompletion({
             provider: activeProvider,
@@ -493,7 +498,6 @@ export default function App() {
               agentState.updateLastAssistantMessage(threadId, accumulated, false);
             } else if (chunk.type === "tool_calls" && chunk.toolCalls) {
               receivedToolCalls = true;
-              roundToolCalls = chunk.toolCalls;
 
               if (chunk.reasoning) {
                 accumulatedReasoning = chunk.reasoning;
@@ -548,20 +552,10 @@ export default function App() {
 
               agentState.updateLastAssistantMessage(threadId, accumulated || "Tools executed.", false);
 
-              apiMessages = [
-                ...apiMessages,
-                {
-                  role: "assistant",
-                  content: accumulated || "",
-                  tool_calls: roundToolCalls,
-                },
-                ...toolResults.map((result) => ({
-                  role: "tool" as const,
-                  content: result.content,
-                  tool_call_id: result.toolCallId,
-                  name: result.name,
-                })),
-              ];
+              apiMessages = buildApiMessagesForRequest(
+                useAgentStore.getState().getThreadMessages(threadId),
+                agentState.agentSettings,
+              );
 
               agentState.addMessage(threadId, {
                 role: "assistant",
@@ -586,7 +580,7 @@ export default function App() {
         clearThreadAbortController(threadId, controller);
       }
 
-      if (loopCount >= maxToolLoops) {
+      if (Number.isFinite(maxToolLoops) && loopCount >= maxToolLoops) {
         agentState.updateLastAssistantMessage(threadId, "(Tool execution limit reached)", false);
         finalReply = "";
       }

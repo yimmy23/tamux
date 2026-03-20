@@ -984,11 +984,52 @@ where
                 // -----------------------------------------------------------
                 // Agent engine messages
                 // -----------------------------------------------------------
-                ClientMessage::AgentSendMessage { thread_id, content } => {
+                ClientMessage::AgentSendMessage {
+                    thread_id,
+                    content,
+                    session_id,
+                    context_messages_json,
+                } => {
                     let agent = agent.clone();
                     let event_tx = agent.event_sender();
                     tokio::spawn(async move {
-                        if let Err(e) = agent.send_message(thread_id.as_deref(), &content).await {
+                        // If thread_id is None but we have context, generate a stable
+                        // thread ID so seeding and sending use the same thread.
+                        let mut thread_id = thread_id;
+                        if thread_id.is_none() {
+                            if let Some(ref json) = context_messages_json {
+                                if json.len() > 2 {
+                                    // non-empty JSON array
+                                    thread_id = Some(format!("thread_{}", uuid::Uuid::new_v4()));
+                                }
+                            }
+                        }
+                        let has_context = context_messages_json.is_some();
+                        tracing::info!(
+                            thread_id = ?thread_id,
+                            content_len = content.len(),
+                            has_context_json = has_context,
+                            "AgentSendMessage received"
+                        );
+                        // Seed context messages into the thread before the LLM turn
+                        if let Some(ref json) = context_messages_json {
+                            match serde_json::from_str::<Vec<amux_protocol::AgentDbMessage>>(json) {
+                                Ok(ctx) if !ctx.is_empty() => {
+                                    tracing::info!(count = ctx.len(), "seeding thread with context messages");
+                                    agent.seed_thread_context(thread_id.as_deref(), &ctx).await;
+                                }
+                                Ok(_) => tracing::info!("context_messages_json was empty array"),
+                                Err(e) => tracing::warn!(error = %e, json_len = json.len(), "failed to parse context_messages_json"),
+                            }
+                        }
+                        if let Err(e) = agent
+                            .send_message_with_session(
+                                thread_id.as_deref(),
+                                session_id.as_deref(),
+                                &content,
+                            )
+                            .await
+                        {
                             let _ = event_tx.send(crate::agent::types::AgentEvent::Error {
                                 thread_id: thread_id.unwrap_or_default(),
                                 message: e.to_string(),
@@ -1041,6 +1082,9 @@ where
                             scheduled_at,
                             "user",
                             None,
+                            None,
+                            None,
+                            None,
                         )
                         .await;
                     tracing::info!(task_id = %task.id, "agent task added");
@@ -1065,15 +1109,39 @@ where
                         .await?;
                 }
 
+                ClientMessage::AgentListRuns => {
+                    let runs = agent.list_runs().await;
+                    let json = serde_json::to_string(&runs).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentRunList { runs_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetRun { run_id } => {
+                    let run = agent.get_run(&run_id).await;
+                    let json = serde_json::to_string(&run).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentRunDetail { run_json: json })
+                        .await?;
+                }
+
                 ClientMessage::AgentStartGoalRun {
                     goal,
                     title,
                     thread_id,
                     session_id,
                     priority,
+                    client_request_id,
                 } => {
                     let goal_run = agent
-                        .start_goal_run(goal, title, thread_id, session_id, priority.as_deref())
+                        .start_goal_run(
+                            goal,
+                            title,
+                            thread_id,
+                            session_id,
+                            priority.as_deref(),
+                            client_request_id,
+                        )
                         .await;
                     let json = serde_json::to_string(&goal_run).unwrap_or_default();
                     framed
@@ -1156,6 +1224,30 @@ where
                     }
                 }
 
+                ClientMessage::AgentFetchModels {
+                    provider_id,
+                    base_url,
+                    api_key,
+                } => {
+                    match crate::agent::llm_client::fetch_models(&provider_id, &base_url, &api_key)
+                        .await
+                    {
+                        Ok(models) => {
+                            let json = serde_json::to_string(&models).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::AgentModelsResponse { models_json: json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
                 ClientMessage::AgentHeartbeatGetItems => {
                     let items = agent.get_heartbeat_items().await;
                     let json = serde_json::to_string(&items).unwrap_or_default();
@@ -1175,6 +1267,19 @@ where
                                 .await?;
                         }
                     }
+                }
+
+                ClientMessage::AgentResolveTaskApproval {
+                    approval_id,
+                    decision,
+                } => {
+                    let decision = match decision.as_str() {
+                        "approve-session" => amux_protocol::ApprovalDecision::ApproveSession,
+                        "deny" | "denied" => amux_protocol::ApprovalDecision::Deny,
+                        _ => amux_protocol::ApprovalDecision::ApproveOnce,
+                    };
+                    tracing::info!(%approval_id, ?decision, "resolving task approval");
+                    agent.handle_task_approval_resolution(&approval_id, decision).await;
                 }
 
                 ClientMessage::AgentSubscribe => {

@@ -1,16 +1,11 @@
 use ratatui::prelude::*;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use crate::state::approval::{ApprovalState, RiskLevel};
 use crate::theme::ThemeTokens;
 
-pub fn render(
-    frame: &mut Frame,
-    area: Rect,
-    approval: &ApprovalState,
-    theme: &ThemeTokens,
-) {
+pub fn render(frame: &mut Frame, area: Rect, approval: &ApprovalState, theme: &ThemeTokens) {
     let ap = approval.current_approval();
 
     // Determine border color from risk level
@@ -30,11 +25,7 @@ pub fn render(
             "\u{25b2} MEDIUM RISK \u{25b2}",
             theme.accent_secondary,
         ),
-        Some(RiskLevel::Low) | None => (
-            theme.fg_dim,
-            "\u{25c6} LOW RISK \u{25c6}",
-            theme.fg_dim,
-        ),
+        Some(RiskLevel::Low) | None => (theme.fg_dim, "\u{25c6} LOW RISK \u{25c6}", theme.fg_dim),
     };
 
     let block = Block::default()

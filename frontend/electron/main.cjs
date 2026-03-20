@@ -1020,6 +1020,107 @@ function getFsPathInfo(targetPath) {
     };
 }
 
+async function resolveGitRepoRoot(targetPath) {
+    const resolved = resolveFsPath(targetPath || '.');
+
+    try {
+        const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+            cwd: resolved,
+            encoding: 'utf8',
+            timeout: 5000,
+        });
+        const repoRoot = stdout.trim();
+        return repoRoot ? resolveFsPath(repoRoot) : null;
+    } catch {
+        return null;
+    }
+}
+
+async function gitStatus(targetPath) {
+    const repoRoot = await resolveGitRepoRoot(targetPath);
+    if (!repoRoot) {
+        return '';
+    }
+
+    const { stdout } = await execFileAsync('git', ['status', '--short', '--untracked-files=all'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+    });
+    return stdout;
+}
+
+async function gitDiff(targetPath, filePath) {
+    const repoRoot = await resolveGitRepoRoot(targetPath);
+    if (!repoRoot) {
+        return '';
+    }
+
+    const relativePath = typeof filePath === 'string' && filePath.trim() ? filePath.trim() : null;
+    if (!relativePath) {
+        const { stdout } = await execFileAsync('git', ['diff', '--no-ext-diff', 'HEAD'], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            timeout: 5000,
+            maxBuffer: 1024 * 1024 * 4,
+        }).catch((error) => {
+            if (typeof error?.stdout === 'string') {
+                return { stdout: error.stdout };
+            }
+            return { stdout: '' };
+        });
+        return stdout;
+    }
+
+    const absoluteFilePath = path.resolve(repoRoot, relativePath);
+    const headExists = await execFileAsync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+    }).then(() => true).catch(() => false);
+    const tracked = await execFileAsync('git', ['ls-files', '--error-unmatch', '--', relativePath], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+    }).then(() => true).catch(() => false);
+
+    if (!tracked && fs.existsSync(absoluteFilePath)) {
+        const untrackedDiff = await execFileAsync(
+            'git',
+            ['diff', '--no-index', '--no-ext-diff', '--', '/dev/null', absoluteFilePath],
+            {
+                cwd: repoRoot,
+                encoding: 'utf8',
+                timeout: 5000,
+                maxBuffer: 1024 * 1024 * 4,
+            },
+        ).catch((error) => {
+            if (typeof error?.stdout === 'string') {
+                return { stdout: error.stdout };
+            }
+            return { stdout: '' };
+        });
+        return untrackedDiff.stdout;
+    }
+
+    const args = headExists
+        ? ['diff', '--no-ext-diff', 'HEAD', '--', relativePath]
+        : ['diff', '--no-ext-diff', '--cached', '--', relativePath];
+    const { stdout } = await execFileAsync('git', args, {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+        maxBuffer: 1024 * 1024 * 4,
+    }).catch((error) => {
+        if (typeof error?.stdout === 'string') {
+            return { stdout: error.stdout };
+        }
+        return { stdout: '' };
+    });
+    return stdout;
+}
+
 function openDataPath(relativePath) {
     const filePath = resolveDataPath(relativePath);
     if (!fs.existsSync(filePath)) {
@@ -2918,6 +3019,8 @@ function registerIpcHandlers() {
         return true;
     });
     ipcMain.handle('fs-path-info', (_event, targetPath) => getFsPathInfo(targetPath));
+    ipcMain.handle('git-status', (_event, targetPath) => gitStatus(targetPath));
+    ipcMain.handle('git-diff', (_event, targetPath, filePath) => gitDiff(targetPath, filePath));
     ipcMain.handle('clipboard-read-text', () => clipboard.readText());
     ipcMain.handle('clipboard-write-text', (_event, text) => {
         clipboard.writeText(typeof text === 'string' ? text : '');
@@ -3191,6 +3294,8 @@ function registerIpcHandlers() {
                     'thread-list',
                     'thread-detail',
                     'task-list',
+                    'run-list',
+                    'run-detail',
                     'todo-list',
                     'todo-detail',
                     'goal-run-started',
@@ -3445,9 +3550,27 @@ function registerIpcHandlers() {
         return sendDbQuery(command, 'ack', timeoutMs);
     }
 
-    ipcMain.handle('agent-send-message', async (_event, threadId, content) => {
+    ipcMain.handle('agent-send-message', async (_event, threadId, content, sessionId, contextMessages) => {
         try {
-            sendAgentCommand({ type: 'send-message', thread_id: threadId || null, content });
+            logToFile('info', 'agent-send-message', {
+                threadId,
+                contentLen: content?.length,
+                sessionId,
+                contextCount: Array.isArray(contextMessages) ? contextMessages.length : 0,
+            });
+            const cmd = {
+                type: 'send-message',
+                thread_id: threadId || null,
+                content,
+                session_id: typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null,
+            };
+            if (Array.isArray(contextMessages) && contextMessages.length > 0) {
+                cmd.context_messages = contextMessages;
+                logToFile('info', 'agent-send-message context roles', {
+                    roles: contextMessages.map(m => m.role),
+                });
+            }
+            sendAgentCommand(cmd);
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };
@@ -3527,6 +3650,22 @@ function registerIpcHandlers() {
         }
     });
 
+    ipcMain.handle('agent-list-runs', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-runs' }, 'run-list');
+        } catch {
+            return [];
+        }
+    });
+
+    ipcMain.handle('agent-get-run', async (_event, runId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-run', run_id: runId }, 'run-detail');
+        } catch {
+            return null;
+        }
+    });
+
     ipcMain.handle('agent-list-todos', async () => {
         try {
             return await sendAgentQuery({ type: 'list-todos' }, 'todo-list');
@@ -3552,6 +3691,7 @@ function registerIpcHandlers() {
                 thread_id: typeof payload?.threadId === 'string' && payload.threadId.trim() ? payload.threadId.trim() : null,
                 session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
                 priority: typeof payload?.priority === 'string' && payload.priority.trim() ? payload.priority.trim() : null,
+                client_request_id: typeof payload?.clientRequestId === 'string' && payload.clientRequestId.trim() ? payload.clientRequestId.trim() : null,
             }, 'goal-run-started');
         } catch (err) {
             return { ok: false, error: err?.message || String(err) };
@@ -3615,6 +3755,16 @@ function registerIpcHandlers() {
     ipcMain.handle('agent-heartbeat-set-items', async (_event, items) => {
         try {
             sendAgentCommand({ type: 'heartbeat-set-items', items_json: JSON.stringify(items) });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-resolve-task-approval', async (_event, approvalId, decision) => {
+        try {
+            logToFile('info', 'resolving task approval', { approvalId, decision });
+            sendAgentCommand({ type: 'resolve-task-approval', approval_id: approvalId, decision });
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };

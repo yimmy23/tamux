@@ -29,7 +29,9 @@ use uuid::Uuid;
 use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
 
-use self::llm_client::{messages_to_api_format, send_chat_completion, ApiContent, ApiMessage};
+use self::llm_client::{
+    messages_to_api_format, send_chat_completion, ApiContent, ApiMessage, RetryStrategy,
+};
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 
@@ -46,6 +48,8 @@ struct StreamCancellationEntry {
 
 const ONECONTEXT_BOOTSTRAP_QUERY_MAX_CHARS: usize = 180;
 const ONECONTEXT_BOOTSTRAP_OUTPUT_MAX_CHARS: usize = 5000;
+const MIN_CONTEXT_TARGET_TOKENS: usize = 1024;
+const APPROX_CHARS_PER_TOKEN: usize = 4;
 
 /// Cached check for `aline` CLI availability (checked once per process).
 pub(crate) fn aline_available() -> bool {
@@ -932,6 +936,112 @@ impl AgentEngine {
         }
     }
 
+    /// Seed an existing (or new) daemon thread with context messages from the frontend.
+    /// This is called before `send_message_inner` when the frontend has local history
+    /// that the daemon doesn't know about (e.g., replying to a historical thread after
+    /// the daemon was restarted or when the daemon thread ID mapping was lost).
+    pub async fn seed_thread_context(
+        &self,
+        thread_id: Option<&str>,
+        context: &[amux_protocol::AgentDbMessage],
+    ) {
+        let tid = match thread_id {
+            Some(id) => id.to_string(),
+            None => return, // Can't seed without a thread ID
+        };
+
+        let mut threads = self.threads.write().await;
+        // Only seed if the thread doesn't exist yet or has no messages
+        let needs_seeding = match threads.get(&tid) {
+            None => true,
+            Some(t) => t.messages.is_empty(),
+        };
+        if !needs_seeding || context.is_empty() {
+            return;
+        }
+
+        let messages: Vec<AgentMessage> = context
+            .iter()
+            .filter_map(|msg| {
+                let role = match msg.role.as_str() {
+                    "user" => MessageRole::User,
+                    "assistant" => MessageRole::Assistant,
+                    "tool" => MessageRole::Tool,
+                    "system" => MessageRole::System,
+                    _ => return None,
+                };
+                let tool_calls: Option<Vec<ToolCall>> = msg
+                    .tool_calls_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok());
+                let metadata: Option<serde_json::Value> = msg
+                    .metadata_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok());
+                let tool_call_id = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolCallId").or_else(|| m.get("tool_call_id")))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let tool_name = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolName").or_else(|| m.get("tool_name")))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let tool_arguments = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolArguments"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let tool_status = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolStatus"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                Some(AgentMessage {
+                    role,
+                    content: msg.content.clone(),
+                    tool_calls,
+                    tool_call_id,
+                    tool_name,
+                    tool_arguments,
+                    tool_status,
+                    input_tokens: msg.input_tokens.unwrap_or(0) as u64,
+                    output_tokens: msg.output_tokens.unwrap_or(0) as u64,
+                    reasoning: msg.reasoning.clone(),
+                    timestamp: msg.created_at as u64,
+                })
+            })
+            .collect();
+
+        if messages.is_empty() {
+            return;
+        }
+
+        let total_in: u64 = messages.iter().map(|m| m.input_tokens).sum();
+        let total_out: u64 = messages.iter().map(|m| m.output_tokens).sum();
+        let title = messages
+            .iter()
+            .find(|m| m.role == MessageRole::User)
+            .map(|m| m.content.chars().take(50).collect::<String>())
+            .unwrap_or_else(|| "Continued conversation".into());
+
+        tracing::info!(thread_id = %tid, context_messages = messages.len(), "seeding thread with frontend context");
+
+        threads.insert(
+            tid.clone(),
+            AgentThread {
+                id: tid,
+                title,
+                messages,
+                created_at: now_millis(),
+                updated_at: now_millis(),
+                total_input_tokens: total_in,
+                total_output_tokens: total_out,
+            },
+        );
+    }
+
     /// Get or create a thread, returning the thread ID and whether it was newly created.
     async fn get_or_create_thread(&self, thread_id: Option<&str>, content: &str) -> (String, bool) {
         let given_id = thread_id.map(|s| s.to_string());
@@ -941,26 +1051,110 @@ impl AgentEngine {
 
         let mut threads = self.threads.write().await;
         if !threads.contains_key(&id) {
-            created = true;
-            threads.insert(
-                id.clone(),
-                AgentThread {
-                    id: id.clone(),
-                    title: title.clone(),
-                    messages: Vec::new(),
-                    created_at: now_millis(),
-                    updated_at: now_millis(),
-                    total_input_tokens: 0,
-                    total_output_tokens: 0,
-                },
-            );
-            let _ = self.event_tx.send(AgentEvent::ThreadCreated {
-                thread_id: id.clone(),
-                title,
-            });
+            // Try to restore the thread from the database (history continuation)
+            if let Some(restored) = self.restore_thread_from_db(&id) {
+                tracing::info!(thread_id = %id, messages = restored.messages.len(), "restored thread from history");
+                threads.insert(id.clone(), restored);
+            } else {
+                created = true;
+                threads.insert(
+                    id.clone(),
+                    AgentThread {
+                        id: id.clone(),
+                        title: title.clone(),
+                        messages: Vec::new(),
+                        created_at: now_millis(),
+                        updated_at: now_millis(),
+                        total_input_tokens: 0,
+                        total_output_tokens: 0,
+                    },
+                );
+                let _ = self.event_tx.send(AgentEvent::ThreadCreated {
+                    thread_id: id.clone(),
+                    title,
+                });
+            }
         }
         drop(threads);
         (id, created)
+    }
+
+    /// Attempt to restore a thread and its messages from the SQLite history database.
+    fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
+        let db_thread = self.history.get_thread(thread_id).ok().flatten()?;
+        let db_messages = self.history.list_messages(thread_id, Some(500)).ok()?;
+
+        let messages: Vec<AgentMessage> = db_messages
+            .into_iter()
+            .filter_map(|msg| {
+                let role = match msg.role.as_str() {
+                    "user" => MessageRole::User,
+                    "assistant" => MessageRole::Assistant,
+                    "tool" => MessageRole::Tool,
+                    "system" => MessageRole::System,
+                    _ => return None,
+                };
+
+                let tool_calls: Option<Vec<ToolCall>> = msg
+                    .tool_calls_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok());
+
+                // Extract tool metadata from metadata_json
+                let metadata: Option<serde_json::Value> = msg
+                    .metadata_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok());
+
+                let tool_call_id = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolCallId").or_else(|| m.get("tool_call_id")))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let tool_name = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolName").or_else(|| m.get("tool_name")))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let tool_arguments = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolArguments"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let tool_status = metadata
+                    .as_ref()
+                    .and_then(|m| m.get("toolStatus"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+
+                Some(AgentMessage {
+                    role,
+                    content: msg.content,
+                    tool_calls,
+                    tool_call_id,
+                    tool_name,
+                    tool_arguments,
+                    tool_status,
+                    input_tokens: msg.input_tokens.unwrap_or(0) as u64,
+                    output_tokens: msg.output_tokens.unwrap_or(0) as u64,
+                    reasoning: msg.reasoning,
+                    timestamp: msg.created_at as u64,
+                })
+            })
+            .collect();
+
+        let total_input: u64 = messages.iter().map(|m| m.input_tokens).sum();
+        let total_output: u64 = messages.iter().map(|m| m.output_tokens).sum();
+
+        Some(AgentThread {
+            id: thread_id.to_string(),
+            title: db_thread.title,
+            messages,
+            created_at: db_thread.created_at as u64,
+            updated_at: db_thread.updated_at as u64,
+            total_input_tokens: total_input,
+            total_output_tokens: total_output,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -970,7 +1164,19 @@ impl AgentEngine {
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
         Ok(self
-            .send_message_inner(thread_id, content, None, None)
+            .send_message_inner(thread_id, content, None, None, None)
+            .await?
+            .thread_id)
+    }
+
+    pub async fn send_message_with_session(
+        &self,
+        thread_id: Option<&str>,
+        preferred_session_hint: Option<&str>,
+        content: &str,
+    ) -> Result<String> {
+        Ok(self
+            .send_message_inner(thread_id, content, None, preferred_session_hint, None)
             .await?
             .thread_id)
     }
@@ -980,10 +1186,17 @@ impl AgentEngine {
         task_id: &str,
         thread_id: Option<&str>,
         preferred_session_hint: Option<&str>,
+        backend_override: Option<&str>,
         content: &str,
     ) -> Result<SendMessageOutcome> {
-        self.send_message_inner(thread_id, content, Some(task_id), preferred_session_hint)
-            .await
+        self.send_message_inner(
+            thread_id,
+            content,
+            Some(task_id),
+            preferred_session_hint,
+            backend_override,
+        )
+        .await
     }
 
     async fn send_message_inner(
@@ -992,14 +1205,22 @@ impl AgentEngine {
         content: &str,
         task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
+        backend_override: Option<&str>,
     ) -> Result<SendMessageOutcome> {
         let config = self.config.read().await.clone();
+        let selected_backend = backend_override
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(config.agent_backend.as_str())
+            .to_string();
 
         // Route through external agent if backend is "openclaw" or "hermes"
-        match config.agent_backend.as_str() {
+        match selected_backend.as_str() {
             "openclaw" | "hermes" => {
+                let mut runtime_config = config.clone();
+                runtime_config.agent_backend = selected_backend.clone();
                 return self
-                    .send_message_external(&config, thread_id, content)
+                    .send_message_external(&runtime_config, thread_id, content)
                     .await
                     .map(|thread_id| SendMessageOutcome {
                         thread_id,
@@ -1008,9 +1229,6 @@ impl AgentEngine {
             }
             _ => {} // Fall through to built-in daemon LLM client
         }
-
-        // Resolve provider config
-        let provider_config = self.resolve_provider_config(&config)?;
 
         // Get or create thread
         let (tid, is_new_thread) = self.get_or_create_thread(thread_id, content).await;
@@ -1035,6 +1253,18 @@ impl AgentEngine {
                 thread.updated_at = now_millis();
             }
         }
+
+        // Resolve provider config after the user message is attached so
+        // startup/config failures still persist a complete thread history.
+        let provider_config = match self.resolve_provider_config(&config) {
+            Ok(provider_config) => provider_config,
+            Err(error) => {
+                self.add_assistant_message(&tid, &format!("Error: {error}"), 0, 0, None)
+                    .await;
+                self.persist_threads().await;
+                return Err(error);
+            }
+        };
 
         let (stream_generation, stream_cancel_token) = self.begin_stream_cancellation(&tid).await;
 
@@ -1070,14 +1300,37 @@ impl AgentEngine {
         let tools = get_available_tools(&config);
         let preferred_session_id =
             resolve_preferred_session_id(&self.session_manager, preferred_session_hint).await;
+        let is_durable_goal_task = {
+            let tasks = self.tasks.lock().await;
+            task_id
+                .and_then(|current_task_id| tasks.iter().find(|task| task.id == current_task_id))
+                .and_then(|task| task.goal_run_id.as_ref())
+                .is_some()
+        };
+        let retry_strategy = if is_durable_goal_task {
+            RetryStrategy::DurableRateLimited
+        } else {
+            RetryStrategy::Bounded {
+                max_retries: config.max_retries,
+                retry_delay_ms: config.retry_delay_ms,
+            }
+        };
 
         // Run the agent loop
-        let max_loops = config.max_tool_loops;
+        // Goal runner tasks get unlimited tool loops — only the loop-detection
+        // guard (consecutive identical calls) protects against infinite loops.
+        let max_loops = if is_durable_goal_task {
+            0
+        } else {
+            config.max_tool_loops
+        };
         let mut loop_count = 0u32;
         let mut was_cancelled = false;
         let mut interrupted_for_approval = false;
+        let mut previous_tool_signature: Option<String> = None;
+        let mut consecutive_same_tool_calls = 0u32;
 
-        'agent_loop: while loop_count < max_loops {
+        'agent_loop: while max_loops == 0 || loop_count < max_loops {
             if stream_cancel_token.is_cancelled() {
                 was_cancelled = true;
                 break;
@@ -1095,7 +1348,15 @@ impl AgentEngine {
                         anyhow::bail!("thread not found");
                     }
                 };
-                messages_to_api_format(&thread.messages)
+                let api = build_api_messages_for_request(&thread.messages, &config);
+                tracing::info!(
+                    thread_id = %tid,
+                    thread_messages = thread.messages.len(),
+                    api_messages = api.len(),
+                    loop_count,
+                    "building LLM request"
+                );
+                api
             };
 
             // Call LLM
@@ -1108,8 +1369,7 @@ impl AgentEngine {
                 &system_prompt,
                 &api_messages,
                 &tools,
-                config.max_retries,
-                config.retry_delay_ms,
+                retry_strategy,
             );
 
             let mut accumulated_content = String::new();
@@ -1166,10 +1426,15 @@ impl AgentEngine {
                                 max_retries,
                                 delay_ms,
                             } => {
+                                let retry_target = if max_retries == 0 {
+                                    "∞".to_string()
+                                } else {
+                                    max_retries.to_string()
+                                };
                                 let _ = self.event_tx.send(AgentEvent::Delta {
                                     thread_id: tid.clone(),
                                     content: format!(
-                                        "\n[tamux] rate limited, running retry {attempt}/{max_retries} in {delay_ms}ms...\n"
+                                        "\n[tamux] rate limited, running retry {attempt}/{retry_target} in {delay_ms}ms...\n"
                                     ),
                                 });
                             }
@@ -1225,7 +1490,7 @@ impl AgentEngine {
                         &final_content,
                         input_tokens,
                         output_tokens,
-                        final_reasoning,
+                        final_reasoning.clone(),
                     )
                     .await;
 
@@ -1245,6 +1510,7 @@ impl AgentEngine {
                         model: Some(provider_config.model.clone()),
                         tps,
                         generation_ms,
+                        reasoning: final_reasoning,
                     });
                     break; // No tool calls, conversation turn is done
                 }
@@ -1298,18 +1564,60 @@ impl AgentEngine {
                             arguments: tc.function.arguments.clone(),
                         });
 
-                        let result = execute_tool(
-                            tc,
-                            self,
-                            &tid,
-                            task_id,
-                            &self.session_manager,
-                            preferred_session_id,
-                            &self.event_tx,
-                            &self.data_dir,
-                            &self.http_client,
-                        )
-                        .await;
+                        let current_tool_signature = normalized_tool_signature(tc);
+                        let result = if previous_tool_signature
+                            .as_deref()
+                            .is_some_and(|value| value == current_tool_signature.as_str())
+                        {
+                            consecutive_same_tool_calls =
+                                consecutive_same_tool_calls.saturating_add(1);
+                            if consecutive_same_tool_calls >= 3 {
+                                self.emit_workflow_notice(
+                                    &tid,
+                                    "tool-stall",
+                                    "Repeated identical tool call suppressed; inspect fresh state or choose a different action.",
+                                    Some(format!(
+                                        "tool={} signature={}",
+                                        tc.function.name, current_tool_signature
+                                    )),
+                                );
+                                ToolResult {
+                                    tool_call_id: tc.id.clone(),
+                                    name: tc.function.name.clone(),
+                                    content: "Repeated identical tool call suppressed because the agent appears stuck. Inspect current state or continue with a different action instead of repeating the same tool input.".to_string(),
+                                    is_error: true,
+                                    pending_approval: None,
+                                }
+                            } else {
+                                execute_tool(
+                                    tc,
+                                    self,
+                                    &tid,
+                                    task_id,
+                                    &self.session_manager,
+                                    preferred_session_id,
+                                    &self.event_tx,
+                                    &self.data_dir,
+                                    &self.http_client,
+                                )
+                                .await
+                            }
+                        } else {
+                            consecutive_same_tool_calls = 1;
+                            execute_tool(
+                                tc,
+                                self,
+                                &tid,
+                                task_id,
+                                &self.session_manager,
+                                preferred_session_id,
+                                &self.event_tx,
+                                &self.data_dir,
+                                &self.http_client,
+                            )
+                            .await
+                        };
+                        previous_tool_signature = Some(current_tool_signature);
 
                         if tc.function.name == "update_memory" && !result.is_error {
                             self.refresh_memory_cache().await;
@@ -1374,7 +1682,7 @@ impl AgentEngine {
             }
         }
 
-        if !was_cancelled && loop_count >= max_loops {
+        if !was_cancelled && max_loops > 0 && loop_count >= max_loops {
             let _ = self.event_tx.send(AgentEvent::Error {
                 thread_id: tid.clone(),
                 message: "Tool execution limit reached".into(),
@@ -1401,7 +1709,46 @@ impl AgentEngine {
         thread_id: Option<String>,
         session_id: Option<String>,
         priority: Option<&str>,
+        client_request_id: Option<String>,
     ) -> GoalRun {
+        let normalized_goal_key = normalize_goal_key(&goal);
+        let normalized_request_id = client_request_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        {
+            let goal_runs = self.goal_runs.lock().await;
+            if let Some(existing) = goal_runs
+                .iter()
+                .rev()
+                .find(|existing| {
+                    if matches!(
+                        existing.status,
+                        GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled
+                    ) {
+                        return false;
+                    }
+                    if existing.thread_id != thread_id || existing.session_id != session_id {
+                        return false;
+                    }
+                    if normalize_goal_key(&existing.goal) != normalized_goal_key {
+                        return false;
+                    }
+                    match (&normalized_request_id, &existing.client_request_id) {
+                        (Some(request_id), Some(existing_request_id)) => {
+                            existing_request_id == request_id
+                        }
+                        (Some(_), None) => false,
+                        _ => true,
+                    }
+                })
+                .cloned()
+            {
+                return self.project_goal_run(existing).await;
+            }
+        }
+
         let now = now_millis();
         let normalized_title = title
             .as_deref()
@@ -1413,6 +1760,7 @@ impl AgentEngine {
             id: format!("goal_{}", Uuid::new_v4()),
             title: normalized_title,
             goal,
+            client_request_id: normalized_request_id,
             status: GoalRunStatus::Queued,
             priority: parse_priority_str(priority.unwrap_or("normal")),
             created_at: now,
@@ -1492,6 +1840,21 @@ impl AgentEngine {
             .cloned()
             .collect::<Vec<_>>();
         project_goal_run_snapshot(goal_run, &related_tasks, now_millis())
+    }
+
+    async fn goal_run_has_active_tasks(&self, goal_run_id: &str) -> bool {
+        let tasks = self.tasks.lock().await;
+        tasks.iter().any(|task| {
+            task.goal_run_id.as_deref() == Some(goal_run_id)
+                && matches!(
+                    task.status,
+                    TaskStatus::Queued
+                        | TaskStatus::InProgress
+                        | TaskStatus::Blocked
+                        | TaskStatus::FailedAnalyzing
+                        | TaskStatus::AwaitingApproval
+                )
+        })
     }
 
     pub async fn control_goal_run(
@@ -1637,6 +2000,9 @@ impl AgentEngine {
             None,
             "user",
             None,
+            None,
+            None,
+            None,
         )
         .await
         .id
@@ -1653,6 +2019,9 @@ impl AgentEngine {
         scheduled_at: Option<u64>,
         source: &str,
         goal_run_id: Option<String>,
+        parent_task_id: Option<String>,
+        parent_thread_id: Option<String>,
+        runtime: Option<String>,
     ) -> AgentTask {
         let id = format!("task_{}", Uuid::new_v4());
         let now = now_millis();
@@ -1683,6 +2052,12 @@ impl AgentEngine {
             command,
             session_id,
             goal_run_id,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id,
+            parent_thread_id,
+            runtime: runtime.unwrap_or_else(|| "daemon".to_string()),
             retry_count: 0,
             max_retries: self.config.read().await.max_retries.max(1),
             next_retry_at: None,
@@ -1819,7 +2194,7 @@ impl AgentEngine {
         true
     }
 
-    pub async fn list_tasks(&self) -> Vec<AgentTask> {
+    async fn snapshot_tasks(&self) -> Vec<AgentTask> {
         let sessions = self.session_manager.list().await;
         let mut tasks = self.tasks.lock().await;
         let changed = refresh_task_queue_state(&mut tasks, now_millis(), &sessions);
@@ -1834,6 +2209,26 @@ impl AgentEngine {
         }
 
         snapshot
+    }
+
+    pub async fn list_tasks(&self) -> Vec<AgentTask> {
+        self.snapshot_tasks().await
+    }
+
+    pub async fn list_runs(&self) -> Vec<AgentRun> {
+        let tasks = self.snapshot_tasks().await;
+        let sessions = self.session_manager.list().await;
+        let mut runs = project_task_runs(&tasks, &sessions);
+        runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        runs
+    }
+
+    pub async fn get_run(&self, run_id: &str) -> Option<AgentRun> {
+        let tasks = self.snapshot_tasks().await;
+        let sessions = self.session_manager.list().await;
+        project_task_runs(&tasks, &sessions)
+            .into_iter()
+            .find(|run| run.id == run_id)
     }
 
     async fn dispatch_goal_runs(self: Arc<Self>) {
@@ -1893,7 +2288,9 @@ impl AgentEngine {
             return Ok(());
         }
 
-        if goal_run.current_step_index >= goal_run.steps.len() {
+        if goal_run.current_step_index >= goal_run.steps.len()
+            && !self.goal_run_has_active_tasks(goal_run_id).await
+        {
             self.complete_goal_run(goal_run_id).await?;
             return Ok(());
         }
@@ -2003,6 +2400,7 @@ impl AgentEngine {
                 &task.id,
                 task.thread_id.as_deref(),
                 task.session_id.as_deref(),
+                Some(task.runtime.as_str()),
                 &build_task_prompt(&task),
             )
             .await
@@ -2012,13 +2410,42 @@ impl AgentEngine {
                 let now = now_millis();
                 let updated = {
                     let mut tasks = self.tasks.lock().await;
+                    let active_child_ids = tasks
+                        .iter()
+                        .filter(|entry| {
+                            entry.source == "subagent"
+                                && entry.parent_task_id.as_deref() == Some(task.id.as_str())
+                                && !is_task_terminal_status(entry.status)
+                        })
+                        .map(|entry| entry.id.clone())
+                        .collect::<Vec<_>>();
                     if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
-                        current.status = TaskStatus::Completed;
-                        current.progress = 100;
-                        current.completed_at = Some(now);
+                        let waiting_for_subagents = !active_child_ids.is_empty();
+                        current.status = if waiting_for_subagents {
+                            TaskStatus::Blocked
+                        } else {
+                            TaskStatus::Completed
+                        };
+                        current.progress = if waiting_for_subagents {
+                            current.progress.max(90)
+                        } else {
+                            100
+                        };
+                        current.completed_at = if waiting_for_subagents {
+                            None
+                        } else {
+                            Some(now)
+                        };
                         current.thread_id = Some(outcome.thread_id);
                         current.lane_id = None;
-                        current.blocked_reason = None;
+                        current.blocked_reason = if waiting_for_subagents {
+                            Some(format!(
+                                "waiting for subagents: {}",
+                                active_child_ids.join(", ")
+                            ))
+                        } else {
+                            None
+                        };
                         current.awaiting_approval_id = None;
                         current.error = None;
                         current.last_error = None;
@@ -2026,13 +2453,23 @@ impl AgentEngine {
                         current.logs.push(make_task_log_entry(
                             current.retry_count,
                             TaskLogLevel::Info,
-                            "execution",
-                            if current.retry_count > 0 {
+                            if waiting_for_subagents {
+                                "subagent"
+                            } else {
+                                "execution"
+                            },
+                            if waiting_for_subagents {
+                                "task waiting for spawned subagents to finish"
+                            } else if current.retry_count > 0 {
                                 "task self-healed and completed"
                             } else {
                                 "task completed"
                             },
-                            None,
+                            if waiting_for_subagents {
+                                current.blocked_reason.clone()
+                            } else {
+                                None
+                            },
                         ));
                         current.clone()
                     } else {
@@ -2042,12 +2479,30 @@ impl AgentEngine {
                 self.persist_tasks().await;
                 self.emit_task_update(
                     &updated,
-                    Some(if updated.retry_count > 0 {
+                    Some(if updated.status == TaskStatus::Blocked {
+                        format!(
+                            "Waiting for {} subagent(s)",
+                            updated
+                                .blocked_reason
+                                .as_deref()
+                                .map(|reason| reason.split(',').count())
+                                .unwrap_or(0)
+                        )
+                    } else if updated.retry_count > 0 {
                         "Task self-healed and completed".into()
                     } else {
                         "Task completed".into()
                     }),
                 );
+                if updated.source == "subagent" {
+                    self.record_subagent_outcome_on_parent(
+                        &updated,
+                        TaskLogLevel::Info,
+                        "subagent completed",
+                        updated.blocked_reason.clone(),
+                    )
+                    .await;
+                }
                 Ok(())
             }
             Err(error) => {
@@ -2119,8 +2574,65 @@ impl AgentEngine {
                         _ => format!("Failed: {error_text}"),
                     }),
                 );
+                if updated.source == "subagent"
+                    && matches!(updated.status, TaskStatus::Failed | TaskStatus::Cancelled)
+                {
+                    self.record_subagent_outcome_on_parent(
+                        &updated,
+                        TaskLogLevel::Error,
+                        "subagent failed",
+                        updated.last_error.clone(),
+                    )
+                    .await;
+                }
                 Ok(())
             }
+        }
+    }
+
+    async fn record_subagent_outcome_on_parent(
+        &self,
+        child_task: &AgentTask,
+        level: TaskLogLevel,
+        message: &str,
+        details: Option<String>,
+    ) {
+        let Some(parent_task_id) = child_task.parent_task_id.as_deref() else {
+            return;
+        };
+
+        let updated_parent = {
+            let mut tasks = self.tasks.lock().await;
+            let Some(parent) = tasks.iter_mut().find(|entry| entry.id == parent_task_id) else {
+                return;
+            };
+            let detail_suffix = details
+                .as_deref()
+                .map(|value| format!("; {value}"))
+                .unwrap_or_default();
+            parent.logs.push(make_task_log_entry(
+                child_task.retry_count,
+                level,
+                "subagent",
+                &format!(
+                    "{}: {} ({}){}",
+                    message, child_task.title, child_task.id, detail_suffix
+                ),
+                Some(format!(
+                    "runtime={} status={} thread_id={} session_id={}",
+                    child_task.runtime,
+                    serde_json::to_string(&child_task.status)
+                        .unwrap_or_else(|_| "unknown".to_string()),
+                    child_task.thread_id.as_deref().unwrap_or("-"),
+                    child_task.session_id.as_deref().unwrap_or("-"),
+                )),
+            ));
+            Some(parent.clone())
+        };
+
+        if let Some(parent) = updated_parent {
+            self.persist_tasks().await;
+            self.emit_task_update(&parent, Some("Subagent update received".into()));
         }
     }
 
@@ -2375,7 +2887,7 @@ impl AgentEngine {
         let step = snapshot.steps[snapshot.current_step_index].clone();
         let task = self
             .enqueue_task(
-                format!("{}: {}", snapshot.title, step.title),
+                step.title.clone(),
                 step.instructions.clone(),
                 task_priority_to_str(snapshot.priority),
                 None,
@@ -2386,11 +2898,20 @@ impl AgentEngine {
                 None,
                 "goal_run",
                 Some(snapshot.id.clone()),
+                None,
+                snapshot.thread_id.clone(),
+                None,
             )
             .await;
 
         let updated = {
             let mut goal_runs = self.goal_runs.lock().await;
+            let mut tasks = self.tasks.lock().await;
+            if let Some(current_task) = tasks.iter_mut().find(|entry| entry.id == task.id) {
+                current_task.goal_run_title = Some(snapshot.title.clone());
+                current_task.goal_step_id = Some(step.id.clone());
+                current_task.goal_step_title = Some(step.title.clone());
+            }
             let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
                 anyhow::bail!("goal run disappeared after task enqueue");
             };
@@ -2417,6 +2938,7 @@ impl AgentEngine {
             goal_run.clone()
         };
 
+        self.persist_tasks().await;
         self.persist_goal_runs().await;
         self.emit_goal_run_update(&updated, Some(format!("Queued step: {}", step.title)));
         Ok(())
@@ -2606,6 +3128,9 @@ impl AgentEngine {
             .get_goal_run(goal_run_id)
             .await
             .context("goal run missing during completion")?;
+        if self.goal_run_has_active_tasks(goal_run_id).await {
+            anyhow::bail!("goal run still has active child work");
+        }
         let reflection = self.request_goal_reflection(&snapshot).await?;
         if let Some(update) = reflection.stable_memory_update.clone() {
             self.append_goal_memory_update(&update).await?;
@@ -2952,12 +3477,16 @@ impl AgentEngine {
         let runner = match runners.get(&config.agent_backend) {
             Some(runner) => runner,
             None => {
-                self.finish_stream_cancellation(&tid, stream_generation)
-                    .await;
-                anyhow::bail!(
+                let message = format!(
                     "No external agent runner for backend '{}'",
                     config.agent_backend
                 );
+                self.add_assistant_message(&tid, &format!("Error: {message}"), 0, 0, None)
+                    .await;
+                self.persist_threads().await;
+                self.finish_stream_cancellation(&tid, stream_generation)
+                    .await;
+                anyhow::bail!(message);
             }
         };
 
@@ -2968,6 +3497,9 @@ impl AgentEngine {
             Ok(response) => Some(response),
             Err(e) if external_runner::is_stream_cancelled(&e) => None,
             Err(e) => {
+                self.add_assistant_message(&tid, &format!("Error: {e}"), 0, 0, None)
+                    .await;
+                self.persist_threads().await;
                 self.finish_stream_cancellation(&tid, stream_generation)
                     .await;
                 return Err(e);
@@ -3025,12 +3557,48 @@ impl AgentEngine {
              - Use kind=command only when the step should execute via the daemon task queue.\n\
              - Use skill only only if a reusable workflow artifact should be generated at the end.\n\
              - Prefer one terminal session unless the goal clearly requires otherwise.\n\
+             - All work should be done inside the workspace directory. Do not cd above it.\n\
              Goal title: {}\n\
              Goal:\n{}",
             goal_run.title, goal_run.goal
         );
-        let raw = self.run_goal_llm_json(&prompt).await?;
-        validate_goal_plan_response(parse_goal_llm_json(&raw)?, false)
+        let mut plan = self
+            .run_goal_structured::<GoalPlanResponse>(&prompt)
+            .await?;
+
+        // Loop with the model to fix validation issues
+        for attempt in 0..10 {
+            let issues = collect_plan_issues(&plan);
+            if issues.is_empty() {
+                break;
+            }
+            tracing::warn!(attempt, issues = %issues.join("; "), "goal plan has issues, asking model to fix");
+            let fix_prompt = format!(
+                "Your goal plan has the following issues that need fixing:\n{}\n\n\
+                 Here is your current plan as JSON:\n{}\n\n\
+                 Please return the COMPLETE corrected plan as JSON with all issues fixed.",
+                issues
+                    .iter()
+                    .enumerate()
+                    .map(|(i, issue)| format!("{}. {}", i + 1, issue))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                serde_json::to_string_pretty(&plan).unwrap_or_default()
+            );
+            match self
+                .run_goal_structured::<GoalPlanResponse>(&fix_prompt)
+                .await
+            {
+                Ok(fixed) => plan = fixed,
+                Err(e) => {
+                    tracing::warn!(attempt, error = %e, "fix attempt failed to parse");
+                    continue;
+                }
+            }
+        }
+
+        apply_plan_defaults(&mut plan);
+        Ok(plan)
     }
 
     async fn request_goal_replan(
@@ -3063,8 +3631,35 @@ impl AgentEngine {
             failure,
             if completed.is_empty() { "- none".into() } else { completed }
         );
-        let raw = self.run_goal_llm_json(&prompt).await?;
-        validate_goal_plan_response(parse_goal_llm_json(&raw)?, true)
+        let mut plan = self
+            .run_goal_structured::<GoalPlanResponse>(&prompt)
+            .await?;
+
+        for attempt in 0..10 {
+            let issues = collect_plan_issues(&plan);
+            if issues.is_empty() {
+                break;
+            }
+            tracing::warn!(attempt, issues = %issues.join("; "), "goal replan has issues, asking model to fix");
+            let fix_prompt = format!(
+                "Your revised plan has issues:\n{}\n\nCurrent plan:\n{}\n\nReturn the COMPLETE corrected plan as JSON.",
+                issues.iter().enumerate().map(|(i, s)| format!("{}. {}", i+1, s)).collect::<Vec<_>>().join("\n"),
+                serde_json::to_string_pretty(&plan).unwrap_or_default()
+            );
+            match self
+                .run_goal_structured::<GoalPlanResponse>(&fix_prompt)
+                .await
+            {
+                Ok(fixed) => plan = fixed,
+                Err(e) => {
+                    tracing::warn!(attempt, error = %e, "replan fix attempt failed");
+                    continue;
+                }
+            }
+        }
+
+        apply_plan_defaults(&mut plan);
+        Ok(plan)
     }
 
     async fn request_goal_reflection(&self, goal_run: &GoalRun) -> Result<GoalReflectionResponse> {
@@ -3098,11 +3693,85 @@ impl AgentEngine {
                 step_summaries
             }
         );
-        let raw = self.run_goal_llm_json(&prompt).await?;
-        parse_goal_reflection_json(&raw)
+        self.run_goal_structured::<GoalReflectionResponse>(&prompt)
+            .await
     }
 
-    async fn run_goal_llm_json(&self, prompt: &str) -> Result<String> {
+    /// Run a structured goal LLM call with cascade:
+    /// 1. JSON → 2. retry JSON → 3. YAML → 4. retry YAML → 5. markdown parse
+    async fn run_goal_structured<T: serde::de::DeserializeOwned>(&self, prompt: &str) -> Result<T> {
+        // 1. Try JSON
+        let raw1 = self.run_goal_llm_json(prompt).await?;
+        if let Ok(parsed) = parse_json_block::<T>(&raw1) {
+            tracing::info!("goal structured: parsed on first JSON attempt");
+            return Ok(parsed);
+        }
+        tracing::warn!(raw_len = raw1.len(), raw = %raw1, "goal structured: JSON attempt 1 failed");
+
+        // 2. Retry JSON with correction
+        let retry_json_prompt = build_json_retry_prompt(prompt, &raw1);
+        if let Ok(raw2) = self.run_goal_llm_json(&retry_json_prompt).await {
+            if let Ok(parsed) = parse_json_block::<T>(&raw2) {
+                tracing::info!("goal structured: parsed on JSON retry");
+                return Ok(parsed);
+            }
+            tracing::warn!(raw_len = raw2.len(), raw = %raw2, "goal structured: JSON attempt 2 failed");
+        }
+
+        // 3. Try YAML
+        let yaml_prompt = format!(
+            "{}\n\n\
+             IMPORTANT: Return ONLY valid YAML (not JSON). Use proper YAML indentation.\n\
+             Do not wrap in code fences. Do not include any text outside the YAML.",
+            prompt
+        );
+        let raw3 = self.run_goal_llm_raw(&yaml_prompt).await?;
+        if let Ok(parsed) = parse_yaml_block::<T>(&raw3) {
+            tracing::info!("goal structured: parsed on YAML attempt");
+            return Ok(parsed);
+        }
+        tracing::warn!(raw_len = raw3.len(), raw = %raw3, "goal structured: YAML attempt 1 failed");
+
+        // 4. Retry YAML with correction
+        let retry_yaml_prompt = format!(
+            "Your previous response could not be parsed.\n\
+             Here is what you returned:\n---\n{}\n---\n\n\
+             Please return ONLY valid YAML. Use proper indentation. No code fences.\n\n\
+             Original request:\n{}",
+            raw3.chars().take(2000).collect::<String>(),
+            prompt
+        );
+        let raw4 = self.run_goal_llm_raw(&retry_yaml_prompt).await?;
+        if let Ok(parsed) = parse_yaml_block::<T>(&raw4) {
+            tracing::info!("goal structured: parsed on YAML retry");
+            return Ok(parsed);
+        }
+        tracing::warn!(raw_len = raw4.len(), raw = %raw4, "goal structured: YAML attempt 2 failed");
+
+        // 5. Markdown fallback — ask for a simple numbered list and parse it
+        tracing::warn!("goal structured: trying markdown fallback");
+        let md_prompt = format!(
+            "I need you to break down a goal into steps. Return ONLY a numbered list.\n\
+             Each line must follow this exact format:\n\
+             1. [command] Step title: Step instructions. Success: criteria here.\n\n\
+             The kind in brackets must be one of: command, research, reason, memory, skill\n\n\
+             Goal: {}\n\n\
+             Return ONLY the numbered list, nothing else.",
+            prompt.lines().last().unwrap_or(prompt)
+        );
+        let raw5 = self.run_goal_llm_raw(&md_prompt).await?;
+        tracing::info!(raw = %raw5, "goal structured: markdown fallback output");
+        if let Ok(parsed) = parse_markdown_steps::<T>(&raw5) {
+            tracing::info!("goal structured: parsed via markdown fallback");
+            return Ok(parsed);
+        }
+
+        tracing::error!("goal structured: all 5 parse attempts failed");
+        anyhow::bail!("failed to parse goal plan after JSON, YAML, and markdown attempts")
+    }
+
+    /// Raw LLM call without json_mode/schema — used for YAML attempts.
+    async fn run_goal_llm_raw(&self, prompt: &str) -> Result<String> {
         let config = self.config.read().await.clone();
         if config.agent_backend != "daemon" {
             anyhow::bail!("goal runs currently require the built-in daemon agent backend");
@@ -3119,21 +3788,40 @@ impl AgentEngine {
             &self.http_client,
             &config.provider,
             &provider_config,
-            "Return strict JSON only. Do not call tools. Do not wrap the answer in markdown.",
+            "Return structured data only. No markdown fences. No explanation.",
             &messages,
             &[],
-            config.max_retries,
-            config.retry_delay_ms,
+            RetryStrategy::DurableRateLimited,
         );
         let mut content = String::new();
+        let mut reasoning = String::new();
         while let Some(chunk) = stream.next().await {
             match chunk? {
-                CompletionChunk::Delta { content: delta, .. } => content.push_str(&delta),
-                CompletionChunk::Done { content: done, .. } => {
-                    if done.is_empty() {
-                        return Ok(content);
+                CompletionChunk::Delta {
+                    content: delta,
+                    reasoning: r,
+                } => {
+                    content.push_str(&delta);
+                    if let Some(r) = r {
+                        reasoning.push_str(&r);
                     }
-                    return Ok(done);
+                }
+                CompletionChunk::Done {
+                    content: done,
+                    reasoning: r,
+                    ..
+                } => {
+                    if let Some(r) = r {
+                        reasoning = r;
+                    }
+                    let final_content = if done.is_empty() { content } else { done };
+                    if !final_content.trim().is_empty() {
+                        return Ok(final_content);
+                    }
+                    if !reasoning.trim().is_empty() {
+                        return Ok(reasoning);
+                    }
+                    anyhow::bail!("goal LLM returned empty output");
                 }
                 CompletionChunk::Error { message } => anyhow::bail!(message),
                 CompletionChunk::Retry { .. } => {}
@@ -3142,10 +3830,98 @@ impl AgentEngine {
                 }
             }
         }
-        if content.trim().is_empty() {
-            anyhow::bail!("goal planning returned empty output");
+        if !content.trim().is_empty() {
+            return Ok(content);
         }
-        Ok(content)
+        anyhow::bail!("goal LLM returned empty output")
+    }
+
+    async fn run_goal_llm_json(&self, prompt: &str) -> Result<String> {
+        let config = self.config.read().await.clone();
+        if config.agent_backend != "daemon" {
+            anyhow::bail!("goal runs currently require the built-in daemon agent backend");
+        }
+        let mut provider_config = self.resolve_provider_config(&config)?;
+        provider_config.response_schema = Some(goal_plan_json_schema());
+        tracing::info!(
+            provider = %config.provider,
+            model = %provider_config.model,
+            "goal planning LLM call"
+        );
+        let messages = vec![ApiMessage {
+            role: "user".into(),
+            content: ApiContent::Text(prompt.to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }];
+        let mut stream = send_chat_completion(
+            &self.http_client,
+            &config.provider,
+            &provider_config,
+            "Return strict JSON only. Do not call tools. Do not wrap the answer in markdown.",
+            &messages,
+            &[],
+            RetryStrategy::DurableRateLimited,
+        );
+        let mut content = String::new();
+        let mut reasoning = String::new();
+        while let Some(chunk) = stream.next().await {
+            match chunk? {
+                CompletionChunk::Delta {
+                    content: delta,
+                    reasoning: r,
+                } => {
+                    content.push_str(&delta);
+                    if let Some(r) = r {
+                        reasoning.push_str(&r);
+                    }
+                }
+                CompletionChunk::Done {
+                    content: done,
+                    reasoning: r,
+                    ..
+                } => {
+                    if let Some(r) = r {
+                        reasoning = r;
+                    }
+                    let final_content = if done.is_empty() { content } else { done };
+                    // Prefer content, fall back to reasoning if content has no JSON
+                    if !final_content.trim().is_empty() && final_content.contains('{') {
+                        return Ok(final_content);
+                    }
+                    // Model may have put JSON inside reasoning output
+                    if !reasoning.trim().is_empty() && reasoning.contains('{') {
+                        tracing::info!("goal plan: extracting JSON from reasoning output");
+                        return Ok(reasoning);
+                    }
+                    if !final_content.trim().is_empty() {
+                        return Ok(final_content);
+                    }
+                    if !reasoning.trim().is_empty() {
+                        return Ok(reasoning);
+                    }
+                    anyhow::bail!("goal planning returned empty output");
+                }
+                CompletionChunk::Error { message } => anyhow::bail!(message),
+                CompletionChunk::Retry { .. } => {}
+                CompletionChunk::ToolCalls { .. } => {
+                    anyhow::bail!("goal planning unexpectedly returned tool calls")
+                }
+            }
+        }
+        // Stream ended without Done chunk
+        let final_content = content;
+        if !final_content.trim().is_empty() && final_content.contains('{') {
+            return Ok(final_content);
+        }
+        if !reasoning.trim().is_empty() && reasoning.contains('{') {
+            return Ok(reasoning);
+        }
+        if !final_content.trim().is_empty() {
+            return Ok(final_content);
+        }
+        anyhow::bail!("goal planning returned empty output")
     }
 
     async fn append_goal_memory_update(&self, update: &str) -> Result<()> {
@@ -3197,7 +3973,11 @@ impl AgentEngine {
     fn resolve_provider_config(&self, config: &AgentConfig) -> Result<ProviderConfig> {
         // Check named providers first
         if let Some(pc) = config.providers.get(&config.provider) {
-            return Ok(pc.clone());
+            let mut resolved = pc.clone();
+            if resolved.reasoning_effort.trim().is_empty() {
+                resolved.reasoning_effort = config.reasoning_effort.clone();
+            }
+            return Ok(resolved);
         }
 
         // Fall back to top-level config
@@ -3212,6 +3992,8 @@ impl AgentEngine {
             base_url: config.base_url.clone(),
             model: config.model.clone(),
             api_key: config.api_key.clone(),
+            reasoning_effort: config.reasoning_effort.clone(),
+            response_schema: None,
         })
     }
 
@@ -3361,6 +4143,196 @@ impl AgentEngine {
     }
 }
 
+fn build_api_messages_for_request(
+    messages: &[AgentMessage],
+    config: &AgentConfig,
+) -> Vec<ApiMessage> {
+    let compacted = compact_messages_for_request(messages, config);
+    messages_to_api_format(&compacted)
+}
+
+fn compact_messages_for_request(
+    messages: &[AgentMessage],
+    config: &AgentConfig,
+) -> Vec<AgentMessage> {
+    if messages.is_empty() || !config.auto_compact_context {
+        return messages.to_vec();
+    }
+
+    let max_messages = config.max_context_messages.max(1) as usize;
+    let target_tokens = effective_context_target_tokens(config);
+    if messages.len() <= max_messages && estimate_message_tokens(messages) <= target_tokens {
+        return messages.to_vec();
+    }
+
+    let keep_recent = config
+        .keep_recent_on_compact
+        .max(1)
+        .min(messages.len() as u32) as usize;
+    let split_at = messages.len().saturating_sub(keep_recent);
+    let mut compacted = Vec::new();
+    let mut has_summary = false;
+
+    if split_at > 0 {
+        let summary = build_compaction_summary(&messages[..split_at], target_tokens);
+        if !summary.is_empty() {
+            has_summary = true;
+            compacted.push(AgentMessage {
+                role: MessageRole::Assistant,
+                content: summary,
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                reasoning: None,
+                timestamp: messages[split_at - 1].timestamp,
+            });
+        }
+    }
+
+    compacted.extend(messages[split_at..].iter().cloned());
+    trim_compacted_messages(&mut compacted, max_messages, target_tokens, has_summary);
+    compacted
+}
+
+fn trim_compacted_messages(
+    messages: &mut Vec<AgentMessage>,
+    max_messages: usize,
+    target_tokens: usize,
+    has_summary: bool,
+) {
+    let removable_floor = if has_summary { 2 } else { 1 };
+    while (messages.len() > max_messages || estimate_message_tokens(messages) > target_tokens)
+        && messages.len() > removable_floor
+    {
+        let remove_index = if has_summary { 1 } else { 0 };
+        messages.remove(remove_index);
+    }
+
+    if has_summary
+        && messages.len() > 1
+        && (messages.len() > max_messages || estimate_message_tokens(messages) > target_tokens)
+    {
+        messages.remove(0);
+    }
+}
+
+fn effective_context_target_tokens(config: &AgentConfig) -> usize {
+    let context_window = config.context_window_tokens.max(1) as usize;
+    let threshold_pct = config.compact_threshold_pct.clamp(1, 100) as usize;
+    let threshold_target = context_window.saturating_mul(threshold_pct) / 100;
+    let configured_budget = config
+        .context_budget_tokens
+        .max(MIN_CONTEXT_TARGET_TOKENS as u32) as usize;
+    threshold_target
+        .max(MIN_CONTEXT_TARGET_TOKENS)
+        .min(configured_budget)
+}
+
+fn estimate_message_tokens(messages: &[AgentMessage]) -> usize {
+    messages.iter().map(estimate_single_message_tokens).sum()
+}
+
+fn estimate_single_message_tokens(message: &AgentMessage) -> usize {
+    let mut chars = message.content.chars().count();
+
+    if let Some(tool_calls) = &message.tool_calls {
+        chars += tool_calls
+            .iter()
+            .map(|call| {
+                call.function.name.chars().count() + call.function.arguments.chars().count()
+            })
+            .sum::<usize>();
+    }
+
+    chars += message
+        .tool_name
+        .as_deref()
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or(0);
+    chars += message
+        .tool_arguments
+        .as_deref()
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or(0);
+
+    chars.div_ceil(APPROX_CHARS_PER_TOKEN) + 12
+}
+
+fn build_compaction_summary(messages: &[AgentMessage], target_tokens: usize) -> String {
+    if messages.is_empty() {
+        return String::new();
+    }
+
+    let max_chars = (target_tokens / 8)
+        .saturating_mul(APPROX_CHARS_PER_TOKEN)
+        .clamp(512, 4096);
+    let mut summary = String::from(
+        "[Compacted earlier context]\nSummary of older messages retained for continuity:\n",
+    );
+
+    for (index, message) in messages.iter().enumerate() {
+        let line = format!("- {}\n", summarize_compacted_message(message));
+        if summary.len() + line.len() > max_chars {
+            let omitted = messages.len().saturating_sub(index);
+            if omitted > 0 {
+                summary.push_str(&format!("- ... {} earlier messages omitted\n", omitted));
+            }
+            break;
+        }
+        summary.push_str(&line);
+    }
+
+    summary
+}
+
+fn summarize_compacted_message(message: &AgentMessage) -> String {
+    let role = match message.role {
+        MessageRole::System => "SYSTEM",
+        MessageRole::User => "USER",
+        MessageRole::Assistant => "ASSISTANT",
+        MessageRole::Tool => "TOOL",
+    };
+
+    let mut details = String::new();
+    if let Some(name) = message
+        .tool_name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        details.push_str(name);
+        if let Some(status) = message
+            .tool_status
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            details.push(' ');
+            details.push_str(status);
+        }
+    } else if let Some(tool_calls) = &message.tool_calls {
+        let names = tool_calls
+            .iter()
+            .map(|call| call.function.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !names.is_empty() {
+            details.push_str(&format!("calls: {names}"));
+        }
+    }
+
+    let content = summarize_text(&message.content, 160);
+    if details.is_empty() {
+        format!("{role}: {content}")
+    } else {
+        format!("{role} [{details}]: {content}")
+    }
+}
+
 fn make_task_log_entry(
     attempt: u32,
     level: TaskLogLevel,
@@ -3384,6 +4356,7 @@ fn refresh_task_queue_state(
     now: u64,
     sessions: &[amux_protocol::SessionInfo],
 ) -> Vec<AgentTask> {
+    const MAX_CONCURRENT_SUBAGENTS_PER_PARENT: usize = 4;
     let completed: HashSet<String> = tasks
         .iter()
         .filter(|task| task.status == TaskStatus::Completed)
@@ -3407,8 +4380,35 @@ fn refresh_task_queue_state(
                 TaskStatus::InProgress | TaskStatus::AwaitingApproval
             )
         })
+        .filter(|task| task_enforces_workspace_lock(task))
         .filter_map(|task| task_workspace_key(task, sessions))
         .collect::<HashSet<_>>();
+    let active_subagents_by_parent = tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InProgress || task.status == TaskStatus::AwaitingApproval
+        })
+        .filter_map(subagent_parent_key)
+        .fold(HashMap::<String, usize>::new(), |mut counts, parent_key| {
+            *counts.entry(parent_key).or_insert(0) += 1;
+            counts
+        });
+    let active_child_subagents_by_parent = tasks
+        .iter()
+        .filter(|task| task.source == "subagent" && !is_task_terminal_status(task.status))
+        .filter_map(|task| {
+            task.parent_task_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| (value.to_string(), task.id.clone()))
+        })
+        .fold(
+            HashMap::<String, Vec<String>>::new(),
+            |mut grouped, (parent_id, child_id)| {
+                grouped.entry(parent_id).or_default().push(child_id);
+                grouped
+            },
+        );
     let mut changed = Vec::new();
 
     for task in tasks.iter_mut() {
@@ -3418,8 +4418,44 @@ fn refresh_task_queue_state(
             .filter(|dependency| !completed.contains(*dependency))
             .cloned()
             .collect::<Vec<_>>();
+        let waiting_for_subagents = task
+            .blocked_reason
+            .as_deref()
+            .map(|reason| reason.starts_with("waiting for subagents:"))
+            .unwrap_or(false);
 
         if matches!(task.status, TaskStatus::Queued | TaskStatus::Blocked) {
+            if let Some(active_children) = active_child_subagents_by_parent.get(&task.id) {
+                let reason = format!("waiting for subagents: {}", active_children.join(", "));
+                if task.status != TaskStatus::Blocked
+                    || task.blocked_reason.as_deref() != Some(reason.as_str())
+                {
+                    task.status = TaskStatus::Blocked;
+                    task.blocked_reason = Some(reason.clone());
+                    task.progress = task.progress.max(90);
+                    task.logs.push(make_task_log_entry(
+                        task.retry_count,
+                        TaskLogLevel::Info,
+                        "subagent",
+                        "parent task waiting for child subagents",
+                        Some(reason),
+                    ));
+                    changed.push(task.clone());
+                }
+                continue;
+            } else if task.status == TaskStatus::Blocked && waiting_for_subagents {
+                task.status = TaskStatus::Queued;
+                task.blocked_reason = None;
+                task.logs.push(make_task_log_entry(
+                    task.retry_count,
+                    TaskLogLevel::Info,
+                    "subagent",
+                    "all child subagents reached terminal state; parent task re-queued",
+                    None,
+                ));
+                changed.push(task.clone());
+            }
+
             if !unresolved.is_empty() {
                 let reason = format!("waiting for dependencies: {}", unresolved.join(", "));
                 if task.status != TaskStatus::Blocked
@@ -3463,8 +4499,24 @@ fn refresh_task_queue_state(
                     "waiting for lane availability: {}",
                     task_lane_key(task)
                 ))
+            } else if let Some(parent_key) = subagent_parent_key(task) {
+                if active_subagents_by_parent
+                    .get(&parent_key)
+                    .copied()
+                    .unwrap_or(0)
+                    >= MAX_CONCURRENT_SUBAGENTS_PER_PARENT
+                {
+                    Some(format!(
+                        "waiting for subagent slot: {} active children for {}",
+                        MAX_CONCURRENT_SUBAGENTS_PER_PARENT, parent_key
+                    ))
+                } else {
+                    None
+                }
             } else if let Some(workspace_key) = task_workspace_key(task, sessions) {
-                if occupied_workspaces.contains(&workspace_key) {
+                if task_enforces_workspace_lock(task)
+                    && occupied_workspaces.contains(&workspace_key)
+                {
                     Some(format!(
                         "waiting for workspace lock: {}",
                         workspace_key.replace("workspace:", "")
@@ -3535,6 +4587,7 @@ fn select_ready_task_indices(
     tasks: &VecDeque<AgentTask>,
     sessions: &[amux_protocol::SessionInfo],
 ) -> Vec<usize> {
+    const MAX_CONCURRENT_SUBAGENTS_PER_PARENT: usize = 4;
     let mut occupied_lanes = tasks
         .iter()
         .filter(|task| {
@@ -3553,8 +4606,22 @@ fn select_ready_task_indices(
                 TaskStatus::InProgress | TaskStatus::AwaitingApproval
             )
         })
+        .filter(|task| task_enforces_workspace_lock(task))
         .filter_map(|task| task_workspace_key(task, sessions))
         .collect::<HashSet<_>>();
+    let mut active_subagents_by_parent = tasks
+        .iter()
+        .filter(|task| {
+            matches!(
+                task.status,
+                TaskStatus::InProgress | TaskStatus::AwaitingApproval
+            )
+        })
+        .filter_map(subagent_parent_key)
+        .fold(HashMap::<String, usize>::new(), |mut counts, parent_key| {
+            *counts.entry(parent_key).or_insert(0) += 1;
+            counts
+        });
 
     let mut queued = tasks
         .iter()
@@ -3566,13 +4633,31 @@ fn select_ready_task_indices(
     let mut selected = Vec::new();
     for (index, task) in queued {
         let lane = task_lane_key(task);
-        let workspace = task_workspace_key(task, sessions);
+        let workspace = if task_enforces_workspace_lock(task) {
+            task_workspace_key(task, sessions)
+        } else {
+            None
+        };
+        let parent_key = subagent_parent_key(task);
+        if let Some(parent_key) = parent_key.as_deref() {
+            if active_subagents_by_parent
+                .get(parent_key)
+                .copied()
+                .unwrap_or(0)
+                >= MAX_CONCURRENT_SUBAGENTS_PER_PARENT
+            {
+                continue;
+            }
+        }
         let lane_available = occupied_lanes.insert(lane);
         let workspace_available = workspace
             .as_ref()
             .map(|key| occupied_workspaces.insert(key.clone()))
             .unwrap_or(true);
         if lane_available && workspace_available {
+            if let Some(parent_key) = parent_key {
+                *active_subagents_by_parent.entry(parent_key).or_insert(0) += 1;
+            }
             selected.push(index);
             continue;
         }
@@ -3597,6 +4682,30 @@ fn current_task_lane_key(task: &AgentTask) -> String {
     task.lane_id.clone().unwrap_or_else(|| task_lane_key(task))
 }
 
+fn is_task_terminal_status(status: TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+    )
+}
+
+fn task_enforces_workspace_lock(task: &AgentTask) -> bool {
+    task.parent_task_id.is_none() && task.parent_thread_id.is_none()
+}
+
+fn subagent_parent_key(task: &AgentTask) -> Option<String> {
+    task.parent_task_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("task:{value}"))
+        .or_else(|| {
+            task.parent_thread_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!("thread:{value}"))
+        })
+}
+
 fn task_workspace_key(task: &AgentTask, sessions: &[amux_protocol::SessionInfo]) -> Option<String> {
     let session_hint = task.session_id.as_deref()?.trim();
     if session_hint.is_empty() {
@@ -3611,6 +4720,160 @@ fn task_workspace_key(task: &AgentTask, sessions: &[amux_protocol::SessionInfo])
         })
         .and_then(|session| session.workspace_id.as_ref())
         .map(|workspace_id| format!("workspace:{workspace_id}"))
+}
+
+fn project_task_runs(
+    tasks: &[AgentTask],
+    sessions: &[amux_protocol::SessionInfo],
+) -> Vec<AgentRun> {
+    let task_titles = tasks
+        .iter()
+        .map(|task| (task.id.as_str(), task.title.as_str()))
+        .collect::<HashMap<_, _>>();
+    let session_workspaces = sessions
+        .iter()
+        .map(|session| (session.id.to_string(), session.workspace_id.clone()))
+        .collect::<HashMap<_, _>>();
+
+    tasks
+        .iter()
+        .map(|task| {
+            let session_id = task
+                .session_id
+                .clone()
+                .filter(|value| !value.trim().is_empty());
+            let workspace_id = session_id
+                .as_deref()
+                .and_then(|value| session_workspaces.get(value))
+                .cloned()
+                .flatten();
+            let kind = if task.source == "subagent"
+                || task
+                    .parent_task_id
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                || task
+                    .parent_thread_id
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+            {
+                AgentRunKind::Subagent
+            } else {
+                AgentRunKind::Task
+            };
+
+            AgentRun {
+                id: task.id.clone(),
+                task_id: task.id.clone(),
+                kind,
+                classification: classify_task(task).to_string(),
+                title: task.title.clone(),
+                description: task.description.clone(),
+                status: task.status,
+                priority: task.priority,
+                progress: task.progress,
+                created_at: task.created_at,
+                started_at: task.started_at,
+                completed_at: task.completed_at,
+                thread_id: task.thread_id.clone(),
+                session_id,
+                workspace_id,
+                source: task.source.clone(),
+                runtime: task.runtime.clone(),
+                goal_run_id: task.goal_run_id.clone(),
+                goal_run_title: task.goal_run_title.clone(),
+                goal_step_id: task.goal_step_id.clone(),
+                goal_step_title: task.goal_step_title.clone(),
+                parent_run_id: task.parent_task_id.clone(),
+                parent_task_id: task.parent_task_id.clone(),
+                parent_thread_id: task.parent_thread_id.clone(),
+                parent_title: task
+                    .parent_task_id
+                    .as_deref()
+                    .and_then(|value| task_titles.get(value))
+                    .map(|value| (*value).to_string()),
+                blocked_reason: task.blocked_reason.clone(),
+                error: task.error.clone(),
+                result: task.result.clone(),
+                last_error: task.last_error.clone(),
+            }
+        })
+        .collect()
+}
+
+fn classify_task(task: &AgentTask) -> &'static str {
+    let haystack = format!(
+        "{} {} {} {}",
+        task.title,
+        task.description,
+        task.command.as_deref().unwrap_or_default(),
+        task.source
+    )
+    .to_ascii_lowercase();
+
+    if contains_any(
+        &haystack,
+        &[
+            "code",
+            "coding",
+            "repo",
+            "git",
+            "diff",
+            "patch",
+            "file",
+            "test",
+            "build",
+            "compile",
+            "rust",
+            "typescript",
+            "frontend",
+            "backend",
+            "refactor",
+            "implement",
+        ],
+    ) {
+        "coding"
+    } else if contains_any(
+        &haystack,
+        &[
+            "browser", "browse", "web", "page", "url", "search", "navigate",
+        ],
+    ) {
+        "browser"
+    } else if contains_any(
+        &haystack,
+        &[
+            "slack", "discord", "telegram", "whatsapp", "message", "reply", "channel",
+        ],
+    ) {
+        "messaging"
+    } else if contains_any(
+        &haystack,
+        &[
+            "terminal", "shell", "daemon", "deploy", "restart", "service", "ops", "infra",
+        ],
+    ) {
+        "ops"
+    } else if contains_any(
+        &haystack,
+        &[
+            "research",
+            "investigate",
+            "analyze",
+            "analyse",
+            "explain",
+            "read",
+            "audit",
+        ],
+    ) {
+        "research"
+    } else {
+        "mixed"
+    }
+}
+
+fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| haystack.contains(needle))
 }
 
 fn task_priority_rank(priority: TaskPriority) -> u8 {
@@ -3639,6 +4902,9 @@ fn build_task_prompt(task: &AgentTask) -> String {
     prompt.push_str(
         "\nIf the task is more than a one-shot action, call update_todo immediately with a concise plan and keep it current as steps advance.",
     );
+    prompt.push_str(
+        "\nIf this task is large and parallelizable, use spawn_subagent for bounded child work items and monitor them with list_subagents.",
+    );
 
     if let Some(command) = task.command.as_deref() {
         prompt.push_str(&format!("\nPreferred command or entrypoint: {command}"));
@@ -3652,6 +4918,18 @@ fn build_task_prompt(task: &AgentTask) -> String {
         prompt.push_str(&format!("\nGoal run context: {goal_run_id}"));
     }
 
+    if let Some(parent_task_id) = task.parent_task_id.as_deref() {
+        prompt.push_str(&format!(
+            "\nParent task: {parent_task_id}\nYou are running as a supervised subagent. Stay tightly scoped to this assignment, avoid duplicating sibling work, and report concise results back through your normal response."
+        ));
+    }
+
+    if let Some(parent_thread_id) = task.parent_thread_id.as_deref() {
+        prompt.push_str(&format!("\nParent thread: {parent_thread_id}"));
+    }
+
+    prompt.push_str(&format!("\nAssigned runtime: {}", task.runtime));
+
     if let Some(scheduled_at) = task.scheduled_at {
         prompt.push_str(&format!(
             "\nOriginal schedule: {}",
@@ -3664,6 +4942,29 @@ fn build_task_prompt(task: &AgentTask) -> String {
             "\nResolved dependencies: {}",
             task.dependencies.join(", ")
         ));
+    }
+
+    let recent_subagent_logs = task
+        .logs
+        .iter()
+        .rev()
+        .filter(|log| log.phase == "subagent")
+        .take(6)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|log| {
+            let details = log
+                .details
+                .as_deref()
+                .map(|value| format!(" ({value})"))
+                .unwrap_or_default();
+            format!("- {}", log.message) + &details
+        })
+        .collect::<Vec<_>>();
+    if !recent_subagent_logs.is_empty() {
+        prompt.push_str("\nRecent subagent updates:\n");
+        prompt.push_str(&recent_subagent_logs.join("\n"));
     }
 
     if task.retry_count > 0 {
@@ -3783,19 +5084,58 @@ pub(super) fn skills_dir(agent_data_dir: &std::path::Path) -> PathBuf {
 /// separate from user-authored and generated skills.
 fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
     static BUILTIN_SKILLS: &[(&str, &str)] = &[
-        ("builtin/README.md",                       include_str!("../../../../docs/skills/README.md")),
-        ("builtin/cheatsheet.md",                   include_str!("../../../../docs/skills/cheatsheet.md")),
-        ("builtin/connection/setup.md",             include_str!("../../../../docs/skills/connection/setup.md")),
-        ("builtin/operating/terminals.md",          include_str!("../../../../docs/skills/operating/terminals.md")),
-        ("builtin/operating/browser.md",            include_str!("../../../../docs/skills/operating/browser.md")),
-        ("builtin/operating/tasks.md",              include_str!("../../../../docs/skills/operating/tasks.md")),
-        ("builtin/operating/goals.md",              include_str!("../../../../docs/skills/operating/goals.md")),
-        ("builtin/operating/memory.md",             include_str!("../../../../docs/skills/operating/memory.md")),
-        ("builtin/operating/workspaces.md",         include_str!("../../../../docs/skills/operating/workspaces.md")),
-        ("builtin/operating/safety.md",             include_str!("../../../../docs/skills/operating/safety.md")),
-        ("builtin/operating/messaging.md",          include_str!("../../../../docs/skills/operating/messaging.md")),
-        ("builtin/operating/observability.md",      include_str!("../../../../docs/skills/operating/observability.md")),
-        ("builtin/building/plugin-development.md",  include_str!("../../../../docs/skills/building/plugin-development.md")),
+        (
+            "builtin/README.md",
+            include_str!("../../../../docs/skills/README.md"),
+        ),
+        (
+            "builtin/cheatsheet.md",
+            include_str!("../../../../docs/skills/cheatsheet.md"),
+        ),
+        (
+            "builtin/connection/setup.md",
+            include_str!("../../../../docs/skills/connection/setup.md"),
+        ),
+        (
+            "builtin/operating/terminals.md",
+            include_str!("../../../../docs/skills/operating/terminals.md"),
+        ),
+        (
+            "builtin/operating/browser.md",
+            include_str!("../../../../docs/skills/operating/browser.md"),
+        ),
+        (
+            "builtin/operating/tasks.md",
+            include_str!("../../../../docs/skills/operating/tasks.md"),
+        ),
+        (
+            "builtin/operating/goals.md",
+            include_str!("../../../../docs/skills/operating/goals.md"),
+        ),
+        (
+            "builtin/operating/memory.md",
+            include_str!("../../../../docs/skills/operating/memory.md"),
+        ),
+        (
+            "builtin/operating/workspaces.md",
+            include_str!("../../../../docs/skills/operating/workspaces.md"),
+        ),
+        (
+            "builtin/operating/safety.md",
+            include_str!("../../../../docs/skills/operating/safety.md"),
+        ),
+        (
+            "builtin/operating/messaging.md",
+            include_str!("../../../../docs/skills/operating/messaging.md"),
+        ),
+        (
+            "builtin/operating/observability.md",
+            include_str!("../../../../docs/skills/operating/observability.md"),
+        ),
+        (
+            "builtin/building/plugin-development.md",
+            include_str!("../../../../docs/skills/building/plugin-development.md"),
+        ),
     ];
 
     let root = skills_dir(agent_data_dir);
@@ -3811,7 +5151,11 @@ fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
             tracing::warn!("failed to seed skill {}: {e}", target.display());
         }
     }
-    tracing::debug!("seeded {} built-in skills into {}", BUILTIN_SKILLS.len(), root.join("builtin").display());
+    tracing::debug!(
+        "seeded {} built-in skills into {}",
+        BUILTIN_SKILLS.len(),
+        root.join("builtin").display()
+    );
 }
 
 fn dir_has_memory_files(dir: &std::path::Path) -> bool {
@@ -4027,25 +5371,41 @@ fn build_system_prompt(base: &str, memory: &AgentMemory, data_dir: &std::path::P
         "\n\n## Terminal Session Discipline\n\
          - Before running file or command actions, call `list_sessions` (or `list_terminals`) to discover current session IDs and CWD.\n\
          - Pick a target session and reuse that `session` value across related tool calls so all actions stay in one terminal context.\n\
+         - If a command is still running, timed out while still active, or is waiting for interactive completion, treat that terminal as occupied and switch to another terminal/session before continuing other work.\n\
+         - If you need another terminal in the same agent workspace, call `allocate_terminal`, then continue with the returned session ID.\n\
          - If the operator asks to use another terminal, call `list_sessions` again and switch explicitly.\n",
+    );
+
+    prompt.push_str(
+        "\n\n## Subagent Supervision\n\
+         - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
+         - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
+         - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
+         - tamux caps active subagents per parent, so queue additional children only when they materially advance the task.\n",
     );
 
     prompt
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct GoalPlanResponse {
     #[serde(default)]
     title: Option<String>,
+    #[serde(default)]
     summary: String,
+    #[serde(default)]
     steps: Vec<GoalPlanStepResponse>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct GoalPlanStepResponse {
+    #[serde(default)]
     title: String,
+    #[serde(default)]
     instructions: String,
+    #[serde(default)]
     kind: GoalRunStepKind,
+    #[serde(default, alias = "_criteria", alias = "criteria")]
     success_criteria: String,
     #[serde(default)]
     session_id: Option<String>,
@@ -4062,52 +5422,85 @@ struct GoalReflectionResponse {
     skill_title: Option<String>,
 }
 
-fn validate_goal_plan_response(
-    mut plan: GoalPlanResponse,
-    allow_single_step: bool,
-) -> Result<GoalPlanResponse> {
+/// Check a plan for issues that the model should fix. Returns a list of human-readable problems.
+fn collect_plan_issues(plan: &GoalPlanResponse) -> Vec<String> {
+    let mut issues = Vec::new();
+
+    if plan.summary.trim().is_empty() {
+        issues.push("Plan summary is empty — provide a brief description of the plan.".into());
+    }
+    if plan.steps.is_empty() {
+        issues.push("Plan has no steps — provide at least 2 steps.".into());
+    }
+    if plan.steps.len() > 8 {
+        issues.push(format!(
+            "Plan has {} steps — reduce to 8 or fewer.",
+            plan.steps.len()
+        ));
+    }
+
+    for (i, step) in plan.steps.iter().enumerate() {
+        let n = i + 1;
+        if step.title.trim().is_empty() {
+            issues.push(format!("Step {n}: missing title."));
+        }
+        if step.instructions.trim().is_empty() {
+            issues.push(format!("Step {n}: missing instructions."));
+        }
+        if step.success_criteria.trim().is_empty() {
+            issues.push(format!("Step {n}: missing success_criteria."));
+        }
+        if step.kind == GoalRunStepKind::Unknown {
+            issues.push(format!("Step {n}: kind is empty or unknown — must be one of: command, research, reason, memory, skill."));
+        }
+    }
+
+    issues
+}
+
+/// Apply safe defaults to a plan after all fix attempts are exhausted.
+fn apply_plan_defaults(plan: &mut GoalPlanResponse) {
     plan.summary = plan.summary.trim().to_string();
     if plan.summary.is_empty() {
-        anyhow::bail!("goal plan summary must not be empty");
+        plan.summary = plan
+            .title
+            .clone()
+            .unwrap_or_else(|| "Goal plan".to_string());
     }
-
-    let min_steps = if allow_single_step { 1 } else { 2 };
-    if plan.steps.len() < min_steps || plan.steps.len() > 6 {
-        anyhow::bail!(
-            "goal plan must contain between {} and 6 steps, got {}",
-            min_steps,
-            plan.steps.len()
-        );
+    if plan.steps.is_empty() {
+        plan.steps.push(GoalPlanStepResponse {
+            title: plan.summary.clone(),
+            instructions: plan.summary.clone(),
+            kind: GoalRunStepKind::Command,
+            success_criteria: "Step completed".to_string(),
+            session_id: None,
+        });
     }
-
-    let mut seen_skill = false;
-    let last_index = plan.steps.len().saturating_sub(1);
-    for (index, step) in plan.steps.iter_mut().enumerate() {
+    if plan.steps.len() > 8 {
+        plan.steps.truncate(8);
+    }
+    for (i, step) in plan.steps.iter_mut().enumerate() {
         step.title = step.title.trim().to_string();
         step.instructions = step.instructions.trim().to_string();
         step.success_criteria = step.success_criteria.trim().to_string();
         step.session_id = step
             .session_id
             .take()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-
-        if step.title.is_empty() || step.instructions.is_empty() || step.success_criteria.is_empty()
-        {
-            anyhow::bail!("goal plan step {} is missing required fields", index + 1);
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        if step.title.is_empty() {
+            step.title = format!("Step {}", i + 1);
         }
-
-        if step.kind == GoalRunStepKind::Skill {
-            if index != last_index {
-                anyhow::bail!("skill steps must be the final step in the plan");
-            }
-            seen_skill = true;
-        } else if seen_skill {
-            anyhow::bail!("no steps may follow a skill-generation step");
+        if step.instructions.is_empty() {
+            step.instructions = step.title.clone();
+        }
+        if step.success_criteria.is_empty() {
+            step.success_criteria = "Step completed successfully".to_string();
+        }
+        if step.kind == GoalRunStepKind::Unknown {
+            step.kind = GoalRunStepKind::Command;
         }
     }
-
-    Ok(plan)
 }
 
 fn parse_priority_str(value: &str) -> TaskPriority {
@@ -4134,6 +5527,20 @@ fn summarize_goal_title(goal: &str) -> String {
         return "Untitled Goal".into();
     }
     summarize_text(trimmed, 72)
+}
+
+fn normalize_goal_key(goal: &str) -> String {
+    goal.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn normalized_tool_signature(tool_call: &ToolCall) -> String {
+    let normalized_args = serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| tool_call.function.arguments.trim().to_string());
+    format!("{}:{}", tool_call.function.name, normalized_args)
 }
 
 fn summarize_text(value: &str, max_chars: usize) -> String {
@@ -4394,12 +5801,168 @@ fn planner_required_for_message(content: &str) -> bool {
     .any(|needle| lower.contains(needle))
 }
 
+/// Attempt to repair malformed JSON from LLM output using the jsonrepair crate.
+fn repair_json(raw: &str) -> String {
+    jsonrepair::repair_json(raw, &jsonrepair::Options::default())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+/// JSON schema for structured output — forces the API to produce valid GoalPlanResponse.
+fn goal_plan_json_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string" },
+            "summary": { "type": "string" },
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": { "type": "string" },
+                        "instructions": { "type": "string" },
+                        "kind": { "type": "string", "enum": ["reason", "command", "research", "memory", "skill"] },
+                        "success_criteria": { "type": "string" },
+                        "session_id": { "type": ["string", "null"] }
+                    },
+                    "required": ["title", "instructions", "kind", "success_criteria", "session_id"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["title", "summary", "steps"],
+        "additionalProperties": false
+    })
+}
+
+/// Parse a numbered markdown list into a GoalPlanResponse-compatible JSON value.
+/// Format: `1. [command] Clone repo: Instructions here. Success: criteria here.`
+fn parse_markdown_steps<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
+    let mut steps = Vec::new();
+
+    for line in raw.lines() {
+        let line = line.trim();
+        // Match lines like: "1. [command] Title: Instructions. Success: criteria"
+        // or: "1. Title: Instructions"
+        // or: "- Title: Instructions"
+        let content = if let Some(rest) = line.strip_prefix(|c: char| c.is_ascii_digit()) {
+            rest.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+                .trim()
+        } else if let Some(rest) = line.strip_prefix("- ") {
+            rest.trim()
+        } else {
+            continue;
+        };
+
+        if content.is_empty() {
+            continue;
+        }
+
+        // Extract [kind] if present
+        let (kind, rest) = if content.starts_with('[') {
+            if let Some(close) = content.find(']') {
+                let k = &content[1..close];
+                let remainder = content[close + 1..].trim();
+                (k.to_string(), remainder.to_string())
+            } else {
+                ("command".to_string(), content.to_string())
+            }
+        } else {
+            ("command".to_string(), content.to_string())
+        };
+
+        // Split at "Success:" or "Criteria:" for success_criteria
+        let (main_part, criteria) = if let Some(pos) = rest.to_lowercase().find("success:") {
+            (
+                rest[..pos].trim().to_string(),
+                rest[pos + 8..].trim().to_string(),
+            )
+        } else if let Some(pos) = rest.to_lowercase().find("criteria:") {
+            (
+                rest[..pos].trim().to_string(),
+                rest[pos + 9..].trim().to_string(),
+            )
+        } else {
+            (rest.clone(), "Step completed successfully".to_string())
+        };
+
+        // Split main_part at first colon for title:instructions
+        let (title, instructions) = if let Some(colon) = main_part.find(':') {
+            (
+                main_part[..colon].trim().to_string(),
+                main_part[colon + 1..].trim().to_string(),
+            )
+        } else {
+            (main_part.clone(), main_part)
+        };
+
+        steps.push(serde_json::json!({
+            "title": title,
+            "instructions": instructions,
+            "kind": kind,
+            "success_criteria": criteria.trim_end_matches('.'),
+            "session_id": null,
+        }));
+    }
+
+    if steps.is_empty() {
+        anyhow::bail!("no steps parsed from markdown");
+    }
+
+    let plan = serde_json::json!({
+        "title": steps.first().and_then(|s| s["title"].as_str()).unwrap_or("Goal plan"),
+        "summary": format!("Plan with {} steps parsed from markdown", steps.len()),
+        "steps": steps,
+    });
+
+    serde_json::from_value::<T>(plan)
+        .map_err(|e| anyhow::anyhow!("markdown plan conversion failed: {e}"))
+}
+
+fn parse_yaml_block<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
+    let trimmed = raw.trim();
+
+    // Try as-is
+    if let Ok(parsed) = serde_yaml::from_str::<T>(trimmed) {
+        return Ok(parsed);
+    }
+
+    // Strip code fences
+    let without_fence = trimmed
+        .strip_prefix("```yaml")
+        .or_else(|| trimmed.strip_prefix("```yml"))
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(str::trim)
+        .and_then(|v| v.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+
+    if let Ok(parsed) = serde_yaml::from_str::<T>(without_fence) {
+        return Ok(parsed);
+    }
+
+    anyhow::bail!("failed to parse YAML from model output")
+}
+
 fn parse_goal_llm_json(raw: &str) -> Result<GoalPlanResponse> {
     parse_json_block(raw)
 }
 
 fn parse_goal_reflection_json(raw: &str) -> Result<GoalReflectionResponse> {
     parse_json_block(raw)
+}
+
+/// Build a correction prompt when the model fails to return valid JSON.
+fn build_json_retry_prompt(original_prompt: &str, broken_output: &str) -> String {
+    format!(
+        "Your previous response was not valid JSON and could not be parsed.\n\
+         Here is what you returned:\n\
+         ---\n{}\n---\n\n\
+         Please try again. Return ONLY the raw JSON object, no markdown fences, no explanation.\n\n\
+         Original request:\n{}",
+        broken_output.chars().take(2000).collect::<String>(),
+        original_prompt
+    )
 }
 
 fn parse_json_block<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
@@ -4430,6 +5993,33 @@ fn parse_json_block<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T> {
         }
     }
 
+    // Try unwrapping {"answer":"..."} wrapper pattern (model wraps JSON in a field)
+    if let Some(candidate) = object_candidate {
+        if let Ok(wrapper) = serde_json::from_str::<serde_json::Value>(candidate) {
+            if let Some(inner) = wrapper.get("answer").and_then(|v| v.as_str()) {
+                if let Ok(parsed) = serde_json::from_str::<T>(inner) {
+                    tracing::info!("parsed JSON after unwrapping answer wrapper");
+                    return Ok(parsed);
+                }
+                // Try repairing the inner JSON
+                let inner_repaired = repair_json(inner);
+                if let Ok(parsed) = serde_json::from_str::<T>(&inner_repaired) {
+                    tracing::info!("parsed JSON after unwrapping + repairing answer wrapper");
+                    return Ok(parsed);
+                }
+            }
+        }
+    }
+
+    // Try repairing the JSON using jsonrepair (handles missing colons, quotes, etc.)
+    let repaired = repair_json(without_fence);
+    if let Ok(parsed) = serde_json::from_str::<T>(&repaired) {
+        tracing::info!("parsed JSON after jsonrepair");
+        return Ok(parsed);
+    }
+
+    // Log the full raw output for debugging
+    tracing::warn!(raw_len = raw.len(), raw_output = %raw, "failed to parse structured JSON from model output");
     anyhow::bail!("failed to parse structured JSON from model output")
 }
 
@@ -4462,6 +6052,7 @@ mod tests {
             id: "goal_test".to_string(),
             title: "Test goal".to_string(),
             goal: "Ship something".to_string(),
+            client_request_id: None,
             status: GoalRunStatus::Failed,
             priority: TaskPriority::Normal,
             created_at: 10,
@@ -4544,6 +6135,12 @@ mod tests {
             command: None,
             session_id: Some("session-1".to_string()),
             goal_run_id: Some(goal_run_id.to_string()),
+            goal_run_title: Some("Test goal".to_string()),
+            goal_step_id: Some("step-1".to_string()),
+            goal_step_title: Some("Fix".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
             retry_count: 0,
             max_retries: 0,
             next_retry_at: None,
@@ -4561,6 +6158,60 @@ mod tests {
                 details: None,
                 attempt: 0,
             }],
+        }
+    }
+
+    fn sample_subagent(id: &str, parent_task_id: &str, status: TaskStatus) -> AgentTask {
+        AgentTask {
+            id: id.to_string(),
+            title: format!("Subagent {id}"),
+            description: "Child work".to_string(),
+            status,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "subagent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: Some(parent_task_id.to_string()),
+            parent_thread_id: Some("thread-parent".to_string()),
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+        }
+    }
+
+    fn sample_session(session_id: &str, workspace_id: &str) -> amux_protocol::SessionInfo {
+        amux_protocol::SessionInfo {
+            id: uuid::Uuid::parse_str(session_id).expect("valid uuid"),
+            title: Some("Agent lane".to_string()),
+            cwd: Some("/tmp/repo".to_string()),
+            cols: 120,
+            rows: 40,
+            created_at: 1,
+            workspace_id: Some(workspace_id.to_string()),
+            exit_code: None,
+            is_alive: true,
+            active_command: Some("cargo test".to_string()),
         }
     }
 
@@ -4639,6 +6290,49 @@ mod tests {
     }
 
     #[test]
+    fn project_task_runs_exposes_parent_runtime_workspace_and_classification() {
+        let mut parent = sample_task("parent-task", "goal_test");
+        parent.title = "Implement rust file patching".to_string();
+        parent.description = "Update repo files and tests".to_string();
+        parent.status = TaskStatus::InProgress;
+        parent.source = "user".to_string();
+        parent.session_id = Some("11111111-1111-1111-1111-111111111111".to_string());
+
+        let mut child = sample_subagent("child-task", "parent-task", TaskStatus::Queued);
+        child.session_id = Some("22222222-2222-2222-2222-222222222222".to_string());
+        child.runtime = "hermes".to_string();
+
+        let runs = project_task_runs(
+            &[parent.clone(), child.clone()],
+            &[
+                sample_session("11111111-1111-1111-1111-111111111111", "workspace-parent"),
+                sample_session("22222222-2222-2222-2222-222222222222", "workspace-child"),
+            ],
+        );
+
+        let parent_run = runs
+            .iter()
+            .find(|run| run.id == parent.id)
+            .expect("parent run projected");
+        assert_eq!(parent_run.kind, AgentRunKind::Task);
+        assert_eq!(parent_run.classification, "coding");
+        assert_eq!(parent_run.workspace_id.as_deref(), Some("workspace-parent"));
+
+        let child_run = runs
+            .iter()
+            .find(|run| run.id == child.id)
+            .expect("child run projected");
+        assert_eq!(child_run.kind, AgentRunKind::Subagent);
+        assert_eq!(child_run.runtime, "hermes");
+        assert_eq!(child_run.parent_run_id.as_deref(), Some("parent-task"));
+        assert_eq!(
+            child_run.parent_title.as_deref(),
+            Some("Implement rust file patching")
+        );
+        assert_eq!(child_run.workspace_id.as_deref(), Some("workspace-child"));
+    }
+
+    #[test]
     fn make_goal_run_event_with_todos_preserves_snapshot() {
         let event = make_goal_run_event_with_todos(
             "todo",
@@ -4674,7 +6368,113 @@ mod tests {
 
     #[test]
     fn planner_required_for_message_skips_simple_requests() {
-        assert!(!planner_required_for_message("What port is the daemon listening on?"));
+        assert!(!planner_required_for_message(
+            "What port is the daemon listening on?"
+        ));
         assert!(!planner_required_for_message("Show me the last error."));
+    }
+
+    #[test]
+    fn refresh_task_queue_state_blocks_parent_while_subagents_are_active() {
+        let mut tasks = VecDeque::from(vec![
+            AgentTask {
+                id: "parent".to_string(),
+                title: "Parent".to_string(),
+                description: "Parent".to_string(),
+                status: TaskStatus::Queued,
+                priority: TaskPriority::Normal,
+                progress: 10,
+                created_at: 1,
+                started_at: None,
+                completed_at: None,
+                error: None,
+                result: None,
+                thread_id: None,
+                source: "agent".to_string(),
+                notify_on_complete: false,
+                notify_channels: Vec::new(),
+                dependencies: Vec::new(),
+                command: None,
+                session_id: None,
+                goal_run_id: None,
+                goal_run_title: None,
+                goal_step_id: None,
+                goal_step_title: None,
+                parent_task_id: None,
+                parent_thread_id: None,
+                runtime: "daemon".to_string(),
+                retry_count: 0,
+                max_retries: 0,
+                next_retry_at: None,
+                scheduled_at: None,
+                blocked_reason: None,
+                awaiting_approval_id: None,
+                lane_id: None,
+                last_error: None,
+                logs: Vec::new(),
+            },
+            sample_subagent("sub-1", "parent", TaskStatus::InProgress),
+        ]);
+
+        let changed = refresh_task_queue_state(&mut tasks, 100, &[]);
+        let parent = tasks.iter().find(|task| task.id == "parent").unwrap();
+
+        assert_eq!(parent.status, TaskStatus::Blocked);
+        assert!(parent
+            .blocked_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("waiting for subagents"));
+        assert_eq!(changed.len(), 1);
+    }
+
+    #[test]
+    fn refresh_task_queue_state_requeues_parent_after_subagents_finish() {
+        let mut tasks = VecDeque::from(vec![
+            AgentTask {
+                id: "parent".to_string(),
+                title: "Parent".to_string(),
+                description: "Parent".to_string(),
+                status: TaskStatus::Blocked,
+                priority: TaskPriority::Normal,
+                progress: 90,
+                created_at: 1,
+                started_at: None,
+                completed_at: None,
+                error: None,
+                result: None,
+                thread_id: None,
+                source: "agent".to_string(),
+                notify_on_complete: false,
+                notify_channels: Vec::new(),
+                dependencies: Vec::new(),
+                command: None,
+                session_id: None,
+                goal_run_id: None,
+                goal_run_title: None,
+                goal_step_id: None,
+                goal_step_title: None,
+                parent_task_id: None,
+                parent_thread_id: None,
+                runtime: "daemon".to_string(),
+                retry_count: 0,
+                max_retries: 0,
+                next_retry_at: None,
+                scheduled_at: None,
+                blocked_reason: Some("waiting for subagents: sub-1".to_string()),
+                awaiting_approval_id: None,
+                lane_id: None,
+                last_error: None,
+                logs: Vec::new(),
+            },
+            sample_subagent("sub-1", "parent", TaskStatus::Completed),
+        ]);
+
+        let changed = refresh_task_queue_state(&mut tasks, 100, &[]);
+        let parent = tasks.iter().find(|task| task.id == "parent").unwrap();
+
+        assert_eq!(parent.status, TaskStatus::Queued);
+        assert!(parent.blocked_reason.is_none());
+        assert_eq!(changed.len(), 1);
     }
 }

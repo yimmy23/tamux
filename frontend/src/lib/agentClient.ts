@@ -11,6 +11,9 @@
 import type { AgentProviderId, AgentProviderConfig, AgentMessage } from "./agentStore";
 import type { ToolDefinition, ToolCall } from "./agentTools";
 
+const APPROX_CHARS_PER_TOKEN = 4;
+const MIN_CONTEXT_TARGET_TOKENS = 1024;
+
 export interface ApiChatMessage {
   role: string;
   content: string;
@@ -27,6 +30,7 @@ export interface ChatRequest {
   streaming: boolean;
   signal?: AbortSignal;
   tools?: ToolDefinition[];
+  reasoningEffort?: string;
 }
 
 export interface ChatChunk {
@@ -41,6 +45,15 @@ export interface ChatChunk {
   audioTokens?: number;
   videoTokens?: number;
   toolCalls?: ToolCall[];
+}
+
+export interface ContextCompactionSettings {
+  autoCompactContext: boolean;
+  maxContextMessages: number;
+  contextWindowTokens: number;
+  contextBudgetTokens: number;
+  compactThresholdPercent: number;
+  keepRecentOnCompaction: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +130,17 @@ async function* sendOpenAICompatible(req: ChatRequest): AsyncGenerator<ChatChunk
   if (req.tools && req.tools.length > 0) {
     body.tools = req.tools;
     body.tool_choice = "auto";
+  }
+
+  // Add reasoning_effort for OpenAI-compatible reasoning models
+  if (req.reasoningEffort && req.reasoningEffort !== "none") {
+    body.reasoning_effort = req.reasoningEffort === "xhigh" ? "high" : req.reasoningEffort;
+    body.reasoning = { effort: req.reasoningEffort };
+  }
+
+  // Request usage details including reasoning tokens
+  if (req.streaming) {
+    body.stream_options = { include_usage: true };
   }
 
   const headers: Record<string, string> = {
@@ -201,6 +225,15 @@ async function* sendAnthropic(req: ChatRequest): AsyncGenerator<ChatChunk> {
       description: t.function.description,
       input_schema: t.function.parameters,
     }));
+  }
+
+  // Add extended thinking for Anthropic models
+  if (req.reasoningEffort && req.reasoningEffort !== "none") {
+    const budgetMap: Record<string, number> = { minimal: 512, low: 1024, medium: 4096, high: 8192, xhigh: 16384 };
+    const budgetTokens = budgetMap[req.reasoningEffort] ?? 4096;
+    body.thinking = { type: "enabled", budget_tokens: budgetTokens };
+    // Increase max_tokens when thinking is enabled
+    body.max_tokens = Math.max(4096, budgetTokens + 4096);
   }
 
   const headers: Record<string, string> = {
@@ -364,10 +397,11 @@ async function* parseSSEStream(
             yield { type: "delta", content: delta.content };
           }
 
-          // Handle reasoning deltas (e.g. Qwen/OpenRouter style)
-          if (delta?.reasoning) {
-            totalReasoning += String(delta.reasoning);
-            yield { type: "delta", content: "", reasoning: String(delta.reasoning) };
+          // Handle reasoning deltas (covers delta.reasoning, delta.reasoning_content, delta.reasoning_details)
+          const reasoningChunk = delta?.reasoning ?? delta?.reasoning_content;
+          if (reasoningChunk) {
+            totalReasoning += String(reasoningChunk);
+            yield { type: "delta", content: "", reasoning: String(reasoningChunk) };
           } else if (Array.isArray(delta?.reasoning_details)) {
             for (const detail of delta.reasoning_details) {
               const piece = typeof detail?.text === "string" ? detail.text : "";
@@ -442,8 +476,10 @@ async function* parseAnthropicSSE(
   const decoder = new TextDecoder();
   let buffer = "";
   let totalContent = "";
+  let totalReasoning = "";
   let inputTokens = 0;
   let outputTokens = 0;
+  let inThinkingBlock = false;
 
   try {
     while (true) {
@@ -462,18 +498,48 @@ async function* parseAnthropicSSE(
         try {
           const parsed = JSON.parse(data);
 
-          if (parsed.type === "content_block_delta") {
-            const delta = parsed.delta?.text ?? "";
-            if (delta) {
-              totalContent += delta;
-              yield { type: "delta", content: delta };
+          if (parsed.type === "content_block_start") {
+            const blockType = parsed.content_block?.type;
+            inThinkingBlock = blockType === "thinking";
+          } else if (parsed.type === "content_block_stop") {
+            inThinkingBlock = false;
+          } else if (parsed.type === "content_block_delta") {
+            const deltaType = parsed.delta?.type;
+            if (deltaType === "thinking_delta") {
+              // Extended thinking delta
+              const thinking = parsed.delta?.thinking ?? "";
+              if (thinking) {
+                totalReasoning += thinking;
+                yield { type: "delta", content: "", reasoning: thinking };
+              }
+            } else if (deltaType === "text_delta") {
+              if (inThinkingBlock) {
+                // Thinking block text delivered as text_delta
+                const text = parsed.delta?.text ?? "";
+                if (text) {
+                  totalReasoning += text;
+                  yield { type: "delta", content: "", reasoning: text };
+                }
+              } else {
+                const delta = parsed.delta?.text ?? "";
+                if (delta) {
+                  totalContent += delta;
+                  yield { type: "delta", content: delta };
+                }
+              }
             }
           } else if (parsed.type === "message_start") {
             inputTokens = parsed.message?.usage?.input_tokens ?? 0;
           } else if (parsed.type === "message_delta") {
             outputTokens = parsed.usage?.output_tokens ?? 0;
           } else if (parsed.type === "message_stop") {
-            yield { type: "done", content: totalContent, inputTokens, outputTokens };
+            yield {
+              type: "done",
+              content: totalContent,
+              reasoning: totalReasoning || undefined,
+              inputTokens,
+              outputTokens,
+            };
             return;
           }
         } catch {
@@ -485,7 +551,13 @@ async function* parseAnthropicSSE(
     reader.releaseLock();
   }
 
-  yield { type: "done", content: totalContent, inputTokens, outputTokens };
+  yield {
+    type: "done",
+    content: totalContent,
+    reasoning: totalReasoning || undefined,
+    inputTokens,
+    outputTokens,
+  };
 }
 
 /**
@@ -522,4 +594,131 @@ export function messagesToApiFormat(
         tool_calls: m.role === "assistant" ? m.toolCalls : undefined,
       } satisfies ApiChatMessage;
     });
+}
+
+export function buildApiMessagesForRequest(
+  messages: AgentMessage[],
+  settings: ContextCompactionSettings,
+): ApiChatMessage[] {
+  return messagesToApiFormat(compactMessagesForRequest(messages, settings));
+}
+
+function compactMessagesForRequest(
+  messages: AgentMessage[],
+  settings: ContextCompactionSettings,
+): AgentMessage[] {
+  if (messages.length === 0 || !settings.autoCompactContext) {
+    return messages;
+  }
+
+  const targetTokens = effectiveContextTargetTokens(settings);
+  const maxMessages = Math.max(1, Number(settings.maxContextMessages || 100));
+  if (estimateMessageTokens(messages) <= targetTokens && messages.length <= maxMessages) {
+    return messages;
+  }
+
+  const keepRecent = Math.min(
+    Math.max(messages.length - 1, 0),
+    Math.max(1, Number(settings.keepRecentOnCompaction || 10)),
+  );
+  const splitAt = Math.max(messages.length - keepRecent, 0);
+  const olderMessages = messages.slice(0, splitAt);
+  const recentMessages = messages.slice(splitAt);
+
+  if (olderMessages.length === 0) {
+    return trimCompactedMessages([...messages], targetTokens);
+  }
+
+  const summaryMessage: AgentMessage = {
+    id: `compacted_${olderMessages[0]?.id ?? "history"}`,
+    threadId: olderMessages[0]?.threadId ?? messages[0]?.threadId ?? "",
+    createdAt: olderMessages[0]?.createdAt ?? messages[0]?.createdAt ?? Date.now(),
+    role: "assistant",
+    content: buildCompactionSummary(olderMessages, targetTokens),
+    provider: undefined,
+    model: undefined,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    reasoning: undefined,
+    isCompactionSummary: false,
+    isStreaming: false,
+  };
+
+  return trimCompactedMessages([summaryMessage, ...recentMessages], targetTokens);
+}
+
+function trimCompactedMessages(messages: AgentMessage[], targetTokens: number): AgentMessage[] {
+  const trimmed = [...messages];
+  while (trimmed.length > 1 && estimateMessageTokens(trimmed) > targetTokens) {
+    trimmed.splice(0, 1);
+  }
+  return trimmed;
+}
+
+function effectiveContextTargetTokens(settings: ContextCompactionSettings): number {
+  const contextWindow = Math.max(1, Number(settings.contextWindowTokens || 128000));
+  const budgetTokens = Math.max(
+    MIN_CONTEXT_TARGET_TOKENS,
+    Number(settings.contextBudgetTokens || 100000),
+  );
+  const thresholdPercent = Math.min(
+    100,
+    Math.max(1, Number(settings.compactThresholdPercent || 80)),
+  );
+  return Math.max(
+    MIN_CONTEXT_TARGET_TOKENS,
+    Math.min(budgetTokens, Math.floor((contextWindow * thresholdPercent) / 100)),
+  );
+}
+
+function estimateMessageTokens(messages: AgentMessage[]): number {
+  return messages.reduce((sum, message) => sum + estimateSingleMessageTokens(message), 0);
+}
+
+function estimateSingleMessageTokens(message: AgentMessage): number {
+  const text =
+    message.content +
+    (message.reasoning ?? "") +
+    (message.toolArguments ?? "") +
+    (message.toolName ?? "") +
+    (message.toolCalls ? JSON.stringify(message.toolCalls) : "");
+  return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN) + 16;
+}
+
+function buildCompactionSummary(messages: AgentMessage[], targetTokens: number): string {
+  const previewParts: string[] = [];
+
+  for (const message of messages) {
+    const summary = summarizeCompactedMessage(message);
+    if (!summary) {
+      continue;
+    }
+    previewParts.push(summary);
+    const next = `[Compacted earlier context] Summary of older messages retained for continuity: ${previewParts.join(" | ")}`;
+    if (Math.ceil(next.length / APPROX_CHARS_PER_TOKEN) >= targetTokens / 2) {
+      break;
+    }
+  }
+
+  const summaryBody =
+    previewParts.length > 0
+      ? previewParts.join(" | ")
+      : `${messages.length} earlier messages were compacted.`;
+  return `[Compacted earlier context] Summary of older messages retained for continuity: ${summaryBody}`;
+}
+
+function summarizeCompactedMessage(message: AgentMessage): string {
+  let content = message.content.replace(/\s+/g, " ").trim();
+  if (content.length > 160) {
+    content = `${content.slice(0, 157)}...`;
+  }
+
+  if (message.role === "tool") {
+    const toolName = message.toolName || "tool";
+    return content ? `tool ${toolName}: ${content}` : `tool ${toolName} completed`;
+  }
+
+  const prefix = message.role === "assistant" ? "assistant" : message.role;
+  return content ? `${prefix}: ${content}` : `${prefix}: (empty)`;
 }

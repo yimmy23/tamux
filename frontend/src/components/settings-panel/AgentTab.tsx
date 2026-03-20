@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { AgentProviderId, AgentSettings } from "../../lib/agentStore";
-import { addBtnStyle, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle } from "./shared";
+import { getProviderDefinition } from "../../lib/agentStore";
+import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function AgentTab({
     settings, updateSetting, resetSettings,
@@ -8,14 +10,18 @@ export function AgentTab({
     updateSetting: <K extends keyof AgentSettings>(key: K, value: AgentSettings[K]) => void;
     resetSettings: () => void;
 }) {
+    const [useCustomUrl, setUseCustomUrl] = useState(false);
+    
     const providerOptions: { id: AgentProviderId; label: string }[] = [
         { id: "featherless", label: "Featherless" },
         { id: "openai", label: "OpenAI" },
         { id: "anthropic", label: "Anthropic" },
         { id: "qwen", label: "Qwen" },
         { id: "qwen-deepinfra", label: "Qwen (DeepInfra)" },
-        { id: "kimi", label: "Kimi" },
+        { id: "kimi", label: "Kimi (Moonshot)" },
+        { id: "kimi-coding-plan", label: "Kimi Coding Plan" },
         { id: "z.ai", label: "Z.AI" },
+        { id: "z.ai-coding-plan", label: "Z.AI Coding Plan" },
         { id: "openrouter", label: "OpenRouter" },
         { id: "cerebras", label: "Cerebras" },
         { id: "together", label: "Together" },
@@ -24,10 +30,16 @@ export function AgentTab({
         { id: "chutes", label: "Chutes" },
         { id: "huggingface", label: "HuggingFace" },
         { id: "minimax", label: "MiniMax" },
+        { id: "minimax-coding-plan", label: "MiniMax Coding Plan" },
+        { id: "alibaba-coding-plan", label: "Alibaba Coding Plan" },
+        { id: "opencode-zen", label: "OpenCode Zen" },
         { id: "custom", label: "Custom" },
     ];
 
     const providerConfig = settings[settings.activeProvider] as { baseUrl: string; model: string; apiKey: string };
+    const providerDef = getProviderDefinition(settings.activeProvider);
+    const isCustomProvider = settings.activeProvider === "custom";
+    const showUrlEditor = isCustomProvider || useCustomUrl || Boolean(providerConfig.baseUrl && providerConfig.baseUrl !== providerDef?.defaultBaseUrl);
 
     return (
         <>
@@ -87,18 +99,69 @@ export function AgentTab({
                         {providerOptions.find((provider) => provider.id === settings.activeProvider)?.label}
                     </div>
 
-                    <SettingRow label="Base URL">
-                        <TextInput value={providerConfig.baseUrl}
-                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, baseUrl: value })} />
-                    </SettingRow>
+                    {showUrlEditor ? (
+                        <SettingRow label="Base URL">
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <TextInput value={providerConfig.baseUrl}
+                                    onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, baseUrl: value })}
+                                    placeholder={providerDef?.defaultBaseUrl} />
+                                {!isCustomProvider && (
+                                    <button type="button" onClick={() => {
+                                        updateSetting(settings.activeProvider, { ...providerConfig, baseUrl: "" });
+                                        setUseCustomUrl(false);
+                                    }} style={smallBtnStyle} title="Reset to predefined default">
+                                        Reset
+                                    </button>
+                                )}
+                            </div>
+                        </SettingRow>
+                    ) : (
+                        <SettingRow label="Base URL">
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ 
+                                    fontSize: 11, 
+                                    fontFamily: "var(--font-mono)", 
+                                    color: "var(--text-muted)",
+                                    background: "var(--bg-surface)",
+                                    padding: "3px 8px",
+                                    border: "1px solid var(--border)",
+                                    flex: 1,
+                                }}>
+                                    {providerDef?.defaultBaseUrl || "(none)"}
+                                </span>
+                                {!isCustomProvider && (
+                                    <button type="button" onClick={() => setUseCustomUrl(true)} style={smallBtnStyle}>
+                                        Override
+                                    </button>
+                                )}
+                            </div>
+                        </SettingRow>
+                    )}
                     <SettingRow label="Model">
-                        <TextInput value={providerConfig.model}
-                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, model: value })} />
+                        <ModelSelector
+                            providerId={settings.activeProvider}
+                            value={providerConfig.model}
+                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, model: value })}
+                            baseUrl={providerConfig.baseUrl || providerDef?.defaultBaseUrl}
+                            apiKey={providerConfig.apiKey}
+                        />
                     </SettingRow>
                     <SettingRow label="API Key">
                         <PasswordInput value={providerConfig.apiKey}
                             onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, apiKey: value })}
                             placeholder="Provider API key" />
+                    </SettingRow>
+                    <SettingRow label="Reasoning Effort">
+                        <select value={settings.reasoningEffort}
+                            onChange={(e) => updateSetting("reasoningEffort", e.target.value as AgentSettings["reasoningEffort"])}
+                            style={inputStyle}>
+                            <option value="none">None</option>
+                            <option value="minimal">Minimal</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="xhigh">Extra High</option>
+                        </select>
                     </SettingRow>
                 </Section>
             ) : null}
@@ -191,7 +254,7 @@ export function AgentTab({
                         onChange={(value) => updateSetting("maxContextMessages", value)} />
                 </SettingRow>
                 <SettingRow label="Max Tool Loops">
-                    <NumberInput value={settings.maxToolLoops} min={1} max={100}
+                    <NumberInput value={settings.maxToolLoops} min={0} max={1000}
                         onChange={(value) => updateSetting("maxToolLoops", value)} />
                 </SettingRow>
                 <SettingRow label="429 Max Retries">
@@ -201,6 +264,10 @@ export function AgentTab({
                 <SettingRow label="429 Retry Delay (ms)">
                     <NumberInput value={settings.retryDelayMs} min={100} max={60000} step={100}
                         onChange={(value) => updateSetting("retryDelayMs", value)} />
+                </SettingRow>
+                <SettingRow label="Context Length (tok)">
+                    <NumberInput value={settings.contextWindowTokens} min={16000} max={2000000} step={1000}
+                        onChange={(value) => updateSetting("contextWindowTokens", value)} />
                 </SettingRow>
                 <SettingRow label="Budget Tokens">
                     <NumberInput value={settings.contextBudgetTokens} min={10000} max={500000} step={10000}

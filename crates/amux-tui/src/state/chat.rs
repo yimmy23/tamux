@@ -50,6 +50,13 @@ pub enum TranscriptMode {
     Full,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatHitTarget {
+    Message(usize),
+    ReasoningToggle(usize),
+    ToolToggle(usize),
+}
+
 // ── ToolCallStatus ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,10 +83,27 @@ pub struct ToolCallVm {
 
 #[derive(Debug, Clone)]
 pub enum ChatAction {
-    Delta { thread_id: String, content: String },
-    Reasoning { thread_id: String, content: String },
-    ToolCall { thread_id: String, call_id: String, name: String, args: String },
-    ToolResult { thread_id: String, call_id: String, name: String, content: String, is_error: bool },
+    Delta {
+        thread_id: String,
+        content: String,
+    },
+    Reasoning {
+        thread_id: String,
+        content: String,
+    },
+    ToolCall {
+        thread_id: String,
+        call_id: String,
+        name: String,
+        args: String,
+    },
+    ToolResult {
+        thread_id: String,
+        call_id: String,
+        name: String,
+        content: String,
+        is_error: bool,
+    },
     TurnDone {
         thread_id: String,
         input_tokens: u64,
@@ -92,7 +116,10 @@ pub enum ChatAction {
     },
     ThreadListReceived(Vec<AgentThread>),
     ThreadDetailReceived(AgentThread),
-    ThreadCreated { thread_id: String, title: String },
+    ThreadCreated {
+        thread_id: String,
+        title: String,
+    },
     SelectThread(String),
     ScrollChat(i32),
     NewThread,
@@ -178,7 +205,10 @@ impl ChatState {
     pub fn is_streaming(&self) -> bool {
         !self.streaming_content.is_empty()
             || !self.streaming_reasoning.is_empty()
-            || self.active_tool_calls.iter().any(|tc| tc.status == ToolCallStatus::Running)
+            || self
+                .active_tool_calls
+                .iter()
+                .any(|tc| tc.status == ToolCallStatus::Running)
     }
 
     pub fn expanded_reasoning(&self) -> &std::collections::HashSet<usize> {
@@ -277,11 +307,19 @@ impl ChatState {
                 self.streaming_content.push_str(&content);
             }
 
-            ChatAction::Reasoning { thread_id: _, content } => {
+            ChatAction::Reasoning {
+                thread_id: _,
+                content,
+            } => {
                 self.streaming_reasoning.push_str(&content);
             }
 
-            ChatAction::ToolCall { thread_id, call_id, name, args } => {
+            ChatAction::ToolCall {
+                thread_id,
+                call_id,
+                name,
+                args,
+            } => {
                 // Flush any accumulated streaming content as an ASST message first
                 // (the assistant said something before calling the tool)
                 if !self.streaming_content.is_empty() {
@@ -336,20 +374,38 @@ impl ChatState {
                 });
             }
 
-            ChatAction::ToolResult { thread_id, call_id, name: _, content, is_error } => {
+            ChatAction::ToolResult {
+                thread_id,
+                call_id,
+                name: _,
+                content,
+                is_error,
+            } => {
                 // Update the active tracker
-                if let Some(tc) = self.active_tool_calls.iter_mut().find(|tc| tc.call_id == call_id) {
-                    tc.status = if is_error { ToolCallStatus::Error } else { ToolCallStatus::Done };
+                if let Some(tc) = self
+                    .active_tool_calls
+                    .iter_mut()
+                    .find(|tc| tc.call_id == call_id)
+                {
+                    tc.status = if is_error {
+                        ToolCallStatus::Error
+                    } else {
+                        ToolCallStatus::Done
+                    };
                     tc.result = Some(content.clone());
                     tc.is_error = is_error;
                 }
 
                 // Update the TOOL message in the thread
                 if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
-                    if let Some(msg) = thread.messages.iter_mut().rev()
-                        .find(|m| m.role == MessageRole::Tool && m.tool_call_id.as_deref() == Some(&call_id))
-                    {
-                        msg.tool_status = Some(if is_error { "error".to_string() } else { "done".to_string() });
+                    if let Some(msg) = thread.messages.iter_mut().rev().find(|m| {
+                        m.role == MessageRole::Tool && m.tool_call_id.as_deref() == Some(&call_id)
+                    }) {
+                        msg.tool_status = Some(if is_error {
+                            "error".to_string()
+                        } else {
+                            "done".to_string()
+                        });
                         msg.content = content;
                     }
                 }
@@ -378,7 +434,11 @@ impl ChatState {
                         let msg = AgentMessage {
                             role: MessageRole::Assistant,
                             content,
-                            reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+                            reasoning: if reasoning.is_empty() {
+                                None
+                            } else {
+                                Some(reasoning)
+                            },
                             input_tokens,
                             output_tokens,
                             tps,
@@ -409,22 +469,36 @@ impl ChatState {
             ChatAction::ThreadDetailReceived(incoming) => {
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     // Merge: keep local user messages, add incoming messages
-                    let local_user_msgs: Vec<AgentMessage> = existing.messages.iter()
+                    let local_user_msgs: Vec<AgentMessage> = existing
+                        .messages
+                        .iter()
                         .filter(|m| m.role == MessageRole::User)
                         .cloned()
                         .collect();
                     let mut merged = local_user_msgs;
                     // Add incoming messages that aren't already present
                     for msg in incoming.messages {
-                        if !merged.iter().any(|m| m.content == msg.content && m.role == msg.role) {
+                        if !merged
+                            .iter()
+                            .any(|m| m.content == msg.content && m.role == msg.role)
+                        {
                             merged.push(msg);
                         }
                     }
                     // Sort by timestamp (0 timestamps go last)
-                    merged.sort_by_key(|m| if m.timestamp == 0 { u64::MAX } else { m.timestamp });
+                    merged.sort_by_key(|m| {
+                        if m.timestamp == 0 {
+                            u64::MAX
+                        } else {
+                            m.timestamp
+                        }
+                    });
                     existing.messages = merged;
-                    existing.total_input_tokens = incoming.total_input_tokens.max(existing.total_input_tokens);
-                    existing.total_output_tokens = incoming.total_output_tokens.max(existing.total_output_tokens);
+                    existing.total_input_tokens =
+                        incoming.total_input_tokens.max(existing.total_input_tokens);
+                    existing.total_output_tokens = incoming
+                        .total_output_tokens
+                        .max(existing.total_output_tokens);
                     if !incoming.title.is_empty() {
                         existing.title = incoming.title;
                     }
@@ -435,7 +509,8 @@ impl ChatState {
 
             ChatAction::ThreadCreated { thread_id, title } => {
                 // Transfer messages from any local pending thread to the real thread
-                let local_messages = self.active_thread()
+                let local_messages = self
+                    .active_thread()
                     .map(|t| t.messages.clone())
                     .unwrap_or_default();
 
@@ -450,7 +525,11 @@ impl ChatState {
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                     // Merge local messages into existing
                     for msg in &local_messages {
-                        if !existing.messages.iter().any(|m| m.content == msg.content && m.role == msg.role) {
+                        if !existing
+                            .messages
+                            .iter()
+                            .any(|m| m.content == msg.content && m.role == msg.role)
+                        {
                             existing.messages.insert(0, msg.clone());
                         }
                     }
@@ -505,7 +584,11 @@ impl ChatState {
                         thread.messages.push(AgentMessage {
                             role: MessageRole::Assistant,
                             content: stopped_content,
-                            reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+                            reasoning: if reasoning.is_empty() {
+                                None
+                            } else {
+                                Some(reasoning)
+                            },
                             ..Default::default()
                         });
                     }
@@ -533,17 +616,32 @@ mod tests {
     #[test]
     fn delta_appends_to_streaming_content() {
         let mut state = ChatState::new();
-        state.reduce(ChatAction::ThreadCreated { thread_id: "t1".into(), title: "Test".into() });
-        state.reduce(ChatAction::Delta { thread_id: "t1".into(), content: "Hello".into() });
-        state.reduce(ChatAction::Delta { thread_id: "t1".into(), content: " world".into() });
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        state.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: "Hello".into(),
+        });
+        state.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: " world".into(),
+        });
         assert_eq!(state.streaming_content(), "Hello world");
     }
 
     #[test]
     fn turn_done_finalizes_streaming_into_message() {
         let mut state = ChatState::new();
-        state.reduce(ChatAction::ThreadCreated { thread_id: "t1".into(), title: "Test".into() });
-        state.reduce(ChatAction::Delta { thread_id: "t1".into(), content: "Hi".into() });
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        state.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: "Hi".into(),
+        });
         state.reduce(ChatAction::TurnDone {
             thread_id: "t1".into(),
             input_tokens: 100,
@@ -582,8 +680,16 @@ mod tests {
     fn thread_list_received_replaces_threads() {
         let mut state = ChatState::new();
         let threads = vec![
-            AgentThread { id: "t1".into(), title: "First".into(), ..Default::default() },
-            AgentThread { id: "t2".into(), title: "Second".into(), ..Default::default() },
+            AgentThread {
+                id: "t1".into(),
+                title: "First".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "t2".into(),
+                title: "Second".into(),
+                ..Default::default()
+            },
         ];
         state.reduce(ChatAction::ThreadListReceived(threads));
         assert_eq!(state.threads().len(), 2);
@@ -592,7 +698,10 @@ mod tests {
     #[test]
     fn tool_call_tracks_running_tool() {
         let mut state = ChatState::new();
-        state.reduce(ChatAction::ThreadCreated { thread_id: "t1".into(), title: "Test".into() });
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
         state.reduce(ChatAction::ToolCall {
             thread_id: "t1".into(),
             call_id: "c1".into(),
@@ -606,7 +715,10 @@ mod tests {
     #[test]
     fn tool_result_updates_status() {
         let mut state = ChatState::new();
-        state.reduce(ChatAction::ThreadCreated { thread_id: "t1".into(), title: "Test".into() });
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
         state.reduce(ChatAction::ToolCall {
             thread_id: "t1".into(),
             call_id: "c1".into(),
@@ -626,7 +738,10 @@ mod tests {
     #[test]
     fn new_thread_clears_active() {
         let mut state = ChatState::new();
-        state.reduce(ChatAction::ThreadCreated { thread_id: "t1".into(), title: "Test".into() });
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
         assert!(state.active_thread_id().is_some());
         state.reduce(ChatAction::NewThread);
         assert!(state.active_thread_id().is_none());
@@ -636,8 +751,16 @@ mod tests {
     fn select_thread_changes_active() {
         let mut state = ChatState::new();
         state.reduce(ChatAction::ThreadListReceived(vec![
-            AgentThread { id: "t1".into(), title: "First".into(), ..Default::default() },
-            AgentThread { id: "t2".into(), title: "Second".into(), ..Default::default() },
+            AgentThread {
+                id: "t1".into(),
+                title: "First".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "t2".into(),
+                title: "Second".into(),
+                ..Default::default()
+            },
         ]));
         state.reduce(ChatAction::SelectThread("t2".into()));
         assert_eq!(state.active_thread_id(), Some("t2"));

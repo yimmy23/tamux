@@ -36,6 +36,8 @@ reqwest = { workspace = true }
 tokio-stream = { workspace = true }
 humantime = { workspace = true }
 which = "7"
+jsonrepair = "0.1.0"
+serde_yaml = "0.9.34"
 
 [target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }

@@ -48,7 +48,7 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
                     "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
                     "language_hint": { "type": "string", "description": "Optional language hint for validation" },
                     "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-                    "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 300, max: 3600)" }
+                    "timeout_seconds": { "type": "integer", "description": "Wait timeout (default: 30, max: 600). If you set a value above 600, the command auto-runs in background with a monitor that notifies you when it completes." }
                 },
                 "required": ["command"]
             }),
@@ -64,7 +64,7 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
                 "properties": {
                     "path": { "type": "string", "description": "Directory path to list" },
                     "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
-                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 300)" }
+                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 600)" }
                 },
                 "required": ["path"]
             }),
@@ -92,9 +92,76 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
                     "path": { "type": "string", "description": "File path to write" },
                     "content": { "type": "string", "description": "File content to write" },
                     "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
-                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 300)" }
+                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 600)" }
                 },
                 "required": ["path", "content"]
+            }),
+        ));
+
+        tools.push(tool_def(
+            "create_file",
+            "Create a new file directly from the daemon filesystem context. Fails if the file already exists unless overwrite=true.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to create" },
+                    "content": { "type": "string", "description": "Initial file content" },
+                    "overwrite": { "type": "boolean", "description": "Allow replacing an existing file (default: false)" }
+                },
+                "required": ["path", "content"]
+            }),
+        ));
+
+        tools.push(tool_def(
+            "append_to_file",
+            "Append text to the end of an existing file without rewriting the whole file.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to append to" },
+                    "content": { "type": "string", "description": "Text to append" },
+                    "create_if_missing": { "type": "boolean", "description": "Create the file if it does not exist (default: false)" }
+                },
+                "required": ["path", "content"]
+            }),
+        ));
+
+        tools.push(tool_def(
+            "replace_in_file",
+            "Replace a specific fragment inside a file. Use this for targeted edits instead of rewriting the full file.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to edit" },
+                    "old_text": { "type": "string", "description": "Exact text to replace" },
+                    "new_text": { "type": "string", "description": "Replacement text" },
+                    "replace_all": { "type": "boolean", "description": "Replace every occurrence instead of exactly one (default: false)" }
+                },
+                "required": ["path", "old_text", "new_text"]
+            }),
+        ));
+
+        tools.push(tool_def(
+            "apply_file_patch",
+            "Apply one or more exact text replacements to a file in order. Use this for multi-hunk targeted edits.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path to patch" },
+                    "edits": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "old_text": { "type": "string", "description": "Exact existing text to replace" },
+                                "new_text": { "type": "string", "description": "Replacement text" },
+                                "replace_all": { "type": "boolean", "description": "Replace all occurrences for this edit (default: false)" }
+                            },
+                            "required": ["old_text", "new_text"]
+                        }
+                    }
+                },
+                "required": ["path", "edits"]
             }),
         ));
 
@@ -338,7 +405,7 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 300, max: 3600)" }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600)" }
         },
         "required": ["command"]
     })));
@@ -354,9 +421,40 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 300, max: 3600)" }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600)" }
         },
         "required": ["command", "rationale"]
+    })));
+    tools.push(tool_def("allocate_terminal", "Allocate another daemon-managed terminal lane in the same workspace as the current session. Use this when your chosen session is occupied by a blocking or long-running command and you need another terminal to continue working.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "session": { "type": "string", "description": "Optional source session ID or unique substring. Defaults to the preferred/current session." },
+            "pane_name": { "type": "string", "description": "Optional name for the new terminal pane" },
+            "cwd": { "type": "string", "description": "Optional working directory hint to show in the workspace metadata" }
+        }
+    })));
+    tools.push(tool_def("spawn_subagent", "Spawn a bounded child task under the current task or thread. Use this to split a large task into parallel subagents with dedicated runtime/session metadata. Keep each child narrowly scoped and monitor it with list_subagents.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string", "description": "Short subagent title" },
+            "description": { "type": "string", "description": "Detailed instructions for the child task" },
+            "runtime": { "type": "string", "enum": ["daemon", "hermes", "openclaw"], "description": "Preferred runtime for the child agent (default: daemon)" },
+            "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Child task priority" },
+            "command": { "type": "string", "description": "Optional preferred entrypoint or command" },
+            "session": { "type": "string", "description": "Optional explicit session ID or unique substring. If omitted, tamux allocates a fresh lane in the same workspace when possible." },
+            "cwd": { "type": "string", "description": "Optional working directory hint for any newly allocated lane" },
+            "dependencies": { "type": "array", "items": { "type": "string" }, "description": "Optional additional task dependencies" }
+        },
+        "required": ["title", "description"]
+    })));
+    tools.push(tool_def("list_subagents", "List child tasks spawned under the current parent task or thread, including runtime, status, thread, and session metadata.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "status": { "type": "string", "enum": ["queued", "in_progress", "awaiting_approval", "blocked", "failed_analyzing", "completed", "failed", "cancelled"], "description": "Optional status filter" },
+            "parent_task_id": { "type": "string", "description": "Override parent task scope" },
+            "parent_thread_id": { "type": "string", "description": "Override parent thread scope" },
+            "limit": { "type": "integer", "description": "Maximum subagents to return (default: 20)" }
+        }
     })));
     tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
         "type": "object",
@@ -560,7 +658,7 @@ pub async fn execute_tool(
     if !thread_id.trim().is_empty()
         && matches!(
             tool_call.function.name.as_str(),
-            "bash_command" | "execute_managed_command" | "enqueue_task"
+            "bash_command" | "execute_managed_command" | "enqueue_task" | "spawn_subagent"
         )
         && agent.get_todos(thread_id).await.is_empty()
         && (task_id.is_some() || agent.planner_required_for_thread(thread_id).await)
@@ -581,7 +679,15 @@ pub async fn execute_tool(
         "list_terminals" | "list_sessions" => execute_list_sessions(session_manager).await,
         "read_active_terminal_content" => execute_read_terminal(&args, session_manager).await,
         "run_terminal_command" => {
-            match execute_run_terminal_command(&args, session_manager, session_id).await {
+            match execute_run_terminal_command(
+                &args,
+                session_manager,
+                session_id,
+                event_tx,
+                thread_id,
+            )
+            .await
+            {
                 Ok((content, approval)) => {
                     pending_approval = approval;
                     Ok(content)
@@ -590,7 +696,9 @@ pub async fn execute_tool(
             }
         }
         "execute_managed_command" => {
-            match execute_managed_command(&args, session_manager, session_id).await {
+            match execute_managed_command(&args, session_manager, session_id, event_tx, thread_id)
+                .await
+            {
                 Ok((content, approval)) => {
                     pending_approval = approval;
                     Ok(content)
@@ -598,6 +706,22 @@ pub async fn execute_tool(
                 Err(error) => Err(error),
             }
         }
+        "allocate_terminal" => {
+            execute_allocate_terminal(&args, session_manager, session_id, event_tx).await
+        }
+        "spawn_subagent" => {
+            execute_spawn_subagent(
+                &args,
+                agent,
+                thread_id,
+                task_id,
+                session_manager,
+                session_id,
+                event_tx,
+            )
+            .await
+        }
+        "list_subagents" => execute_list_subagents(&args, agent, thread_id, task_id).await,
         "enqueue_task" => execute_enqueue_task(&args, agent).await,
         "list_tasks" => execute_list_tasks(&args, agent).await,
         "cancel_task" => execute_cancel_task(&args, agent).await,
@@ -631,16 +755,24 @@ pub async fn execute_tool(
             execute_workspace_tool(tool_call.function.name.as_str(), &args, event_tx).await
         }
         // Daemon-native tools
-        "bash_command" => match execute_bash_command(&args, session_manager, session_id).await {
-            Ok((content, approval)) => {
-                pending_approval = approval;
-                Ok(content)
+        "bash_command" => {
+            match execute_bash_command(&args, session_manager, session_id, event_tx, thread_id)
+                .await
+            {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
             }
-            Err(error) => Err(error),
-        },
+        }
         "list_files" => execute_list_files(&args, session_manager, session_id).await,
         "read_file" => execute_read_file(&args).await,
         "write_file" => execute_write_file(&args, session_manager, session_id).await,
+        "create_file" => execute_create_file(&args).await,
+        "append_to_file" => execute_append_to_file(&args).await,
+        "replace_in_file" => execute_replace_in_file(&args).await,
+        "apply_file_patch" => execute_apply_file_patch(&args).await,
         "search_files" => execute_search_files(&args).await,
         "get_system_info" => execute_system_info().await,
         "list_processes" => execute_list_processes(&args).await,
@@ -702,7 +834,7 @@ async fn execute_list_files(
         .get("timeout_seconds")
         .and_then(|v| v.as_u64())
         .unwrap_or(30)
-        .min(300);
+        .min(600);
 
     let token = format!("amux_ls_{}", uuid::Uuid::new_v4().simple());
     let path_b64 = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
@@ -747,6 +879,171 @@ async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
     Ok(result)
 }
 
+async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    validate_write_path(path)?;
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
+    let overwrite = args
+        .get("overwrite")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let target = std::path::Path::new(path);
+    if target.exists() && !overwrite {
+        anyhow::bail!("file already exists: {path}");
+    }
+
+    if let Some(parent) = target.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(target, content).await?;
+    Ok(format!("Created file {path} ({} bytes)", content.len()))
+}
+
+async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    validate_write_path(path)?;
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
+    let create_if_missing = args
+        .get("create_if_missing")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let target = std::path::Path::new(path);
+    if !target.exists() && !create_if_missing {
+        anyhow::bail!("file does not exist: {path}");
+    }
+    if let Some(parent) = target.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    let mut existing = if target.exists() {
+        tokio::fs::read_to_string(target).await?
+    } else {
+        String::new()
+    };
+    existing.push_str(content);
+    tokio::fs::write(target, existing).await?;
+    Ok(format!("Appended {} bytes to {path}", content.len()))
+}
+
+async fn execute_replace_in_file(args: &serde_json::Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    validate_write_path(path)?;
+    let old_text = args
+        .get("old_text")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'old_text' argument"))?;
+    let new_text = args
+        .get("new_text")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'new_text' argument"))?;
+    let replace_all = args
+        .get("replace_all")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    apply_exact_replacements(
+        path,
+        vec![(old_text.to_string(), new_text.to_string(), replace_all)],
+    )
+    .await
+}
+
+async fn execute_apply_file_patch(args: &serde_json::Value) -> Result<String> {
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    validate_write_path(path)?;
+    let edits = args
+        .get("edits")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("missing 'edits' argument"))?;
+    if edits.is_empty() {
+        anyhow::bail!("'edits' must contain at least one edit");
+    }
+
+    let replacements = edits
+        .iter()
+        .enumerate()
+        .map(|(index, edit)| {
+            let old_text = edit
+                .get("old_text")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("edit {} is missing 'old_text'", index + 1))?;
+            let new_text = edit
+                .get("new_text")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("edit {} is missing 'new_text'", index + 1))?;
+            let replace_all = edit
+                .get("replace_all")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok((old_text.to_string(), new_text.to_string(), replace_all))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    apply_exact_replacements(path, replacements).await
+}
+
+async fn apply_exact_replacements(
+    path: &str,
+    replacements: Vec<(String, String, bool)>,
+) -> Result<String> {
+    let target = std::path::Path::new(path);
+    let mut content = tokio::fs::read_to_string(target).await?;
+    let mut summary = Vec::with_capacity(replacements.len());
+
+    for (index, (old_text, new_text, replace_all)) in replacements.into_iter().enumerate() {
+        if old_text.is_empty() {
+            anyhow::bail!("edit {} has empty 'old_text'", index + 1);
+        }
+
+        let match_count = content.matches(&old_text).count();
+        if match_count == 0 {
+            anyhow::bail!("edit {} target text was not found in {}", index + 1, path);
+        }
+        if !replace_all && match_count != 1 {
+            anyhow::bail!(
+                "edit {} matched {} locations in {}; set replace_all=true or provide a more specific old_text",
+                index + 1,
+                match_count,
+                path
+            );
+        }
+
+        content = if replace_all {
+            content.replace(&old_text, &new_text)
+        } else {
+            content.replacen(&old_text, &new_text, 1)
+        };
+        summary.push(format!(
+            "edit {} replaced {} occurrence(s)",
+            index + 1,
+            if replace_all { match_count } else { 1 }
+        ));
+    }
+
+    tokio::fs::write(target, content).await?;
+    Ok(format!("Patched {} with {}.", path, summary.join(", ")))
+}
+
 async fn execute_write_file(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
@@ -767,7 +1064,7 @@ async fn execute_write_file(
         .get("timeout_seconds")
         .and_then(|v| v.as_u64())
         .unwrap_or(30)
-        .min(300);
+        .min(600);
 
     let sessions = session_manager.list().await;
     if sessions.is_empty() {
@@ -1958,7 +2255,11 @@ fn resolve_skill_path(skills_root: &std::path::Path, skill: &str) -> Result<std:
         }
     }
 
-    anyhow::bail!("skill '{}' was not found under {}", skill, skills_root.display())
+    anyhow::bail!(
+        "skill '{}' was not found under {}",
+        skill,
+        skills_root.display()
+    )
 }
 
 async fn execute_fetch_url(
@@ -2066,20 +2367,38 @@ async fn execute_run_terminal_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let managed_args =
         managed_alias_args(args, "Run a shell command in a managed terminal session");
-    execute_managed_command(&managed_args, session_manager, session_id).await
+    execute_managed_command(
+        &managed_args,
+        session_manager,
+        session_id,
+        event_tx,
+        thread_id,
+    )
+    .await
 }
 
 async fn execute_bash_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let managed_args =
         managed_alias_args(args, "Run a shell command in a managed terminal session");
-    execute_managed_command(&managed_args, session_manager, session_id).await
+    execute_managed_command(
+        &managed_args,
+        session_manager,
+        session_id,
+        event_tx,
+        thread_id,
+    )
+    .await
 }
 
 fn managed_alias_args(args: &serde_json::Value, fallback_rationale: &str) -> serde_json::Value {
@@ -2132,6 +2451,8 @@ async fn execute_managed_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
     let command = args
         .get("command")
@@ -2175,15 +2496,20 @@ async fn execute_managed_command(
         "yolo" => SecurityLevel::Yolo,
         _ => SecurityLevel::Moderate,
     };
-    let wait_for_completion = args
-        .get("wait_for_completion")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(true);
-    let timeout_secs = args
+    let requested_timeout = args
         .get("timeout_seconds")
         .and_then(|value| value.as_u64())
-        .unwrap_or(300)
-        .min(3600);
+        .unwrap_or(30);
+    let timeout_secs = requested_timeout.min(600);
+    // Auto-background: if requested timeout exceeds max, run in background with monitoring
+    let auto_background = requested_timeout > 600;
+    let wait_for_completion = if auto_background {
+        false
+    } else {
+        args.get("wait_for_completion")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true)
+    };
     let mut wait_rx = if wait_for_completion {
         Some(session_manager.subscribe(resolved_session_id).await?.0)
     } else {
@@ -2233,6 +2559,77 @@ async fn execute_managed_command(
             );
 
             if !wait_for_completion {
+                // Spawn background monitor if auto-backgrounded due to high timeout
+                if auto_background {
+                    let sm = session_manager.clone();
+                    let sid = resolved_session_id.clone();
+                    let eid = execution_id.clone();
+                    let etx = event_tx.clone();
+                    let tid = thread_id.to_string();
+                    let monitor_timeout = requested_timeout;
+                    tokio::spawn(async move {
+                        if let Ok((rx, _)) = sm.subscribe(sid).await {
+                            let mut rx = rx;
+                            match wait_for_managed_command_outcome(
+                                &mut rx,
+                                sid,
+                                &eid,
+                                monitor_timeout,
+                            )
+                            .await
+                            {
+                                Ok(ManagedCommandWaitOutcome::Finished {
+                                    exit_code,
+                                    duration_ms,
+                                    output_tail,
+                                }) => {
+                                    let timing = duration_ms
+                                        .map(|v| format!(" in {}ms", v))
+                                        .unwrap_or_default();
+                                    let status = if exit_code == Some(0) {
+                                        "completed successfully"
+                                    } else {
+                                        "failed"
+                                    };
+                                    let msg = format!(
+                                        "Background command {} {}{} (exit_code: {:?})\n\nOutput (tail):\n{}",
+                                        eid, status, timing, exit_code, output_tail
+                                    );
+                                    let _ = etx.send(AgentEvent::Delta {
+                                        thread_id: tid.clone(),
+                                        content: format!("\n\n[Background monitor] {msg}"),
+                                    });
+                                    let _ = etx.send(AgentEvent::WorkflowNotice {
+                                        thread_id: tid,
+                                        kind: "background-command-finished".to_string(),
+                                        message: msg,
+                                        details: None,
+                                    });
+                                }
+                                Ok(ManagedCommandWaitOutcome::Timeout { output_tail }) => {
+                                    let _ = etx.send(AgentEvent::WorkflowNotice {
+                                        thread_id: tid,
+                                        kind: "background-command-timeout".to_string(),
+                                        message: format!(
+                                            "Background command {} still running after {}s. Last output:\n{}",
+                                            eid, monitor_timeout, output_tail
+                                        ),
+                                        details: None,
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+                    return Ok((
+                        format!(
+                            "{queued_summary}\nCommand auto-backgrounded (requested timeout {}s > max 600s). \
+                             A background monitor will notify this thread when the command completes.",
+                            requested_timeout
+                        ),
+                        None,
+                    ));
+                }
                 return Ok((
                     format!(
                         "{queued_summary}\nNot waiting for completion because wait_for_completion=false."
@@ -2300,12 +2697,11 @@ async fn execute_managed_command(
                     } else {
                         format!("\n\nTerminal output so far (tail):\n{output_tail}")
                     };
-                    Ok((
-                        format!(
-                            "{queued_summary}\nStill running after {}s. Do not queue the same command again; continue monitoring this execution_id in the same session.{}",
-                            timeout_secs, output_section
-                        ),
-                        None,
+                    Err(anyhow::anyhow!(
+                        "{queued_summary}\nManaged command is still running after {}s in session {}. Do not reuse this terminal for additional blocking work. Continue monitoring this execution_id or switch to another terminal/session before proceeding. If you need another lane in the same workspace, call allocate_terminal first.{}",
+                        timeout_secs,
+                        resolved_session_id,
+                        output_section
                     ))
                 }
             }
@@ -2334,6 +2730,351 @@ async fn execute_managed_command(
             serde_json::to_string(&other).unwrap_or_else(|_| "<unserializable>".to_string())
         )),
     }
+}
+
+#[derive(Clone)]
+struct AllocatedTerminalLane {
+    source_session_id: SessionId,
+    source_active_command: Option<String>,
+    workspace_id: String,
+    session_id: SessionId,
+    pane_name: String,
+}
+
+async fn allocate_terminal_lane(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+    preferred_session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    default_pane_name: &str,
+) -> Result<AllocatedTerminalLane> {
+    let sessions = session_manager.list().await;
+    if sessions.is_empty() {
+        anyhow::bail!("No active terminal sessions are available to allocate another terminal");
+    }
+
+    let source_session =
+        if let Some(session_ref) = args.get("session").and_then(|value| value.as_str()) {
+            sessions
+                .iter()
+                .find(|session| {
+                    session.id.to_string() == session_ref
+                        || session.id.to_string().contains(session_ref)
+                })
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("session not found: {session_ref}"))?
+        } else {
+            let resolved_id = preferred_session_id.unwrap_or(sessions[0].id);
+            sessions
+                .iter()
+                .find(|session| session.id == resolved_id)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("session not found: {resolved_id}"))?
+        };
+
+    let workspace_id = source_session.workspace_id.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "session {} is not attached to a workspace; cannot allocate another terminal lane",
+            source_session.id
+        )
+    })?;
+    let pane_name = args
+        .get("pane_name")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| default_pane_name.to_string());
+    let cwd = args
+        .get("cwd")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| source_session.cwd.clone());
+
+    let (new_session_id, _, source_active_command) = session_manager
+        .clone_session(
+            source_session.id,
+            Some(workspace_id.clone()),
+            None,
+            None,
+            false,
+            cwd.clone(),
+        )
+        .await?;
+
+    let _ = event_tx.send(AgentEvent::WorkspaceCommand {
+        command: "attach_agent_terminal".to_string(),
+        args: serde_json::json!({
+            "workspace_id": workspace_id.clone(),
+            "session_id": new_session_id.to_string(),
+            "pane_name": pane_name.clone(),
+            "cwd": cwd.clone(),
+        }),
+    });
+
+    Ok(AllocatedTerminalLane {
+        source_session_id: source_session.id,
+        source_active_command,
+        workspace_id,
+        session_id: new_session_id,
+        pane_name,
+    })
+}
+
+async fn execute_allocate_terminal(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+    preferred_session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+) -> Result<String> {
+    let default_pane_name =
+        if let Some(session_ref) = args.get("session").and_then(|value| value.as_str()) {
+            let sessions = session_manager.list().await;
+            let workspace_id = sessions
+                .iter()
+                .find(|session| {
+                    session.id.to_string() == session_ref
+                        || session.id.to_string().contains(session_ref)
+                })
+                .and_then(|session| session.workspace_id.as_ref())
+                .cloned();
+            if let Some(workspace_id) = workspace_id {
+                format!(
+                    "Work {}",
+                    session_manager.list_workspace(&workspace_id).await.len() + 1
+                )
+            } else {
+                "Work".to_string()
+            }
+        } else {
+            "Work".to_string()
+        };
+    let lane = allocate_terminal_lane(
+        args,
+        session_manager,
+        preferred_session_id,
+        event_tx,
+        &default_pane_name,
+    )
+    .await?;
+
+    let source_command_suffix = lane
+        .source_active_command
+        .as_deref()
+        .map(|command| format!("\nSource session active command: {command}"))
+        .unwrap_or_default();
+    Ok(format!(
+        "Allocated terminal {} in workspace {} from source session {}. Frontend attachment requested for pane \"{}\". Use the new session ID for subsequent managed commands.{}",
+        lane.session_id,
+        lane.workspace_id,
+        lane.source_session_id,
+        lane.pane_name,
+        source_command_suffix
+    ))
+}
+
+fn normalize_task_runtime(value: Option<&str>) -> Result<String> {
+    match value.unwrap_or("daemon").trim() {
+        "" | "daemon" => Ok("daemon".to_string()),
+        "hermes" => Ok("hermes".to_string()),
+        "openclaw" => Ok("openclaw".to_string()),
+        other => Err(anyhow::anyhow!("unsupported subagent runtime: {other}")),
+    }
+}
+
+async fn execute_spawn_subagent(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+    session_manager: &Arc<SessionManager>,
+    preferred_session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+) -> Result<String> {
+    let title = args
+        .get("title")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'title' argument"))?
+        .to_string();
+    let description = args
+        .get("description")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'description' argument"))?
+        .to_string();
+    let runtime = normalize_task_runtime(args.get("runtime").and_then(|value| value.as_str()))?;
+    if runtime != "daemon" {
+        let status = agent
+            .external_agent_status(&runtime)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("runtime {runtime} is not configured"))?;
+        if !status.available {
+            anyhow::bail!("runtime {runtime} is not available on this machine");
+        }
+    }
+
+    let priority = args
+        .get("priority")
+        .and_then(|value| value.as_str())
+        .unwrap_or("normal");
+    let command = args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let dependencies = args
+        .get("dependencies")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let task_snapshot = if let Some(current_task_id) = task_id {
+        agent
+            .list_tasks()
+            .await
+            .into_iter()
+            .find(|task| task.id == current_task_id)
+    } else {
+        None
+    };
+
+    let mut chosen_session = args
+        .get("session")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let mut allocated_lane_summary = None;
+    if chosen_session.is_none() {
+        let default_source_session = task_snapshot
+            .as_ref()
+            .and_then(|task| task.session_id.as_deref())
+            .map(ToOwned::to_owned);
+        let lane_request = serde_json::json!({
+            "session": default_source_session,
+            "cwd": args.get("cwd").and_then(|value| value.as_str()),
+            "pane_name": format!("Subagent · {}", title.chars().take(24).collect::<String>()),
+        });
+        if let Ok(lane) = allocate_terminal_lane(
+            &lane_request,
+            session_manager,
+            preferred_session_id,
+            event_tx,
+            "Subagent",
+        )
+        .await
+        {
+            chosen_session = Some(lane.session_id.to_string());
+            allocated_lane_summary = Some(format!(
+                "allocated terminal {} in workspace {} as \"{}\"",
+                lane.session_id, lane.workspace_id, lane.pane_name
+            ));
+        }
+    }
+
+    let subagent = agent
+        .enqueue_task(
+            title,
+            description,
+            priority,
+            command,
+            chosen_session,
+            dependencies,
+            None,
+            "subagent",
+            task_snapshot
+                .as_ref()
+                .and_then(|task| task.goal_run_id.clone()),
+            task_id.map(ToOwned::to_owned),
+            Some(thread_id.to_string()),
+            Some(runtime.clone()),
+        )
+        .await;
+
+    let lane_suffix = allocated_lane_summary
+        .map(|value| format!("\nDedicated lane: {value}"))
+        .unwrap_or_default();
+    Ok(format!(
+        "Spawned subagent {} with runtime {}.{}",
+        subagent.id, runtime, lane_suffix
+    ))
+}
+
+async fn execute_list_subagents(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    let status_filter = args
+        .get("status")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_ascii_lowercase());
+    let parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| task_id.map(ToOwned::to_owned));
+    let parent_thread_id = args
+        .get("parent_thread_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| Some(thread_id.to_string()));
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(20);
+
+    let mut subagents = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .filter(|task| {
+            if task.source != "subagent" {
+                return false;
+            }
+            parent_task_id
+                .as_deref()
+                .map(|value| task.parent_task_id.as_deref() == Some(value))
+                .unwrap_or(false)
+                || parent_thread_id
+                    .as_deref()
+                    .map(|value| task.parent_thread_id.as_deref() == Some(value))
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(status_filter) = status_filter {
+        subagents.retain(|task| {
+            serde_json::to_value(task.status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .map(|value| value == status_filter)
+                .unwrap_or(false)
+        });
+    }
+
+    subagents.truncate(limit);
+    Ok(serde_json::to_string_pretty(&subagents).unwrap_or_else(|_| "[]".to_string()))
 }
 
 async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
@@ -2395,6 +3136,9 @@ async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> 
             dependencies,
             scheduled_at,
             "agent",
+            None,
+            None,
+            None,
             None,
         )
         .await;

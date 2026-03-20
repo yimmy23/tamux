@@ -1,12 +1,12 @@
 // Sub-module declarations — uncomment as modules are implemented
+pub mod approval;
 pub mod chat;
+pub mod config;
 pub mod input;
 pub mod modal;
+pub mod settings;
 pub mod sidebar;
 pub mod task;
-pub mod config;
-pub mod approval;
-pub mod settings;
 
 // ── Focus ────────────────────────────────────────────────────────────────────
 
@@ -57,21 +57,21 @@ pub enum DaemonCommand {
 // These will be filled in by later tasks.
 
 #[allow(unused_imports)]
-pub use chat::{ChatState, ChatAction, TranscriptMode, ToolCallVm, ToolCallStatus};
+pub use approval::{ApprovalAction, ApprovalState, PendingApproval, RiskLevel};
 #[allow(unused_imports)]
-pub use task::{TaskState, TaskAction};
+pub use chat::{ChatAction, ChatState, ToolCallStatus, ToolCallVm, TranscriptMode};
 #[allow(unused_imports)]
-pub use sidebar::{SidebarState, SidebarAction, SidebarTab};
+pub use config::{ConfigAction, ConfigState};
 #[allow(unused_imports)]
-pub use input::{InputState, InputAction, InputMode};
+pub use input::{InputAction, InputMode, InputState};
 #[allow(unused_imports)]
-pub use modal::{ModalState, ModalAction, ModalKind, CommandItem};
+pub use modal::{CommandItem, ModalAction, ModalKind, ModalState};
 #[allow(unused_imports)]
-pub use config::{ConfigState, ConfigAction};
+pub use settings::{SettingsAction, SettingsState, SettingsTab};
 #[allow(unused_imports)]
-pub use approval::{ApprovalState, ApprovalAction, RiskLevel, PendingApproval};
+pub use sidebar::{SidebarAction, SidebarState, SidebarTab};
 #[allow(unused_imports)]
-pub use settings::{SettingsState, SettingsAction, SettingsTab};
+pub use task::{TaskAction, TaskState};
 
 // ── Top-level app action ──────────────────────────────────────────────────────
 

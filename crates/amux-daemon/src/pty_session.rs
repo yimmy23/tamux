@@ -5,9 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use amux_protocol::{
-    DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SessionId, SnapshotInfo,
-};
+use amux_protocol::{DaemonMessage, ManagedCommandRequest, SessionId, SnapshotInfo};
 use anyhow::Result;
 use base64::Engine;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -213,19 +211,6 @@ impl PtySession {
         snapshot: Option<SnapshotInfo>,
     ) -> Result<usize> {
         let mut lane = self.managed_lane.lock().unwrap();
-        let immediate_dispatch = lane.active.is_some()
-            && matches!(
-                request.source,
-                ManagedCommandSource::Agent | ManagedCommandSource::Gateway
-            );
-
-        if immediate_dispatch {
-            // Assistant/gateway commands should remain responsive even if a
-            // previously managed command is still running interactively.
-            dispatch_managed_command(&self.master_write, &request, self.cwd.as_deref())?;
-            return Ok(0);
-        }
-
         if lane.active.is_none() {
             dispatch_managed_command(&self.master_write, &request, self.cwd.as_deref())?;
             lane.active = Some(ActiveManagedCommand {

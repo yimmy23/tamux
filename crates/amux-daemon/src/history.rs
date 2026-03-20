@@ -647,8 +647,8 @@ impl HistoryStore {
 
         transaction.execute(
             "INSERT OR REPLACE INTO agent_tasks \
-             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
             params![
                 &task.id,
                 &task.title,
@@ -668,6 +668,12 @@ impl HistoryStore {
                 &task.command,
                 &task.session_id,
                 &task.goal_run_id,
+                &task.goal_run_title,
+                &task.goal_step_id,
+                &task.goal_step_title,
+                &task.parent_task_id,
+                &task.parent_thread_id,
+                &task.runtime,
                 task.retry_count as i64,
                 task.max_retries as i64,
                 task.next_retry_at.map(|value| value as i64),
@@ -758,7 +764,7 @@ impl HistoryStore {
         }
 
         let mut stmt = connection.prepare(
-            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
+            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
              FROM agent_tasks \
              ORDER BY CASE status \
                  WHEN 'in_progress' THEN 0 \
@@ -799,14 +805,20 @@ impl HistoryStore {
                 command: row.get(15)?,
                 session_id: row.get(16)?,
                 goal_run_id: row.get(17)?,
-                retry_count: row.get::<_, i64>(18)? as u32,
-                max_retries: row.get::<_, i64>(19)? as u32,
-                next_retry_at: row.get::<_, Option<i64>>(20)?.map(|value| value as u64),
-                scheduled_at: row.get::<_, Option<i64>>(21)?.map(|value| value as u64),
-                blocked_reason: row.get(22)?,
-                awaiting_approval_id: row.get(23)?,
-                lane_id: row.get(24)?,
-                last_error: row.get(25)?,
+                goal_run_title: row.get(18)?,
+                goal_step_id: row.get(19)?,
+                goal_step_title: row.get(20)?,
+                parent_task_id: row.get(21)?,
+                parent_thread_id: row.get(22)?,
+                runtime: row.get::<_, Option<String>>(23)?.unwrap_or_else(|| "daemon".to_string()),
+                retry_count: row.get::<_, i64>(24)? as u32,
+                max_retries: row.get::<_, i64>(25)? as u32,
+                next_retry_at: row.get::<_, Option<i64>>(26)?.map(|value| value as u64),
+                scheduled_at: row.get::<_, Option<i64>>(27)?.map(|value| value as u64),
+                blocked_reason: row.get(28)?,
+                awaiting_approval_id: row.get(29)?,
+                lane_id: row.get(30)?,
+                last_error: row.get(31)?,
                 logs: Vec::new(),
             })
         })?;
@@ -829,12 +841,13 @@ impl HistoryStore {
 
         transaction.execute(
             "INSERT OR REPLACE INTO goal_runs \
-             (id, title, goal, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 &goal_run.id,
                 &goal_run.title,
                 &goal_run.goal,
+                &goal_run.client_request_id,
                 goal_run_status_to_str(goal_run.status),
                 task_priority_to_str(goal_run.priority),
                 goal_run.created_at as i64,
@@ -968,35 +981,36 @@ impl HistoryStore {
         }
 
         let mut stmt = connection.prepare(
-            "SELECT id, title, goal, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json \
+            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json \
              FROM goal_runs ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
-            let memory_updates_json: String = row.get(16)?;
-            let child_task_ids_json: String = row.get(19)?;
+            let memory_updates_json: String = row.get(17)?;
+            let child_task_ids_json: String = row.get(20)?;
             Ok(GoalRun {
                 id,
                 title: row.get(1)?,
                 goal: row.get(2)?,
-                status: parse_goal_run_status(&row.get::<_, String>(3)?),
-                priority: parse_task_priority(&row.get::<_, String>(4)?),
-                created_at: row.get::<_, i64>(5)? as u64,
-                updated_at: row.get::<_, i64>(6)? as u64,
-                started_at: row.get::<_, Option<i64>>(7)?.map(|value| value as u64),
-                completed_at: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
-                thread_id: row.get(9)?,
-                session_id: row.get(10)?,
-                current_step_index: row.get::<_, i64>(11)? as usize,
+                client_request_id: row.get(3)?,
+                status: parse_goal_run_status(&row.get::<_, String>(4)?),
+                priority: parse_task_priority(&row.get::<_, String>(5)?),
+                created_at: row.get::<_, i64>(6)? as u64,
+                updated_at: row.get::<_, i64>(7)? as u64,
+                started_at: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
+                completed_at: row.get::<_, Option<i64>>(9)?.map(|value| value as u64),
+                thread_id: row.get(10)?,
+                session_id: row.get(11)?,
+                current_step_index: row.get::<_, i64>(12)? as usize,
                 current_step_title: None,
                 current_step_kind: None,
-                replan_count: row.get::<_, i64>(12)? as u32,
-                max_replans: row.get::<_, i64>(13)? as u32,
-                plan_summary: row.get(14)?,
-                reflection_summary: row.get(15)?,
+                replan_count: row.get::<_, i64>(13)? as u32,
+                max_replans: row.get::<_, i64>(14)? as u32,
+                plan_summary: row.get(15)?,
+                reflection_summary: row.get(16)?,
                 memory_updates: serde_json::from_str(&memory_updates_json).unwrap_or_default(),
-                generated_skill_path: row.get(17)?,
-                last_error: row.get(18)?,
+                generated_skill_path: row.get(18)?,
+                last_error: row.get(19)?,
                 failure_cause: None,
                 awaiting_approval_id: None,
                 active_task_id: None,
@@ -1126,6 +1140,12 @@ impl HistoryStore {
                 command              TEXT,
                 session_id           TEXT,
                 goal_run_id          TEXT,
+                goal_run_title       TEXT,
+                goal_step_id         TEXT,
+                goal_step_title      TEXT,
+                parent_task_id       TEXT,
+                parent_thread_id     TEXT,
+                runtime              TEXT NOT NULL DEFAULT 'daemon',
                 retry_count          INTEGER NOT NULL DEFAULT 0,
                 max_retries          INTEGER NOT NULL DEFAULT 3,
                 next_retry_at        INTEGER,
@@ -1181,6 +1201,7 @@ impl HistoryStore {
                 id                  TEXT PRIMARY KEY,
                 title               TEXT NOT NULL,
                 goal                TEXT NOT NULL,
+                client_request_id   TEXT,
                 status              TEXT NOT NULL,
                 priority            TEXT NOT NULL,
                 created_at          INTEGER NOT NULL,
@@ -1233,6 +1254,18 @@ impl HistoryStore {
         ensure_column(&connection, "agent_tasks", "session_id", "TEXT")?;
         ensure_column(&connection, "agent_tasks", "scheduled_at", "INTEGER")?;
         ensure_column(&connection, "agent_tasks", "goal_run_id", "TEXT")?;
+        ensure_column(&connection, "agent_tasks", "goal_run_title", "TEXT")?;
+        ensure_column(&connection, "agent_tasks", "goal_step_id", "TEXT")?;
+        ensure_column(&connection, "agent_tasks", "goal_step_title", "TEXT")?;
+        ensure_column(&connection, "agent_tasks", "parent_task_id", "TEXT")?;
+        ensure_column(&connection, "agent_tasks", "parent_thread_id", "TEXT")?;
+        ensure_column(
+            &connection,
+            "agent_tasks",
+            "runtime",
+            "TEXT NOT NULL DEFAULT 'daemon'",
+        )?;
+        ensure_column(&connection, "goal_runs", "client_request_id", "TEXT")?;
         ensure_column(&connection, "goal_run_events", "step_index", "INTEGER")?;
         ensure_column(&connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
         connection.execute(
@@ -1554,6 +1587,7 @@ fn goal_run_step_kind_to_str(value: GoalRunStepKind) -> &'static str {
         GoalRunStepKind::Research => "research",
         GoalRunStepKind::Memory => "memory",
         GoalRunStepKind::Skill => "skill",
+        GoalRunStepKind::Unknown => "reason",
     }
 }
 
@@ -1930,6 +1964,7 @@ mod tests {
             id: "goal-1".to_string(),
             title: "Goal".to_string(),
             goal: "Do the thing".to_string(),
+            client_request_id: None,
             status: GoalRunStatus::Running,
             priority: TaskPriority::Normal,
             created_at: 1,

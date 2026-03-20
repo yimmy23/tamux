@@ -113,6 +113,7 @@ declare global {
         id: string;
         title: string;
         goal: string;
+        client_request_id?: string | null;
         status: AmuxGoalRunStatus;
         priority?: string | null;
         created_at: number;
@@ -141,6 +142,50 @@ declare global {
         steps?: AmuxGoalRunStep[];
     };
 
+    type AmuxAgentRunStatus =
+        | "queued"
+        | "in_progress"
+        | "awaiting_approval"
+        | "blocked"
+        | "failed_analyzing"
+        | "completed"
+        | "failed"
+        | "cancelled";
+
+    type AmuxAgentRunPriority = "low" | "normal" | "high" | "urgent";
+
+    type AmuxAgentRun = {
+        id: string;
+        task_id: string;
+        kind: "task" | "subagent";
+        classification: "coding" | "research" | "ops" | "browser" | "messaging" | "mixed" | string;
+        title: string;
+        description: string;
+        status: AmuxAgentRunStatus;
+        priority: AmuxAgentRunPriority;
+        progress: number;
+        created_at: number;
+        started_at?: number | null;
+        completed_at?: number | null;
+        thread_id?: string | null;
+        session_id?: string | null;
+        workspace_id?: string | null;
+        source: string;
+        runtime?: string | null;
+        goal_run_id?: string | null;
+        goal_run_title?: string | null;
+        goal_step_id?: string | null;
+        goal_step_title?: string | null;
+        parent_run_id?: string | null;
+        parent_task_id?: string | null;
+        parent_thread_id?: string | null;
+        parent_title?: string | null;
+        blocked_reason?: string | null;
+        error?: string | null;
+        result?: string | null;
+        last_error?: string | null;
+    };
+
     type AmuxBridge = {
         checkSetupPrereqs?: (profile?: "source" | "desktop") => Promise<AmuxSetupPrereqReport>;
         discoverCodingAgents?: () => Promise<AmuxCodingAgentDiscoveryResult[]>;
@@ -154,6 +199,18 @@ declare global {
         listDataDir?: (relativeDir?: string) => Promise<Array<{ name: string; path: string; isDirectory: boolean }>>;
         openDataPath?: (relativePath: string) => Promise<string>;
         revealDataPath?: (relativePath: string) => Promise<boolean>;
+        listFsDir?: (targetDir: string) => Promise<Array<{ name: string; path: string; isDirectory: boolean; sizeBytes?: number | null; modifiedAt?: number | null }>>;
+        copyFsPath?: (sourcePath: string, destinationPath: string) => Promise<boolean>;
+        moveFsPath?: (sourcePath: string, destinationPath: string) => Promise<boolean>;
+        deleteFsPath?: (targetPath: string) => Promise<boolean>;
+        createFsDirectory?: (targetDirPath: string) => Promise<boolean>;
+        openFsPath?: (targetPath: string) => Promise<string>;
+        revealFsPath?: (targetPath: string) => Promise<boolean>;
+        readFsText?: (targetPath: string) => Promise<string | null>;
+        writeFsText?: (targetPath: string, content: string) => Promise<boolean>;
+        getFsPathInfo?: (targetPath: string) => Promise<{ path: string; isDirectory: boolean; sizeBytes: number; modifiedAt: number; createdAt: number } | null>;
+        gitStatus?: (targetPath: string) => Promise<string>;
+        gitDiff?: (targetPath: string, filePath?: string | null) => Promise<string>;
         dbAppendCommandLog?: (entry: unknown) => Promise<boolean>;
         dbCompleteCommandLog?: (id: string, exitCode?: number | null, durationMs?: number | null) => Promise<boolean>;
         dbQueryCommandLog?: (opts?: { workspaceId?: string | null; paneId?: string | null; limit?: number | null }) => Promise<unknown[]>;
@@ -165,9 +222,11 @@ declare global {
         dbAddMessage?: (message: unknown) => Promise<boolean>;
         dbListMessages?: (threadId: string, limit?: number | null) => Promise<unknown[]>;
         agentAddTask?: (payload: { title: string; description: string; priority?: string; command?: string | null; sessionId?: string | null; scheduledAt?: number | null; dependencies?: string[] }) => Promise<unknown>;
+        agentListRuns?: () => Promise<AmuxAgentRun[] | unknown>;
+        agentGetRun?: (runId: string) => Promise<AmuxAgentRun | null | unknown>;
         agentListTodos?: () => Promise<Record<string, AmuxTodoItem[]> | unknown>;
         agentGetTodos?: (threadId: string) => Promise<{ thread_id: string; items: AmuxTodoItem[] } | AmuxTodoItem[] | unknown>;
-        agentStartGoalRun?: (payload: { goal: string; title?: string | null; sessionId?: string | null; priority?: string | null; threadId?: string | null }) => Promise<AmuxGoalRun | unknown>;
+        agentStartGoalRun?: (payload: { goal: string; title?: string | null; sessionId?: string | null; priority?: string | null; threadId?: string | null; clientRequestId?: string | null }) => Promise<AmuxGoalRun | unknown>;
         agentListGoalRuns?: () => Promise<AmuxGoalRun[] | unknown>;
         agentGetGoalRun?: (goalRunId: string) => Promise<AmuxGoalRun | unknown>;
         agentControlGoalRun?: (goalRunId: string, action: AmuxGoalRunControlAction, stepIndex?: number | null) => Promise<boolean | { ok?: boolean; success?: boolean } | unknown>;
@@ -177,6 +236,17 @@ declare global {
         dbListSnapshotIndex?: (workspaceId?: string | null) => Promise<unknown[]>;
         dbUpsertAgentEvent?: (eventRow: unknown) => Promise<boolean>;
         dbListAgentEvents?: (opts?: { category?: string | null; paneId?: string | null; limit?: number | null }) => Promise<unknown[]>;
+        startTerminalSession?: (options: {
+            paneId: string;
+            sessionId?: string | null;
+            shell?: string | null;
+            cwd?: string | null;
+            workspaceId?: string | null;
+            cols?: number;
+            rows?: number;
+            sourcePaneId?: string | null;
+        }) => Promise<{ sessionId?: string | null; initialOutput?: string[]; state?: string }>;
+        onTerminalEvent?: (cb: (event: any) => void) => (() => void) | void;
         sendTerminalInput?: (paneId: string | null, data: string) => Promise<boolean>;
         cloneTerminalSession?: (payload: {
             sourcePaneId?: string;
@@ -185,6 +255,10 @@ declare global {
             cols?: number;
             rows?: number;
         }) => Promise<{ sessionId: string }>;
+        stopTerminalSession?: (paneId: string, killSession?: boolean) => Promise<boolean>;
+        executeManagedCommand?: (paneId: string, payload: unknown) => Promise<boolean>;
+        agentSendMessage?: (threadId: string | null, content: string, sessionId?: string | null, contextMessages?: unknown[]) => Promise<{ ok?: boolean; error?: string } | unknown>;
+        agentFetchModels?: (providerId: string, baseUrl: string, apiKey: string) => Promise<{ models?: Array<{ id: string; name?: string; context_window?: number }>; error?: string } | unknown>;
         listInstalledPlugins?: () => Promise<AmuxInstalledPluginRecord[]>;
         loadInstalledPlugins?: () => Promise<AmuxInstalledPluginLoadResult[]>;
     };

@@ -64,10 +64,7 @@ pub fn render(
                     if let Some(ref session_id) = task.session_id {
                         lines.push(Line::from(vec![
                             Span::raw("    "),
-                            Span::styled(
-                                format!("\u{2514} thread: {}", session_id),
-                                theme.fg_dim,
-                            ),
+                            Span::styled(format!("\u{2514} thread: {}", session_id), theme.fg_dim),
                         ]));
                     }
                 }

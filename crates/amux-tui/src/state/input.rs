@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use ratatui_textarea::{CursorMove, TextArea};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
     Normal,
@@ -10,8 +12,8 @@ pub enum InputMode {
 pub enum InputAction {
     InsertChar(char),
     Backspace,
-    DeleteWord,   // delete word before cursor (Ctrl+Backspace / Ctrl+W)
-    ClearLine,    // clear entire input line (Ctrl+U)
+    DeleteWord, // delete word before cursor (Ctrl+Backspace / Ctrl+W)
+    ClearLine,  // clear entire input line (Ctrl+U)
     Submit,
     ToggleMode,
     Clear,
@@ -41,32 +43,30 @@ pub struct PasteBlock {
 }
 
 pub struct InputState {
-    buffer: String,
-    cursor: usize,           // byte offset in buffer
+    textarea: TextArea<'static>,
+    buffer_cache: String,
     mode: InputMode,
     submitted: Option<String>,
-    undo_stack: Vec<String>,  // previous buffer states
-    redo_stack: Vec<String>,  // for redo after undo
     paste_blocks: Vec<PasteBlock>,
     next_paste_id: usize,
 }
 
 impl InputState {
     pub fn new() -> Self {
+        let textarea = TextArea::default();
+        let buffer_cache = textarea.lines().join("\n");
         Self {
-            buffer: String::new(),
-            cursor: 0,
+            textarea,
+            buffer_cache,
             mode: InputMode::Insert, // Start in Insert mode
             submitted: None,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
             paste_blocks: Vec::new(),
             next_paste_id: 0,
         }
     }
 
     pub fn buffer(&self) -> &str {
-        &self.buffer
+        &self.buffer_cache
     }
 
     pub fn mode(&self) -> InputMode {
@@ -74,7 +74,7 @@ impl InputState {
     }
 
     pub fn multiline(&self) -> bool {
-        self.buffer.contains('\n')
+        self.textarea.lines().len() > 1
     }
 
     pub fn take_submitted(&mut self) -> Option<String> {
@@ -87,12 +87,27 @@ impl InputState {
 
     /// Get cursor byte offset
     pub fn cursor_pos(&self) -> usize {
-        self.cursor
+        let (target_row, target_col) = self.textarea.cursor();
+        let mut offset = 0usize;
+
+        for (row, line) in self.textarea.lines().iter().enumerate() {
+            if row == target_row {
+                let byte_offset = line
+                    .char_indices()
+                    .nth(target_col)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
+                return offset + byte_offset;
+            }
+            offset += line.len() + 1;
+        }
+
+        self.buffer_cache.len()
     }
 
     /// Get cursor (line, col) for rendering
     pub fn cursor_line_col_public(&self) -> (usize, usize) {
-        self.cursor_line_col()
+        self.textarea.cursor()
     }
 
     /// Convert (line, col) to byte offset (public, for mouse click positioning)
@@ -112,24 +127,22 @@ impl InputState {
     /// a NUL-delimited placeholder token (`\x00PASTE:N\x00`) into the buffer
     /// so the display layer can render a collapsed amber preview.
     pub fn insert_paste_block(&mut self, content: String) {
-        self.save_undo();
         let line_count = content.lines().count();
         if line_count <= 1 {
-            // Single-line paste: just insert normally
-            for c in content.chars() {
-                self.buffer.insert(self.cursor, c);
-                self.cursor += c.len_utf8();
-            }
+            self.textarea.insert_str(content);
+            self.sync_buffer_cache();
             return;
         }
         let id = self.next_paste_id;
         self.next_paste_id += 1;
         let placeholder = format!("\x00PASTE:{}\x00", id);
-        for c in placeholder.chars() {
-            self.buffer.insert(self.cursor, c);
-            self.cursor += c.len_utf8();
-        }
-        self.paste_blocks.push(PasteBlock { id, content, line_count });
+        self.textarea.insert_str(placeholder);
+        self.paste_blocks.push(PasteBlock {
+            id,
+            content,
+            line_count,
+        });
+        self.sync_buffer_cache();
     }
 
     /// Expand all paste-block placeholder tokens in `text`, replacing them
@@ -150,7 +163,11 @@ impl InputState {
         blocks.iter().find(|b| b.id == id).map(|b| {
             let first_line = b.content.lines().next().unwrap_or("");
             let truncated: String = first_line.chars().take(20).collect();
-            let ellipsis = if first_line.chars().count() > 20 { "..." } else { "" };
+            let ellipsis = if first_line.chars().count() > 20 {
+                "..."
+            } else {
+                ""
+            };
             format!(
                 "[Pasted text #{} +{} lines: {}{}]",
                 b.id + 1,
@@ -163,34 +180,78 @@ impl InputState {
 
     /// Get (line_index, col_index) for current cursor position
     fn cursor_line_col(&self) -> (usize, usize) {
-        let before = &self.buffer[..self.cursor];
-        let line = before.matches('\n').count();
-        let last_newline = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let col = self.cursor - last_newline;
-        (line, col)
+        self.textarea.cursor()
     }
 
     /// Convert (line, col) to byte offset, clamping col to line length
     fn line_col_to_offset(&self, line: usize, col: usize) -> usize {
         let mut offset = 0;
-        for (i, line_str) in self.buffer.split('\n').enumerate() {
+        for (i, line_str) in self.buffer_cache.split('\n').enumerate() {
             if i == line {
                 return offset + col.min(line_str.len());
             }
             offset += line_str.len() + 1; // +1 for \n
         }
-        self.buffer.len() // past end
+        self.buffer_cache.len() // past end
     }
 
-    /// Save current buffer state for undo
-    fn save_undo(&mut self) {
-        if self.undo_stack.last().map(|s| s.as_str()) != Some(&self.buffer) {
-            self.undo_stack.push(self.buffer.clone());
-            if self.undo_stack.len() > 100 {
-                self.undo_stack.remove(0);
+    fn sync_buffer_cache(&mut self) {
+        self.buffer_cache = self.textarea.lines().join("\n");
+    }
+
+    fn set_buffer_and_cursor(&mut self, buffer: &str, cursor: usize) {
+        self.textarea = TextArea::from(buffer.split('\n'));
+        self.sync_buffer_cache();
+        self.jump_to_offset(cursor.min(self.buffer_cache.len()));
+    }
+
+    fn find_placeholder_bounds_at(&self, cursor: usize) -> Option<(usize, usize, usize)> {
+        let buffer = &self.buffer_cache;
+        let mut search_start = 0usize;
+
+        while let Some(rel_start) = buffer[search_start..].find("\x00PASTE:") {
+            let start = search_start + rel_start;
+            let rest = &buffer[start + 1..];
+            let end_rel = rest.find('\x00')?;
+            let end = start + 1 + end_rel + 1;
+            if cursor > start && cursor <= end {
+                let tag = &rest[..end_rel];
+                if let Some(id_str) = tag.strip_prefix("PASTE:") {
+                    if let Ok(id) = id_str.parse::<usize>() {
+                        return Some((start, end, id));
+                    }
+                }
             }
-            self.redo_stack.clear();
+            search_start = end;
         }
+
+        None
+    }
+
+    fn find_placeholder_bounds_touching_cursor(
+        &self,
+        cursor: usize,
+    ) -> Option<(usize, usize, usize)> {
+        self.find_placeholder_bounds_at(cursor).or_else(|| {
+            cursor
+                .checked_sub(1)
+                .and_then(|previous| self.find_placeholder_bounds_at(previous))
+        })
+    }
+
+    fn remove_paste_block_at_cursor(&mut self) -> bool {
+        let cursor = self.cursor_pos();
+        let Some((start, end, id)) = self.find_placeholder_bounds_touching_cursor(cursor) else {
+            return false;
+        };
+
+        let mut new_buffer =
+            String::with_capacity(self.buffer_cache.len().saturating_sub(end - start));
+        new_buffer.push_str(&self.buffer_cache[..start]);
+        new_buffer.push_str(&self.buffer_cache[end..]);
+        self.paste_blocks.retain(|block| block.id != id);
+        self.set_buffer_and_cursor(&new_buffer, start);
+        true
     }
 
     /// Get cursor position in visual (wrapped) line coordinates.
@@ -198,16 +259,21 @@ impl InputState {
     fn cursor_visual_line_col(&self, wrap_width: usize) -> (usize, usize) {
         let mut vis_line = 0;
         let mut offset = 0;
-        for logical_line in self.buffer.split('\n') {
+        for logical_line in self.buffer_cache.split('\n') {
             let len = logical_line.chars().count();
-            let vis_lines_in_this = if wrap_width == 0 || len == 0 { 1 } else { (len + wrap_width - 1) / wrap_width };
+            let vis_lines_in_this = if wrap_width == 0 || len == 0 {
+                1
+            } else {
+                (len + wrap_width - 1) / wrap_width
+            };
 
             let line_start = offset;
             let line_end = offset + logical_line.len();
 
-            if self.cursor >= line_start && self.cursor <= line_end {
+            let cursor = self.cursor_pos();
+            if cursor >= line_start && cursor <= line_end {
                 // Cursor is in this logical line
-                let chars_before = self.buffer[line_start..self.cursor].chars().count();
+                let chars_before = self.buffer_cache[line_start..cursor].chars().count();
                 let vis_line_in_this = chars_before / wrap_width.max(1);
                 let vis_col = chars_before % wrap_width.max(1);
                 return (vis_line + vis_line_in_this, vis_col);
@@ -221,21 +287,35 @@ impl InputState {
 
     /// Total number of visual lines when wrapping at `wrap_width`.
     fn total_visual_lines(&self, wrap_width: usize) -> usize {
-        self.buffer.split('\n')
+        self.buffer_cache
+            .split('\n')
             .map(|line| {
                 let len = line.chars().count();
-                if wrap_width == 0 || len == 0 { 1 } else { (len + wrap_width - 1) / wrap_width }
+                if wrap_width == 0 || len == 0 {
+                    1
+                } else {
+                    (len + wrap_width - 1) / wrap_width
+                }
             })
             .sum()
     }
 
     /// Convert visual (wrapped) line + col to byte offset.
-    fn visual_line_col_to_offset(&self, target_vis_line: usize, target_col: usize, wrap_width: usize) -> usize {
+    fn visual_line_col_to_offset(
+        &self,
+        target_vis_line: usize,
+        target_col: usize,
+        wrap_width: usize,
+    ) -> usize {
         let mut vis_line = 0;
         let mut offset = 0;
-        for logical_line in self.buffer.split('\n') {
+        for logical_line in self.buffer_cache.split('\n') {
             let len = logical_line.chars().count();
-            let vis_lines_in_this = if wrap_width == 0 || len == 0 { 1 } else { (len + wrap_width - 1) / wrap_width };
+            let vis_lines_in_this = if wrap_width == 0 || len == 0 {
+                1
+            } else {
+                (len + wrap_width - 1) / wrap_width
+            };
 
             if target_vis_line >= vis_line && target_vis_line < vis_line + vis_lines_in_this {
                 // Target is in this logical line
@@ -243,72 +323,84 @@ impl InputState {
                 let char_offset = vis_line_within * wrap_width + target_col.min(wrap_width - 1);
                 let clamped = char_offset.min(len);
                 // Convert char offset to byte offset
-                let byte_offset: usize = logical_line.chars().take(clamped).map(|c| c.len_utf8()).sum();
+                let byte_offset: usize = logical_line
+                    .chars()
+                    .take(clamped)
+                    .map(|c| c.len_utf8())
+                    .sum();
                 return offset + byte_offset;
             }
 
             vis_line += vis_lines_in_this;
             offset += logical_line.len() + 1; // +1 for \n
         }
-        self.buffer.len()
+        self.buffer_cache.len()
+    }
+
+    fn jump_to_line_col(&mut self, row: usize, col: usize) {
+        self.textarea
+            .move_cursor(CursorMove::Jump(row as u16, col as u16));
+    }
+
+    fn jump_to_offset(&mut self, offset: usize) {
+        let offset = offset.min(self.buffer_cache.len());
+        let mut remaining = offset;
+
+        for (row, line) in self.buffer_cache.split('\n').enumerate() {
+            if remaining <= line.len() {
+                let col = line[..remaining].chars().count().min(line.chars().count());
+                self.jump_to_line_col(row, col);
+                return;
+            }
+            remaining = remaining.saturating_sub(line.len() + 1);
+        }
+
+        let last_row = self.textarea.lines().len().saturating_sub(1);
+        let last_col = self
+            .textarea
+            .lines()
+            .get(last_row)
+            .map(|line| line.chars().count())
+            .unwrap_or(0);
+        self.jump_to_line_col(last_row, last_col);
+    }
+
+    fn clear_text(&mut self) {
+        if !self.buffer_cache.is_empty() {
+            self.textarea.select_all();
+            self.textarea.cut();
+        }
+        self.sync_buffer_cache();
     }
 
     pub fn reduce(&mut self, action: InputAction) {
         match action {
             InputAction::InsertChar(c) => {
-                self.save_undo();
-                self.buffer.insert(self.cursor, c);
-                self.cursor += c.len_utf8();
+                self.textarea.insert_char(c);
+                self.sync_buffer_cache();
             }
             InputAction::Backspace => {
-                if self.cursor > 0 {
-                    self.save_undo();
-                    let prev = self.buffer[..self.cursor]
-                        .char_indices()
-                        .last()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    self.buffer.drain(prev..self.cursor);
-                    self.cursor = prev;
+                if !self.remove_paste_block_at_cursor() {
+                    self.textarea.delete_char();
+                    self.sync_buffer_cache();
                 }
             }
             InputAction::DeleteWord => {
-                if self.cursor > 0 {
-                    self.save_undo();
-                    let before = &self.buffer[..self.cursor];
-                    // Skip trailing whitespace before cursor
-                    let trimmed_end = before.trim_end_matches(|c: char| c.is_whitespace());
-                    if trimmed_end.is_empty() {
-                        // All whitespace before cursor
-                        self.buffer.drain(..self.cursor);
-                        self.cursor = 0;
-                    } else if let Some(last_space) =
-                        trimmed_end.rfind(|c: char| c.is_whitespace())
-                    {
-                        let new_cursor = last_space + 1;
-                        self.buffer.drain(new_cursor..self.cursor);
-                        self.cursor = new_cursor;
-                    } else {
-                        // Single word: delete everything before cursor
-                        self.buffer.drain(..self.cursor);
-                        self.cursor = 0;
-                    }
+                if !self.remove_paste_block_at_cursor() {
+                    self.textarea.delete_word();
+                    self.sync_buffer_cache();
                 }
             }
             InputAction::ClearLine => {
-                self.save_undo();
-                self.buffer.clear();
-                self.cursor = 0;
+                self.clear_text();
                 self.paste_blocks.clear();
             }
             InputAction::Submit => {
-                if !self.buffer.trim().is_empty() {
-                    let expanded = self.expand_paste_blocks(&self.buffer);
+                if !self.buffer_cache.trim().is_empty() {
+                    let expanded = self.expand_paste_blocks(&self.buffer_cache);
                     self.submitted = Some(expanded);
-                    self.buffer.clear();
-                    self.cursor = 0;
-                    self.undo_stack.clear();
-                    self.redo_stack.clear();
+                    self.textarea = TextArea::default();
+                    self.sync_buffer_cache();
                     self.paste_blocks.clear();
                 }
             }
@@ -319,47 +411,30 @@ impl InputState {
                 };
             }
             InputAction::Clear => {
-                self.save_undo();
-                self.buffer.clear();
-                self.cursor = 0;
+                self.clear_text();
                 self.paste_blocks.clear();
             }
             InputAction::InsertNewline => {
-                self.save_undo();
-                self.buffer.insert(self.cursor, '\n');
-                self.cursor += 1;
+                self.textarea.insert_newline();
+                self.sync_buffer_cache();
             }
             InputAction::MoveCursorLeft => {
-                if self.cursor > 0 {
-                    let prev = self.buffer[..self.cursor]
-                        .char_indices()
-                        .last()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    self.cursor = prev;
-                }
+                self.textarea.move_cursor(CursorMove::Back);
             }
             InputAction::MoveCursorRight => {
-                if self.cursor < self.buffer.len() {
-                    let next = self.buffer[self.cursor..]
-                        .char_indices()
-                        .nth(1)
-                        .map(|(i, _)| self.cursor + i)
-                        .unwrap_or(self.buffer.len());
-                    self.cursor = next;
-                }
+                self.textarea.move_cursor(CursorMove::Forward);
             }
             InputAction::MoveCursorUp => {
                 let (line, col) = self.cursor_line_col();
                 if line > 0 {
-                    self.cursor = self.line_col_to_offset(line - 1, col);
+                    self.jump_to_line_col(line - 1, col);
                 }
             }
             InputAction::MoveCursorDown => {
                 let (line, col) = self.cursor_line_col();
-                let line_count = self.buffer.matches('\n').count() + 1;
+                let line_count = self.textarea.lines().len();
                 if line + 1 < line_count {
-                    self.cursor = self.line_col_to_offset(line + 1, col);
+                    self.jump_to_line_col(line + 1, col);
                 }
             }
             InputAction::MoveCursorUpVisual(wrap_width) => {
@@ -369,7 +444,8 @@ impl InputState {
                 // Find cursor's position in visual (wrapped) coordinates
                 let (vis_line, vis_col) = self.cursor_visual_line_col(wrap_width);
                 if vis_line > 0 {
-                    self.cursor = self.visual_line_col_to_offset(vis_line - 1, vis_col, wrap_width);
+                    let offset = self.visual_line_col_to_offset(vis_line - 1, vis_col, wrap_width);
+                    self.jump_to_offset(offset);
                 }
             }
             InputAction::MoveCursorDownVisual(wrap_width) => {
@@ -379,37 +455,34 @@ impl InputState {
                 let (vis_line, vis_col) = self.cursor_visual_line_col(wrap_width);
                 let total_vis_lines = self.total_visual_lines(wrap_width);
                 if vis_line + 1 < total_vis_lines {
-                    self.cursor = self.visual_line_col_to_offset(vis_line + 1, vis_col, wrap_width);
+                    let offset = self.visual_line_col_to_offset(vis_line + 1, vis_col, wrap_width);
+                    self.jump_to_offset(offset);
                 }
             }
             InputAction::MoveCursorHome => {
-                let before = &self.buffer[..self.cursor];
-                self.cursor = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+                let (row, _) = self.cursor_line_col();
+                self.jump_to_line_col(row, 0);
             }
             InputAction::MoveCursorEnd => {
-                let after = &self.buffer[self.cursor..];
-                if let Some(nl) = after.find('\n') {
-                    self.cursor += nl;
-                } else {
-                    self.cursor = self.buffer.len();
-                }
+                let (row, _) = self.cursor_line_col();
+                let col = self
+                    .textarea
+                    .lines()
+                    .get(row)
+                    .map(|line| line.chars().count())
+                    .unwrap_or(0);
+                self.jump_to_line_col(row, col);
             }
             InputAction::MoveCursorToPos(pos) => {
-                self.cursor = pos.min(self.buffer.len());
+                self.jump_to_offset(pos);
             }
             InputAction::Undo => {
-                if let Some(prev) = self.undo_stack.pop() {
-                    self.redo_stack.push(self.buffer.clone());
-                    self.buffer = prev;
-                    self.cursor = self.cursor.min(self.buffer.len());
-                }
+                self.textarea.undo();
+                self.sync_buffer_cache();
             }
             InputAction::Redo => {
-                if let Some(next) = self.redo_stack.pop() {
-                    self.undo_stack.push(self.buffer.clone());
-                    self.buffer = next;
-                    self.cursor = self.cursor.min(self.buffer.len());
-                }
+                self.textarea.redo();
+                self.sync_buffer_cache();
             }
         }
     }
@@ -957,6 +1030,48 @@ mod tests {
         state.insert_paste_block("a\nb".to_string());
         state.reduce(InputAction::ClearLine);
         assert!(state.paste_blocks().is_empty());
+    }
+
+    #[test]
+    fn backspace_removes_entire_paste_placeholder_from_end() {
+        let mut state = InputState::new();
+        state.insert_paste_block("first\nsecond".to_string());
+
+        state.reduce(InputAction::Backspace);
+
+        assert_eq!(state.buffer(), "");
+        assert!(state.paste_blocks().is_empty());
+        assert_eq!(state.cursor_pos(), 0);
+    }
+
+    #[test]
+    fn backspace_removes_entire_paste_placeholder_when_cursor_is_inside_token() {
+        let mut state = InputState::new();
+        state.insert_paste_block("first\nsecond".to_string());
+        let inside_placeholder = state
+            .buffer()
+            .find("STE")
+            .expect("placeholder should be present");
+        let buffer = state.buffer().to_string();
+        state.set_buffer_and_cursor(&buffer, inside_placeholder);
+
+        state.reduce(InputAction::Backspace);
+
+        assert_eq!(state.buffer(), "");
+        assert!(state.paste_blocks().is_empty());
+        assert_eq!(state.cursor_pos(), 0);
+    }
+
+    #[test]
+    fn delete_word_removes_entire_paste_placeholder() {
+        let mut state = InputState::new();
+        state.insert_paste_block("first\nsecond".to_string());
+
+        state.reduce(InputAction::DeleteWord);
+
+        assert_eq!(state.buffer(), "");
+        assert!(state.paste_blocks().is_empty());
+        assert_eq!(state.cursor_pos(), 0);
     }
 
     #[test]

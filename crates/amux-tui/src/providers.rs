@@ -13,23 +13,108 @@ pub struct ProviderDef {
 }
 
 pub const PROVIDERS: &[ProviderDef] = &[
-    ProviderDef { id: "openai", name: "OpenAI", default_base_url: "https://api.openai.com/v1", default_model: "gpt-5.4" },
-    ProviderDef { id: "anthropic", name: "Anthropic", default_base_url: "https://api.anthropic.com", default_model: "claude-sonnet-4-20250514" },
-    ProviderDef { id: "groq", name: "Groq", default_base_url: "https://api.groq.com/openai/v1", default_model: "llama-3.3-70b-versatile" },
-    ProviderDef { id: "ollama", name: "Ollama", default_base_url: "http://localhost:11434/v1", default_model: "llama3.1" },
-    ProviderDef { id: "together", name: "Together", default_base_url: "https://api.together.xyz/v1", default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
-    ProviderDef { id: "openrouter", name: "OpenRouter", default_base_url: "https://openrouter.ai/api/v1", default_model: "anthropic/claude-sonnet-4" },
-    ProviderDef { id: "cerebras", name: "Cerebras", default_base_url: "https://api.cerebras.ai/v1", default_model: "llama-3.3-70b" },
-    ProviderDef { id: "qwen", name: "Qwen", default_base_url: "https://api.qwen.com/v1", default_model: "qwen-max" },
-    ProviderDef { id: "kimi", name: "Kimi (Moonshot)", default_base_url: "https://api.moonshot.ai/v1", default_model: "moonshot-v1-32k" },
-    ProviderDef { id: "z.ai", name: "Z.AI (GLM)", default_base_url: "https://api.z.ai/api/paas/v4", default_model: "glm-4-plus" },
-    ProviderDef { id: "z.ai-coding-plan", name: "Z.AI Coding Plan", default_base_url: "https://api.z.ai/api/coding/paas/v4", default_model: "glm-5" },
-    ProviderDef { id: "kimi-coding-plan", name: "Kimi Coding Plan", default_base_url: "https://api.kimi.com/coding/v1", default_model: "kimi-for-coding" },
-    ProviderDef { id: "minimax", name: "MiniMax", default_base_url: "https://api.minimax.io/anthropic", default_model: "MiniMax-M1-80k" },
-    ProviderDef { id: "deepinfra", name: "DeepInfra", default_base_url: "https://api.deepinfra.com/v1/openai", default_model: "Qwen/Qwen2.5-72B-Instruct" },
-    ProviderDef { id: "huggingface", name: "Hugging Face", default_base_url: "https://api-inference.huggingface.co/v1", default_model: "meta-llama/Llama-3.3-70B-Instruct" },
-    ProviderDef { id: "chutes", name: "Chutes", default_base_url: "https://llm.chutes.ai/v1", default_model: "deepseek-ai/DeepSeek-V3" },
-    ProviderDef { id: "custom", name: "Custom", default_base_url: "", default_model: "" },
+    ProviderDef {
+        id: "openai",
+        name: "OpenAI",
+        default_base_url: "https://api.openai.com/v1",
+        default_model: "gpt-5.4",
+    },
+    ProviderDef {
+        id: "anthropic",
+        name: "Anthropic",
+        default_base_url: "https://api.anthropic.com",
+        default_model: "claude-sonnet-4-20250514",
+    },
+    ProviderDef {
+        id: "groq",
+        name: "Groq",
+        default_base_url: "https://api.groq.com/openai/v1",
+        default_model: "llama-3.3-70b-versatile",
+    },
+    ProviderDef {
+        id: "ollama",
+        name: "Ollama",
+        default_base_url: "http://localhost:11434/v1",
+        default_model: "llama3.1",
+    },
+    ProviderDef {
+        id: "together",
+        name: "Together",
+        default_base_url: "https://api.together.xyz/v1",
+        default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    },
+    ProviderDef {
+        id: "openrouter",
+        name: "OpenRouter",
+        default_base_url: "https://openrouter.ai/api/v1",
+        default_model: "anthropic/claude-sonnet-4",
+    },
+    ProviderDef {
+        id: "cerebras",
+        name: "Cerebras",
+        default_base_url: "https://api.cerebras.ai/v1",
+        default_model: "llama-3.3-70b",
+    },
+    ProviderDef {
+        id: "qwen",
+        name: "Qwen",
+        default_base_url: "https://api.qwen.com/v1",
+        default_model: "qwen-max",
+    },
+    ProviderDef {
+        id: "kimi",
+        name: "Kimi (Moonshot)",
+        default_base_url: "https://api.moonshot.ai/v1",
+        default_model: "moonshot-v1-32k",
+    },
+    ProviderDef {
+        id: "z.ai",
+        name: "Z.AI (GLM)",
+        default_base_url: "https://api.z.ai/api/paas/v4",
+        default_model: "glm-4-plus",
+    },
+    ProviderDef {
+        id: "z.ai-coding-plan",
+        name: "Z.AI Coding Plan",
+        default_base_url: "https://api.z.ai/api/coding/paas/v4",
+        default_model: "glm-5",
+    },
+    ProviderDef {
+        id: "kimi-coding-plan",
+        name: "Kimi Coding Plan",
+        default_base_url: "https://api.kimi.com/coding/v1",
+        default_model: "kimi-for-coding",
+    },
+    ProviderDef {
+        id: "minimax",
+        name: "MiniMax",
+        default_base_url: "https://api.minimax.io/anthropic",
+        default_model: "MiniMax-M1-80k",
+    },
+    ProviderDef {
+        id: "deepinfra",
+        name: "DeepInfra",
+        default_base_url: "https://api.deepinfra.com/v1/openai",
+        default_model: "Qwen/Qwen2.5-72B-Instruct",
+    },
+    ProviderDef {
+        id: "huggingface",
+        name: "Hugging Face",
+        default_base_url: "https://api-inference.huggingface.co/v1",
+        default_model: "meta-llama/Llama-3.3-70B-Instruct",
+    },
+    ProviderDef {
+        id: "chutes",
+        name: "Chutes",
+        default_base_url: "https://llm.chutes.ai/v1",
+        default_model: "deepseek-ai/DeepSeek-V3",
+    },
+    ProviderDef {
+        id: "custom",
+        name: "Custom",
+        default_base_url: "",
+        default_model: "",
+    },
 ];
 
 /// Find a provider definition by its id.
@@ -81,13 +166,25 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
             ("mistral", "Mistral", 32_768),
         ],
         "together" => &[
-            ("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B", 128_000),
+            (
+                "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                "Llama 3.3 70B",
+                128_000,
+            ),
             ("deepseek-ai/DeepSeek-R1", "DeepSeek R1", 64_000),
             ("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen 2.5 72B", 32_768),
         ],
         "deepinfra" => &[
-            ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", 128_000),
-            ("Qwen/Qwen2.5-Coder-32B-Instruct", "Qwen 2.5 Coder 32B", 32_768),
+            (
+                "meta-llama/Llama-3.3-70B-Instruct",
+                "Llama 3.3 70B",
+                128_000,
+            ),
+            (
+                "Qwen/Qwen2.5-Coder-32B-Instruct",
+                "Qwen 2.5 Coder 32B",
+                32_768,
+            ),
         ],
         "z.ai" | "z.ai-coding-plan" => &[
             ("glm-4-plus", "GLM-4 Plus", 128_000),
@@ -99,9 +196,7 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
             ("moonshot-v1-128k", "Moonshot v1 128K", 128_000),
             ("moonshot-v1-32k", "Moonshot v1 32K", 32_768),
         ],
-        "kimi-coding-plan" => &[
-            ("kimi-for-coding", "Kimi for Coding", 128_000),
-        ],
+        "kimi-coding-plan" => &[("kimi-for-coding", "Kimi for Coding", 128_000)],
         "qwen" => &[
             ("qwen-max", "Qwen Max", 32_768),
             ("qwen-plus", "Qwen Plus", 131_072),
@@ -111,20 +206,20 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
             ("anthropic/claude-opus-4-6", "Claude Opus 4.6", 1_000_000),
             ("openai/gpt-4.1", "GPT-4.1", 1_000_000),
             ("google/gemini-2.5-pro", "Gemini 2.5 Pro", 1_000_000),
-            ("meta-llama/llama-3.3-70b-instruct", "Llama 3.3 70B", 128_000),
+            (
+                "meta-llama/llama-3.3-70b-instruct",
+                "Llama 3.3 70B",
+                128_000,
+            ),
         ],
-        "cerebras" => &[
-            ("llama-3.3-70b", "Llama 3.3 70B", 128_000),
-        ],
-        "minimax" => &[
-            ("MiniMax-M1-80k", "MiniMax M1 80K", 80_000),
-        ],
-        "huggingface" => &[
-            ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B", 128_000),
-        ],
-        "chutes" => &[
-            ("deepseek-ai/DeepSeek-V3", "DeepSeek V3", 128_000),
-        ],
+        "cerebras" => &[("llama-3.3-70b", "Llama 3.3 70B", 128_000)],
+        "minimax" => &[("MiniMax-M1-80k", "MiniMax M1 80K", 80_000)],
+        "huggingface" => &[(
+            "meta-llama/Llama-3.3-70B-Instruct",
+            "Llama 3.3 70B",
+            128_000,
+        )],
+        "chutes" => &[("deepseek-ai/DeepSeek-V3", "DeepSeek V3", 128_000)],
         _ => &[],
     };
     models

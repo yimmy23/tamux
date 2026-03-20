@@ -165,11 +165,19 @@ mod tests {
     use super::*;
 
     fn make_task(id: &str, title: &str) -> AgentTask {
-        AgentTask { id: id.into(), title: title.into(), ..Default::default() }
+        AgentTask {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        }
     }
 
     fn make_goal_run(id: &str, title: &str) -> GoalRun {
-        GoalRun { id: id.into(), title: title.into(), ..Default::default() }
+        GoalRun {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -190,7 +198,9 @@ mod tests {
     #[test]
     fn task_update_upserts_by_id() {
         let mut state = TaskState::new();
-        state.reduce(TaskAction::TaskListReceived(vec![make_task("t1", "Original")]));
+        state.reduce(TaskAction::TaskListReceived(vec![make_task(
+            "t1", "Original",
+        )]));
 
         // Update existing task
         state.reduce(TaskAction::TaskUpdate(AgentTask {
@@ -224,7 +234,9 @@ mod tests {
     #[test]
     fn goal_run_detail_received_upserts() {
         let mut state = TaskState::new();
-        state.reduce(TaskAction::GoalRunListReceived(vec![make_goal_run("g1", "Original")]));
+        state.reduce(TaskAction::GoalRunListReceived(vec![make_goal_run(
+            "g1", "Original",
+        )]));
 
         // Update via detail
         state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
@@ -244,8 +256,16 @@ mod tests {
     fn heartbeat_items_received_replaces() {
         let mut state = TaskState::new();
         let items = vec![
-            HeartbeatItem { id: "h1".into(), label: "Service A".into(), ..Default::default() },
-            HeartbeatItem { id: "h2".into(), label: "Service B".into(), ..Default::default() },
+            HeartbeatItem {
+                id: "h1".into(),
+                label: "Service A".into(),
+                ..Default::default()
+            },
+            HeartbeatItem {
+                id: "h2".into(),
+                label: "Service B".into(),
+                ..Default::default()
+            },
         ];
         state.reduce(TaskAction::HeartbeatItemsReceived(items));
         assert_eq!(state.heartbeat_items().len(), 2);
@@ -261,7 +281,10 @@ mod tests {
             make_task("t1", "Alpha"),
             make_task("t2", "Beta"),
         ]));
-        assert_eq!(state.task_by_id("t2").map(|t| t.title.as_str()), Some("Beta"));
+        assert_eq!(
+            state.task_by_id("t2").map(|t| t.title.as_str()),
+            Some("Beta")
+        );
         assert!(state.task_by_id("unknown").is_none());
     }
 }

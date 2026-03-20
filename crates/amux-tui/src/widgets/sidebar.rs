@@ -1,6 +1,6 @@
 use ratatui::prelude::*;
 use ratatui::text::Span;
-use ratatui::widgets::{Block, Borders, BorderType, Tabs};
+use ratatui::widgets::{Block, BorderType, Borders, Tabs};
 
 use crate::state::sidebar::SidebarState;
 use crate::state::task::TaskState;

@@ -51,7 +51,7 @@ pub struct ConfigState {
     pub tool_gateway: bool,
 
     // Web search config
-    pub search_provider: String,    // "none", "firecrawl", "exa", "tavily"
+    pub search_provider: String, // "none", "firecrawl", "exa", "tavily"
     pub firecrawl_api_key: String,
     pub exa_api_key: String,
     pub tavily_api_key: String,
@@ -86,6 +86,7 @@ pub struct ConfigState {
     pub max_tool_loops: u32,
     pub max_retries: u32,
     pub retry_delay_ms: u32,
+    pub context_window_tokens: u32,
     pub context_budget_tokens: u32,
     pub compact_threshold_pct: u32,
     pub keep_recent_on_compact: u32,
@@ -147,6 +148,7 @@ impl ConfigState {
             max_tool_loops: 25,
             max_retries: 3,
             retry_delay_ms: 2000,
+            context_window_tokens: 128_000,
             context_budget_tokens: 100000,
             compact_threshold_pct: 80,
             keep_recent_on_compact: 10,
@@ -216,18 +218,16 @@ impl ConfigState {
             ConfigAction::SetReasoningEffort(effort) => {
                 self.reasoning_effort = effort;
             }
-            ConfigAction::ToggleTool(name) => {
-                match name.as_str() {
-                    "bash" => self.tool_bash = !self.tool_bash,
-                    "file_ops" => self.tool_file_ops = !self.tool_file_ops,
-                    "web_search" => self.tool_web_search = !self.tool_web_search,
-                    "web_browse" => self.tool_web_browse = !self.tool_web_browse,
-                    "vision" => self.tool_vision = !self.tool_vision,
-                    "system_info" => self.tool_system_info = !self.tool_system_info,
-                    "gateway" => self.tool_gateway = !self.tool_gateway,
-                    _ => {}
-                }
-            }
+            ConfigAction::ToggleTool(name) => match name.as_str() {
+                "bash" => self.tool_bash = !self.tool_bash,
+                "file_ops" => self.tool_file_ops = !self.tool_file_ops,
+                "web_search" => self.tool_web_search = !self.tool_web_search,
+                "web_browse" => self.tool_web_browse = !self.tool_web_browse,
+                "vision" => self.tool_vision = !self.tool_vision,
+                "system_info" => self.tool_system_info = !self.tool_system_info,
+                "gateway" => self.tool_gateway = !self.tool_gateway,
+                _ => {}
+            },
         }
     }
 }
@@ -257,7 +257,9 @@ mod tests {
     #[test]
     fn config_received_populates_all_fields() {
         let mut state = ConfigState::new();
-        state.reduce(ConfigAction::ConfigReceived(make_snapshot("openai", "gpt-4o")));
+        state.reduce(ConfigAction::ConfigReceived(make_snapshot(
+            "openai", "gpt-4o",
+        )));
         assert_eq!(state.provider(), "openai");
         assert_eq!(state.model(), "gpt-4o");
         assert_eq!(state.base_url(), "https://api.example.com");
@@ -269,8 +271,16 @@ mod tests {
     fn models_fetched_replaces_list() {
         let mut state = ConfigState::new();
         state.reduce(ConfigAction::ModelsFetched(vec![
-            FetchedModel { id: "m1".into(), name: Some("Model One".into()), context_window: Some(128_000) },
-            FetchedModel { id: "m2".into(), name: None, context_window: None },
+            FetchedModel {
+                id: "m1".into(),
+                name: Some("Model One".into()),
+                context_window: Some(128_000),
+            },
+            FetchedModel {
+                id: "m2".into(),
+                name: None,
+                context_window: None,
+            },
         ]));
         assert_eq!(state.fetched_models().len(), 2);
         assert_eq!(state.fetched_models()[0].id, "m1");
@@ -282,7 +292,9 @@ mod tests {
     #[test]
     fn set_provider_updates_only_provider() {
         let mut state = ConfigState::new();
-        state.reduce(ConfigAction::ConfigReceived(make_snapshot("openai", "gpt-4o")));
+        state.reduce(ConfigAction::ConfigReceived(make_snapshot(
+            "openai", "gpt-4o",
+        )));
         state.reduce(ConfigAction::SetProvider("anthropic".into()));
         assert_eq!(state.provider(), "anthropic");
         // Other fields unchanged
@@ -293,7 +305,9 @@ mod tests {
     #[test]
     fn set_model_updates_only_model() {
         let mut state = ConfigState::new();
-        state.reduce(ConfigAction::ConfigReceived(make_snapshot("openai", "gpt-4o")));
+        state.reduce(ConfigAction::ConfigReceived(make_snapshot(
+            "openai", "gpt-4o",
+        )));
         state.reduce(ConfigAction::SetModel("gpt-4o-mini".into()));
         assert_eq!(state.model(), "gpt-4o-mini");
         assert_eq!(state.provider(), "openai");
@@ -313,8 +327,13 @@ mod tests {
     #[test]
     fn config_received_twice_overwrites() {
         let mut state = ConfigState::new();
-        state.reduce(ConfigAction::ConfigReceived(make_snapshot("openai", "gpt-4o")));
-        state.reduce(ConfigAction::ConfigReceived(make_snapshot("anthropic", "claude-3-5-sonnet")));
+        state.reduce(ConfigAction::ConfigReceived(make_snapshot(
+            "openai", "gpt-4o",
+        )));
+        state.reduce(ConfigAction::ConfigReceived(make_snapshot(
+            "anthropic",
+            "claude-3-5-sonnet",
+        )));
         assert_eq!(state.provider(), "anthropic");
         assert_eq!(state.model(), "claude-3-5-sonnet");
     }

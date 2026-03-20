@@ -4,11 +4,15 @@ use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::sync::Mutex;
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 
-use amux_protocol::{default_tcp_addr, AmuxCodec, ClientMessage, DaemonMessage};
+#[cfg(not(unix))]
+use amux_protocol::default_tcp_addr;
+use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage};
 
 use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, FetchedModel, GoalRun, GoalRunStatus,
@@ -22,11 +26,15 @@ use tokio::net::UnixStream;
 pub enum ClientEvent {
     Connected,
     Disconnected,
+    Reconnecting { delay_secs: u64 },
     SessionSpawned { session_id: String },
 
     ThreadList(Vec<AgentThread>),
     ThreadDetail(Option<AgentThread>),
-    ThreadCreated { thread_id: String, title: String },
+    ThreadCreated {
+        thread_id: String,
+        title: String,
+    },
     TaskList(Vec<AgentTask>),
     TaskUpdate(AgentTask),
     GoalRunList(Vec<GoalRun>),
@@ -37,8 +45,14 @@ pub enum ClientEvent {
     ModelsFetched(Vec<FetchedModel>),
     HeartbeatItems(Vec<HeartbeatItem>),
 
-    Delta { thread_id: String, content: String },
-    Reasoning { thread_id: String, content: String },
+    Delta {
+        thread_id: String,
+        content: String,
+    },
+    Reasoning {
+        thread_id: String,
+        content: String,
+    },
     ToolCall {
         thread_id: String,
         call_id: String,
@@ -84,53 +98,78 @@ impl DaemonClient {
 
     pub async fn connect(&self) -> Result<()> {
         let event_tx = self.event_tx.clone();
-        let Some(request_rx) = self.request_rx.lock().expect("request mutex poisoned").take() else {
+        let Some(mut request_rx) = self
+            .request_rx
+            .lock()
+            .expect("request mutex poisoned")
+            .take()
+        else {
             return Ok(());
         };
 
         tokio::spawn(async move {
-            #[cfg(unix)]
-            {
-                let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-                let socket_path = std::path::PathBuf::from(runtime_dir).join("tamux-daemon.sock");
+            let retry_delay = Duration::from_secs(5);
 
-                if socket_path.exists() {
-                    match UnixStream::connect(&socket_path).await {
-                        Ok(stream) => {
-                            info!("Connected to daemon via unix socket");
-                            let _ = event_tx.send(ClientEvent::Connected).await;
-                            let framed = Framed::new(stream, AmuxCodec);
-                            Self::handle_connection(framed, event_tx, request_rx).await;
-                            return;
+            loop {
+                let mut connected = false;
+                #[cfg(unix)]
+                {
+                    for socket_path in Self::unix_socket_candidates() {
+                        info!(path = %socket_path.display(), "Attempting daemon unix socket");
+                        match UnixStream::connect(&socket_path).await {
+                            Ok(stream) => {
+                                info!("Connected to daemon via unix socket");
+                                let _ = event_tx.send(ClientEvent::Connected).await;
+                                let framed = Framed::new(stream, AmuxCodec);
+                                Self::handle_connection(framed, event_tx.clone(), &mut request_rx)
+                                    .await;
+                                connected = true;
+                                break;
+                            }
+                            Err(err) => {
+                                debug!(path = %socket_path.display(), error = %err, "Unix socket connect failed");
+                            }
                         }
-                        Err(err) => warn!("Unix socket exists but connection failed: {}", err),
                     }
                 }
-            }
 
-            let addr = Self::resolve_daemon_addr(&default_tcp_addr());
-            match tokio::net::TcpStream::connect(&addr).await {
-                Ok(stream) => {
-                    info!("Connected to daemon via tcp {}", addr);
-                    let _ = event_tx.send(ClientEvent::Connected).await;
-                    let framed = Framed::new(stream, AmuxCodec);
-                    Self::handle_connection(framed, event_tx, request_rx).await;
+                #[cfg(not(unix))]
+                {
+                    let addr = Self::resolve_daemon_addr(&default_tcp_addr());
+                    info!(%addr, "Attempting daemon tcp socket");
+                    match tokio::net::TcpStream::connect(&addr).await {
+                        Ok(stream) => {
+                            info!("Connected to daemon via tcp {}", addr);
+                            let _ = event_tx.send(ClientEvent::Connected).await;
+                            let framed = Framed::new(stream, AmuxCodec);
+                            Self::handle_connection(framed, event_tx.clone(), &mut request_rx)
+                                .await;
+                            connected = true;
+                        }
+                        Err(err) => {
+                            warn!("Cannot connect to daemon at {} ({})", addr, err);
+                            let _ = event_tx.send(ClientEvent::Disconnected).await;
+                        }
+                    }
                 }
-                Err(err) => {
-                    let _ = event_tx
-                        .send(ClientEvent::Error(format!(
-                            "Cannot connect to daemon at {} ({})",
-                            addr, err
-                        )))
-                        .await;
-                    let _ = event_tx.send(ClientEvent::Disconnected).await;
+
+                let _ = event_tx
+                    .send(ClientEvent::Reconnecting {
+                        delay_secs: retry_delay.as_secs(),
+                    })
+                    .await;
+
+                if connected {
+                    info!("Daemon connection closed; retrying in {}s", retry_delay.as_secs());
                 }
+                tokio::time::sleep(retry_delay).await;
             }
         });
 
         Ok(())
     }
 
+    #[cfg(not(unix))]
     fn resolve_daemon_addr(default_addr: &str) -> String {
         #[cfg(target_os = "linux")]
         {
@@ -153,16 +192,38 @@ impl DaemonClient {
         default_addr.to_string()
     }
 
+    #[cfg(unix)]
+    fn unix_socket_candidates() -> Vec<std::path::PathBuf> {
+        let mut candidates = Vec::new();
+
+        if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+            candidates.push(std::path::PathBuf::from(runtime_dir).join("tamux-daemon.sock"));
+        }
+
+        candidates.push(std::path::PathBuf::from("/tmp").join("tamux-daemon.sock"));
+        candidates.dedup();
+        candidates
+    }
+
     async fn handle_connection<S>(
         framed: Framed<S, AmuxCodec>,
         event_tx: mpsc::Sender<ClientEvent>,
-        mut request_rx: mpsc::UnboundedReceiver<ClientMessage>,
+        request_rx: &mut mpsc::UnboundedReceiver<ClientMessage>,
     ) where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     {
         let (mut sink, mut stream) = framed.split();
+        let keepalive_interval = Duration::from_secs(5);
+        let keepalive_timeout = Duration::from_secs(10);
+        let mut ping_tick = tokio::time::interval(keepalive_interval);
+        ping_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut last_inbound_at = Instant::now();
+        let mut awaiting_pong_since: Option<Instant> = None;
 
-        for request in [ClientMessage::AgentSubscribe, ClientMessage::AgentListThreads] {
+        for request in [
+            ClientMessage::AgentSubscribe,
+            ClientMessage::AgentListThreads,
+        ] {
             if let Err(err) = sink.send(request).await {
                 error!("Failed initial daemon request: {}", err);
                 let _ = event_tx
@@ -178,6 +239,8 @@ impl DaemonClient {
                 inbound = stream.next() => {
                     match inbound {
                         Some(Ok(message)) => {
+                            last_inbound_at = Instant::now();
+                            awaiting_pong_since = None;
                             if !Self::handle_daemon_message(message, &event_tx).await {
                                 break;
                             }
@@ -187,6 +250,29 @@ impl DaemonClient {
                             break;
                         }
                         None => break,
+                    }
+                }
+                _ = ping_tick.tick() => {
+                    let now = Instant::now();
+                    if let Some(pending_since) = awaiting_pong_since {
+                        if now.duration_since(pending_since) >= keepalive_timeout {
+                            let _ = event_tx
+                                .send(ClientEvent::Error(
+                                    "Connection lost: daemon health-check timed out".to_string(),
+                                ))
+                                .await;
+                            break;
+                        }
+                    }
+
+                    if now.duration_since(last_inbound_at) >= keepalive_interval {
+                        if let Err(err) = sink.send(ClientMessage::Ping).await {
+                            let _ = event_tx
+                                .send(ClientEvent::Error(format!("Keepalive send error: {}", err)))
+                                .await;
+                            break;
+                        }
+                        awaiting_pong_since = Some(now);
                     }
                 }
                 outbound = request_rx.recv() => {
@@ -206,30 +292,41 @@ impl DaemonClient {
         let _ = event_tx.send(ClientEvent::Disconnected).await;
     }
 
-    async fn handle_daemon_message(message: DaemonMessage, event_tx: &mpsc::Sender<ClientEvent>) -> bool {
+    async fn handle_daemon_message(
+        message: DaemonMessage,
+        event_tx: &mpsc::Sender<ClientEvent>,
+    ) -> bool {
         match message {
-            DaemonMessage::AgentEvent { event_json } => match serde_json::from_str::<Value>(&event_json) {
-                Ok(event) => Self::dispatch_agent_event(event, event_tx).await,
-                Err(err) => warn!("Failed to parse agent event: {}", err),
-            },
-            DaemonMessage::AgentThreadList { threads_json } => match serde_json::from_str::<Vec<AgentThread>>(&threads_json) {
-                Ok(threads) => {
-                    let _ = event_tx.send(ClientEvent::ThreadList(threads)).await;
+            DaemonMessage::AgentEvent { event_json } => {
+                match serde_json::from_str::<Value>(&event_json) {
+                    Ok(event) => Self::dispatch_agent_event(event, event_tx).await,
+                    Err(err) => warn!("Failed to parse agent event: {}", err),
                 }
-                Err(err) => warn!("Failed to parse thread list: {}", err),
-            },
-            DaemonMessage::AgentThreadDetail { thread_json } => match serde_json::from_str::<Option<AgentThread>>(&thread_json) {
-                Ok(thread) => {
-                    let _ = event_tx.send(ClientEvent::ThreadDetail(thread)).await;
+            }
+            DaemonMessage::AgentThreadList { threads_json } => {
+                match serde_json::from_str::<Vec<AgentThread>>(&threads_json) {
+                    Ok(threads) => {
+                        let _ = event_tx.send(ClientEvent::ThreadList(threads)).await;
+                    }
+                    Err(err) => warn!("Failed to parse thread list: {}", err),
                 }
-                Err(err) => warn!("Failed to parse thread detail: {}", err),
-            },
-            DaemonMessage::AgentTaskList { tasks_json } => match serde_json::from_str::<Vec<AgentTask>>(&tasks_json) {
-                Ok(tasks) => {
-                    let _ = event_tx.send(ClientEvent::TaskList(tasks)).await;
+            }
+            DaemonMessage::AgentThreadDetail { thread_json } => {
+                match serde_json::from_str::<Option<AgentThread>>(&thread_json) {
+                    Ok(thread) => {
+                        let _ = event_tx.send(ClientEvent::ThreadDetail(thread)).await;
+                    }
+                    Err(err) => warn!("Failed to parse thread detail: {}", err),
                 }
-                Err(err) => warn!("Failed to parse task list: {}", err),
-            },
+            }
+            DaemonMessage::AgentTaskList { tasks_json } => {
+                match serde_json::from_str::<Vec<AgentTask>>(&tasks_json) {
+                    Ok(tasks) => {
+                        let _ = event_tx.send(ClientEvent::TaskList(tasks)).await;
+                    }
+                    Err(err) => warn!("Failed to parse task list: {}", err),
+                }
+            }
             DaemonMessage::AgentGoalRunList { goal_runs_json } => {
                 match serde_json::from_str::<Vec<GoalRun>>(&goal_runs_json) {
                     Ok(goal_runs) => {
@@ -249,7 +346,9 @@ impl DaemonClient {
             DaemonMessage::AgentConfigResponse { config_json } => {
                 match serde_json::from_str::<Value>(&config_json) {
                     Ok(raw) => {
-                        if let Ok(config) = serde_json::from_value::<AgentConfigSnapshot>(raw.clone()) {
+                        if let Ok(config) =
+                            serde_json::from_value::<AgentConfigSnapshot>(raw.clone())
+                        {
                             let _ = event_tx.send(ClientEvent::AgentConfig(config)).await;
                         }
                         let _ = event_tx.send(ClientEvent::AgentConfigRaw(raw)).await;
@@ -293,7 +392,8 @@ impl DaemonClient {
                 let _ = event_tx
                     .send(ClientEvent::ThreadCreated {
                         thread_id: get_string(&event, "thread_id").unwrap_or_default(),
-                        title: get_string(&event, "title").unwrap_or_else(|| "New Conversation".to_string()),
+                        title: get_string(&event, "title")
+                            .unwrap_or_else(|| "New Conversation".to_string()),
                     })
                     .await;
             }
@@ -330,7 +430,10 @@ impl DaemonClient {
                         call_id: get_string(&event, "call_id").unwrap_or_default(),
                         name: get_string(&event, "name").unwrap_or_default(),
                         content: get_string_lossy(&event, "content"),
-                        is_error: event.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+                        is_error: event
+                            .get("is_error")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                     })
                     .await;
             }
@@ -338,8 +441,14 @@ impl DaemonClient {
                 let _ = event_tx
                     .send(ClientEvent::Done {
                         thread_id: get_string(&event, "thread_id").unwrap_or_default(),
-                        input_tokens: event.get("input_tokens").and_then(Value::as_u64).unwrap_or(0),
-                        output_tokens: event.get("output_tokens").and_then(Value::as_u64).unwrap_or(0),
+                        input_tokens: event
+                            .get("input_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                        output_tokens: event
+                            .get("output_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
                         cost: event.get("cost").and_then(Value::as_f64),
                         provider: get_string(&event, "provider"),
                         model: get_string(&event, "model"),
@@ -351,7 +460,8 @@ impl DaemonClient {
             "error" => {
                 let _ = event_tx
                     .send(ClientEvent::Error(
-                        get_string(&event, "message").unwrap_or_else(|| "Unknown agent error".to_string()),
+                        get_string(&event, "message")
+                            .unwrap_or_else(|| "Unknown agent error".to_string()),
                     ))
                     .await;
             }
@@ -440,10 +550,11 @@ impl DaemonClient {
         content: String,
         session_id: Option<String>,
     ) -> Result<()> {
-        let _ = session_id; // session_id no longer part of AgentSendMessage
         self.send(ClientMessage::AgentSendMessage {
             thread_id,
             content,
+            session_id,
+            context_messages_json: None,
         })
     }
 
@@ -472,7 +583,12 @@ impl DaemonClient {
         })
     }
 
-    pub fn fetch_models(&self, _provider_id: String, _base_url: String, _api_key: String) -> Result<()> {
+    pub fn fetch_models(
+        &self,
+        _provider_id: String,
+        _base_url: String,
+        _api_key: String,
+    ) -> Result<()> {
         // Models fetching is not yet supported in the protocol; no-op stub.
         warn!("fetch_models: not supported by current protocol");
         Ok(())
@@ -500,7 +616,10 @@ impl DaemonClient {
 }
 
 fn get_string(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(Value::as_str).map(ToOwned::to_owned)
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
 }
 
 fn get_string_lossy(value: &Value, key: &str) -> String {

@@ -10,11 +10,14 @@ mod wire;
 use std::io;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event},
+    event::{
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
@@ -44,6 +47,18 @@ fn main() -> Result<()> {
     stdout.execute(EnterAlternateScreen)?;
     stdout.execute(EnableMouseCapture)?;
     stdout.execute(EnableBracketedPaste)?;
+    let supports_keyboard_enhancement = matches!(
+        crossterm::terminal::supports_keyboard_enhancement(),
+        Ok(true)
+    );
+    if supports_keyboard_enhancement {
+        let _ = stdout.execute(PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
+        ));
+    }
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
@@ -65,6 +80,9 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     terminal.backend_mut().execute(DisableBracketedPaste)?;
     terminal.backend_mut().execute(DisableMouseCapture)?;
+    if supports_keyboard_enhancement {
+        let _ = terminal.backend_mut().execute(PopKeyboardEnhancementFlags);
+    }
     terminal.backend_mut().execute(LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
@@ -76,18 +94,40 @@ fn run_loop(
     model: &mut TuiModel,
     tick_rate: Duration,
 ) -> Result<()> {
+    let mut next_tick = Instant::now() + tick_rate;
+
     loop {
+        let now = Instant::now();
+        if now >= next_tick {
+            model.on_tick();
+            next_tick = now + tick_rate;
+        }
+
+        model.pump_daemon_events();
+
         terminal.draw(|frame| {
             model.render(frame);
         })?;
 
-        // Poll for events with timeout
-        if event::poll(tick_rate)? {
+        let now = Instant::now();
+        let until_tick = next_tick.saturating_duration_since(now);
+        let wait_for = until_tick.min(Duration::from_millis(10));
+
+        if event::poll(wait_for)? {
             match event::read()? {
-                Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Press => {
+                Event::Key(key)
+                    if matches!(
+                        key.kind,
+                        crossterm::event::KeyEventKind::Press
+                            | crossterm::event::KeyEventKind::Repeat
+                    ) =>
+                {
                     if model.handle_key(key.code, key.modifiers) {
                         return Ok(());
                     }
+                }
+                Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Release => {
+                    model.handle_key_release(key.code, key.modifiers);
                 }
                 Event::Paste(text) => {
                     model.handle_paste(text);
@@ -97,8 +137,6 @@ fn run_loop(
                 _ => {}
             }
         }
-
-        model.pump_daemon_events();
     }
 }
 
@@ -219,20 +257,29 @@ async fn fetch_models_http(base_url: &str, api_key: &str) -> Result<Vec<FetchedM
             .call()
             .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
 
-        let body: serde_json::Value = resp.body_mut()
+        let body: serde_json::Value = resp
+            .body_mut()
             .read_json()
             .map_err(|e| anyhow::anyhow!("JSON parse failed: {}", e))?;
 
         let mut models = Vec::new();
         if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
             for item in data {
-                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = item
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if id.is_empty() {
                     continue;
                 }
                 // Skip embedding/tts/whisper/dall-e models
-                if id.contains("embedding") || id.contains("tts") || id.contains("whisper")
-                    || id.contains("dall-e") || id.contains("davinci") || id.contains("babbage")
+                if id.contains("embedding")
+                    || id.contains("tts")
+                    || id.contains("whisper")
+                    || id.contains("dall-e")
+                    || id.contains("davinci")
+                    || id.contains("babbage")
                     || id.contains("moderation")
                 {
                     continue;
@@ -252,12 +299,15 @@ async fn fetch_models_http(base_url: &str, api_key: &str) -> Result<Vec<FetchedM
 
         // Sort: longer context windows first, then alphabetical
         models.sort_by(|a, b| {
-            b.context_window.unwrap_or(0).cmp(&a.context_window.unwrap_or(0))
+            b.context_window
+                .unwrap_or(0)
+                .cmp(&a.context_window.unwrap_or(0))
                 .then(a.id.cmp(&b.id))
         });
 
         Ok(models)
-    }).await??;
+    })
+    .await??;
 
     Ok(result)
 }

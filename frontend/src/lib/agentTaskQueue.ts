@@ -41,6 +41,12 @@ export interface AgentQueueTask {
     dependencies?: string[];
     command?: string | null;
     session_id?: string | null;
+    goal_run_title?: string | null;
+    goal_step_id?: string | null;
+    goal_step_title?: string | null;
+    parent_task_id?: string | null;
+    parent_thread_id?: string | null;
+    runtime?: string | null;
     retry_count?: number;
     max_retries?: number;
     next_retry_at?: number | null;
@@ -72,6 +78,10 @@ export function isTaskTerminal(task: AgentQueueTask): boolean {
 
 export function isTaskActive(task: AgentQueueTask): boolean {
     return !isTaskTerminal(task);
+}
+
+export function isSubagentTask(task: AgentQueueTask): boolean {
+    return Boolean(task.parent_task_id || task.parent_thread_id || task.source === "subagent");
 }
 
 export function formatTaskStatus(task: AgentQueueTask): string {

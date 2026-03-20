@@ -42,6 +42,14 @@ pub enum SettingsAction {
     CancelEdit,
     InsertChar(char),
     Backspace,
+    MoveCursorLeft,
+    MoveCursorRight,
+    MoveCursorUp,
+    MoveCursorDown,
+    MoveCursorHome,
+    MoveCursorEnd,
+    SetCursor(usize),
+    SetCursorLineCol(usize, usize),
     ToggleCheckbox,
     SelectRadio,
     OpenDropdown,
@@ -57,6 +65,7 @@ pub struct SettingsState {
     field_cursor: usize,
     editing_field: Option<String>,
     edit_buffer: String,
+    edit_cursor: usize,
     textarea_mode: bool, // true for multi-line edit (system_prompt)
     dropdown_open: bool,
     dropdown_cursor: usize,
@@ -70,6 +79,7 @@ impl SettingsState {
             field_cursor: 0,
             editing_field: None,
             edit_buffer: String::new(),
+            edit_cursor: 0,
             textarea_mode: false,
             dropdown_open: false,
             dropdown_cursor: 0,
@@ -97,6 +107,17 @@ impl SettingsState {
         &self.edit_buffer
     }
 
+    pub fn edit_cursor(&self) -> usize {
+        self.edit_cursor
+    }
+
+    pub fn edit_cursor_line_col(&self) -> (usize, usize) {
+        let before = &self.edit_buffer[..self.edit_cursor.min(self.edit_buffer.len())];
+        let line = before.matches('\n').count();
+        let last_newline = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        (line, before[last_newline..].chars().count())
+    }
+
     pub fn is_dropdown_open(&self) -> bool {
         self.dropdown_open
     }
@@ -117,7 +138,79 @@ impl SettingsState {
     pub fn start_editing(&mut self, field: &str, current_value: &str) {
         self.editing_field = Some(field.to_string());
         self.edit_buffer = current_value.to_string();
+        self.edit_cursor = self.edit_buffer.len();
         self.textarea_mode = field == "system_prompt";
+    }
+
+    fn line_col_to_offset(&self, target_line: usize, target_col: usize) -> usize {
+        let mut offset = 0usize;
+        for (line_idx, line) in self.edit_buffer.split('\n').enumerate() {
+            if line_idx == target_line {
+                let mut col = 0usize;
+                for (idx, ch) in line.char_indices() {
+                    if col == target_col {
+                        return offset + idx;
+                    }
+                    col += 1;
+                    if col > target_col {
+                        return offset + idx;
+                    }
+                    let _ = ch;
+                }
+                return offset + line.len();
+            }
+            offset += line.len() + 1;
+        }
+        self.edit_buffer.len()
+    }
+
+    fn move_cursor_left(&mut self) {
+        if self.edit_cursor > 0 {
+            self.edit_cursor = self.edit_buffer[..self.edit_cursor]
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+        }
+    }
+
+    fn move_cursor_right(&mut self) {
+        if self.edit_cursor < self.edit_buffer.len() {
+            self.edit_cursor = self.edit_buffer[self.edit_cursor..]
+                .char_indices()
+                .nth(1)
+                .map(|(i, _)| self.edit_cursor + i)
+                .unwrap_or(self.edit_buffer.len());
+        }
+    }
+
+    fn move_cursor_up(&mut self) {
+        let (line, col) = self.edit_cursor_line_col();
+        if line > 0 {
+            self.edit_cursor = self.line_col_to_offset(line - 1, col);
+        }
+    }
+
+    fn move_cursor_down(&mut self) {
+        let (line, col) = self.edit_cursor_line_col();
+        let line_count = self.edit_buffer.matches('\n').count() + 1;
+        if line + 1 < line_count {
+            self.edit_cursor = self.line_col_to_offset(line + 1, col);
+        }
+    }
+
+    fn move_cursor_home(&mut self) {
+        let before = &self.edit_buffer[..self.edit_cursor];
+        self.edit_cursor = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    }
+
+    fn move_cursor_end(&mut self) {
+        let after = &self.edit_buffer[self.edit_cursor..];
+        if let Some(nl) = after.find('\n') {
+            self.edit_cursor += nl;
+        } else {
+            self.edit_cursor = self.edit_buffer.len();
+        }
     }
 
     /// Map `field_cursor` to the field name for the active tab.
@@ -129,6 +222,7 @@ impl SettingsState {
                 2 => "api_key",
                 3 => "model",
                 4 => "reasoning_effort",
+                5 => "context_window_tokens",
                 _ => "",
             },
             SettingsTab::Tools => match self.field_cursor {
@@ -161,19 +255,19 @@ impl SettingsState {
                 _ => "",
             },
             SettingsTab::Gateway => match self.field_cursor {
-                0  => "gateway_enabled",
-                1  => "gateway_prefix",
-                2  => "slack_token",
-                3  => "slack_channel_filter",
-                4  => "telegram_token",
-                5  => "telegram_allowed_chats",
-                6  => "discord_token",
-                7  => "discord_channel_filter",
-                8  => "discord_allowed_users",
-                9  => "whatsapp_allowed_contacts",
+                0 => "gateway_enabled",
+                1 => "gateway_prefix",
+                2 => "slack_token",
+                3 => "slack_channel_filter",
+                4 => "telegram_token",
+                5 => "telegram_allowed_chats",
+                6 => "discord_token",
+                7 => "discord_channel_filter",
+                8 => "discord_allowed_users",
+                9 => "whatsapp_allowed_contacts",
                 10 => "whatsapp_token",
                 11 => "whatsapp_phone_id",
-                _  => "",
+                _ => "",
             },
             SettingsTab::Agent => match self.field_cursor {
                 0 => "agent_name",
@@ -187,14 +281,15 @@ impl SettingsState {
                 2 => "max_tool_loops",
                 3 => "max_retries",
                 4 => "retry_delay_ms",
-                5 => "context_budget_tokens",
-                6 => "compact_threshold_pct",
-                7 => "keep_recent_on_compact",
-                8 => "bash_timeout_secs",
-                9 => "snapshot_auto_cleanup",
-                10 => "snapshot_max_count",
-                11 => "snapshot_max_size_mb",
-                12 => "snapshot_stats",
+                5 => "context_window_tokens",
+                6 => "context_budget_tokens",
+                7 => "compact_threshold_pct",
+                8 => "keep_recent_on_compact",
+                9 => "bash_timeout_secs",
+                10 => "snapshot_auto_cleanup",
+                11 => "snapshot_max_count",
+                12 => "snapshot_max_size_mb",
+                13 => "snapshot_stats",
                 _ => "",
             },
         }
@@ -203,13 +298,13 @@ impl SettingsState {
     /// Number of navigable fields in the current tab (for cursor clamping).
     pub fn field_count(&self) -> usize {
         match self.active_tab {
-            SettingsTab::Provider => 5,
+            SettingsTab::Provider => 6,
             SettingsTab::Tools => 7,
             SettingsTab::WebSearch => 7,
             SettingsTab::Chat => 6,
             SettingsTab::Gateway => 12,
             SettingsTab::Agent => 3,
-            SettingsTab::Advanced => 13,
+            SettingsTab::Advanced => 14,
         }
     }
 
@@ -234,6 +329,7 @@ impl SettingsState {
                 self.field_cursor = 0;
                 self.editing_field = None;
                 self.edit_buffer.clear();
+                self.edit_cursor = 0;
                 self.dropdown_open = false;
                 self.dropdown_cursor = 0;
                 self.dirty = false;
@@ -242,6 +338,7 @@ impl SettingsState {
             SettingsAction::Close => {
                 self.editing_field = None;
                 self.edit_buffer.clear();
+                self.edit_cursor = 0;
                 self.dropdown_open = false;
             }
 
@@ -250,6 +347,7 @@ impl SettingsState {
                 self.field_cursor = 0;
                 self.editing_field = None;
                 self.edit_buffer.clear();
+                self.edit_cursor = 0;
                 self.dropdown_open = false;
                 self.dropdown_cursor = 0;
             }
@@ -260,8 +358,7 @@ impl SettingsState {
                     self.field_cursor =
                         (self.field_cursor + delta as usize).min(count.saturating_sub(1));
                 } else {
-                    self.field_cursor =
-                        self.field_cursor.saturating_sub((-delta) as usize);
+                    self.field_cursor = self.field_cursor.saturating_sub((-delta) as usize);
                 }
             }
 
@@ -273,14 +370,41 @@ impl SettingsState {
 
             SettingsAction::InsertChar(c) => {
                 if self.editing_field.is_some() {
-                    self.edit_buffer.push(c);
+                    self.edit_buffer.insert(self.edit_cursor, c);
+                    self.edit_cursor += c.len_utf8();
                 }
             }
 
             SettingsAction::Backspace => {
-                if self.editing_field.is_some() {
-                    self.edit_buffer.pop();
+                if self.editing_field.is_some() && self.edit_cursor > 0 {
+                    let prev = self.edit_buffer[..self.edit_cursor]
+                        .char_indices()
+                        .last()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    self.edit_buffer.drain(prev..self.edit_cursor);
+                    self.edit_cursor = prev;
                 }
+            }
+
+            SettingsAction::MoveCursorLeft => self.move_cursor_left(),
+
+            SettingsAction::MoveCursorRight => self.move_cursor_right(),
+
+            SettingsAction::MoveCursorUp => self.move_cursor_up(),
+
+            SettingsAction::MoveCursorDown => self.move_cursor_down(),
+
+            SettingsAction::MoveCursorHome => self.move_cursor_home(),
+
+            SettingsAction::MoveCursorEnd => self.move_cursor_end(),
+
+            SettingsAction::SetCursor(pos) => {
+                self.edit_cursor = pos.min(self.edit_buffer.len());
+            }
+
+            SettingsAction::SetCursorLineCol(line, col) => {
+                self.edit_cursor = self.line_col_to_offset(line, col);
             }
 
             SettingsAction::ConfirmEdit => {
@@ -292,6 +416,7 @@ impl SettingsState {
                 self.editing_field = None;
                 self.textarea_mode = false;
                 self.edit_buffer.clear();
+                self.edit_cursor = 0;
             }
 
             SettingsAction::ToggleCheckbox => {
@@ -310,8 +435,7 @@ impl SettingsState {
             SettingsAction::NavigateDropdown(delta) => {
                 if self.dropdown_open {
                     if delta > 0 {
-                        self.dropdown_cursor =
-                            self.dropdown_cursor.saturating_add(delta as usize);
+                        self.dropdown_cursor = self.dropdown_cursor.saturating_add(delta as usize);
                     } else {
                         self.dropdown_cursor =
                             self.dropdown_cursor.saturating_sub((-delta) as usize);
@@ -328,6 +452,7 @@ impl SettingsState {
                 self.dirty = false;
                 self.editing_field = None;
                 self.edit_buffer.clear();
+                self.edit_cursor = 0;
             }
         }
     }
@@ -393,9 +518,9 @@ mod tests {
     #[test]
     fn navigate_field_clamps_at_max() {
         let mut state = SettingsState::new();
-        // Provider tab has 5 fields (0..4)
+        // Provider tab has 6 fields (0..5)
         state.reduce(SettingsAction::NavigateField(100));
-        assert_eq!(state.field_cursor(), 4);
+        assert_eq!(state.field_cursor(), 5);
     }
 
     #[test]
@@ -553,6 +678,8 @@ mod tests {
         assert_eq!(state.current_field_name(), "model");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "reasoning_effort");
+        state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "context_window_tokens");
     }
 
     #[test]
@@ -649,6 +776,8 @@ mod tests {
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "retry_delay_ms");
         state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "context_window_tokens");
+        state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "context_budget_tokens");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "compact_threshold_pct");
@@ -664,16 +793,16 @@ mod tests {
         assert_eq!(state.current_field_name(), "snapshot_max_size_mb");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "snapshot_stats");
-        // 13 fields total, can't navigate past it
+        // 14 fields total, can't navigate past it
         state.reduce(SettingsAction::NavigateField(5));
         assert_eq!(state.current_field_name(), "snapshot_stats");
-        assert_eq!(state.field_cursor(), 12);
+        assert_eq!(state.field_cursor(), 13);
     }
 
     #[test]
     fn field_count_per_tab() {
         let mut state = SettingsState::new();
-        assert_eq!(state.field_count(), 5); // Provider (provider, base_url, api_key, model, effort)
+        assert_eq!(state.field_count(), 6); // Provider + context window
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
         assert_eq!(state.field_count(), 7); // 7 tool checkboxes
         state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
@@ -685,7 +814,7 @@ mod tests {
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
         assert_eq!(state.field_count(), 3); // name, prompt, backend
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
-        assert_eq!(state.field_count(), 13); // 9 advanced + 4 snapshot fields
+        assert_eq!(state.field_count(), 14); // 10 advanced + 4 snapshot fields
     }
 
     #[test]

@@ -1,10 +1,42 @@
 use ratatui::prelude::*;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph, Tabs};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Tabs};
 
 use crate::state::config::ConfigState;
 use crate::state::settings::{SettingsState, SettingsTab};
 use crate::theme::ThemeTokens;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsHitTarget {
+    Tab(SettingsTab),
+    Field(usize),
+    EditCursor { line: usize, col: usize },
+}
+
+fn render_edit_buffer_with_cursor(text: &str, cursor: usize) -> String {
+    let cursor = cursor.min(text.len());
+    let mut out = String::with_capacity(text.len() + 3);
+    out.push_str(&text[..cursor]);
+    out.push('\u{2588}');
+    out.push_str(&text[cursor..]);
+    out
+}
+
+fn render_edit_line_with_cursor(text: &str, cursor_col: usize) -> String {
+    let mut out = String::with_capacity(text.len() + 3);
+    let mut inserted = false;
+    for (col, ch) in text.chars().enumerate() {
+        if col == cursor_col {
+            out.push('\u{2588}');
+            inserted = true;
+        }
+        out.push(ch);
+    }
+    if !inserted {
+        out.push('\u{2588}');
+    }
+    out
+}
 
 pub fn render(
     frame: &mut Frame,
@@ -32,7 +64,7 @@ pub fn render(
         .constraints([
             Constraint::Length(1), // tab bar
             Constraint::Length(1), // separator
-            Constraint::Min(1),   // content
+            Constraint::Min(1),    // content
             Constraint::Length(1), // hints
         ])
         .split(inner);
@@ -95,6 +127,188 @@ pub fn render(
     frame.render_widget(Paragraph::new(hints), chunks[3]);
 }
 
+pub fn hit_test(
+    area: Rect,
+    settings: &SettingsState,
+    _config: &ConfigState,
+    mouse: Position,
+) -> Option<SettingsHitTarget> {
+    let block = Block::default()
+        .title(" SETTINGS ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double);
+    let inner = block.inner(area);
+    if inner.height < 5
+        || mouse.x < inner.x
+        || mouse.x >= inner.x.saturating_add(inner.width)
+        || mouse.y < inner.y
+        || mouse.y >= inner.y.saturating_add(inner.height)
+    {
+        return None;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    if mouse.y == chunks[0].y {
+        let tabs = SettingsTab::all();
+        let rel_x = mouse.x.saturating_sub(chunks[0].x) as usize;
+        let width = chunks[0].width.max(1) as usize;
+        let idx = (rel_x * tabs.len() / width).min(tabs.len().saturating_sub(1));
+        return Some(SettingsHitTarget::Tab(tabs[idx]));
+    }
+
+    if mouse.y < chunks[2].y || mouse.y >= chunks[2].y.saturating_add(chunks[2].height) {
+        return None;
+    }
+
+    if let Some((line, col)) = editing_cursor_hit_test(chunks[2], settings, mouse) {
+        return Some(SettingsHitTarget::EditCursor { line, col });
+    }
+
+    let row = mouse.y.saturating_sub(chunks[2].y) as usize;
+    settings_field_at_row(settings, row).map(SettingsHitTarget::Field)
+}
+
+fn editing_cursor_hit_test(
+    content_area: Rect,
+    settings: &SettingsState,
+    mouse: Position,
+) -> Option<(usize, usize)> {
+    let field = settings.editing_field()?;
+    let row = mouse.y.saturating_sub(content_area.y) as usize;
+    let rel_x = mouse.x.saturating_sub(content_area.x) as usize;
+
+    if settings.is_textarea() && field == "system_prompt" {
+        let text_start_row = 7usize;
+        let text_start_col = 4usize;
+        let line_count = settings.edit_buffer().split('\n').count().max(1);
+        let row_end = text_start_row + line_count;
+        if row < text_start_row || row > row_end {
+            return None;
+        }
+        let line = (row - text_start_row).min(line_count.saturating_sub(1));
+        let col = rel_x.saturating_sub(text_start_col);
+        return Some((line, col));
+    }
+
+    let (field_row, start_col) = single_line_edit_layout(settings, field)?;
+    if row == field_row {
+        return Some((0, rel_x.saturating_sub(start_col)));
+    }
+    None
+}
+
+fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usize, usize)> {
+    match settings.active_tab() {
+        SettingsTab::Provider => match field {
+            "base_url" => Some((5, 19)),
+            "api_key" => Some((6, 19)),
+            _ => None,
+        },
+        SettingsTab::WebSearch => match field {
+            "firecrawl_api_key" => Some((6, 19)),
+            "exa_api_key" => Some((7, 19)),
+            "tavily_api_key" => Some((8, 19)),
+            "search_max_results" => Some((9, 19)),
+            "search_timeout" => Some((10, 19)),
+            _ => None,
+        },
+        SettingsTab::Chat => match field {
+            "honcho_api_key" => Some((7, 19)),
+            "honcho_base_url" => Some((8, 19)),
+            "honcho_workspace_id" => Some((9, 19)),
+            _ => None,
+        },
+        SettingsTab::Gateway => match field {
+            "gateway_prefix" => Some((5, 19)),
+            "slack_token" => Some((8, 19)),
+            "slack_channel_filter" => Some((9, 19)),
+            "telegram_token" => Some((12, 19)),
+            "telegram_allowed_chats" => Some((13, 19)),
+            "discord_token" => Some((16, 19)),
+            "discord_channel_filter" => Some((17, 19)),
+            "discord_allowed_users" => Some((18, 19)),
+            "whatsapp_allowed_contacts" => Some((21, 19)),
+            "whatsapp_token" => Some((22, 19)),
+            "whatsapp_phone_id" => Some((23, 19)),
+            _ => None,
+        },
+        SettingsTab::Agent => match field {
+            "agent_name" => Some((4, 19)),
+            _ => None,
+        },
+        SettingsTab::Advanced => match field {
+            "max_context_messages" => Some((5, 20)),
+            "max_tool_loops" => Some((6, 20)),
+            "max_retries" => Some((7, 20)),
+            "retry_delay_ms" => Some((8, 20)),
+            "context_budget_tokens" => Some((9, 20)),
+            "compact_threshold_pct" => Some((10, 20)),
+            "keep_recent_on_compact" => Some((11, 20)),
+            "bash_timeout_secs" => Some((12, 20)),
+            "snapshot_max_count" => Some((15, 20)),
+            "snapshot_max_size_mb" => Some((16, 20)),
+            _ => None,
+        },
+        SettingsTab::Tools => None,
+    }
+}
+
+fn settings_field_at_row(settings: &SettingsState, row: usize) -> Option<usize> {
+    match settings.active_tab() {
+        SettingsTab::Provider => row.checked_sub(4).filter(|idx| *idx < 5),
+        SettingsTab::Tools => row.checked_sub(4).filter(|idx| *idx < 7),
+        SettingsTab::WebSearch => row.checked_sub(4).filter(|idx| *idx < 7),
+        SettingsTab::Chat => row.checked_sub(4).filter(|idx| *idx < 6),
+        SettingsTab::Advanced => row.checked_sub(4).filter(|idx| *idx < 13),
+        SettingsTab::Gateway => match row {
+            4 => Some(0),
+            5 => Some(1),
+            8 => Some(2),
+            9 => Some(3),
+            12 => Some(4),
+            13 => Some(5),
+            16 => Some(6),
+            17 => Some(7),
+            18 => Some(8),
+            21 => Some(9),
+            22 => Some(10),
+            23 => Some(11),
+            _ => None,
+        },
+        SettingsTab::Agent => {
+            if settings.is_editing()
+                && settings.is_textarea()
+                && settings.editing_field() == Some("system_prompt")
+            {
+                let prompt_lines = settings.edit_buffer().lines().count().max(1);
+                match row {
+                    4 => Some(0),
+                    5..=6 => Some(1),
+                    r if r <= 8 + prompt_lines => Some(1),
+                    r if r == 9 + prompt_lines => Some(2),
+                    _ => None,
+                }
+            } else {
+                match row {
+                    4 => Some(0),
+                    5 => Some(1),
+                    6 => Some(2),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
 fn render_tab_content<'a>(
     settings: &'a SettingsState,
     config: &'a ConfigState,
@@ -147,20 +361,33 @@ fn render_provider_tab<'a>(
     } else {
         config.reasoning_effort().to_string()
     };
+    let context_window_val = format!("{} tok", config.context_window_tokens);
 
     // Field definitions: (index, label, value, field_name, hint)
-    let fields: [(usize, &str, String, &str, &str); 5] = [
-        (0, "Provider", provider_val, "provider",         " [Enter: pick]"),
-        (1, "Base URL", base_url_val, "base_url",         " [Enter: edit]"),
-        (2, "API Key",  api_key_val,  "api_key",          " [Enter: edit]"),
-        (3, "Model",    model_val,    "model",             " [Enter: pick]"),
-        (4, "Effort",   effort_val,   "reasoning_effort",  " [Enter: pick]"),
+    let fields: [(usize, &str, String, &str, &str); 6] = [
+        (0, "Provider", provider_val, "provider", " [Enter: pick]"),
+        (1, "Base URL", base_url_val, "base_url", " [Enter: edit]"),
+        (2, "API Key", api_key_val, "api_key", " [Enter: edit]"),
+        (3, "Model", model_val, "model", " [Enter: pick]"),
+        (
+            4,
+            "Effort",
+            effort_val,
+            "reasoning_effort",
+            " [Enter: pick]",
+        ),
+        (
+            5,
+            "Ctx Length",
+            context_window_val,
+            "context_window_tokens",
+            " [Enter: edit]",
+        ),
     ];
 
     for (idx, label, value, field_name, hint) in &fields {
         let is_selected = settings.field_cursor() == *idx;
-        let is_editing =
-            settings.is_editing() && settings.editing_field() == Some(*field_name);
+        let is_editing = settings.is_editing() && settings.editing_field() == Some(*field_name);
 
         let marker = if is_selected { ">" } else { " " };
 
@@ -286,10 +513,22 @@ fn render_websearch_tab<'a>(
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
         let check = if config.tool_web_search { "[x]" } else { "[ ]" };
-        let check_style = if config.tool_web_search { theme.accent_success } else { theme.fg_dim };
-        let label_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let check_style = if config.tool_web_search {
+            theme.accent_success
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let mut spans = vec![
             Span::styled(marker, marker_style),
             Span::styled(check, check_style),
@@ -306,13 +545,22 @@ fn render_websearch_tab<'a>(
     {
         let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
-        let provider_val = if config.search_provider.is_empty() || config.search_provider == "none" {
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let provider_val = if config.search_provider.is_empty() || config.search_provider == "none"
+        {
             "none".to_string()
         } else {
             config.search_provider.clone()
         };
-        let value_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let value_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let mut spans = vec![
             Span::styled(marker, marker_style),
             Span::styled(format!("{:<16} ", "Provider:"), theme.fg_dim),
@@ -326,16 +574,35 @@ fn render_websearch_tab<'a>(
 
     // Fields 2–4: API keys (masked, inline edit)
     let api_key_fields: [(usize, &str, &str, &str); 3] = [
-        (2, "Firecrawl Key:  ", config.firecrawl_api_key.as_str(), "firecrawl_api_key"),
-        (3, "Exa Key:        ", config.exa_api_key.as_str(),       "exa_api_key"),
-        (4, "Tavily Key:     ", config.tavily_api_key.as_str(),    "tavily_api_key"),
+        (
+            2,
+            "Firecrawl Key:  ",
+            config.firecrawl_api_key.as_str(),
+            "firecrawl_api_key",
+        ),
+        (
+            3,
+            "Exa Key:        ",
+            config.exa_api_key.as_str(),
+            "exa_api_key",
+        ),
+        (
+            4,
+            "Tavily Key:     ",
+            config.tavily_api_key.as_str(),
+            "tavily_api_key",
+        ),
     ];
 
     for (idx, label, value, field_name) in &api_key_fields {
         let is_selected = settings.field_cursor() == *idx;
         let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
 
         let display_value: String = if is_editing {
             format!("{}\u{2588}", settings.edit_buffer())
@@ -367,9 +634,14 @@ fn render_websearch_tab<'a>(
     // Field 5: search_max_results (numeric inline edit)
     {
         let is_selected = settings.field_cursor() == 5;
-        let is_editing = settings.is_editing() && settings.editing_field() == Some("search_max_results");
+        let is_editing =
+            settings.is_editing() && settings.editing_field() == Some("search_max_results");
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
 
         let display_value: String = if is_editing {
             format!("{}\u{2588}", settings.edit_buffer())
@@ -399,9 +671,14 @@ fn render_websearch_tab<'a>(
     // Field 6: search_timeout_secs (numeric inline edit)
     {
         let is_selected = settings.field_cursor() == 6;
-        let is_editing = settings.is_editing() && settings.editing_field() == Some("search_timeout");
+        let is_editing =
+            settings.is_editing() && settings.editing_field() == Some("search_timeout");
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
 
         let display_value: String = if is_editing {
             format!("{}\u{2588}", settings.edit_buffer())
@@ -448,17 +725,39 @@ fn render_chat_tab<'a>(
 
     // Fields 0–2: toggles
     let toggles: [(usize, bool, &str, &str); 3] = [
-        (0, config.enable_streaming,           "Streaming",           "enable_streaming"),
-        (1, config.enable_conversation_memory, "Conversation Memory", "enable_conversation_memory"),
-        (2, config.enable_honcho_memory,       "Honcho Memory",       "enable_honcho_memory"),
+        (0, config.enable_streaming, "Streaming", "enable_streaming"),
+        (
+            1,
+            config.enable_conversation_memory,
+            "Conversation Memory",
+            "enable_conversation_memory",
+        ),
+        (
+            2,
+            config.enable_honcho_memory,
+            "Honcho Memory",
+            "enable_honcho_memory",
+        ),
     ];
     for (idx, enabled, name, _field_name) in &toggles {
         let is_selected = settings.field_cursor() == *idx;
         let check = if *enabled { "[x]" } else { "[ ]" };
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
-        let check_style = if *enabled { theme.accent_success } else { theme.fg_dim };
-        let label_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let check_style = if *enabled {
+            theme.accent_success
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let mut spans = vec![
             Span::styled(marker, marker_style),
             Span::styled(check, check_style),
@@ -473,12 +772,32 @@ fn render_chat_tab<'a>(
 
     // Fields 3–5: text / password fields
     let text_fields: [(usize, &str, &str, &str, bool); 3] = [
-        (3, "Honcho API Key:  ", config.honcho_api_key.as_str(),       "honcho_api_key",       true),
-        (4, "Honcho Base URL: ", config.honcho_base_url.as_str(),      "honcho_base_url",      false),
-        (5, "Honcho Workspace:", config.honcho_workspace_id.as_str(),  "honcho_workspace_id",  false),
+        (
+            3,
+            "Honcho API Key:  ",
+            config.honcho_api_key.as_str(),
+            "honcho_api_key",
+            true,
+        ),
+        (
+            4,
+            "Honcho Base URL: ",
+            config.honcho_base_url.as_str(),
+            "honcho_base_url",
+            false,
+        ),
+        (
+            5,
+            "Honcho Workspace:",
+            config.honcho_workspace_id.as_str(),
+            "honcho_workspace_id",
+            false,
+        ),
     ];
     for (idx, label, value, field_name, password) in &text_fields {
-        render_gateway_text_field(settings, theme, &mut lines, *idx, label, value, field_name, *password);
+        render_gateway_text_field(
+            settings, theme, &mut lines, *idx, label, value, field_name, *password,
+        );
     }
 
     lines
@@ -503,10 +822,26 @@ fn render_advanced_tab<'a>(
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
-        let check = if config.auto_compact_context { "[x]" } else { "[ ]" };
-        let check_style = if config.auto_compact_context { theme.accent_success } else { theme.fg_dim };
-        let label_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let check = if config.auto_compact_context {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        let check_style = if config.auto_compact_context {
+            theme.accent_success
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let mut spans = vec![
             Span::styled(marker, marker_style),
             Span::styled(check, check_style),
@@ -519,22 +854,72 @@ fn render_advanced_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Fields 1–8: numeric inline-edit fields
-    let numeric_fields: [(usize, &str, String, &str); 8] = [
-        (1, "Max Context Msgs:", config.max_context_messages.to_string(), "max_context_messages"),
-        (2, "Max Tool Loops:  ", config.max_tool_loops.to_string(),       "max_tool_loops"),
-        (3, "Max Retries:     ", config.max_retries.to_string(),          "max_retries"),
-        (4, "Retry Delay (ms):", config.retry_delay_ms.to_string(),       "retry_delay_ms"),
-        (5, "Budget Tokens:   ", config.context_budget_tokens.to_string(), "context_budget_tokens"),
-        (6, "Compact Thres %: ", config.compact_threshold_pct.to_string(), "compact_threshold_pct"),
-        (7, "Keep Recent:     ", config.keep_recent_on_compact.to_string(), "keep_recent_on_compact"),
-        (8, "Bash Timeout (s):", config.bash_timeout_secs.to_string(),    "bash_timeout_secs"),
+    // Fields 1–9: numeric inline-edit fields
+    let numeric_fields: [(usize, &str, String, &str); 9] = [
+        (
+            1,
+            "Max Context Msgs:",
+            config.max_context_messages.to_string(),
+            "max_context_messages",
+        ),
+        (
+            2,
+            "Max Tool Loops:  ",
+            config.max_tool_loops.to_string(),
+            "max_tool_loops",
+        ),
+        (
+            3,
+            "Max Retries:     ",
+            config.max_retries.to_string(),
+            "max_retries",
+        ),
+        (
+            4,
+            "Retry Delay (ms):",
+            config.retry_delay_ms.to_string(),
+            "retry_delay_ms",
+        ),
+        (
+            5,
+            "Context Len Tok: ",
+            config.context_window_tokens.to_string(),
+            "context_window_tokens",
+        ),
+        (
+            6,
+            "Budget Tokens:   ",
+            config.context_budget_tokens.to_string(),
+            "context_budget_tokens",
+        ),
+        (
+            7,
+            "Compact Thres %: ",
+            config.compact_threshold_pct.to_string(),
+            "compact_threshold_pct",
+        ),
+        (
+            8,
+            "Keep Recent:     ",
+            config.keep_recent_on_compact.to_string(),
+            "keep_recent_on_compact",
+        ),
+        (
+            9,
+            "Bash Timeout (s):",
+            config.bash_timeout_secs.to_string(),
+            "bash_timeout_secs",
+        ),
     ];
     for (idx, label, value, field_name) in &numeric_fields {
         let is_selected = settings.field_cursor() == *idx;
         let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
         let display_value: String = if is_editing {
             format!("{}\u{2588}", settings.edit_buffer())
         } else {
@@ -565,14 +950,30 @@ fn render_advanced_tab<'a>(
         theme.fg_dim,
     )));
 
-    // Field 9: snapshot_auto_cleanup (toggle)
+    // Field 10: snapshot_auto_cleanup (toggle)
     {
-        let is_selected = settings.field_cursor() == 9;
+        let is_selected = settings.field_cursor() == 10;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
-        let check = if config.snapshot_auto_cleanup { "[x]" } else { "[ ]" };
-        let check_style = if config.snapshot_auto_cleanup { theme.accent_success } else { theme.fg_dim };
-        let label_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let check = if config.snapshot_auto_cleanup {
+            "[x]"
+        } else {
+            "[ ]"
+        };
+        let check_style = if config.snapshot_auto_cleanup {
+            theme.accent_success
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let mut spans = vec![
             Span::styled(marker, marker_style),
             Span::styled(check, check_style),
@@ -585,16 +986,30 @@ fn render_advanced_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Fields 10-11: snapshot numeric fields
+    // Fields 11-12: snapshot numeric fields
     let snapshot_fields: [(usize, &str, String, &str); 2] = [
-        (10, "Max Snapshots:   ", config.snapshot_max_count.to_string(), "snapshot_max_count"),
-        (11, "Max Size (MB):   ", config.snapshot_max_size_mb.to_string(), "snapshot_max_size_mb"),
+        (
+            11,
+            "Max Snapshots:   ",
+            config.snapshot_max_count.to_string(),
+            "snapshot_max_count",
+        ),
+        (
+            12,
+            "Max Size (MB):   ",
+            config.snapshot_max_size_mb.to_string(),
+            "snapshot_max_size_mb",
+        ),
     ];
     for (idx, label, value, field_name) in &snapshot_fields {
         let is_selected = settings.field_cursor() == *idx;
         let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
         let display_value: String = if is_editing {
             format!("{}\u{2588}", settings.edit_buffer())
         } else {
@@ -618,11 +1033,15 @@ fn render_advanced_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 12: snapshot_stats (read-only info line)
+    // Field 13: snapshot_stats (read-only info line)
     {
-        let is_selected = settings.field_cursor() == 12;
+        let is_selected = settings.field_cursor() == 13;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
         let size_display = if config.snapshot_total_size_bytes >= 1024 * 1024 * 1024 {
             format!(
                 "{:.1} GB",
@@ -635,7 +1054,11 @@ fn render_advanced_tab<'a>(
             )
         };
         let info = format!("{} ({})", config.snapshot_count, size_display);
-        let info_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let info_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let spans = vec![
             Span::styled(marker, marker_style),
             Span::styled("Snapshots:        ", theme.fg_dim),
@@ -666,10 +1089,22 @@ fn render_gateway_tab<'a>(
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
         let check = if config.gateway_enabled { "[x]" } else { "[ ]" };
-        let check_style = if config.gateway_enabled { theme.accent_success } else { theme.fg_dim };
-        let label_style = if is_selected { theme.accent_primary } else { theme.fg_active };
+        let check_style = if config.gateway_enabled {
+            theme.accent_success
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
         let mut spans = vec![
             Span::styled(marker, marker_style),
             Span::styled(check, check_style),
@@ -683,33 +1118,144 @@ fn render_gateway_tab<'a>(
     }
 
     // ── Field 1: gateway_prefix (plain text) ──────────────────────────────────
-    render_gateway_text_field(settings, theme, &mut lines, 1, "Command Prefix", &config.gateway_prefix, "gateway_prefix", false);
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        1,
+        "Command Prefix",
+        &config.gateway_prefix,
+        "gateway_prefix",
+        false,
+    );
 
     // ── Slack section ─────────────────────────────────────────────────────────
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} Slack \u{2500}\u{2500}", theme.fg_dim)));
-    render_gateway_text_field(settings, theme, &mut lines, 2, "Bot Token",      &config.slack_token,          "slack_token",          true);
-    render_gateway_text_field(settings, theme, &mut lines, 3, "Channel Filter", &config.slack_channel_filter, "slack_channel_filter", false);
+    lines.push(Line::from(Span::styled(
+        "  \u{2500}\u{2500} Slack \u{2500}\u{2500}",
+        theme.fg_dim,
+    )));
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        2,
+        "Bot Token",
+        &config.slack_token,
+        "slack_token",
+        true,
+    );
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        3,
+        "Channel Filter",
+        &config.slack_channel_filter,
+        "slack_channel_filter",
+        false,
+    );
 
     // ── Telegram section ──────────────────────────────────────────────────────
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} Telegram \u{2500}\u{2500}", theme.fg_dim)));
-    render_gateway_text_field(settings, theme, &mut lines, 4, "Bot Token",     &config.telegram_token,         "telegram_token",         true);
-    render_gateway_text_field(settings, theme, &mut lines, 5, "Allowed Chats", &config.telegram_allowed_chats, "telegram_allowed_chats", false);
+    lines.push(Line::from(Span::styled(
+        "  \u{2500}\u{2500} Telegram \u{2500}\u{2500}",
+        theme.fg_dim,
+    )));
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        4,
+        "Bot Token",
+        &config.telegram_token,
+        "telegram_token",
+        true,
+    );
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        5,
+        "Allowed Chats",
+        &config.telegram_allowed_chats,
+        "telegram_allowed_chats",
+        false,
+    );
 
     // ── Discord section ───────────────────────────────────────────────────────
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} Discord \u{2500}\u{2500}", theme.fg_dim)));
-    render_gateway_text_field(settings, theme, &mut lines, 6, "Bot Token",      &config.discord_token,          "discord_token",          true);
-    render_gateway_text_field(settings, theme, &mut lines, 7, "Channel Filter", &config.discord_channel_filter, "discord_channel_filter", false);
-    render_gateway_text_field(settings, theme, &mut lines, 8, "Allowed Users",  &config.discord_allowed_users,  "discord_allowed_users",  false);
+    lines.push(Line::from(Span::styled(
+        "  \u{2500}\u{2500} Discord \u{2500}\u{2500}",
+        theme.fg_dim,
+    )));
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        6,
+        "Bot Token",
+        &config.discord_token,
+        "discord_token",
+        true,
+    );
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        7,
+        "Channel Filter",
+        &config.discord_channel_filter,
+        "discord_channel_filter",
+        false,
+    );
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        8,
+        "Allowed Users",
+        &config.discord_allowed_users,
+        "discord_allowed_users",
+        false,
+    );
 
     // ── WhatsApp section ──────────────────────────────────────────────────────
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  \u{2500}\u{2500} WhatsApp \u{2500}\u{2500}", theme.fg_dim)));
-    render_gateway_text_field(settings, theme, &mut lines, 9,  "Allowed Contacts", &config.whatsapp_allowed_contacts, "whatsapp_allowed_contacts", false);
-    render_gateway_text_field(settings, theme, &mut lines, 10, "API Token",        &config.whatsapp_token,            "whatsapp_token",            true);
-    render_gateway_text_field(settings, theme, &mut lines, 11, "Phone Number ID",  &config.whatsapp_phone_id,         "whatsapp_phone_id",         false);
+    lines.push(Line::from(Span::styled(
+        "  \u{2500}\u{2500} WhatsApp \u{2500}\u{2500}",
+        theme.fg_dim,
+    )));
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        9,
+        "Allowed Contacts",
+        &config.whatsapp_allowed_contacts,
+        "whatsapp_allowed_contacts",
+        false,
+    );
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        10,
+        "API Token",
+        &config.whatsapp_token,
+        "whatsapp_token",
+        true,
+    );
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        11,
+        "Phone Number ID",
+        &config.whatsapp_phone_id,
+        "whatsapp_phone_id",
+        false,
+    );
 
     lines
 }
@@ -729,7 +1275,11 @@ fn render_gateway_text_field<'a>(
     let is_selected = settings.field_cursor() == field_idx;
     let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
     let marker = if is_selected { "> " } else { "  " };
-    let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+    let marker_style = if is_selected {
+        theme.accent_primary
+    } else {
+        theme.fg_dim
+    };
 
     let display_value: String = if is_editing {
         format!("{}\u{2588}", settings.edit_buffer())
@@ -795,15 +1345,31 @@ fn render_agent_tab<'a>(
 
     // (field_index, label, value, field_name, hint)
     let editable_fields: [(usize, &str, String, &str, &str); 2] = [
-        (0, "Agent Name    ", agent_name,      "agent_name",   " [Enter: edit]"),
-        (1, "System Prompt ", system_prompt,   "system_prompt"," [Enter: edit]"),
+        (
+            0,
+            "Agent Name    ",
+            agent_name,
+            "agent_name",
+            " [Enter: edit]",
+        ),
+        (
+            1,
+            "System Prompt ",
+            system_prompt,
+            "system_prompt",
+            " [Enter: edit]",
+        ),
     ];
 
     for (idx, label, value, field_name, hint) in &editable_fields {
         let is_selected = settings.field_cursor() == *idx;
         let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
 
         // System prompt: textarea mode when editing
         if *field_name == "system_prompt" && is_editing && settings.is_textarea() {
@@ -813,7 +1379,10 @@ fn render_agent_tab<'a>(
                 Span::styled(" [Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
             ]));
             // Render the edit buffer as a multi-line textarea with border
-            lines.push(Line::from(Span::styled("  ╭──────────────────────────────────────────╮", theme.fg_dim)));
+            lines.push(Line::from(Span::styled(
+                "  ╭──────────────────────────────────────────╮",
+                theme.fg_dim,
+            )));
             for buf_line in settings.edit_buffer().split('\n') {
                 lines.push(Line::from(vec![
                     Span::styled("  │ ", theme.fg_dim),
@@ -824,7 +1393,10 @@ fn render_agent_tab<'a>(
                 Span::styled("  │ ", theme.fg_dim),
                 Span::raw("\u{2588}"),
             ]));
-            lines.push(Line::from(Span::styled("  ╰──────────────────────────────────────────╯", theme.fg_dim)));
+            lines.push(Line::from(Span::styled(
+                "  ╰──────────────────────────────────────────╯",
+                theme.fg_dim,
+            )));
             continue;
         }
 
@@ -849,7 +1421,14 @@ fn render_agent_tab<'a>(
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
                 Span::styled(*label, theme.fg_dim),
-                Span::styled(preview, if is_selected { theme.fg_active } else { theme.fg_dim }),
+                Span::styled(
+                    preview,
+                    if is_selected {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
                 Span::styled(hint_text.to_string(), theme.fg_dim),
             ]));
             continue;
@@ -892,8 +1471,16 @@ fn render_agent_tab<'a>(
     {
         let is_selected = settings.field_cursor() == 2;
         let marker = if is_selected { "> " } else { "  " };
-        let marker_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
-        let value_style = if is_selected { theme.accent_primary } else { theme.fg_dim };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let value_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
         lines.push(Line::from(vec![
             Span::styled(marker, marker_style),
             Span::styled("Backend           ", theme.fg_dim),

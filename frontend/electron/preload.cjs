@@ -133,6 +133,8 @@ const bridgeApi = {
     readFsText: (targetPath) => ipcRenderer.invoke('fs-read-text', targetPath),
     writeFsText: (targetPath, content) => ipcRenderer.invoke('fs-write-text', targetPath, content),
     getFsPathInfo: (targetPath) => ipcRenderer.invoke('fs-path-info', targetPath),
+    gitStatus: (targetPath) => ipcRenderer.invoke('git-status', targetPath),
+    gitDiff: (targetPath, filePath) => ipcRenderer.invoke('git-diff', targetPath, filePath),
     readClipboardText: () => ipcRenderer.invoke('clipboard-read-text'),
     writeClipboardText: (text) => ipcRenderer.invoke('clipboard-write-text', text),
     startTerminalSession: (options) => ipcRenderer.invoke('terminal-start', options),
@@ -241,7 +243,7 @@ const bridgeApi = {
     },
 
     // Agent engine (daemon-side)
-    agentSendMessage: (threadId, content) => ipcRenderer.invoke('agent-send-message', threadId, content),
+    agentSendMessage: (threadId, content, sessionId, contextMessages) => ipcRenderer.invoke('agent-send-message', threadId, content, sessionId, contextMessages),
     agentStopStream: (threadId) => ipcRenderer.invoke('agent-stop-stream', threadId),
     agentListThreads: () => ipcRenderer.invoke('agent-list-threads'),
     agentGetThread: (threadId) => ipcRenderer.invoke('agent-get-thread', threadId),
@@ -249,6 +251,8 @@ const bridgeApi = {
     agentAddTask: (payload) => ipcRenderer.invoke('agent-add-task', payload),
     agentCancelTask: (taskId) => ipcRenderer.invoke('agent-cancel-task', taskId),
     agentListTasks: () => ipcRenderer.invoke('agent-list-tasks'),
+    agentListRuns: () => ipcRenderer.invoke('agent-list-runs'),
+    agentGetRun: (runId) => ipcRenderer.invoke('agent-get-run', runId),
     agentListTodos: () => ipcRenderer.invoke('agent-list-todos'),
     agentGetTodos: (threadId) => ipcRenderer.invoke('agent-get-todos', threadId),
     agentStartGoalRun: (payload) => ipcRenderer.invoke('agent-start-goal-run', payload),
@@ -259,6 +263,7 @@ const bridgeApi = {
     agentSetConfig: (config) => ipcRenderer.invoke('agent-set-config', config),
     agentHeartbeatGetItems: () => ipcRenderer.invoke('agent-heartbeat-get-items'),
     agentHeartbeatSetItems: (items) => ipcRenderer.invoke('agent-heartbeat-set-items', items),
+    agentResolveTaskApproval: (approvalId, decision) => ipcRenderer.invoke('agent-resolve-task-approval', approvalId, decision),
     onAgentEvent: (cb) => {
         const listener = (_event, data) => cb(data);
         ipcRenderer.on('agent-event', listener);

@@ -59,6 +59,31 @@ enum BridgeCommand {
     KillSession,
 }
 
+/// Gracefully deserialize context_messages — if the array contains malformed entries, drop them rather than failing.
+fn deserialize_context_messages<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<amux_protocol::AgentDbMessage>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let raw: Option<Vec<serde_json::Value>> = Option::deserialize(deserializer)?;
+    match raw {
+        None => Ok(None),
+        Some(arr) => {
+            let parsed: Vec<amux_protocol::AgentDbMessage> = arr
+                .into_iter()
+                .filter_map(|v| serde_json::from_value(v).ok())
+                .collect();
+            if parsed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(parsed))
+            }
+        }
+    }
+}
+
 /// Commands for the agent bridge (JSON over stdin).
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -66,6 +91,9 @@ enum AgentBridgeCommand {
     SendMessage {
         thread_id: Option<String>,
         content: String,
+        session_id: Option<String>,
+        #[serde(default, deserialize_with = "deserialize_context_messages")]
+        context_messages: Option<Vec<amux_protocol::AgentDbMessage>>,
     },
     StopStream {
         thread_id: String,
@@ -91,12 +119,17 @@ enum AgentBridgeCommand {
         task_id: String,
     },
     ListTasks,
+    ListRuns,
+    GetRun {
+        run_id: String,
+    },
     StartGoalRun {
         goal: String,
         title: Option<String>,
         thread_id: Option<String>,
         session_id: Option<String>,
         priority: Option<String>,
+        client_request_id: Option<String>,
     },
     ListGoalRuns,
     GetGoalRun {
@@ -118,6 +151,10 @@ enum AgentBridgeCommand {
     HeartbeatGetItems,
     HeartbeatSetItems {
         items_json: String,
+    },
+    ResolveTaskApproval {
+        approval_id: String,
+        decision: String,
     },
     Shutdown,
 }
@@ -851,8 +888,10 @@ pub async fn run_agent_bridge() -> Result<()> {
                         };
 
                         match command {
-                            AgentBridgeCommand::SendMessage { thread_id, content } => {
-                                framed.send(ClientMessage::AgentSendMessage { thread_id, content }).await?;
+                            AgentBridgeCommand::SendMessage { thread_id, content, session_id, context_messages } => {
+                                let context_messages_json = context_messages
+                                    .and_then(|msgs| serde_json::to_string(&msgs).ok());
+                                framed.send(ClientMessage::AgentSendMessage { thread_id, content, session_id, context_messages_json }).await?;
                             }
                             AgentBridgeCommand::StopStream { thread_id } => {
                                 framed.send(ClientMessage::AgentStopStream { thread_id }).await?;
@@ -891,12 +930,19 @@ pub async fn run_agent_bridge() -> Result<()> {
                             AgentBridgeCommand::ListTasks => {
                                 framed.send(ClientMessage::AgentListTasks).await?;
                             }
+                            AgentBridgeCommand::ListRuns => {
+                                framed.send(ClientMessage::AgentListRuns).await?;
+                            }
+                            AgentBridgeCommand::GetRun { run_id } => {
+                                framed.send(ClientMessage::AgentGetRun { run_id }).await?;
+                            }
                             AgentBridgeCommand::StartGoalRun {
                                 goal,
                                 title,
                                 thread_id,
                                 session_id,
                                 priority,
+                                client_request_id,
                             } => {
                                 framed.send(ClientMessage::AgentStartGoalRun {
                                     goal,
@@ -904,6 +950,7 @@ pub async fn run_agent_bridge() -> Result<()> {
                                     thread_id,
                                     session_id,
                                     priority,
+                                    client_request_id,
                                 }).await?;
                             }
                             AgentBridgeCommand::ListGoalRuns => {
@@ -943,6 +990,12 @@ pub async fn run_agent_bridge() -> Result<()> {
                             AgentBridgeCommand::HeartbeatSetItems { items_json } => {
                                 framed.send(ClientMessage::AgentHeartbeatSetItems { items_json }).await?;
                             }
+                            AgentBridgeCommand::ResolveTaskApproval { approval_id, decision } => {
+                                framed.send(ClientMessage::AgentResolveTaskApproval {
+                                    approval_id,
+                                    decision,
+                                }).await?;
+                            }
                             AgentBridgeCommand::Shutdown => {
                                 framed.send(ClientMessage::AgentUnsubscribe).await?;
                                 break;
@@ -967,6 +1020,14 @@ pub async fn run_agent_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::AgentTaskList { tasks_json })) => {
                         let msg = serde_json::json!({"type":"task-list","data":serde_json::from_str::<serde_json::Value>(&tasks_json).unwrap_or_default()});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentRunList { runs_json })) => {
+                        let msg = serde_json::json!({"type":"run-list","data":serde_json::from_str::<serde_json::Value>(&runs_json).unwrap_or_default()});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentRunDetail { run_json })) => {
+                        let msg = serde_json::json!({"type":"run-detail","data":serde_json::from_str::<serde_json::Value>(&run_json).unwrap_or_default()});
                         emit_agent_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::AgentTaskEnqueued { task_json })) => {

@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use crate::state::chat::ChatState;
 use crate::state::config::ConfigState;
@@ -39,9 +39,15 @@ pub fn render(
     };
 
     let mut spans = vec![
-        Span::styled("\u{2591}\u{2592}\u{2593}", Style::default().fg(Color::Indexed(24))),
+        Span::styled(
+            "\u{2591}\u{2592}\u{2593}",
+            Style::default().fg(Color::Indexed(24)),
+        ),
         Span::styled("TAMUX", theme.accent_primary),
-        Span::styled("\u{2593}\u{2592}\u{2591} ", Style::default().fg(Color::Indexed(24))),
+        Span::styled(
+            "\u{2593}\u{2592}\u{2591} ",
+            Style::default().fg(Color::Indexed(24)),
+        ),
     ];
 
     if !config.provider.is_empty() {
@@ -54,7 +60,10 @@ pub fn render(
     // Effort level indicator
     if !config.reasoning_effort.is_empty() {
         spans.push(Span::raw(" ["));
-        spans.push(Span::styled(&config.reasoning_effort, theme.accent_secondary));
+        spans.push(Span::styled(
+            &config.reasoning_effort,
+            theme.accent_secondary,
+        ));
         spans.push(Span::raw("]"));
     }
 

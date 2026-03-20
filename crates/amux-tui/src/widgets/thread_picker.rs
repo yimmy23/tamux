@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
 use crate::state::chat::ChatState;
 use crate::state::modal::ModalState;
@@ -33,7 +33,7 @@ pub fn render(
         .constraints([
             Constraint::Length(1), // search
             Constraint::Length(1), // separator
-            Constraint::Min(1),   // list
+            Constraint::Min(1),    // list
             Constraint::Length(1), // hints
         ])
         .split(inner);
@@ -85,14 +85,8 @@ pub fn render(
                 // "New conversation" item
                 let is_selected = cursor == 0;
                 if is_selected {
-                    ListItem::new(Line::from(vec![
-                        Span::raw("  + New conversation"),
-                    ]))
-                    .style(
-                        Style::default()
-                            .bg(Color::Indexed(178))
-                            .fg(Color::Black),
-                    )
+                    ListItem::new(Line::from(vec![Span::raw("  + New conversation")]))
+                        .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                 } else {
                     ListItem::new(Line::from(vec![
                         Span::raw("  "),
@@ -133,11 +127,7 @@ pub fn render(
                             Span::raw("  "),
                             Span::raw(token_str),
                         ]))
-                        .style(
-                            Style::default()
-                                .bg(Color::Indexed(178))
-                                .fg(Color::Black),
-                        )
+                        .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                     } else {
                         ListItem::new(Line::from(vec![
                             Span::raw("  "),

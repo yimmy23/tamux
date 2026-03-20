@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
 use crate::providers::PROVIDERS;
 use crate::state::config::ConfigState;
@@ -50,11 +50,7 @@ pub fn render(
                     Span::raw(" > "),
                     Span::raw(provider_def.name),
                 ]))
-                .style(
-                    Style::default()
-                        .bg(Color::Indexed(178))
-                        .fg(Color::Black),
-                )
+                .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
             } else if is_active && !active_provider.is_empty() {
                 ListItem::new(Line::from(vec![
                     Span::raw("  "),

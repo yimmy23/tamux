@@ -78,7 +78,10 @@ pub struct PendingApproval {
 #[derive(Debug, Clone)]
 pub enum ApprovalAction {
     ApprovalRequired(PendingApproval),
-    Resolve { approval_id: String, decision: String },
+    Resolve {
+        approval_id: String,
+        decision: String,
+    },
     AllowSession(String),  // command pattern to allow for this session
     ClearResolved(String), // remove by approval_id
 }
@@ -118,8 +121,12 @@ impl ApprovalState {
                 self.pending_approvals.push(approval);
             }
 
-            ApprovalAction::Resolve { approval_id, decision: _ } => {
-                self.pending_approvals.retain(|a| a.approval_id != approval_id);
+            ApprovalAction::Resolve {
+                approval_id,
+                decision: _,
+            } => {
+                self.pending_approvals
+                    .retain(|a| a.approval_id != approval_id);
             }
 
             ApprovalAction::AllowSession(pattern) => {
@@ -127,7 +134,8 @@ impl ApprovalState {
             }
 
             ApprovalAction::ClearResolved(approval_id) => {
-                self.pending_approvals.retain(|a| a.approval_id != approval_id);
+                self.pending_approvals
+                    .retain(|a| a.approval_id != approval_id);
             }
         }
     }
@@ -165,7 +173,9 @@ mod tests {
         assert!(state.pending_approvals().is_empty());
         assert!(state.current_approval().is_none());
 
-        state.reduce(ApprovalAction::ApprovalRequired(make_approval("a1", "t1", "ls -la")));
+        state.reduce(ApprovalAction::ApprovalRequired(make_approval(
+            "a1", "t1", "ls -la",
+        )));
         assert_eq!(state.pending_approvals().len(), 1);
         assert_eq!(state.current_approval().unwrap().approval_id, "a1");
     }
@@ -173,8 +183,12 @@ mod tests {
     #[test]
     fn resolve_removes_matching_approval() {
         let mut state = ApprovalState::new();
-        state.reduce(ApprovalAction::ApprovalRequired(make_approval("a1", "t1", "ls")));
-        state.reduce(ApprovalAction::ApprovalRequired(make_approval("a2", "t2", "pwd")));
+        state.reduce(ApprovalAction::ApprovalRequired(make_approval(
+            "a1", "t1", "ls",
+        )));
+        state.reduce(ApprovalAction::ApprovalRequired(make_approval(
+            "a2", "t2", "pwd",
+        )));
         assert_eq!(state.pending_approvals().len(), 2);
 
         state.reduce(ApprovalAction::Resolve {
@@ -188,7 +202,9 @@ mod tests {
     #[test]
     fn clear_resolved_removes_by_id() {
         let mut state = ApprovalState::new();
-        state.reduce(ApprovalAction::ApprovalRequired(make_approval("a1", "t1", "ls")));
+        state.reduce(ApprovalAction::ApprovalRequired(make_approval(
+            "a1", "t1", "ls",
+        )));
         state.reduce(ApprovalAction::ClearResolved("a1".into()));
         assert!(state.pending_approvals().is_empty());
     }
@@ -196,8 +212,16 @@ mod tests {
     #[test]
     fn current_approval_is_first_pending() {
         let mut state = ApprovalState::new();
-        state.reduce(ApprovalAction::ApprovalRequired(make_approval("a1", "t1", "echo hello")));
-        state.reduce(ApprovalAction::ApprovalRequired(make_approval("a2", "t2", "echo world")));
+        state.reduce(ApprovalAction::ApprovalRequired(make_approval(
+            "a1",
+            "t1",
+            "echo hello",
+        )));
+        state.reduce(ApprovalAction::ApprovalRequired(make_approval(
+            "a2",
+            "t2",
+            "echo world",
+        )));
         assert_eq!(state.current_approval().unwrap().approval_id, "a1");
     }
 
@@ -215,27 +239,42 @@ mod tests {
 
     #[test]
     fn risk_critical_for_rm_rf_root() {
-        assert_eq!(RiskLevel::classify_command("rm -rf /home"), RiskLevel::Critical);
+        assert_eq!(
+            RiskLevel::classify_command("rm -rf /home"),
+            RiskLevel::Critical
+        );
     }
 
     #[test]
     fn risk_critical_for_rm_rf_tilde() {
-        assert_eq!(RiskLevel::classify_command("rm -rf ~/documents"), RiskLevel::Critical);
+        assert_eq!(
+            RiskLevel::classify_command("rm -rf ~/documents"),
+            RiskLevel::Critical
+        );
     }
 
     #[test]
     fn risk_critical_for_mkfs() {
-        assert_eq!(RiskLevel::classify_command("mkfs.ext4 /dev/sda1"), RiskLevel::Critical);
+        assert_eq!(
+            RiskLevel::classify_command("mkfs.ext4 /dev/sda1"),
+            RiskLevel::Critical
+        );
     }
 
     #[test]
     fn risk_critical_for_dd() {
-        assert_eq!(RiskLevel::classify_command("dd if=/dev/zero of=/dev/sda"), RiskLevel::Critical);
+        assert_eq!(
+            RiskLevel::classify_command("dd if=/dev/zero of=/dev/sda"),
+            RiskLevel::Critical
+        );
     }
 
     #[test]
     fn risk_high_for_force_push() {
-        assert_eq!(RiskLevel::classify_command("git push --force origin main"), RiskLevel::High);
+        assert_eq!(
+            RiskLevel::classify_command("git push --force origin main"),
+            RiskLevel::High
+        );
     }
 
     #[test]
@@ -253,47 +292,74 @@ mod tests {
 
     #[test]
     fn risk_high_for_docker_system_prune() {
-        assert_eq!(RiskLevel::classify_command("docker system prune -f"), RiskLevel::High);
+        assert_eq!(
+            RiskLevel::classify_command("docker system prune -f"),
+            RiskLevel::High
+        );
     }
 
     #[test]
     fn risk_high_for_kubectl_delete() {
-        assert_eq!(RiskLevel::classify_command("kubectl delete pod mypod"), RiskLevel::High);
+        assert_eq!(
+            RiskLevel::classify_command("kubectl delete pod mypod"),
+            RiskLevel::High
+        );
     }
 
     #[test]
     fn risk_high_for_systemctl() {
-        assert_eq!(RiskLevel::classify_command("systemctl stop nginx"), RiskLevel::High);
+        assert_eq!(
+            RiskLevel::classify_command("systemctl stop nginx"),
+            RiskLevel::High
+        );
     }
 
     #[test]
     fn risk_high_for_npm_publish() {
-        assert_eq!(RiskLevel::classify_command("npm publish --access public"), RiskLevel::High);
+        assert_eq!(
+            RiskLevel::classify_command("npm publish --access public"),
+            RiskLevel::High
+        );
     }
 
     #[test]
     fn risk_high_for_cargo_publish() {
-        assert_eq!(RiskLevel::classify_command("cargo publish"), RiskLevel::High);
+        assert_eq!(
+            RiskLevel::classify_command("cargo publish"),
+            RiskLevel::High
+        );
     }
 
     #[test]
     fn risk_medium_for_rm_rf() {
-        assert_eq!(RiskLevel::classify_command("rm -rf ./build"), RiskLevel::Medium);
+        assert_eq!(
+            RiskLevel::classify_command("rm -rf ./build"),
+            RiskLevel::Medium
+        );
     }
 
     #[test]
     fn risk_medium_for_git_reset_hard() {
-        assert_eq!(RiskLevel::classify_command("git reset --hard HEAD~3"), RiskLevel::Medium);
+        assert_eq!(
+            RiskLevel::classify_command("git reset --hard HEAD~3"),
+            RiskLevel::Medium
+        );
     }
 
     #[test]
     fn risk_medium_for_drop_table() {
-        assert_eq!(RiskLevel::classify_command("DROP TABLE users"), RiskLevel::Medium);
+        assert_eq!(
+            RiskLevel::classify_command("DROP TABLE users"),
+            RiskLevel::Medium
+        );
     }
 
     #[test]
     fn risk_medium_for_drop_database() {
-        assert_eq!(RiskLevel::classify_command("DROP DATABASE mydb"), RiskLevel::Medium);
+        assert_eq!(
+            RiskLevel::classify_command("DROP DATABASE mydb"),
+            RiskLevel::Medium
+        );
     }
 
     #[test]
@@ -303,7 +369,10 @@ mod tests {
 
     #[test]
     fn risk_low_for_echo() {
-        assert_eq!(RiskLevel::classify_command("echo hello world"), RiskLevel::Low);
+        assert_eq!(
+            RiskLevel::classify_command("echo hello world"),
+            RiskLevel::Low
+        );
     }
 
     #[test]

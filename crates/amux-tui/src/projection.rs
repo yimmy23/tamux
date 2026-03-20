@@ -6,12 +6,7 @@
 //!
 //! NOTE: Uses local type aliases until Task 9 resolves the state.rs → wire.rs rename.
 
-use crate::state::{
-    AppAction,
-    chat::ChatAction,
-    task::TaskAction,
-    config::ConfigAction,
-};
+use crate::state::{chat::ChatAction, config::ConfigAction, task::TaskAction, AppAction};
 
 // Forward reference — will be `use crate::client::ClientEvent` after Task 9
 // For now, re-export from here so app.rs can use it
@@ -19,11 +14,19 @@ use crate::state::{
 pub enum ClientEvent {
     Connected,
     Disconnected,
-    SessionSpawned { session_id: String },
+    Reconnecting {
+        delay_secs: u64,
+    },
+    SessionSpawned {
+        session_id: String,
+    },
 
     ThreadList(Vec<crate::state::chat::AgentThread>),
     ThreadDetail(Option<crate::state::chat::AgentThread>),
-    ThreadCreated { thread_id: String, title: String },
+    ThreadCreated {
+        thread_id: String,
+        title: String,
+    },
 
     TaskList(Vec<crate::state::task::AgentTask>),
     TaskUpdate(crate::state::task::AgentTask),
@@ -38,10 +41,27 @@ pub enum ClientEvent {
 
     HeartbeatItems(Vec<crate::state::task::HeartbeatItem>),
 
-    Delta { thread_id: String, content: String },
-    Reasoning { thread_id: String, content: String },
-    ToolCall { thread_id: String, call_id: String, name: String, arguments: String },
-    ToolResult { thread_id: String, call_id: String, name: String, content: String, is_error: bool },
+    Delta {
+        thread_id: String,
+        content: String,
+    },
+    Reasoning {
+        thread_id: String,
+        content: String,
+    },
+    ToolCall {
+        thread_id: String,
+        call_id: String,
+        name: String,
+        arguments: String,
+    },
+    ToolResult {
+        thread_id: String,
+        call_id: String,
+        name: String,
+        content: String,
+        is_error: bool,
+    },
     Done {
         thread_id: String,
         input_tokens: u64,
@@ -70,89 +90,119 @@ impl DaemonProjection {
                 AppAction::Disconnected,
                 AppAction::Status("Disconnected from daemon".into()),
             ],
-            ClientEvent::SessionSpawned { session_id } => vec![
-                AppAction::Status(format!("Session bound: {}", session_id)),
-            ],
+            ClientEvent::Reconnecting { delay_secs } => vec![AppAction::Status(format!(
+                "Connection lost. Retrying in {}s",
+                delay_secs
+            ))],
+            ClientEvent::SessionSpawned { session_id } => {
+                vec![AppAction::Status(format!("Session bound: {}", session_id))]
+            }
 
             // Thread events → ChatAction
-            ClientEvent::ThreadList(threads) => vec![
-                AppAction::Chat(ChatAction::ThreadListReceived(threads)),
-            ],
-            ClientEvent::ThreadDetail(Some(thread)) => vec![
-                AppAction::Chat(ChatAction::ThreadDetailReceived(thread)),
-            ],
+            ClientEvent::ThreadList(threads) => {
+                vec![AppAction::Chat(ChatAction::ThreadListReceived(threads))]
+            }
+            ClientEvent::ThreadDetail(Some(thread)) => {
+                vec![AppAction::Chat(ChatAction::ThreadDetailReceived(thread))]
+            }
             ClientEvent::ThreadDetail(None) => vec![],
-            ClientEvent::ThreadCreated { thread_id, title } => vec![
-                AppAction::Chat(ChatAction::ThreadCreated { thread_id, title }),
-            ],
+            ClientEvent::ThreadCreated { thread_id, title } => {
+                vec![AppAction::Chat(ChatAction::ThreadCreated {
+                    thread_id,
+                    title,
+                })]
+            }
 
             // Task events → TaskAction
-            ClientEvent::TaskList(tasks) => vec![
-                AppAction::Task(TaskAction::TaskListReceived(tasks)),
-            ],
-            ClientEvent::TaskUpdate(task) => vec![
-                AppAction::Task(TaskAction::TaskUpdate(task)),
-            ],
+            ClientEvent::TaskList(tasks) => {
+                vec![AppAction::Task(TaskAction::TaskListReceived(tasks))]
+            }
+            ClientEvent::TaskUpdate(task) => vec![AppAction::Task(TaskAction::TaskUpdate(task))],
 
             // Goal run events → TaskAction
-            ClientEvent::GoalRunList(runs) => vec![
-                AppAction::Task(TaskAction::GoalRunListReceived(runs)),
-            ],
-            ClientEvent::GoalRunDetail(Some(run)) => vec![
-                AppAction::Task(TaskAction::GoalRunDetailReceived(run)),
-            ],
+            ClientEvent::GoalRunList(runs) => {
+                vec![AppAction::Task(TaskAction::GoalRunListReceived(runs))]
+            }
+            ClientEvent::GoalRunDetail(Some(run)) => {
+                vec![AppAction::Task(TaskAction::GoalRunDetailReceived(run))]
+            }
             ClientEvent::GoalRunDetail(None) => vec![],
-            ClientEvent::GoalRunUpdate(run) => vec![
-                AppAction::Task(TaskAction::GoalRunUpdate(run)),
-            ],
+            ClientEvent::GoalRunUpdate(run) => {
+                vec![AppAction::Task(TaskAction::GoalRunUpdate(run))]
+            }
 
             // Config events → ConfigAction
-            ClientEvent::AgentConfig(config) => vec![
-                AppAction::Config(ConfigAction::ConfigReceived(config)),
-            ],
-            ClientEvent::AgentConfigRaw(raw) => vec![
-                AppAction::Config(ConfigAction::ConfigRawReceived(raw)),
-            ],
-            ClientEvent::ModelsFetched(models) => vec![
-                AppAction::Config(ConfigAction::ModelsFetched(models)),
-            ],
+            ClientEvent::AgentConfig(config) => {
+                vec![AppAction::Config(ConfigAction::ConfigReceived(config))]
+            }
+            ClientEvent::AgentConfigRaw(raw) => {
+                vec![AppAction::Config(ConfigAction::ConfigRawReceived(raw))]
+            }
+            ClientEvent::ModelsFetched(models) => {
+                vec![AppAction::Config(ConfigAction::ModelsFetched(models))]
+            }
 
             // Heartbeat → TaskAction
-            ClientEvent::HeartbeatItems(items) => vec![
-                AppAction::Task(TaskAction::HeartbeatItemsReceived(items)),
-            ],
+            ClientEvent::HeartbeatItems(items) => {
+                vec![AppAction::Task(TaskAction::HeartbeatItemsReceived(items))]
+            }
 
             // Streaming events → ChatAction
-            ClientEvent::Delta { thread_id, content } => vec![
-                AppAction::Chat(ChatAction::Delta { thread_id, content }),
-            ],
-            ClientEvent::Reasoning { thread_id, content } => vec![
-                AppAction::Chat(ChatAction::Reasoning { thread_id, content }),
-            ],
-            ClientEvent::ToolCall { thread_id, call_id, name, arguments } => vec![
-                AppAction::Chat(ChatAction::ToolCall {
-                    thread_id, call_id, name, args: arguments,
-                }),
-            ],
-            ClientEvent::ToolResult { thread_id, call_id, name, content, is_error } => vec![
-                AppAction::Chat(ChatAction::ToolResult {
-                    thread_id, call_id, name, content, is_error,
-                }),
-            ],
+            ClientEvent::Delta { thread_id, content } => {
+                vec![AppAction::Chat(ChatAction::Delta { thread_id, content })]
+            }
+            ClientEvent::Reasoning { thread_id, content } => {
+                vec![AppAction::Chat(ChatAction::Reasoning {
+                    thread_id,
+                    content,
+                })]
+            }
+            ClientEvent::ToolCall {
+                thread_id,
+                call_id,
+                name,
+                arguments,
+            } => vec![AppAction::Chat(ChatAction::ToolCall {
+                thread_id,
+                call_id,
+                name,
+                args: arguments,
+            })],
+            ClientEvent::ToolResult {
+                thread_id,
+                call_id,
+                name,
+                content,
+                is_error,
+            } => vec![AppAction::Chat(ChatAction::ToolResult {
+                thread_id,
+                call_id,
+                name,
+                content,
+                is_error,
+            })],
             ClientEvent::Done {
-                thread_id, input_tokens, output_tokens,
-                cost, provider, model, tps, generation_ms,
-            } => vec![
-                AppAction::Chat(ChatAction::TurnDone {
-                    thread_id, input_tokens, output_tokens,
-                    cost, provider, model, tps, generation_ms,
-                }),
-            ],
+                thread_id,
+                input_tokens,
+                output_tokens,
+                cost,
+                provider,
+                model,
+                tps,
+                generation_ms,
+            } => vec![AppAction::Chat(ChatAction::TurnDone {
+                thread_id,
+                input_tokens,
+                output_tokens,
+                cost,
+                provider,
+                model,
+                tps,
+                generation_ms,
+            })],
 
             // Error → Status
-            ClientEvent::Error(message) => vec![
-                AppAction::Status(format!("Error: {}", message)),
-            ],
+            ClientEvent::Error(message) => vec![AppAction::Status(format!("Error: {}", message))],
         }
     }
 }
@@ -188,7 +238,10 @@ mod tests {
     fn task_list_maps_to_task_action() {
         let actions = DaemonProjection::project(ClientEvent::TaskList(vec![]));
         assert_eq!(actions.len(), 1);
-        assert!(matches!(&actions[0], AppAction::Task(TaskAction::TaskListReceived(_))));
+        assert!(matches!(
+            &actions[0],
+            AppAction::Task(TaskAction::TaskListReceived(_))
+        ));
     }
 
     #[test]
@@ -203,7 +256,9 @@ mod tests {
             tps: Some(45.0),
             generation_ms: Some(1200),
         });
-        assert!(actions.iter().any(|a| matches!(a, AppAction::Chat(ChatAction::TurnDone { .. }))));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, AppAction::Chat(ChatAction::TurnDone { .. }))));
     }
 
     #[test]

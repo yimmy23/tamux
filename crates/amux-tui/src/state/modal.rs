@@ -25,7 +25,7 @@ pub enum ModalAction {
     Push(ModalKind),
     Pop,
     SetQuery(String),
-    Navigate(i32),    // +1 = down, -1 = up
+    Navigate(i32), // +1 = down, -1 = up
     Execute,
     FuzzyFilter,
 }
@@ -55,13 +55,27 @@ impl ModalState {
     }
 
     // Accessors
-    pub fn top(&self) -> Option<ModalKind> { self.stack.last().copied() }
-    pub fn is_empty(&self) -> bool { self.stack.is_empty() }
-    pub fn command_query(&self) -> &str { &self.command_query }
-    pub fn command_items(&self) -> &[CommandItem] { &self.command_items }
-    pub fn filtered_items(&self) -> &[usize] { &self.filtered_indices }
-    pub fn picker_cursor(&self) -> usize { self.picker_cursor }
-    pub fn set_picker_item_count(&mut self, count: usize) { self.picker_item_count = Some(count); }
+    pub fn top(&self) -> Option<ModalKind> {
+        self.stack.last().copied()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.stack.is_empty()
+    }
+    pub fn command_query(&self) -> &str {
+        &self.command_query
+    }
+    pub fn command_items(&self) -> &[CommandItem] {
+        &self.command_items
+    }
+    pub fn filtered_items(&self) -> &[usize] {
+        &self.filtered_indices
+    }
+    pub fn picker_cursor(&self) -> usize {
+        self.picker_cursor
+    }
+    pub fn set_picker_item_count(&mut self, count: usize) {
+        self.picker_item_count = Some(count);
+    }
 
     pub fn reduce(&mut self, action: ModalAction) {
         match action {
@@ -84,8 +98,12 @@ impl ModalState {
                 self.picker_cursor = 0;
             }
             ModalAction::Navigate(delta) => {
-                let len = self.picker_item_count.unwrap_or(self.filtered_indices.len());
-                if len == 0 { return; }
+                let len = self
+                    .picker_item_count
+                    .unwrap_or(self.filtered_indices.len());
+                if len == 0 {
+                    return;
+                }
                 if delta > 0 {
                     self.picker_cursor = (self.picker_cursor + delta as usize).min(len - 1);
                 } else {
@@ -103,7 +121,8 @@ impl ModalState {
 
     /// Get the currently selected command (if any)
     pub fn selected_command(&self) -> Option<&CommandItem> {
-        self.filtered_indices.get(self.picker_cursor)
+        self.filtered_indices
+            .get(self.picker_cursor)
             .and_then(|&idx| self.command_items.get(idx))
     }
 
@@ -114,7 +133,9 @@ impl ModalState {
         } else {
             // Strip leading '/' for matching
             let q = query.strip_prefix('/').unwrap_or(&query);
-            self.filtered_indices = self.command_items.iter()
+            self.filtered_indices = self
+                .command_items
+                .iter()
                 .enumerate()
                 .filter(|(_, item)| {
                     item.command.to_lowercase().contains(q)
@@ -128,19 +149,58 @@ impl ModalState {
 
 fn default_command_items() -> Vec<CommandItem> {
     vec![
-        CommandItem { command: "provider".into(), description: "Switch LLM backend".into() },
-        CommandItem { command: "model".into(), description: "Switch active model".into() },
-        CommandItem { command: "tools".into(), description: "Toggle tool categories".into() },
-        CommandItem { command: "effort".into(), description: "Set reasoning effort".into() },
-        CommandItem { command: "thread".into(), description: "Pick conversation thread".into() },
-        CommandItem { command: "new".into(), description: "New conversation".into() },
-        CommandItem { command: "goal".into(), description: "Start a goal run".into() },
-        CommandItem { command: "view".into(), description: "Switch transcript mode".into() },
-        CommandItem { command: "settings".into(), description: "Open settings panel".into() },
-        CommandItem { command: "prompt".into(), description: "Edit system prompt".into() },
-        CommandItem { command: "attach".into(), description: "Attach a file to the message".into() },
-        CommandItem { command: "quit".into(), description: "Exit TUI".into() },
-        CommandItem { command: "help".into(), description: "Show keyboard shortcuts".into() },
+        CommandItem {
+            command: "provider".into(),
+            description: "Switch LLM backend".into(),
+        },
+        CommandItem {
+            command: "model".into(),
+            description: "Switch active model".into(),
+        },
+        CommandItem {
+            command: "tools".into(),
+            description: "Toggle tool categories".into(),
+        },
+        CommandItem {
+            command: "effort".into(),
+            description: "Set reasoning effort".into(),
+        },
+        CommandItem {
+            command: "thread".into(),
+            description: "Pick conversation thread".into(),
+        },
+        CommandItem {
+            command: "new".into(),
+            description: "New conversation".into(),
+        },
+        CommandItem {
+            command: "goal".into(),
+            description: "Start a goal run".into(),
+        },
+        CommandItem {
+            command: "view".into(),
+            description: "Switch transcript mode".into(),
+        },
+        CommandItem {
+            command: "settings".into(),
+            description: "Open settings panel".into(),
+        },
+        CommandItem {
+            command: "prompt".into(),
+            description: "Edit system prompt".into(),
+        },
+        CommandItem {
+            command: "attach".into(),
+            description: "Attach a file to the message".into(),
+        },
+        CommandItem {
+            command: "quit".into(),
+            description: "Exit TUI".into(),
+        },
+        CommandItem {
+            command: "help".into(),
+            description: "Show keyboard shortcuts".into(),
+        },
     ]
 }
 
@@ -173,7 +233,9 @@ mod tests {
         let mut state = ModalState::new();
         state.reduce(ModalAction::SetQuery("pro".into()));
         // "provider" and "prompt" should match "pro"
-        let filtered_commands: Vec<&str> = state.filtered_items().iter()
+        let filtered_commands: Vec<&str> = state
+            .filtered_items()
+            .iter()
             .map(|&idx| state.command_items()[idx].command.as_str())
             .collect();
         assert!(filtered_commands.contains(&"provider"));
@@ -185,7 +247,9 @@ mod tests {
     fn slash_prefix_stripped_for_matching() {
         let mut state = ModalState::new();
         state.reduce(ModalAction::SetQuery("/mod".into()));
-        let filtered_commands: Vec<&str> = state.filtered_items().iter()
+        let filtered_commands: Vec<&str> = state
+            .filtered_items()
+            .iter()
             .map(|&idx| state.command_items()[idx].command.as_str())
             .collect();
         assert!(filtered_commands.contains(&"model"));

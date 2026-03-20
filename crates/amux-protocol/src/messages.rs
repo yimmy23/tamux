@@ -210,6 +210,9 @@ pub enum ClientMessage {
     AgentSendMessage {
         thread_id: Option<String>,
         content: String,
+        session_id: Option<String>,
+        /// JSON-encoded Vec<AgentDbMessage> for seeding thread context.
+        context_messages_json: Option<String>,
     },
 
     /// Stop the current agent stream on a thread.
@@ -243,6 +246,7 @@ pub enum ClientMessage {
         thread_id: Option<String>,
         session_id: Option<String>,
         priority: Option<String>,
+        client_request_id: Option<String>,
     },
 
     /// Cancel a queued or running agent task.
@@ -250,6 +254,12 @@ pub enum ClientMessage {
 
     /// List all agent tasks.
     AgentListTasks,
+
+    /// List projected agent runs and subagent runs.
+    AgentListRuns,
+
+    /// Get a specific projected agent run.
+    AgentGetRun { run_id: String },
 
     /// List all goal runs.
     AgentListGoalRuns,
@@ -276,11 +286,24 @@ pub enum ClientMessage {
     /// Update agent configuration.
     AgentSetConfig { config_json: String },
 
+    /// Fetch available models from a provider.
+    AgentFetchModels {
+        provider_id: String,
+        base_url: String,
+        api_key: String,
+    },
+
     /// Get heartbeat check items.
     AgentHeartbeatGetItems,
 
     /// Set heartbeat check items.
     AgentHeartbeatSetItems { items_json: String },
+
+    /// Resolve a task approval (approve/deny a managed command).
+    AgentResolveTaskApproval {
+        approval_id: String,
+        decision: String,
+    },
 
     /// Subscribe to agent event broadcasts.
     AgentSubscribe,
@@ -490,6 +513,12 @@ pub enum DaemonMessage {
     /// Response to AgentListTasks.
     AgentTaskList { tasks_json: String },
 
+    /// Response to AgentListRuns.
+    AgentRunList { runs_json: String },
+
+    /// Response to AgentGetRun.
+    AgentRunDetail { run_json: String },
+
     /// Response to AgentAddTask.
     AgentTaskEnqueued { task_json: String },
 
@@ -519,6 +548,12 @@ pub enum DaemonMessage {
 
     /// Response to AgentGetConfig.
     AgentConfigResponse { config_json: String },
+
+    /// Response to AgentFetchModels.
+    AgentModelsResponse { models_json: String },
+
+    /// Error response for agent operations.
+    AgentError { message: String },
 
     /// Response to AgentHeartbeatGetItems.
     AgentHeartbeatItems { items_json: String },

@@ -33,7 +33,9 @@ export type AgentProviderId =
   | "qwen"
   | "qwen-deepinfra"
   | "kimi"
+  | "kimi-coding-plan"
   | "z.ai"
+  | "z.ai-coding-plan"
   | "openrouter"
   | "cerebras"
   | "together"
@@ -42,6 +44,9 @@ export type AgentProviderId =
   | "chutes"
   | "huggingface"
   | "minimax"
+  | "minimax-coding-plan"
+  | "alibaba-coding-plan"
+  | "opencode-zen"
   | "custom";
 
 const AGENT_PROVIDER_IDS: AgentProviderId[] = [
@@ -51,7 +56,9 @@ const AGENT_PROVIDER_IDS: AgentProviderId[] = [
   "qwen",
   "qwen-deepinfra",
   "kimi",
+  "kimi-coding-plan",
   "z.ai",
+  "z.ai-coding-plan",
   "openrouter",
   "cerebras",
   "together",
@@ -60,6 +67,9 @@ const AGENT_PROVIDER_IDS: AgentProviderId[] = [
   "chutes",
   "huggingface",
   "minimax",
+  "minimax-coding-plan",
+  "alibaba-coding-plan",
+  "opencode-zen",
   "custom",
 ];
 
@@ -84,6 +94,152 @@ export interface AgentProviderConfig {
   baseUrl: string;
   model: string;
   apiKey: string;
+}
+
+export type ApiType = "openai" | "anthropic";
+export type AuthMethod = "bearer" | "x-api-key";
+
+export interface ModelDefinition {
+  id: string;
+  name: string;
+  contextWindow: number;
+}
+
+export interface ProviderDefinition {
+  id: AgentProviderId;
+  name: string;
+  defaultBaseUrl: string;
+  defaultModel: string;
+  apiType: ApiType;
+  authMethod: AuthMethod;
+  models: ModelDefinition[];
+  supportsModelFetch: boolean;
+  anthropicBaseUrl?: string;
+}
+
+const OPENAI_MODELS: ModelDefinition[] = [
+  { id: "gpt-4o", name: "GPT-4o", contextWindow: 128000 },
+  { id: "gpt-4o-mini", name: "GPT-4o Mini", contextWindow: 128000 },
+  { id: "gpt-4-turbo", name: "GPT-4 Turbo", contextWindow: 128000 },
+  { id: "o1", name: "o1", contextWindow: 200000 },
+  { id: "o1-mini", name: "o1 Mini", contextWindow: 128000 },
+];
+
+const ANTHROPIC_MODELS: ModelDefinition[] = [
+  { id: "claude-opus-4-20250514", name: "Claude Opus 4", contextWindow: 200000 },
+  { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", contextWindow: 200000 },
+  { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", contextWindow: 200000 },
+  { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", contextWindow: 200000 },
+];
+
+const ZAI_MODELS: ModelDefinition[] = [
+  { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "glm-4-plus", name: "GLM-4 Plus", contextWindow: 128000 },
+  { id: "glm-4", name: "GLM-4", contextWindow: 128000 },
+];
+
+const KIMI_MODELS: ModelDefinition[] = [
+  { id: "moonshot-v1-8k", name: "Moonshot V1 8K", contextWindow: 8192 },
+  { id: "moonshot-v1-32k", name: "Moonshot V1 32K", contextWindow: 32768 },
+  { id: "moonshot-v1-128k", name: "Moonshot V1 128K", contextWindow: 131072 },
+];
+
+const KIMI_CODING_MODELS: ModelDefinition[] = [
+  { id: "kimi-for-coding", name: "Kimi for Coding", contextWindow: 262144 },
+  { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
+];
+
+const MINIMAX_MODELS: ModelDefinition[] = [
+  { id: "MiniMax-M2.7", name: "MiniMax M2.7", contextWindow: 205000 },
+  { id: "MiniMax-M2.5", name: "MiniMax M2.5", contextWindow: 205000 },
+  { id: "MiniMax-M1-80k", name: "MiniMax M1 80K", contextWindow: 80000 },
+];
+
+const ALIBABA_CODING_MODELS: ModelDefinition[] = [
+  { id: "qwen3-coder", name: "Qwen3 Coder", contextWindow: 128000 },
+  { id: "qwen3-coder-next", name: "Qwen3 Coder Next", contextWindow: 128000 },
+  { id: "qwen3.5-plus", name: "Qwen3.5 Plus", contextWindow: 128000 },
+  { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
+  { id: "MiniMax-M2.5", name: "MiniMax M2.5", contextWindow: 205000 },
+];
+
+const OPENCODE_ZEN_MODELS: ModelDefinition[] = [
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6", contextWindow: 200000 },
+  { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", contextWindow: 200000 },
+  { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 200000 },
+  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 128000 },
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 128000 },
+  { id: "minimax-m2.5", name: "MiniMax M2.5", contextWindow: 205000 },
+  { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
+];
+
+const GROQ_MODELS: ModelDefinition[] = [
+  { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile", contextWindow: 128000 },
+  { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B", contextWindow: 128000 },
+];
+
+const OLLAMA_MODELS: ModelDefinition[] = [
+  { id: "llama3.1", name: "Llama 3.1", contextWindow: 128000 },
+  { id: "llama3.2", name: "Llama 3.2", contextWindow: 128000 },
+  { id: "qwen2.5", name: "Qwen 2.5", contextWindow: 128000 },
+  { id: "codellama", name: "Code Llama", contextWindow: 16384 },
+];
+
+const EMPTY_MODELS: ModelDefinition[] = [];
+
+export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
+  { id: "featherless", name: "Featherless", defaultBaseUrl: "https://api.featherless.ai/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false },
+  { id: "openai", name: "OpenAI", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-4o", apiType: "openai", authMethod: "bearer", models: OPENAI_MODELS, supportsModelFetch: true },
+  { id: "anthropic", name: "Anthropic", defaultBaseUrl: "https://api.anthropic.com", defaultModel: "claude-sonnet-4-20250514", apiType: "anthropic", authMethod: "x-api-key", models: ANTHROPIC_MODELS, supportsModelFetch: false },
+  { id: "qwen", name: "Qwen", defaultBaseUrl: "https://api.qwen.com/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true },
+  { id: "qwen-deepinfra", name: "Qwen (DeepInfra)", defaultBaseUrl: "https://api.deepinfra.com/v1/openai", defaultModel: "Qwen/Qwen2.5-72B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true },
+  { id: "kimi", name: "Kimi (Moonshot)", defaultBaseUrl: "https://api.moonshot.ai/v1", defaultModel: "moonshot-v1-32k", apiType: "openai", authMethod: "bearer", models: KIMI_MODELS, supportsModelFetch: true },
+  { id: "kimi-coding-plan", name: "Kimi Coding Plan", defaultBaseUrl: "https://api.kimi.com/coding/v1", defaultModel: "kimi-for-coding", apiType: "openai", authMethod: "bearer", models: KIMI_CODING_MODELS, supportsModelFetch: false },
+  { id: "z.ai", name: "Z.AI (GLM)", defaultBaseUrl: "https://api.z.ai/api/paas/v4", defaultModel: "glm-4-plus", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false },
+  { id: "z.ai-coding-plan", name: "Z.AI Coding Plan", defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4", defaultModel: "glm-5", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false },
+  { id: "openrouter", name: "OpenRouter", defaultBaseUrl: "https://openrouter.ai/api/v1", defaultModel: "anthropic/claude-sonnet-4", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true },
+  { id: "cerebras", name: "Cerebras", defaultBaseUrl: "https://api.cerebras.ai/v1", defaultModel: "llama-3.3-70b", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true },
+  { id: "together", name: "Together", defaultBaseUrl: "https://api.together.xyz/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true },
+  { id: "groq", name: "Groq", defaultBaseUrl: "https://api.groq.com/openai/v1", defaultModel: "llama-3.3-70b-versatile", apiType: "openai", authMethod: "bearer", models: GROQ_MODELS, supportsModelFetch: true },
+  { id: "ollama", name: "Ollama", defaultBaseUrl: "http://localhost:11434/v1", defaultModel: "llama3.1", apiType: "openai", authMethod: "bearer", models: OLLAMA_MODELS, supportsModelFetch: true },
+  { id: "chutes", name: "Chutes", defaultBaseUrl: "https://llm.chutes.ai/v1", defaultModel: "deepseek-ai/DeepSeek-V3", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false },
+  { id: "huggingface", name: "Hugging Face", defaultBaseUrl: "https://api-inference.huggingface.co/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false },
+  { id: "minimax", name: "MiniMax", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M1-80k", apiType: "anthropic", authMethod: "bearer", models: MINIMAX_MODELS, supportsModelFetch: false },
+  { id: "minimax-coding-plan", name: "MiniMax Coding Plan", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M2.7", apiType: "anthropic", authMethod: "bearer", models: MINIMAX_MODELS, supportsModelFetch: false },
+  { id: "alibaba-coding-plan", name: "Alibaba Coding Plan", defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", defaultModel: "qwen3-coder", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, anthropicBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic" },
+  { id: "opencode-zen", name: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1", defaultModel: "claude-sonnet-4-5", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_ZEN_MODELS, supportsModelFetch: true },
+  { id: "custom", name: "Custom", defaultBaseUrl: "", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: false },
+];
+
+export function getProviderDefinition(id: AgentProviderId): ProviderDefinition | undefined {
+  return PROVIDER_DEFINITIONS.find((p) => p.id === id);
+}
+
+export function getProviderApiType(providerId: AgentProviderId, model: string): ApiType {
+  const def = getProviderDefinition(providerId);
+  if (!def) return "openai";
+  
+  if (def.anthropicBaseUrl && model.startsWith("claude")) {
+    return "anthropic";
+  }
+  if (providerId === "opencode-zen" && !model.startsWith("claude")) {
+    return "openai";
+  }
+  return def.apiType;
+}
+
+export function getProviderBaseUrl(providerId: AgentProviderId, model: string, configuredUrl: string): string {
+  if (configuredUrl) return configuredUrl;
+  
+  const def = getProviderDefinition(providerId);
+  if (!def) return configuredUrl;
+  
+  if (def.anthropicBaseUrl && model.startsWith("claude")) {
+    return def.anthropicBaseUrl;
+  }
+  return def.defaultBaseUrl;
 }
 
 export interface AgentMessage {
@@ -141,7 +297,9 @@ export interface AgentSettings {
   qwen: AgentProviderConfig;
   "qwen-deepinfra": AgentProviderConfig;
   kimi: AgentProviderConfig;
+  "kimi-coding-plan": AgentProviderConfig;
   "z.ai": AgentProviderConfig;
+  "z.ai-coding-plan": AgentProviderConfig;
   openrouter: AgentProviderConfig;
   cerebras: AgentProviderConfig;
   together: AgentProviderConfig;
@@ -150,6 +308,9 @@ export interface AgentSettings {
   chutes: AgentProviderConfig;
   huggingface: AgentProviderConfig;
   minimax: AgentProviderConfig;
+  "minimax-coding-plan": AgentProviderConfig;
+  "alibaba-coding-plan": AgentProviderConfig;
+  "opencode-zen": AgentProviderConfig;
   custom: AgentProviderConfig;
 
   enableBashTool: boolean;
@@ -174,11 +335,14 @@ export interface AgentSettings {
   chatFontFamily: string;
   chatFontSize: number;
 
+  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
   autoCompactContext: boolean;
   maxContextMessages: number;
   maxToolLoops: number;
   maxRetries: number;
   retryDelayMs: number;
+  contextWindowTokens: number;
   contextBudgetTokens: number;
   compactThresholdPercent: number;
   keepRecentOnCompaction: number;
@@ -202,7 +366,9 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   qwen: { baseUrl: "https://api.qwen.com/v1", model: "qwen-max", apiKey: "" },
   "qwen-deepinfra": { baseUrl: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", apiKey: "" },
   kimi: { baseUrl: "https://api.moonshot.ai/v1", model: "moonshot-v1-32k", apiKey: "" },
+  "kimi-coding-plan": { baseUrl: "https://api.kimi.com/coding/v1", model: "kimi-for-coding", apiKey: "" },
   "z.ai": { baseUrl: "https://api.z.ai/api/paas/v4", model: "glm-4-plus", apiKey: "" },
+  "z.ai-coding-plan": { baseUrl: "https://api.z.ai/api/coding/paas/v4", model: "glm-5", apiKey: "" },
   openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4", apiKey: "" },
   cerebras: { baseUrl: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", apiKey: "" },
   together: { baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiKey: "" },
@@ -211,6 +377,9 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   chutes: { baseUrl: "https://llm.chutes.ai/v1", model: "deepseek-ai/DeepSeek-V3", apiKey: "" },
   huggingface: { baseUrl: "https://api-inference.huggingface.co/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "" },
   minimax: { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M1-80k", apiKey: "" },
+  "minimax-coding-plan": { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M2.7", apiKey: "" },
+  "alibaba-coding-plan": { baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen3-coder", apiKey: "" },
+  "opencode-zen": { baseUrl: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", apiKey: "" },
   custom: { baseUrl: "", model: "", apiKey: "" },
 
   enableBashTool: true,
@@ -235,11 +404,14 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   chatFontFamily: "Cascadia Code",
   chatFontSize: 13,
 
+  reasoningEffort: "high",
+
   autoCompactContext: true,
   maxContextMessages: 100,
-  maxToolLoops: 25,
+  maxToolLoops: 0,
   maxRetries: 3,
   retryDelayMs: 2000,
+  contextWindowTokens: 128000,
   contextBudgetTokens: 100000,
   compactThresholdPercent: 80,
   keepRecentOnCompaction: 10,
@@ -325,6 +497,7 @@ function loadAgentSettings(): AgentSettings {
 const AGENT_SETTINGS_FILE = "agent-settings.json";
 const AGENT_CHAT_FILE = "agent-chat.json";
 const AGENT_DAEMON_THREAD_MAP_FILE = "agent-daemon-thread-map.json";
+const AGENT_ACTIVE_THREAD_FILE = "agent-active-thread.json";
 
 type AgentChatState = {
   threads: AgentThread[];
@@ -560,6 +733,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         activeThreadId: id,
       };
       persistDaemonThreadMap(next.threads);
+      scheduleJsonWrite(AGENT_ACTIVE_THREAD_FILE, { activeThreadId: id });
       void getAgentDbApi()?.dbCreateThread?.(serializeThread(thread));
       return next;
     });
@@ -582,7 +756,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     });
   },
 
-  setActiveThread: (id) => set({ activeThreadId: id }),
+  setActiveThread: (id) => {
+    set({ activeThreadId: id });
+    scheduleJsonWrite(AGENT_ACTIVE_THREAD_FILE, { activeThreadId: id });
+  },
 
   searchThreads: (query) => {
     const lower = query.toLowerCase();
@@ -740,7 +917,9 @@ export async function hydrateAgentStore(): Promise<void> {
       qwen: { ...DEFAULT_AGENT_SETTINGS.qwen, ...(diskState.qwen ?? {}) },
       "qwen-deepinfra": { ...DEFAULT_AGENT_SETTINGS["qwen-deepinfra"], ...(diskState["qwen-deepinfra"] ?? {}) },
       kimi: { ...DEFAULT_AGENT_SETTINGS.kimi, ...(diskState.kimi ?? {}) },
+      "kimi-coding-plan": { ...DEFAULT_AGENT_SETTINGS["kimi-coding-plan"], ...(diskState["kimi-coding-plan"] ?? {}) },
       "z.ai": { ...DEFAULT_AGENT_SETTINGS["z.ai"], ...(diskState["z.ai"] ?? {}) },
+      "z.ai-coding-plan": { ...DEFAULT_AGENT_SETTINGS["z.ai-coding-plan"], ...(diskState["z.ai-coding-plan"] ?? {}) },
       openrouter: { ...DEFAULT_AGENT_SETTINGS.openrouter, ...(diskState.openrouter ?? {}) },
       cerebras: { ...DEFAULT_AGENT_SETTINGS.cerebras, ...(diskState.cerebras ?? {}) },
       together: { ...DEFAULT_AGENT_SETTINGS.together, ...(diskState.together ?? {}) },
@@ -749,6 +928,9 @@ export async function hydrateAgentStore(): Promise<void> {
       chutes: { ...DEFAULT_AGENT_SETTINGS.chutes, ...(diskState.chutes ?? {}) },
       huggingface: { ...DEFAULT_AGENT_SETTINGS.huggingface, ...(diskState.huggingface ?? {}) },
       minimax: { ...DEFAULT_AGENT_SETTINGS.minimax, ...(diskState.minimax ?? {}) },
+      "minimax-coding-plan": { ...DEFAULT_AGENT_SETTINGS["minimax-coding-plan"], ...(diskState["minimax-coding-plan"] ?? {}) },
+      "alibaba-coding-plan": { ...DEFAULT_AGENT_SETTINGS["alibaba-coding-plan"], ...(diskState["alibaba-coding-plan"] ?? {}) },
+      "opencode-zen": { ...DEFAULT_AGENT_SETTINGS["opencode-zen"], ...(diskState["opencode-zen"] ?? {}) },
       custom: { ...DEFAULT_AGENT_SETTINGS.custom, ...(diskState.custom ?? {}) },
     };
     useAgentStore.setState({ agentSettings: merged });
@@ -756,6 +938,7 @@ export async function hydrateAgentStore(): Promise<void> {
 
   const api = getAgentDbApi();
   const daemonThreadMap = await readPersistedJson<Record<string, string>>(AGENT_DAEMON_THREAD_MAP_FILE) ?? {};
+  const savedActiveThread = await readPersistedJson<{ activeThreadId: string | null }>(AGENT_ACTIVE_THREAD_FILE);
   const dbThreads = await api?.dbListThreads?.();
   if (Array.isArray(dbThreads) && dbThreads.length > 0) {
     const messages: Record<string, AgentMessage[]> = {};
@@ -764,16 +947,22 @@ export async function hydrateAgentStore(): Promise<void> {
       messages[thread.id] = threadMessages.map(deserializeMessage);
     }
 
+    const hydratedThreads = dbThreads.map((thread) => ({
+      ...deserializeThread(thread),
+      daemonThreadId: daemonThreadMap[thread.id] ?? null,
+      messageCount: messages[thread.id]?.length ?? thread.message_count,
+      lastMessagePreview: messages[thread.id]?.[messages[thread.id].length - 1]?.content?.slice(0, 100) ?? thread.last_preview ?? "",
+    }));
+    // Restore the persisted active thread, falling back to the most recent
+    const savedId = savedActiveThread?.activeThreadId;
+    const restoredId = (savedId && hydratedThreads.some((t) => t.id === savedId))
+      ? savedId
+      : (hydratedThreads.length > 0 ? hydratedThreads.reduce((a, b) => (a.updatedAt >= b.updatedAt ? a : b)).id : null);
     const hydrated: AgentChatState = {
-      threads: dbThreads.map((thread) => ({
-        ...deserializeThread(thread),
-        daemonThreadId: daemonThreadMap[thread.id] ?? null,
-        messageCount: messages[thread.id]?.length ?? thread.message_count,
-        lastMessagePreview: messages[thread.id]?.[messages[thread.id].length - 1]?.content?.slice(0, 100) ?? thread.last_preview ?? "",
-      })),
+      threads: hydratedThreads,
       messages,
       todos: {},
-      activeThreadId: null,
+      activeThreadId: restoredId,
     };
 
     syncChatCounters(hydrated);

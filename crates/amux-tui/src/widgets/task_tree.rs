@@ -76,7 +76,8 @@ fn build_lines(
                         chip,
                         Span::raw(" "),
                         Span::raw(step.title.clone()),
-                    ]).style(sel_style)
+                    ])
+                    .style(sel_style)
                 } else {
                     Line::from(vec![
                         Span::raw("    "),
@@ -119,7 +120,8 @@ fn build_lines(
                     chip,
                     Span::raw(" "),
                     Span::raw(task.title.clone()),
-                ]).style(sel_style)
+                ])
+                .style(sel_style)
             } else {
                 Line::from(vec![
                     Span::raw("  "),

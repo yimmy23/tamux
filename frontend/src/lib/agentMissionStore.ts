@@ -873,6 +873,13 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
     },
 
     resolveApproval: (id, status) => {
+        // Send approval decision to daemon via IPC
+        const amux = (window as any).tamux ?? (window as any).amux;
+        if (amux?.agentResolveTaskApproval) {
+            const decision = status === "denied" ? "deny" : status === "approved-session" ? "approve-session" : "approve-once";
+            amux.agentResolveTaskApproval(id, decision).catch(() => {});
+        }
+
         set((state) => {
             const approval = state.approvals.find((entry) => entry.id === id);
             if (!approval) return state;

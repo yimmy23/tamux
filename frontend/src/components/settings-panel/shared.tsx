@@ -1,6 +1,8 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useState, useMemo, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { BUILTIN_THEMES } from "../../lib/themes";
 import type { AmuxSettings } from "../../lib/types";
+import type { AgentProviderId, ModelDefinition } from "../../lib/agentStore";
+import { getProviderDefinition } from "../../lib/agentStore";
 
 export type SettingsUpdater = <K extends keyof AmuxSettings>(key: K, value: AmuxSettings[K]) => void;
 
@@ -224,3 +226,258 @@ export const smallBtnStyle: CSSProperties = {
     fontSize: 11,
     padding: "4px 8px",
 };
+
+export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, apiKey }: {
+    providerId: AgentProviderId;
+    value: string;
+    onChange: (value: string) => void;
+    disabled?: boolean;
+    baseUrl?: string;
+    apiKey?: string;
+}) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const [useCustom, setUseCustom] = useState(false);
+    const [fetchedModels, setFetchedModels] = useState<ModelDefinition[]>([]);
+    const [isFetching, setIsFetching] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    const definition = getProviderDefinition(providerId);
+    const predefinedModels = definition?.models ?? [];
+    const supportsFetch = definition?.supportsModelFetch ?? false;
+    
+    const allModels = useMemo(() => {
+        const merged = [...predefinedModels];
+        for (const fm of fetchedModels) {
+            if (!merged.some(m => m.id === fm.id)) {
+                merged.push(fm);
+            }
+        }
+        return merged;
+    }, [predefinedModels, fetchedModels]);
+
+    const filteredModels = useMemo(() => {
+        if (!search) return allModels;
+        const lower = search.toLowerCase();
+        return allModels.filter(m => 
+            m.id.toLowerCase().includes(lower) || 
+            m.name.toLowerCase().includes(lower)
+        );
+    }, [allModels, search]);
+
+    const exactMatch = useMemo(() => {
+        return filteredModels.some(m => m.id === search || m.id === value);
+    }, [filteredModels, search, value]);
+
+    const handleFetchModels = async () => {
+        const amux = (window as any).amux || (window as any).tamux;
+        if (!amux?.agentFetchModels) {
+            setFetchError("API not available");
+            return;
+        }
+
+        setIsFetching(true);
+        setFetchError(null);
+
+        try {
+            const result = await amux.agentFetchModels(
+                providerId,
+                baseUrl || definition?.defaultBaseUrl || "",
+                apiKey || ""
+            );
+
+            if (result && typeof result === "object") {
+                if ("models" in result && Array.isArray(result.models)) {
+                    setFetchedModels(result.models.map((m: any) => ({
+                        id: m.id,
+                        name: m.name || m.id,
+                        contextWindow: m.context_window || m.contextWindow || 0,
+                    })));
+                } else if ("error" in result) {
+                    setFetchError(result.error);
+                }
+            }
+        } catch (e: any) {
+            setFetchError(e.message || "Failed to fetch models");
+        } finally {
+            setIsFetching(false);
+        }
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+                setUseCustom(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        if (isOpen && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [isOpen]);
+
+    const formatContextWindow = (tokens: number): string => {
+        if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+        if (tokens >= 1000) return `${(tokens / 1000).toFixed(0)}K`;
+        return `${tokens}`;
+    };
+
+    if (useCustom) {
+        return (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder="Enter model ID"
+                    disabled={disabled}
+                    style={{ ...inputStyle, flex: 1 }}
+                />
+                <button
+                    type="button"
+                    onClick={() => setUseCustom(false)}
+                    style={smallBtnStyle}
+                    title="Back to model list"
+                >
+                    ✕
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div ref={containerRef} style={{ position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={isOpen ? search : value}
+                    onChange={(e) => {
+                        setSearch(e.target.value);
+                        if (!isOpen) setIsOpen(true);
+                    }}
+                    onFocus={() => {
+                        setIsOpen(true);
+                        setSearch("");
+                    }}
+                    placeholder="Select or type model ID"
+                    disabled={disabled}
+                    style={{ ...inputStyle, flex: 1 }}
+                />
+                {supportsFetch && apiKey && (
+                    <button
+                        type="button"
+                        onClick={handleFetchModels}
+                        disabled={isFetching || !apiKey}
+                        style={smallBtnStyle}
+                        title="Fetch models from provider"
+                    >
+                        {isFetching ? "..." : "↻"}
+                    </button>
+                )}
+            </div>
+
+            {isOpen && (
+                <div style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    maxHeight: 240,
+                    overflowY: "auto",
+                    zIndex: 1000,
+                    marginTop: 2,
+                }}>
+                    {fetchError && (
+                        <div style={{
+                            padding: "6px 10px",
+                            fontSize: 11,
+                            color: "var(--color-red, #f44)",
+                            borderBottom: "1px solid var(--border)",
+                        }}>
+                            {fetchError}
+                        </div>
+                    )}
+
+                    {filteredModels.length > 0 ? (
+                        filteredModels.map((model) => (
+                            <div
+                                key={model.id}
+                                onClick={() => {
+                                    onChange(model.id);
+                                    setIsOpen(false);
+                                    setSearch("");
+                                }}
+                                style={{
+                                    padding: "6px 10px",
+                                    cursor: "pointer",
+                                    background: model.id === value ? "var(--bg-selected)" : "transparent",
+                                    borderBottom: "1px solid var(--border)",
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                }}
+                                onMouseEnter={(e) => {
+                                    (e.target as HTMLElement).style.background = "var(--bg-hover)";
+                                }}
+                                onMouseLeave={(e) => {
+                                    (e.target as HTMLElement).style.background = 
+                                        model.id === value ? "var(--bg-selected)" : "transparent";
+                                }}
+                            >
+                                <div>
+                                    <div style={{ fontSize: 12 }}>{model.name}</div>
+                                    <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                        {model.id}
+                                    </div>
+                                </div>
+                                {model.contextWindow > 0 && (
+                                    <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
+                                        {formatContextWindow(model.contextWindow)} ctx
+                                    </div>
+                                )}
+                            </div>
+                        ))
+                    ) : null}
+
+                    {!exactMatch && (
+                        <div
+                            onClick={() => {
+                                if (search) {
+                                    onChange(search);
+                                    setIsOpen(false);
+                                    setSearch("");
+                                } else {
+                                    setUseCustom(true);
+                                }
+                            }}
+                            style={{
+                                padding: "8px 10px",
+                                cursor: "pointer",
+                                background: "var(--bg-surface)",
+                                borderTop: filteredModels.length > 0 ? "1px solid var(--border)" : "none",
+                                color: search ? "var(--accent)" : "var(--text-secondary)",
+                            }}
+                        >
+                            {search ? (
+                                <>Use "{search}" anyway</>
+                            ) : (
+                                <>Type custom model ID...</>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}

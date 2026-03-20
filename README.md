@@ -258,7 +258,9 @@ Gateway command examples:
 | Qwen | `qwen` | qwen-max | api.qwen.com |
 | Qwen (DeepInfra) | `qwen-deepinfra` | Qwen/Qwen2.5-72B-Instruct | api.deepinfra.com |
 | Kimi (Moonshot) | `kimi` | moonshot-v1-32k | api.moonshot.ai |
+| Kimi Coding Plan | `kimi-coding-plan` | kimi-for-coding | api.kimi.com/coding |
 | Z.AI (GLM) | `z.ai` | glm-4-plus | api.z.ai |
+| Z.AI Coding Plan | `z.ai-coding-plan` | glm-5 | api.z.ai/api/coding/paas/v4 |
 | OpenRouter | `openrouter` | anthropic/claude-sonnet-4 | openrouter.ai |
 | Cerebras | `cerebras` | llama-3.3-70b | api.cerebras.ai |
 | Together | `together` | meta-llama/Llama-3.3-70B-Instruct-Turbo | api.together.xyz |
@@ -267,9 +269,18 @@ Gateway command examples:
 | Chutes | `chutes` | deepseek-ai/DeepSeek-V3 | llm.chutes.ai |
 | Hugging Face | `huggingface` | meta-llama/Llama-3.3-70B-Instruct | api-inference.huggingface.co |
 | MiniMax | `minimax` | MiniMax-M1-80k | api.minimax.io |
+| MiniMax Coding Plan | `minimax-coding-plan` | MiniMax-M2.7 | api.minimax.io/anthropic |
+| Alibaba Coding Plan | `alibaba-coding-plan` | qwen3-coder | coding-intl.dashscope.aliyuncs.com |
+| OpenCode Zen | `opencode-zen` | claude-sonnet-4-5 | opencode.ai/zen |
 | Custom | `custom` | (user-defined) | (user-defined) |
 
-All providers use OpenAI-compatible chat completion endpoints. Switch providers at any time from the Settings panel or by updating the agent configuration. Each provider's base URL, model, and API key are independently configurable.
+**API Formats:**
+- Most providers use OpenAI-compatible `/chat/completions` endpoints
+- Anthropic, MiniMax, MiniMax Coding Plan use Anthropic Messages API (`/v1/messages`)
+- Alibaba Coding Plan supports both: OpenAI-compatible at `/v1` and Anthropic-compatible at `/apps/anthropic` (auto-selected based on model name)
+- OpenCode Zen auto-selects API format based on model (Anthropic for Claude models, OpenAI-compatible for others)
+
+Switch providers at any time from the Settings panel. Each provider's base URL, model, and API key are independently configurable. Models can be selected from a searchable dropdown with predefined options, or custom model IDs can be entered.
 
 ## Persistence And Memory
 

@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
@@ -38,10 +38,7 @@ pub fn render(
     let active_model = config.model();
 
     if models.is_empty() {
-        let empty_line = Line::from(Span::styled(
-            "  Press Enter to fetch models",
-            theme.fg_dim,
-        ));
+        let empty_line = Line::from(Span::styled("  Press Enter to fetch models", theme.fg_dim));
         frame.render_widget(Paragraph::new(empty_line), chunks[0]);
     } else {
         let list_h = chunks[0].height as usize;
@@ -66,18 +63,11 @@ pub fn render(
                         Span::raw(display_name.to_string()),
                         Span::raw(ctx_str),
                     ]))
-                    .style(
-                        Style::default()
-                            .bg(Color::Indexed(178))
-                            .fg(Color::Black),
-                    )
+                    .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                 } else if is_active && !active_model.is_empty() {
                     ListItem::new(Line::from(vec![
                         Span::raw("  "),
-                        Span::styled(
-                            format!("\u{2022} {}", display_name),
-                            theme.accent_secondary,
-                        ),
+                        Span::styled(format!("\u{2022} {}", display_name), theme.accent_secondary),
                         Span::styled(ctx_str, theme.fg_dim),
                     ]))
                 } else {

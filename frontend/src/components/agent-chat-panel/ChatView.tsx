@@ -19,6 +19,7 @@ export function ChatView({
     messagesEndRef,
     onSendMessage,
     onStopStreaming,
+    onUpdateReasoningEffort,
     canStartGoalRun,
     onStartGoalRun,
 }: {
@@ -28,12 +29,13 @@ export function ChatView({
     setInput: (v: string) => void;
     inputRef: React.RefObject<HTMLTextAreaElement | null>;
     onKeyDown: (e: React.KeyboardEvent) => void;
-    agentSettings: { enabled: boolean; chatFontFamily: string };
+    agentSettings: { enabled: boolean; chatFontFamily: string; reasoningEffort: string };
     isStreamingResponse: boolean;
     activeThread: AgentThread | undefined;
     messagesEndRef: React.RefObject<HTMLDivElement | null>;
     onSendMessage: (text: string) => void;
     onStopStreaming: () => void;
+    onUpdateReasoningEffort: (value: string) => void;
     canStartGoalRun: boolean;
     onStartGoalRun: (text: string) => Promise<boolean>;
 }) {
@@ -370,7 +372,7 @@ export function ChatView({
                         rows={3}
                         placeholder={
                             agentSettings.enabled
-                                ? "Type a message... (Enter to send, Shift+Enter for newline)"
+                                ? "Type a message... (Enter to send, Ctrl+Enter for newline)"
                                 : "Agent disabled — enable in Settings > Agent"
                         }
                         disabled={!agentSettings.enabled}
@@ -391,9 +393,34 @@ export function ChatView({
                 </div>
 
                 <div style={{ marginTop: "var(--space-2)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-2)" }}>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                        Enter send, Shift+Enter newline
-                    </span>
+                    <div style={{ display: "flex", alignItems: "flex-start", flexDirection: "column", gap: 4 }}>
+                        <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                            Reasoning effort
+                        </span>
+                        <select
+                            value={agentSettings.reasoningEffort}
+                            onChange={(e) => onUpdateReasoningEffort(e.target.value)}
+                            title="Reasoning effort"
+                            style={{
+                                fontSize: 10,
+                                fontFamily: "var(--font-mono)",
+                                background: "var(--bg-surface)",
+                                color: "var(--text-secondary)",
+                                border: "1px solid var(--glass-border)",
+                                borderRadius: 3,
+                                padding: "1px 4px",
+                                cursor: "pointer",
+                                outline: "none",
+                            }}
+                        >
+                            <option value="none">off</option>
+                            <option value="minimal">minimal</option>
+                            <option value="low">low</option>
+                            <option value="medium">medium</option>
+                            <option value="high">high</option>
+                            <option value="xhigh">xhigh</option>
+                        </select>
+                    </div>
                     <div style={{ display: "flex", gap: "var(--space-2)" }}>
                         {canStartGoalRun && (
                             <button

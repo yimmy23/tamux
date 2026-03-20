@@ -593,7 +593,7 @@ export interface WorkspaceState {
   webBrowserReloadToken: number;
 
   // -- Workspace actions --
-  createWorkspace: (name?: string, opts?: { layoutMode?: SurfaceLayoutMode }) => void;
+  createWorkspace: (name?: string, opts?: { layoutMode?: SurfaceLayoutMode; makeActive?: boolean }) => WorkspaceId;
   renameWorkspace: (id: WorkspaceId, name: string) => void;
   setWorkspaceIcon: (id: WorkspaceId, icon: string) => void;
   closeWorkspace: (id: WorkspaceId) => void;
@@ -607,7 +607,7 @@ export interface WorkspaceState {
   clearWorkspaceUnread: (id: WorkspaceId) => void;
 
   // -- Surface actions --
-  createSurface: (workspaceId?: WorkspaceId, opts?: { layoutMode?: SurfaceLayoutMode }) => void;
+  createSurface: (workspaceId?: WorkspaceId, opts?: { layoutMode?: SurfaceLayoutMode; makeActive?: boolean }) => SurfaceId | null;
   renameSurface: (surfaceId: SurfaceId, name: string) => void;
   setSurfaceIcon: (surfaceId: SurfaceId, icon: string) => void;
   closeSurface: (surfaceId: SurfaceId) => void;
@@ -802,21 +802,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     // ===== Workspace actions =====
 
-    createWorkspace: (name?: string, opts?: { layoutMode?: SurfaceLayoutMode }) => {
+    createWorkspace: (name?: string, opts?: { layoutMode?: SurfaceLayoutMode; makeActive?: boolean }) => {
       const safeName = typeof name === "string" ? name.trim() : "";
       const layoutMode = opts?.layoutMode ?? "bsp";
+      const makeActive = opts?.makeActive ?? true;
       const ws = createDefaultWorkspace(safeName || undefined, layoutMode);
       set((s) => {
         const workspaceBrowserState = {
           ...s.workspaceBrowserState,
           [ws.id]: createDefaultWorkspaceBrowserState(),
         };
+        const shouldActivate = makeActive || !s.activeWorkspaceId;
+        if (!shouldActivate) {
+          return {
+            workspaces: [...s.workspaces, ws],
+            workspaceBrowserState,
+          };
+        }
         return {
           workspaces: [...s.workspaces, ws],
           activeWorkspaceId: ws.id,
           ...activateWorkspaceBrowserState(workspaceBrowserState, ws.id),
         };
       });
+      return ws.id;
     },
 
     renameWorkspace: (id, name) => {
@@ -969,10 +978,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     // ===== Surface actions =====
 
-    createSurface: (workspaceId?: WorkspaceId, opts?: { layoutMode?: SurfaceLayoutMode }) => {
+    createSurface: (workspaceId?: WorkspaceId, opts?: { layoutMode?: SurfaceLayoutMode; makeActive?: boolean }) => {
       const wsId = workspaceId ?? get().activeWorkspaceId;
-      if (!wsId) return;
+      if (!wsId) return null;
       const layoutMode = opts?.layoutMode ?? "bsp";
+      const makeActive = opts?.makeActive ?? true;
       const sf = createDefaultSurface(wsId, layoutMode);
       set((s) => ({
         workspaces: s.workspaces.map((ws) =>
@@ -980,11 +990,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             ? {
               ...ws,
               surfaces: [...ws.surfaces, sf],
-              activeSurfaceId: sf.id,
+              activeSurfaceId: makeActive ? sf.id : ws.activeSurfaceId,
             }
             : ws
         ),
       }));
+      return sf.id;
     },
 
     renameSurface: (surfaceId, name) => {

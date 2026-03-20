@@ -47,6 +47,7 @@ export interface GoalRun {
     id: string;
     title: string;
     goal: string;
+    client_request_id?: string | null;
     status: GoalRunStatus;
     priority?: string | null;
     created_at: number;
@@ -82,6 +83,7 @@ export interface StartGoalRunPayload {
     sessionId?: string | null;
     priority?: string | null;
     threadId?: string | null;
+    clientRequestId?: string | null;
 }
 
 function getBridge(): AmuxBridge | null {
@@ -232,6 +234,11 @@ export function normalizeGoalRun(raw: unknown): GoalRun | null {
         id,
         title: typeof goalRun.title === "string" && goalRun.title ? goalRun.title : goal.slice(0, 72),
         goal,
+        client_request_id: typeof goalRun.client_request_id === "string"
+            ? goalRun.client_request_id
+            : typeof goalRun.clientRequestId === "string"
+                ? goalRun.clientRequestId
+                : null,
         status: toStatus(goalRun.status),
         priority: typeof goalRun.priority === "string" ? goalRun.priority : null,
         created_at: typeof goalRun.created_at === "number" ? goalRun.created_at : Date.now(),
@@ -343,7 +350,13 @@ export async function startGoalRun(payload: StartGoalRunPayload): Promise<GoalRu
     }
 
     try {
-        const result = await bridge.agentStartGoalRun(payload);
+        const result = await bridge.agentStartGoalRun({
+            ...payload,
+            clientRequestId: payload.clientRequestId
+                ?? (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                    ? crypto.randomUUID()
+                    : `goal-run-${Date.now()}`),
+        });
         return normalizeGoalRun(result);
     } catch {
         return null;

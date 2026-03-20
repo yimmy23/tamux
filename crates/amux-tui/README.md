@@ -37,7 +37,7 @@ Requires a running amux daemon (connects via Unix socket or TCP).
 | Key | Action |
 |-----|--------|
 | Enter | Send message |
-| Shift+Enter | Insert newline |
+| Ctrk+Enter | Insert newline |
 | ← → ↑ ↓ | Move cursor in textarea |
 | Ctrl+Backspace / Ctrl+W | Delete word backwards |
 | Ctrl+U | Clear input |

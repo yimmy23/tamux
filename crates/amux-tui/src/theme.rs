@@ -7,11 +7,11 @@ use ratatui::widgets::BorderType;
 pub struct ThemeTokens {
     pub fg_dim: Style,
     pub fg_active: Style,
-    pub accent_primary: Style,     // cyan
-    pub accent_assistant: Style,   // lavender
-    pub accent_secondary: Style,   // amber
-    pub accent_success: Style,     // green
-    pub accent_danger: Style,      // red
+    pub accent_primary: Style,   // cyan
+    pub accent_assistant: Style, // lavender
+    pub accent_secondary: Style, // amber
+    pub accent_success: Style,   // green
+    pub accent_danger: Style,    // red
 }
 
 impl Default for ThemeTokens {

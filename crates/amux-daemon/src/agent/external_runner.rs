@@ -300,6 +300,7 @@ impl ExternalAgentRunner {
             model: parsed.model,
             tps,
             generation_ms,
+            reasoning: None,
         });
 
         tracing::info!(

@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { abortThreadStream, clearThreadAbortController, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
 import type { AgentMessage, AgentThread, AgentTodoItem } from "../../lib/agentStore";
-import { sendChatCompletion, messagesToApiFormat } from "../../lib/agentClient";
+import { buildApiMessagesForRequest, sendChatCompletion } from "../../lib/agentClient";
+import type { AgentSettings } from "../../lib/agentStore";
+import { provisionAgentWorkspaceTerminals, provisionTerminalPaneInWorkspace, resolvePaneSessionId } from "../../lib/agentWorkspace";
 import { buildHonchoContext, syncMessagesToHoncho } from "../../lib/honchoClient";
 import { getAvailableTools, executeTool, getToolCapabilityDescription } from "../../lib/agentTools";
 import { useAgentMissionStore } from "../../lib/agentMissionStore";
@@ -18,6 +20,7 @@ import { AITrainingView } from "./AITrainingView";
 import { ChatView } from "./ChatView";
 import { CodingAgentsView } from "./CodingAgentsView";
 import { ContextView } from "./ContextView";
+import { SubagentsView } from "./SubagentsView";
 import { TasksView } from "./TasksView";
 import { MetricRibbon, SectionTitle, iconButtonStyle } from "./shared";
 import { ThreadList } from "./ThreadList";
@@ -26,7 +29,7 @@ import { UsageView } from "./UsageView";
 
 const EMPTY_MESSAGES: AgentMessage[] = [];
 
-export type AgentChatPanelView = "threads" | "chat" | "trace" | "usage" | "context" | "graph" | "coding-agents" | "ai-training" | "tasks";
+export type AgentChatPanelView = "threads" | "chat" | "trace" | "usage" | "context" | "graph" | "coding-agents" | "ai-training" | "tasks" | "subagents";
 
 type AgentStoreState = ReturnType<typeof useAgentStore.getState>;
 type AgentMissionStoreState = ReturnType<typeof useAgentMissionStore.getState>;
@@ -44,6 +47,7 @@ type AgentChatPanelRuntimeValue = {
     deleteThread: AgentStoreState["deleteThread"];
     setActiveThread: AgentStoreState["setActiveThread"];
     agentSettings: AgentStoreState["agentSettings"];
+    updateAgentSetting: AgentStoreState["updateAgentSetting"];
     searchQuery: string;
     setSearchQuery: (query: string) => void;
     messages: AgentMessage[];
@@ -73,6 +77,8 @@ type AgentChatPanelRuntimeValue = {
     setSymbolQuery: React.Dispatch<React.SetStateAction<string>>;
     view: AgentChatPanelView;
     setView: React.Dispatch<React.SetStateAction<AgentChatPanelView>>;
+    chatBackView: AgentChatPanelView;
+    setChatBackView: React.Dispatch<React.SetStateAction<AgentChatPanelView>>;
     usageMessageCount: number;
     filteredThreads: AgentThread[];
     isStreamingResponse: boolean;
@@ -105,6 +111,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     const setThreadTodos = useAgentStore((s) => s.setThreadTodos);
     const setThreadDaemonId = useAgentStore((s) => s.setThreadDaemonId);
     const agentSettings = useAgentStore((s) => s.agentSettings);
+    const updateAgentSetting = useAgentStore((s) => s.updateAgentSetting);
     const searchQuery = useAgentStore((s) => s.searchQuery);
     const setSearchQuery = useAgentStore((s) => s.setSearchQuery);
     const storeMessages = useAgentStore((s) => activeThreadId ? s.messages[activeThreadId] : undefined);
@@ -129,6 +136,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
 
     const [input, setInput] = useState("");
     const [view, setView] = useState<AgentChatPanelView>("threads");
+    const [chatBackView, setChatBackView] = useState<AgentChatPanelView>("threads");
     const [historyQuery, setHistoryQuery] = useState("");
     const [symbolQuery, setSymbolQuery] = useState("");
     const [daemonTodosByThread, setDaemonTodosByThread] = useState<Record<string, AgentTodoItem[]>>({});
@@ -142,6 +150,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     const daemonLocalThreadRef = useRef<string | null>(null);
     // Buffer gateway messages that arrive before thread_created
     const pendingGatewayMessagesRef = useRef<Array<{ role: "user"; content: string; inputTokens: number; outputTokens: number; totalTokens: number; isCompactionSummary: boolean }>>([]);
+    // Track goal_run_id → workspaceId for auto-cleanup
+    const goalRunWorkspacesRef = useRef<Record<string, string>>({});
 
     // Reset daemon thread refs when backend changes to avoid stale event routing
     useEffect(() => {
@@ -149,6 +159,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         daemonLocalThreadRef.current = null;
         setDaemonTodosByThread({});
         setGoalRunsForTrace([]);
+        setChatBackView("threads");
     }, [agentSettings.agentBackend]);
 
     useEffect(() => {
@@ -200,10 +211,17 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             base_url: pc?.baseUrl || "",
             model: pc?.model || "",
             api_key: pc?.apiKey || "",
+            reasoning_effort: agentSettings.reasoningEffort || "high",
             system_prompt: agentSettings.systemPrompt,
+            auto_compact_context: agentSettings.autoCompactContext,
+            max_context_messages: agentSettings.maxContextMessages,
             max_tool_loops: agentSettings.maxToolLoops,
             max_retries: agentSettings.maxRetries,
             retry_delay_ms: agentSettings.retryDelayMs,
+            context_window_tokens: agentSettings.contextWindowTokens,
+            context_budget_tokens: agentSettings.contextBudgetTokens,
+            compact_threshold_pct: agentSettings.compactThresholdPercent,
+            keep_recent_on_compact: agentSettings.keepRecentOnCompaction,
             tools: {
                 bash: agentSettings.enableBashTool,
                 web_search: agentSettings.enableWebSearchTool,
@@ -246,8 +264,20 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                     }
                     break;
                 }
+                case "reasoning": {
+                    if (!tid) break;
+                    const rMsgs = useAgentStore.getState().getThreadMessages(tid);
+                    const rLast = rMsgs[rMsgs.length - 1];
+                    if (rLast?.role === "assistant" && rLast.isStreaming) {
+                        updateLastAssistantMessage(tid, rLast.content || "", true, {
+                            reasoning: (rLast.reasoning || "") + (event.content || ""),
+                        });
+                    }
+                    break;
+                }
                 case "done": {
                     if (!tid) break;
+                    useAgentMissionStore.getState().setSharedCursorMode("idle");
                     const msgs2 = useAgentStore.getState().getThreadMessages(tid);
                     const last2 = msgs2[msgs2.length - 1];
                     if (last2?.role === "assistant") {
@@ -258,12 +288,15 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                             provider: event.provider || undefined,
                             model: event.model || undefined,
                             tps: typeof event.tps === "number" ? event.tps : undefined,
+                            reasoning: event.reasoning || last2.reasoning || undefined,
                         });
                     }
                     break;
                 }
                 case "tool_call": {
                     if (!tid) break;
+                    // Set cursor mode to agent while tool is executing
+                    useAgentMissionStore.getState().setSharedCursorMode("agent");
                     // Finalize the current streaming assistant message before adding tool call
                     const tcMsgs = useAgentStore.getState().getThreadMessages(tid);
                     const tcLast = tcMsgs[tcMsgs.length - 1];
@@ -314,13 +347,21 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 }
                 case "error": {
                     if (!tid) break;
+                    useAgentMissionStore.getState().setSharedCursorMode("idle");
                     updateLastAssistantMessage(tid, `Error: ${event.message}`, false);
                     break;
                 }
                 case "thread_created": {
                     if (event.thread_id) {
-                        daemonThreadIdRef.current = event.thread_id;
-                        if (daemonLocalThreadRef.current) {
+                        // Only update refs if this thread belongs to our current local thread
+                        // (goal runners create their own threads that shouldn't hijack the chat)
+                        const isOurThread = !daemonLocalThreadRef.current
+                            || daemonThreadIdRef.current === null
+                            || event.thread_id === daemonThreadIdRef.current;
+                        if (isOurThread) {
+                            daemonThreadIdRef.current = event.thread_id;
+                        }
+                        if (daemonLocalThreadRef.current && isOurThread) {
                             setThreadDaemonId(daemonLocalThreadRef.current, event.thread_id);
                         }
 
@@ -373,10 +414,23 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                     if (!task) break;
 
                     if (task.status === "awaiting_approval") {
+                        // Create an actionable approval record so the user can approve/deny
+                        const approvalId = task.awaiting_approval_id || task.id;
+                        useAgentMissionStore.getState().upsertDaemonApproval({
+                            id: approvalId,
+                            paneId: activePaneId ?? task.session_id ?? "",
+                            workspaceId: activeWorkspace?.id ?? null,
+                            surfaceId: null,
+                            sessionId: task.session_id ?? null,
+                            command: task.blocked_reason || task.title,
+                            reasons: [task.blocked_reason || "Managed command requires approval"],
+                            riskLevel: "medium",
+                            blastRadius: "task",
+                        });
                         addNotification({
                             title: "Task awaiting approval",
                             body: task.title,
-                            subtitle: task.blocked_reason || "Managed command paused",
+                            subtitle: task.blocked_reason || "Managed command paused — check Trace tab",
                             icon: "shield",
                             source: "system",
                             workspaceId: activeWorkspace?.id ?? null,
@@ -443,11 +497,13 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                             paneId: activePaneId ?? null,
                             panelId: activePaneId ?? null,
                         });
+                        // Auto-cleanup workspace after goal completion
+                        cleanupGoalRunWorkspace(goalRun.id);
                     }
 
-                    if (goalRun.status === "failed") {
+                    if (goalRun.status === "failed" || goalRun.status === "cancelled") {
                         addNotification({
-                            title: "Goal runner failed",
+                            title: goalRun.status === "cancelled" ? "Goal runner cancelled" : "Goal runner failed",
                             body: goalRun.title,
                             subtitle: goalRun.last_error || goalRun.error || goalRun.current_step_title || "Review the latest reflection",
                             icon: "alert-triangle",
@@ -456,6 +512,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                             paneId: activePaneId ?? null,
                             panelId: activePaneId ?? null,
                         });
+                        // Auto-cleanup workspace after goal failure/cancel
+                        cleanupGoalRunWorkspace(goalRun.id);
                     }
 
                     break;
@@ -534,6 +592,21 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                             case "rename_pane": {
                                 const paneId = cmdArgs.pane || ws.activePaneId();
                                 if (paneId) ws.setPaneName(paneId, cmdArgs.name);
+                                break;
+                            }
+                            case "attach_agent_terminal": {
+                                if (typeof cmdArgs.workspace_id === "string" && cmdArgs.workspace_id) {
+                                    void provisionTerminalPaneInWorkspace({
+                                        workspaceId: cmdArgs.workspace_id,
+                                        paneName: typeof cmdArgs.pane_name === "string" && cmdArgs.pane_name
+                                            ? cmdArgs.pane_name
+                                            : "Work",
+                                        cwd: typeof cmdArgs.cwd === "string" && cmdArgs.cwd ? cmdArgs.cwd : null,
+                                        sessionId: typeof cmdArgs.session_id === "string" && cmdArgs.session_id
+                                            ? cmdArgs.session_id
+                                            : null,
+                                    });
+                                }
                                 break;
                             }
                             case "set_layout_preset": break; // TODO
@@ -698,6 +771,20 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         }
     }
 
+    function cleanupGoalRunWorkspace(goalRunId: string) {
+        const wsId = goalRunWorkspacesRef.current[goalRunId];
+        if (!wsId) return;
+        // Delay cleanup slightly to let final events flush
+        setTimeout(() => {
+            const store = useWorkspaceStore.getState();
+            if (store.workspaces.some((ws) => ws.id === wsId)) {
+                console.log("[agent] auto-closing workspace for finished goal run", { goalRunId, wsId });
+                store.closeWorkspace(wsId);
+            }
+            delete goalRunWorkspacesRef.current[goalRunId];
+        }, 3000);
+    }
+
     function sendMessage(text: string) {
         if (!text) return;
 
@@ -708,49 +795,120 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 sendMessageLegacy(text);
                 return;
             }
+            void (async () => {
+                const daemonTid = daemonThreadIdRef.current;
+                let threadId = activeThreadId;
+                console.log("[agent-send] start", { daemonTid, activeThreadId: threadId, daemonLocalRef: daemonLocalThreadRef.current });
 
-            // Use the daemon's thread ID for conversation continuity.
-            // The daemon is the source of truth — we pass its ID so it
-            // appends to the same thread across messages.
-            const daemonTid = daemonThreadIdRef.current;
+                // Reuse existing thread refs — never create a new thread if we have one
+                if (!threadId && daemonLocalThreadRef.current) {
+                    threadId = daemonLocalThreadRef.current;
+                    console.log("[agent-send] reused daemonLocalThreadRef", threadId);
+                }
 
-            // Ensure a frontend thread exists for rendering
-            let threadId = activeThreadId;
-            if (!threadId) {
-                const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-                const surfaceId = useWorkspaceStore.getState().activeSurface()?.id ?? null;
-                const paneId = useWorkspaceStore.getState().activePaneId();
-                threadId = createThread({ workspaceId, surfaceId, paneId, title: text.slice(0, 50) });
-                setView("chat");
-            }
+                // Only create a new thread if we truly have nothing
+                if (!threadId) {
+                    const provision = await provisionAgentWorkspaceTerminals({
+                        title: text.slice(0, 50) || "Agent Conversation",
+                        cwd: activeWorkspace?.cwd ?? null,
+                    });
+                    threadId = createThread({
+                        workspaceId: provision?.workspaceId ?? activeWorkspace?.id ?? null,
+                        surfaceId: provision?.surfaceId ?? activeWorkspace?.surfaces?.[0]?.id ?? null,
+                        paneId: provision?.coordinatorPaneId ?? activePaneId ?? null,
+                        title: text.slice(0, 50),
+                    });
+                    setView("chat");
+                    console.log("[agent-send] created new thread", threadId);
+                }
 
-            addMessage(threadId, {
-                role: "user",
-                content: text,
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                isCompactionSummary: false,
-            });
+                // Always ensure we have a terminal session (provision if needed)
+                let thread = useAgentStore.getState().threads.find((t) => t.id === threadId);
+                let preferredSessionId = thread?.paneId ? resolvePaneSessionId(thread.paneId) : null;
+                if (!preferredSessionId) {
+                    const provision = await provisionAgentWorkspaceTerminals({
+                        title: thread?.title || text.slice(0, 50) || "Agent Conversation",
+                        cwd: activeWorkspace?.cwd ?? null,
+                    });
+                    preferredSessionId = provision?.coordinatorSessionId ?? null;
+                }
 
-            const isExternalAgent = agentSettings.agentBackend === "openclaw" || agentSettings.agentBackend === "hermes";
-            addMessage(threadId, {
-                role: "assistant",
-                content: "",
-                provider: isExternalAgent ? agentSettings.agentBackend : agentSettings.activeProvider,
-                model: isExternalAgent ? agentSettings.agentBackend : ((agentSettings[agentSettings.activeProvider] as any)?.model || "unknown"),
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                isCompactionSummary: false,
-                isStreaming: true,
-            });
+                // Make sure thread is active
+                if (useAgentStore.getState().activeThreadId !== threadId) {
+                    setActiveThread(threadId);
+                }
 
-            // Track which local thread receives daemon events
-            daemonLocalThreadRef.current = threadId;
+                if (!threadId) {
+                    return;
+                }
 
-            // Send daemon's thread ID (null for first message → daemon creates thread)
-            void amux.agentSendMessage(daemonTid, text);
+                addMessage(threadId, {
+                    role: "user",
+                    content: text,
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    totalTokens: 0,
+                    isCompactionSummary: false,
+                });
+
+                const isExternalAgent = agentSettings.agentBackend === "openclaw" || agentSettings.agentBackend === "hermes";
+                addMessage(threadId, {
+                    role: "assistant",
+                    content: "",
+                    provider: isExternalAgent ? agentSettings.agentBackend : agentSettings.activeProvider,
+                    model: isExternalAgent ? agentSettings.agentBackend : ((agentSettings[agentSettings.activeProvider] as any)?.model || "unknown"),
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    totalTokens: 0,
+                    isCompactionSummary: false,
+                    isStreaming: true,
+                });
+
+                daemonLocalThreadRef.current = threadId;
+
+                // Always send conversation context so the daemon can seed the thread
+                // if it was lost (e.g. daemon restart). The daemon ignores context
+                // if the thread already has messages in memory.
+                let contextMessages: unknown[] | undefined;
+                {
+                    const existingMsgs = useAgentStore.getState().getThreadMessages(threadId);
+                    // Exclude the just-added user message and streaming assistant placeholder
+                    const historyMsgs = existingMsgs.filter(
+                        (m) => !m.isStreaming && !m.isCompactionSummary
+                    ).slice(0, -1); // remove the user message we just added
+                    if (historyMsgs.length > 0) {
+                        contextMessages = historyMsgs.map((m, idx) => ({
+                            id: `${threadId}:ctx:${idx}`,
+                            thread_id: threadId,
+                            created_at: m.createdAt ?? Date.now(),
+                            role: m.role,
+                            content: m.content,
+                            provider: m.provider ?? null,
+                            model: m.model ?? null,
+                            input_tokens: m.inputTokens ?? 0,
+                            output_tokens: m.outputTokens ?? 0,
+                            total_tokens: m.totalTokens ?? 0,
+                            reasoning: m.reasoning ?? null,
+                            tool_calls_json: m.toolCalls ? JSON.stringify(m.toolCalls) : null,
+                            metadata_json: m.toolName ? JSON.stringify({
+                                toolCallId: m.toolCallId,
+                                toolName: m.toolName,
+                                toolArguments: m.toolArguments,
+                                toolStatus: m.toolStatus,
+                            }) : null,
+                        }));
+                    }
+                }
+                console.log("[agent-send] sending", {
+                    daemonTid,
+                    threadId,
+                    contextCount: contextMessages?.length ?? 0,
+                    contextRoles: contextMessages?.map((m: any) => m.role),
+                });
+                // Use daemonTid if available, otherwise pass local threadId so
+                // the daemon uses the same ID — prevents duplicate threads in SQLite.
+                await amux.agentSendMessage(daemonTid || threadId, text, preferredSessionId, contextMessages);
+            })();
             return;
         }
 
@@ -812,11 +970,17 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         setThreadAbortController(currentThreadId, controller);
 
         (async () => {
-            const maxToolLoops = Math.max(1, Math.min(100, Number(agentSettings.maxToolLoops ?? 25)));
+            const configuredToolLoops = Number(agentSettings.maxToolLoops ?? 0);
+            const maxToolLoops = Number.isFinite(configuredToolLoops) && configuredToolLoops > 0
+                ? Math.min(1000, configuredToolLoops)
+                : Infinity;
             let loopCount = 0;
             let allCurrentMessages = useAgentStore.getState().getThreadMessages(currentThreadId);
             await syncMessagesToHoncho(agentSettings, currentThreadId, allCurrentMessages);
-            let apiMessages = messagesToApiFormat(allCurrentMessages.slice(0, -1));
+            let apiMessages = buildApiMessagesForRequest(
+                allCurrentMessages.slice(0, -1),
+                agentSettings,
+            );
             let lastPersistedReasoning: string | null = null;
             const honchoContext = await buildHonchoContext(agentSettings, currentThreadId, text);
             const effectiveSystemPrompt = honchoContext
@@ -860,6 +1024,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                         streaming: agentSettings.enableStreaming,
                         signal: controller.signal,
                         tools: tools.length > 0 ? tools : undefined,
+                        reasoningEffort: agentSettings.reasoningEffort,
                     })) {
                         if (chunk.type === "delta") {
                             accumulated += chunk.content;
@@ -999,7 +1164,10 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
 
                 if (!receivedToolCalls) break;
                 allCurrentMessages = useAgentStore.getState().getThreadMessages(currentThreadId);
-                apiMessages = messagesToApiFormat(allCurrentMessages.slice(0, -1));
+                apiMessages = buildApiMessagesForRequest(
+                    allCurrentMessages.slice(0, -1),
+                    agentSettings,
+                );
             }
 
             await syncMessagesToHoncho(
@@ -1008,7 +1176,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 useAgentStore.getState().getThreadMessages(currentThreadId),
             );
 
-            if (loopCount >= maxToolLoops) {
+            if (Number.isFinite(maxToolLoops) && loopCount >= maxToolLoops) {
                 updateLastAssistantMessage(currentThreadId, "(Tool execution limit reached)", false);
             }
 
@@ -1039,12 +1207,58 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             return false;
         }
 
+        // Ensure we have a local thread for the goal run
+        let threadId = activeThreadId;
+        if (!threadId && daemonLocalThreadRef.current) {
+            threadId = daemonLocalThreadRef.current;
+            setActiveThread(threadId);
+        }
+        if (!threadId) {
+            const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+            const surfaceId = useWorkspaceStore.getState().activeSurface()?.id ?? null;
+            const paneId = useWorkspaceStore.getState().activePaneId();
+            threadId = createThread({
+                workspaceId,
+                surfaceId,
+                paneId,
+                title: goal.slice(0, 50),
+            });
+        }
+
+        const provision = await provisionAgentWorkspaceTerminals({
+            title: goal,
+            cwd: activeWorkspace?.cwd ?? null,
+        });
+
+        // Use daemonTid if available, otherwise pass local threadId
+        const effectiveThreadId = daemonThreadIdRef.current || threadId;
+        daemonLocalThreadRef.current = threadId;
+
+        // Add user goal as a message so it shows in the chat thread
+        addMessage(threadId, {
+            role: "user",
+            content: goal,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            isCompactionSummary: false,
+        });
+
+        // Set this thread as active and switch to chat view
+        setActiveThread(threadId);
+
         const run = await startGoalRun({
             goal,
             title: goal.slice(0, 72),
             priority: "normal",
-            threadId: daemonThreadIdRef.current,
+            threadId: effectiveThreadId,
+            sessionId: provision?.coordinatorSessionId ?? null,
         });
+
+        // Track goal run → workspace for auto-cleanup
+        if (run?.id && provision?.workspaceId) {
+            goalRunWorkspacesRef.current[run.id] = provision.workspaceId;
+        }
 
         if (!run) {
             addNotification({
@@ -1053,9 +1267,9 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 subtitle: "Backend goal-run IPC is not available yet.",
                 icon: "alert-triangle",
                 source: "system",
-                workspaceId: activeWorkspace?.id ?? null,
-                paneId: activePaneId ?? null,
-                panelId: activePaneId ?? null,
+                workspaceId: provision?.workspaceId ?? activeWorkspace?.id ?? null,
+                paneId: provision?.coordinatorPaneId ?? activePaneId ?? null,
+                panelId: provision?.coordinatorPaneId ?? activePaneId ?? null,
             });
             return false;
         }
@@ -1066,9 +1280,9 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             subtitle: run.plan_summary || "The daemon is planning the run.",
             icon: "sparkles",
             source: "system",
-            workspaceId: activeWorkspace?.id ?? null,
-            paneId: activePaneId ?? null,
-            panelId: activePaneId ?? null,
+            workspaceId: provision?.workspaceId ?? activeWorkspace?.id ?? null,
+            paneId: provision?.coordinatorPaneId ?? activePaneId ?? null,
+            panelId: provision?.coordinatorPaneId ?? activePaneId ?? null,
         });
         setView("tasks");
         return true;
@@ -1084,6 +1298,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         { id: "coding-agents", label: "Coding Agents", count: null },
         { id: "ai-training", label: "AI Training", count: null },
         { id: "tasks", label: "Tasks", count: null },
+        { id: "subagents", label: "Subagents", count: null },
     ] satisfies Array<{ id: AgentChatPanelView; label: string; count: number | null }>;
 
     const value = useMemo<AgentChatPanelRuntimeValue>(() => ({
@@ -1096,6 +1311,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         deleteThread,
         setActiveThread,
         agentSettings,
+        updateAgentSetting,
         searchQuery,
         setSearchQuery,
         messages,
@@ -1125,6 +1341,8 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         setSymbolQuery,
         view,
         setView,
+        chatBackView,
+        setChatBackView,
         usageMessageCount,
         filteredThreads,
         isStreamingResponse,
@@ -1147,6 +1365,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         deleteThread,
         setActiveThread,
         agentSettings,
+        updateAgentSetting,
         searchQuery,
         setSearchQuery,
         messages,
@@ -1171,6 +1390,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         historyQuery,
         symbolQuery,
         view,
+        chatBackView,
         usageMessageCount,
         filteredThreads,
         isStreamingResponse,
@@ -1226,7 +1446,7 @@ export function AgentChatPanelScaffold({ style, className }: { style?: CSSProper
 
 export function AgentChatPanelHeader() {
     const runtime = useAgentChatPanelRuntime();
-    const { view, activeThread, setActiveThread, setView, togglePanel, createThread } = runtime;
+    const { view, activeThread, setActiveThread, setView, chatBackView, setChatBackView, togglePanel, createThread } = runtime;
 
     return (
         <div
@@ -1244,7 +1464,7 @@ export function AgentChatPanelHeader() {
                             <button
                                 onClick={() => {
                                     setActiveThread(null);
-                                    setView("threads");
+                                    setView(chatBackView);
                                 }}
                                 style={iconButtonStyle}
                                 title="Back to threads"
@@ -1274,6 +1494,7 @@ export function AgentChatPanelHeader() {
                         onClick={() => {
                             const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
                             createThread({ workspaceId });
+                            setChatBackView("threads");
                             setView("chat");
                         }}
                         style={iconButtonStyle}
@@ -1332,7 +1553,7 @@ export function AgentChatPanelTabs() {
 }
 
 export function AgentChatPanelCurrentSurface() {
-    const { view } = useAgentChatPanelRuntime();
+    const { view, setView, setChatBackView } = useAgentChatPanelRuntime();
 
     if (view === "threads") return <AgentChatPanelThreadsSurface />;
     if (view === "chat") return <AgentChatPanelChatSurface />;
@@ -1341,12 +1562,13 @@ export function AgentChatPanelCurrentSurface() {
     if (view === "context") return <AgentChatPanelContextSurface />;
     if (view === "coding-agents") return <AgentChatPanelCodingAgentsSurface />;
     if (view === "ai-training") return <AgentChatPanelAITrainingSurface />;
-    if (view === "tasks") return <TasksView />;
+    if (view === "tasks") return <TasksView onOpenThreadView={() => { setChatBackView("tasks"); setView("chat"); }} />;
+    if (view === "subagents") return <SubagentsView onOpenThreadView={() => { setChatBackView("subagents"); setView("chat"); }} onOpenTasksView={() => setView("tasks")} />;
     return <AgentChatPanelGraphSurface />;
 }
 
 export function AgentChatPanelThreadsSurface() {
-    const { filteredThreads, searchQuery, setSearchQuery, setActiveThread, setView, deleteThread } = useAgentChatPanelRuntime();
+    const { filteredThreads, searchQuery, setSearchQuery, setActiveThread, setView, setChatBackView, deleteThread } = useAgentChatPanelRuntime();
 
     return (
         <ThreadList
@@ -1355,6 +1577,7 @@ export function AgentChatPanelThreadsSurface() {
             onSearch={setSearchQuery}
             onSelect={(thread) => {
                 setActiveThread(thread.id);
+                setChatBackView("threads");
                 setView("chat");
             }}
             onDelete={deleteThread}
@@ -1378,6 +1601,7 @@ export function AgentChatPanelChatSurface() {
             messagesEndRef={runtime.messagesEndRef}
             onSendMessage={runtime.sendMessage}
             onStopStreaming={() => runtime.stopStreaming(runtime.activeThreadId)}
+            onUpdateReasoningEffort={(v) => runtime.updateAgentSetting("reasoningEffort", v as AgentSettings["reasoningEffort"])}
             canStartGoalRun={runtime.canStartGoalRun}
             onStartGoalRun={runtime.startGoalRunFromPrompt}
         />

@@ -1151,6 +1151,12 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
+    let client_request_id = args
+        .get("client_request_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
 
     let resp = daemon_roundtrip(ClientMessage::AgentStartGoalRun {
         goal,
@@ -1158,6 +1164,7 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
         thread_id,
         session_id,
         priority,
+        client_request_id,
     })
     .await?;
 

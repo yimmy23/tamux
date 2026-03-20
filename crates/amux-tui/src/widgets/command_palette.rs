@@ -1,17 +1,25 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 
-pub fn render(
-    frame: &mut Frame,
-    area: Rect,
-    modal: &ModalState,
-    theme: &ThemeTokens,
-) {
+fn visible_window(cursor: usize, item_count: usize, list_height: usize) -> (usize, usize) {
+    if item_count == 0 || list_height == 0 {
+        return (0, 0);
+    }
+
+    let height = list_height.min(item_count);
+    let max_start = item_count.saturating_sub(height);
+    let start = cursor
+        .saturating_sub(height.saturating_sub(1))
+        .min(max_start);
+    (start, height)
+}
+
+pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTokens) {
     let block = Block::default()
         .title(" COMMANDS ")
         .borders(Borders::ALL)
@@ -31,7 +39,7 @@ pub fn render(
         .constraints([
             Constraint::Length(1), // search
             Constraint::Length(1), // separator
-            Constraint::Min(1),   // list
+            Constraint::Min(1),    // list
             Constraint::Length(1), // hints
         ])
         .split(inner);
@@ -40,10 +48,7 @@ pub fn render(
     let query = modal.command_query();
     let input_line = Line::from(vec![
         Span::raw(" "),
-        Span::styled(
-            if query.is_empty() { "/" } else { query },
-            theme.fg_active,
-        ),
+        Span::styled(if query.is_empty() { "/" } else { query }, theme.fg_active),
         Span::raw("\u{2588}"),
     ]);
     frame.render_widget(Paragraph::new(input_line), chunks[0]);
@@ -60,13 +65,15 @@ pub fn render(
     let items = modal.command_items();
     let cursor = modal.picker_cursor();
     let list_h = chunks[2].height as usize;
+    let (visible_start, visible_len) = visible_window(cursor, filtered.len(), list_h);
 
     let list_items: Vec<ListItem> = (0..list_h)
         .map(|i| {
-            if i < filtered.len() {
-                let idx = filtered[i];
+            if i < visible_len {
+                let absolute_index = visible_start + i;
+                let idx = filtered[absolute_index];
                 let item = &items[idx];
-                let is_selected = i == cursor;
+                let is_selected = absolute_index == cursor;
 
                 if is_selected {
                     ListItem::new(Line::from(vec![
@@ -75,11 +82,7 @@ pub fn render(
                         Span::raw("  "),
                         Span::raw(&item.description),
                     ]))
-                    .style(
-                        Style::default()
-                            .bg(Color::Indexed(178))
-                            .fg(Color::Black),
-                    )
+                    .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                 } else {
                     ListItem::new(Line::from(vec![
                         Span::raw("   /"),
@@ -119,5 +122,19 @@ mod tests {
         let modal = ModalState::new();
         let _theme = ThemeTokens::default();
         assert!(modal.command_query().is_empty());
+    }
+
+    #[test]
+    fn visible_window_scrolls_down_to_keep_cursor_visible() {
+        assert_eq!(visible_window(0, 10, 4), (0, 4));
+        assert_eq!(visible_window(3, 10, 4), (0, 4));
+        assert_eq!(visible_window(4, 10, 4), (1, 4));
+        assert_eq!(visible_window(9, 10, 4), (6, 4));
+    }
+
+    #[test]
+    fn visible_window_rewinds_when_cursor_moves_back_up() {
+        assert_eq!(visible_window(6, 10, 4), (3, 4));
+        assert_eq!(visible_window(2, 10, 4), (0, 4));
     }
 }

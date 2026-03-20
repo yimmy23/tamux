@@ -20,12 +20,10 @@ pub fn reasoning_lines<'a>(
 
     if expanded {
         // Header line
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("\u{25be} [-] Reasoning {}", stats),
-                theme.fg_dim,
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("\u{25be} [-] Reasoning {}", stats),
+            theme.fg_dim,
+        )]));
 
         // Reasoning content with dark blue left border
         let content_width = width.saturating_sub(2);
@@ -109,10 +107,7 @@ mod tests {
 
     #[test]
     fn build_stats_both_some() {
-        assert_eq!(
-            build_stats(Some(10), Some(500)),
-            "(10s \u{00b7} 500 tok)"
-        );
+        assert_eq!(build_stats(Some(10), Some(500)), "(10s \u{00b7} 500 tok)");
     }
 
     #[test]

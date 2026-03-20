@@ -3,6 +3,7 @@ import { ActionButton, ContextCard, MetricRibbon, SectionTitle, inputStyle, memo
 type ContextViewProps = {
     agentSettings: {
         activeProvider: string;
+        contextWindowTokens: number;
         contextBudgetTokens: number;
     };
     snippets: Array<unknown>;
@@ -46,6 +47,7 @@ export function ContextView(props: ContextViewProps) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--space-3)", marginBottom: "var(--space-4)" }}>
                 <ContextCard label="Pane" value={props.scopePaneId ?? "none"} />
                 <ContextCard label="Threads" value={String(props.threads.length)} />
+                <ContextCard label="Context Length" value={`${props.agentSettings.contextWindowTokens.toLocaleString()} tok`} />
                 <ContextCard label="Token Budget" value={`${props.agentSettings.contextBudgetTokens.toLocaleString()} tok`} />
                 <ContextCard label="Snapshot Age" value={props.latestContextSnapshot ? new Date(props.latestContextSnapshot.timestamp).toLocaleTimeString() : "n/a"} />
             </div>

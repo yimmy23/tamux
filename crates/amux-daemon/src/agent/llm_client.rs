@@ -14,7 +14,19 @@ use std::task::Poll;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use super::types::{CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction};
+use super::types::{
+    get_provider_api_type, get_provider_definition, ApiType, AuthMethod, CompletionChunk,
+    ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
+};
+
+#[derive(Debug, Clone, Copy)]
+pub enum RetryStrategy {
+    Bounded {
+        max_retries: u32,
+        retry_delay_ms: u64,
+    },
+    DurableRateLimited,
+}
 
 // ---------------------------------------------------------------------------
 // API message types
@@ -109,10 +121,6 @@ impl Stream for CompletionStream {
 // ---------------------------------------------------------------------------
 
 /// Send a chat completion request. Returns a stream of `CompletionChunk`.
-///
-/// The `provider` string determines the API format:
-/// - `"anthropic"` uses the Anthropic Messages API
-/// - Everything else uses OpenAI-compatible format
 pub fn send_chat_completion(
     client: &reqwest::Client,
     provider: &str,
@@ -120,8 +128,7 @@ pub fn send_chat_completion(
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
-    max_retries: u32,
-    retry_delay_ms: u64,
+    retry_strategy: RetryStrategy,
 ) -> CompletionStream {
     let (tx, rx) = mpsc::channel(64);
     let client = client.clone();
@@ -134,7 +141,9 @@ pub fn send_chat_completion(
     tokio::spawn(async move {
         let mut retry_attempt = 0u32;
         loop {
-            let result = if provider == "anthropic" {
+            let api_type = get_provider_api_type(&provider, &config.model);
+
+            let result = if api_type == ApiType::Anthropic {
                 run_anthropic(&client, &config, &system_prompt, &messages, &tools, &tx).await
             } else {
                 run_openai_compatible(
@@ -153,17 +162,38 @@ pub fn send_chat_completion(
                 Ok(()) => break,
                 Err(e) => {
                     let is_rate_limited = e.downcast_ref::<RateLimitError>().is_some();
-                    if is_rate_limited && retry_attempt < max_retries {
-                        retry_attempt += 1;
-                        let _ = tx
-                            .send(Ok(CompletionChunk::Retry {
-                                attempt: retry_attempt,
+                    if is_rate_limited {
+                        match retry_strategy {
+                            RetryStrategy::Bounded {
                                 max_retries,
-                                delay_ms: retry_delay_ms,
-                            }))
-                            .await;
-                        tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
-                        continue;
+                                retry_delay_ms,
+                            } if retry_attempt < max_retries => {
+                                retry_attempt += 1;
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Retry {
+                                        attempt: retry_attempt,
+                                        max_retries,
+                                        delay_ms: retry_delay_ms,
+                                    }))
+                                    .await;
+                                tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
+                                continue;
+                            }
+                            RetryStrategy::DurableRateLimited => {
+                                retry_attempt = retry_attempt.saturating_add(1);
+                                let delay_ms = if retry_attempt <= 10 { 2_000 } else { 60_000 };
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Retry {
+                                        attempt: retry_attempt,
+                                        max_retries: 0,
+                                        delay_ms,
+                                    }))
+                                    .await;
+                                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                                continue;
+                            }
+                            _ => {}
+                        }
                     }
 
                     let message = if let Some(rate_limit) = e.downcast_ref::<RateLimitError>() {
@@ -227,19 +257,62 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
 // OpenAI-compatible implementation
 // ---------------------------------------------------------------------------
 
-fn build_chat_completion_url(provider: &str, base_url: &str) -> String {
+fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
 
-    if provider == "openrouter" || provider == "groq" {
-        return format!("{base}/chat/completions");
-    }
-
-    if lower.ends_with("/v1") || lower.ends_with("/api/v1") {
+    // If URL already has a version suffix, just append the endpoint
+    if lower.ends_with("/v1")
+        || lower.ends_with("/v2")
+        || lower.ends_with("/v3")
+        || lower.ends_with("/v4")
+        || lower.ends_with("/api/v1")
+        || lower.ends_with("/openai/v1")
+        || lower.ends_with("/compatible-mode/v1")
+    {
         return format!("{base}/chat/completions");
     }
 
     format!("{base}/v1/chat/completions")
+}
+
+fn normalize_reasoning_effort(effort: &str) -> Option<String> {
+    match effort.trim().to_ascii_lowercase().as_str() {
+        "" | "off" | "none" => None,
+        "minimal" => Some("low".to_string()),
+        "low" => Some("low".to_string()),
+        "medium" => Some("medium".to_string()),
+        "high" => Some("high".to_string()),
+        "xhigh" => Some("high".to_string()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
+    matches!(
+        provider,
+        "openai"
+            | "openrouter"
+            | "qwen"
+            | "qwen-deepinfra"
+            | "alibaba-coding-plan"
+            | "opencode-zen"
+            | "z.ai"
+            | "z.ai-coding-plan"
+    ) || model.starts_with('o')
+        || model.starts_with("gpt-5")
+}
+
+fn anthropic_thinking_budget(effort: &str) -> Option<u32> {
+    match effort.trim().to_ascii_lowercase().as_str() {
+        "" | "off" | "none" => None,
+        "minimal" => Some(512),
+        "low" => Some(1024),
+        "medium" => Some(4096),
+        "high" => Some(8192),
+        "xhigh" => Some(16384),
+        _ => Some(4096),
+    }
 }
 
 async fn run_openai_compatible(
@@ -251,7 +324,7 @@ async fn run_openai_compatible(
     tools: &[ToolDefinition],
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
-    let url = build_chat_completion_url(provider, &config.base_url);
+    let url = build_chat_completion_url(&config.base_url);
 
     let mut all_messages = vec![ApiMessage {
         role: "system".into(),
@@ -274,10 +347,50 @@ async fn run_openai_compatible(
         body["tool_choice"] = serde_json::json!("auto");
     }
 
+    if let Some(ref schema) = config.response_schema {
+        // Try strict json_schema for providers that support it (OpenAI gpt-4o+)
+        if matches!(provider, "openai")
+            && (config.model.contains("gpt-4o")
+                || config.model.contains("gpt-4.1")
+                || config.model.contains("gpt-5")
+                || config.model.starts_with("o"))
+        {
+            body["response_format"] = serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output",
+                    "strict": true,
+                    "schema": schema,
+                }
+            });
+        } else {
+            // Fallback: json_object mode (widely supported, no schema enforcement)
+            body["response_format"] = serde_json::json!({ "type": "json_object" });
+        }
+    }
+
+    if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
+        // Always send reasoning_effort — the API ignores it for non-reasoning models
+        body["reasoning_effort"] = serde_json::Value::String(effort.clone());
+        // Also send the "reasoning" object for providers that use this format
+        body["reasoning"] = serde_json::json!({ "effort": effort });
+    }
+
     let mut req = client.post(&url).header("Content-Type", "application/json");
 
     if !config.api_key.is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", config.api_key));
+        let auth_method = get_provider_definition(provider)
+            .map(|d| d.auth_method)
+            .unwrap_or(AuthMethod::Bearer);
+
+        match auth_method {
+            AuthMethod::Bearer => {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+            AuthMethod::XApiKey => {
+                req = req.header("x-api-key", &config.api_key);
+            }
+        }
     }
 
     let response = req.body(body.to_string()).send().await?;
@@ -398,8 +511,12 @@ async fn parse_openai_sse(
                     .await;
             }
 
-            // Reasoning delta
-            if let Some(reasoning) = delta.get("reasoning").and_then(|v| v.as_str()) {
+            // Reasoning delta (covers delta.reasoning and delta.reasoning_content)
+            let reasoning_text = delta
+                .get("reasoning")
+                .and_then(|v| v.as_str())
+                .or_else(|| delta.get("reasoning_content").and_then(|v| v.as_str()));
+            if let Some(reasoning) = reasoning_text {
                 total_reasoning.push_str(reasoning);
                 let _ = tx
                     .send(Ok(CompletionChunk::Delta {
@@ -542,6 +659,15 @@ async fn run_anthropic(
         body["tools"] = serde_json::json!(anthropic_tools);
     }
 
+    if let Some(budget_tokens) = anthropic_thinking_budget(&config.reasoning_effort) {
+        if config.model.starts_with("claude") {
+            body["thinking"] = serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget_tokens,
+            });
+        }
+    }
+
     let response = client
         .post(&url)
         .header("Content-Type", "application/json")
@@ -575,12 +701,15 @@ async fn parse_anthropic_sse(
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut total_content = String::new();
+    let mut total_reasoning = String::new();
     let mut input_tokens: u64 = 0;
     let mut output_tokens: u64 = 0;
 
     // Anthropic tool use tracking
     let mut pending_tool_calls: Vec<PendingToolCall> = Vec::new();
     let mut current_tool_input = String::new();
+    // Track whether the current content block is a thinking block
+    let mut in_thinking_block = false;
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.context("failed to read Anthropic SSE chunk")?;
@@ -612,25 +741,34 @@ async fn parse_anthropic_sse(
                         .unwrap_or(0);
                 }
                 "content_block_start" => {
-                    // Check if this is a tool_use block
                     if let Some(cb) = parsed.get("content_block") {
-                        if cb.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                            let id = cb
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let name = cb
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            pending_tool_calls.push(PendingToolCall {
-                                id,
-                                name,
-                                arguments: String::new(),
-                            });
-                            current_tool_input.clear();
+                        let block_type = cb.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                        match block_type {
+                            "tool_use" => {
+                                in_thinking_block = false;
+                                let id = cb
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let name = cb
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                pending_tool_calls.push(PendingToolCall {
+                                    id,
+                                    name,
+                                    arguments: String::new(),
+                                });
+                                current_tool_input.clear();
+                            }
+                            "thinking" => {
+                                in_thinking_block = true;
+                            }
+                            _ => {
+                                in_thinking_block = false;
+                            }
                         }
                     }
                 }
@@ -641,16 +779,48 @@ async fn parse_anthropic_sse(
                         .unwrap_or("");
 
                     if delta_type == "text_delta" {
-                        let text = parsed
-                            .pointer("/delta/text")
+                        if in_thinking_block {
+                            // Thinking block text delivered as text_delta
+                            let text = parsed
+                                .pointer("/delta/text")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if !text.is_empty() {
+                                total_reasoning.push_str(text);
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Delta {
+                                        content: String::new(),
+                                        reasoning: Some(text.into()),
+                                    }))
+                                    .await;
+                            }
+                        } else {
+                            let text = parsed
+                                .pointer("/delta/text")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if !text.is_empty() {
+                                total_content.push_str(text);
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Delta {
+                                        content: text.into(),
+                                        reasoning: None,
+                                    }))
+                                    .await;
+                            }
+                        }
+                    } else if delta_type == "thinking_delta" {
+                        // Anthropic extended thinking delta
+                        let thinking = parsed
+                            .pointer("/delta/thinking")
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
-                        if !text.is_empty() {
-                            total_content.push_str(text);
+                        if !thinking.is_empty() {
+                            total_reasoning.push_str(thinking);
                             let _ = tx
                                 .send(Ok(CompletionChunk::Delta {
-                                    content: text.into(),
-                                    reasoning: None,
+                                    content: String::new(),
+                                    reasoning: Some(thinking.into()),
                                 }))
                                 .await;
                         }
@@ -670,6 +840,7 @@ async fn parse_anthropic_sse(
                             current_tool_input.clear();
                         }
                     }
+                    in_thinking_block = false;
                 }
                 "message_delta" => {
                     output_tokens = parsed
@@ -678,6 +849,11 @@ async fn parse_anthropic_sse(
                         .unwrap_or(output_tokens);
                 }
                 "message_stop" => {
+                    let final_reasoning = if total_reasoning.is_empty() {
+                        None
+                    } else {
+                        Some(total_reasoning.clone())
+                    };
                     if !pending_tool_calls.is_empty() {
                         let tool_calls: Vec<ToolCall> = pending_tool_calls
                             .drain(..)
@@ -697,7 +873,7 @@ async fn parse_anthropic_sse(
                                 } else {
                                     Some(total_content.clone())
                                 },
-                                reasoning: None,
+                                reasoning: final_reasoning,
                                 input_tokens: Some(input_tokens),
                                 output_tokens: Some(output_tokens),
                             }))
@@ -706,7 +882,7 @@ async fn parse_anthropic_sse(
                         let _ = tx
                             .send(Ok(CompletionChunk::Done {
                                 content: total_content.clone(),
-                                reasoning: None,
+                                reasoning: final_reasoning,
                                 input_tokens,
                                 output_tokens,
                             }))
@@ -724,7 +900,11 @@ async fn parse_anthropic_sse(
     let _ = tx
         .send(Ok(CompletionChunk::Done {
             content: total_content,
-            reasoning: None,
+            reasoning: if total_reasoning.is_empty() {
+                None
+            } else {
+                Some(total_reasoning)
+            },
             input_tokens,
             output_tokens,
         }))
@@ -756,4 +936,91 @@ fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<ToolCall> {
             },
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Model fetching
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchedModel {
+    pub id: String,
+    pub name: Option<String>,
+    pub context_window: Option<u32>,
+}
+
+pub async fn fetch_models(
+    provider_id: &str,
+    base_url: &str,
+    api_key: &str,
+) -> Result<Vec<FetchedModel>> {
+    let def = super::types::get_provider_definition(provider_id);
+
+    if !def.map(|d| d.supports_model_fetch).unwrap_or(false) {
+        return Err(anyhow::anyhow!(
+            "Provider '{}' does not support model fetching",
+            provider_id
+        ));
+    }
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+
+    let mut req = client.get(&url).header("Content-Type", "application/json");
+
+    if !api_key.is_empty() {
+        let auth_method = def.map(|d| d.auth_method).unwrap_or(AuthMethod::Bearer);
+        match auth_method {
+            AuthMethod::Bearer => {
+                req = req.header("Authorization", format!("Bearer {}", api_key));
+            }
+            AuthMethod::XApiKey => {
+                req = req.header("x-api-key", api_key);
+            }
+        }
+    }
+
+    let response = req.send().await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to fetch models: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let json: serde_json::Value = response.json().await?;
+
+    let models = json
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m.get("id")?.as_str()?.to_string();
+                    let name = m
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string());
+
+                    let context_window = m
+                        .get("context_length")
+                        .or_else(|| m.get("context_window"))
+                        .and_then(|c| c.as_u64())
+                        .map(|n| n as u32);
+
+                    Some(FetchedModel {
+                        id,
+                        name,
+                        context_window,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(models)
 }

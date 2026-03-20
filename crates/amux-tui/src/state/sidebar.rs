@@ -81,11 +81,9 @@ impl SidebarState {
                 // Without a known item_count at reduce time we apply a generous
                 // upper bound and let the render layer re-clamp if needed.
                 if delta > 0 {
-                    self.selected_item =
-                        self.selected_item.saturating_add(delta as usize);
+                    self.selected_item = self.selected_item.saturating_add(delta as usize);
                 } else {
-                    self.selected_item =
-                        self.selected_item.saturating_sub((-delta) as usize);
+                    self.selected_item = self.selected_item.saturating_sub((-delta) as usize);
                 }
             }
 
@@ -99,11 +97,9 @@ impl SidebarState {
 
             SidebarAction::Scroll(delta) => {
                 if delta > 0 {
-                    self.scroll_offset =
-                        self.scroll_offset.saturating_add(delta as usize);
+                    self.scroll_offset = self.scroll_offset.saturating_add(delta as usize);
                 } else {
-                    self.scroll_offset =
-                        self.scroll_offset.saturating_sub((-delta) as usize);
+                    self.scroll_offset = self.scroll_offset.saturating_sub((-delta) as usize);
                 }
             }
         }

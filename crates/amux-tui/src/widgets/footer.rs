@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::Color;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, BorderType, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 
 use crate::app::Attachment;
 use crate::state::input::{InputState, PasteBlock};
@@ -21,7 +21,10 @@ fn render_buffer_with_paste_blocks<'a>(
     while let Some(start) = remaining.find("\x00PASTE:") {
         // Text before the placeholder
         if start > 0 {
-            spans.push(Span::styled(remaining[..start].to_string(), theme.fg_active));
+            spans.push(Span::styled(
+                remaining[..start].to_string(),
+                theme.fg_active,
+            ));
         }
 
         // Find the closing NUL after "PASTE:N"
@@ -38,7 +41,10 @@ fn render_buffer_with_paste_blocks<'a>(
             remaining = &remaining[start + 1 + end_offset + 1..];
         } else {
             // Malformed token — emit the rest verbatim
-            spans.push(Span::styled(remaining[start..].to_string(), theme.fg_active));
+            spans.push(Span::styled(
+                remaining[start..].to_string(),
+                theme.fg_active,
+            ));
             return spans;
         }
     }
@@ -62,6 +68,7 @@ pub fn render_input(
     attachments: &[Attachment],
     tick: u64,
     agent_activity: Option<&str>,
+    input_notice: Option<(&str, Style)>,
 ) {
     let border_style = if modal_open {
         theme.fg_dim
@@ -111,10 +118,28 @@ pub fn render_input(
             ]));
         }
 
+        // Transient notice takes precedence over generic activity text.
+        if let Some((notice, notice_style)) = input_notice {
+            if buf.is_empty() && attachments.is_empty() {
+                lines.push(Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("\u{25b6}", notice_style),
+                    Span::raw(" "),
+                    Span::styled(notice.to_string(), notice_style),
+                ]));
+
+                frame.render_widget(Paragraph::new(lines), inner);
+                return;
+            }
+        }
+
         // Animated activity indicator when agent is working
         if let Some(activity) = agent_activity {
             if buf.is_empty() && attachments.is_empty() {
-                let spinner_frames = ["\u{28bf}", "\u{28fb}", "\u{28fd}", "\u{28fe}", "\u{28f7}", "\u{28ef}", "\u{28df}", "\u{287f}"];
+                let spinner_frames = [
+                    "\u{28bf}", "\u{28fb}", "\u{28fd}", "\u{28fe}", "\u{28f7}", "\u{28ef}",
+                    "\u{28df}", "\u{287f}",
+                ];
                 let spinner = spinner_frames[((tick / 4) as usize) % spinner_frames.len()];
                 let activity_style = Style::default().fg(Color::Indexed(178)); // amber
 
@@ -135,7 +160,7 @@ pub fn render_input(
             let placeholders = [
                 "Ask anything... plan \u{00b7} solve \u{00b7} ship",
                 "Try: /settings to configure your AI",
-                "Shift+Enter for multi-line input",
+                "Ctrl+Enter for multi-line input",
                 "/attach <file> to include context",
                 "Ctrl+P for command palette",
                 "/help to see all keyboard shortcuts",
@@ -155,7 +180,11 @@ pub fn render_input(
                 .min(placeholder.chars().count()); // fully revealed at tick 40 of 80
 
             let visible: String = placeholder.chars().take(chars_to_show).collect();
-            let cursor_blink = if (tick / 10) % 2 == 0 { "\u{2588}" } else { " " };
+            let cursor_blink = if (tick / 10) % 2 == 0 {
+                "\u{2588}"
+            } else {
+                " "
+            };
 
             let dim_style = Style::default().fg(Color::Indexed(239));
             lines.push(Line::from(vec![
@@ -208,7 +237,11 @@ pub fn render_input(
                 spans.push(Span::raw("   "));
             }
             // Render paste-block placeholders as styled amber labels
-            spans.extend(render_buffer_with_paste_blocks(line_text, paste_blocks, theme));
+            spans.extend(render_buffer_with_paste_blocks(
+                line_text,
+                paste_blocks,
+                theme,
+            ));
             lines.push(Line::from(spans));
         }
 
@@ -259,6 +292,7 @@ pub fn render_status_bar(
     tick: u64,
     error_tick: u64,
     queued_count: usize,
+    status_line: &str,
 ) {
     let mut spans = vec![Span::raw(" ")];
 
@@ -289,7 +323,15 @@ pub fn render_status_bar(
     if queued_count > 0 {
         spans.push(Span::raw("  "));
         spans.push(Span::styled("\u{25cf}", theme.accent_secondary));
-        spans.push(Span::styled(format!(" queued({})", queued_count), theme.fg_dim));
+        spans.push(Span::styled(
+            format!(" queued({})", queued_count),
+            theme.fg_dim,
+        ));
+    }
+
+    if !status_line.trim().is_empty() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(status_line.to_string(), theme.fg_active));
     }
 
     // Spacer then keyboard hints (right-aligned feel)
