@@ -251,7 +251,7 @@ fn format_tool_status(status: &str, theme: &ThemeTokens) -> (&'static str, Style
 }
 
 /// Word-wrap text to fit within a given width
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![text.to_string()];
     }

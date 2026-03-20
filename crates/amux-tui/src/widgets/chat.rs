@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
 
 use crate::state::chat::ChatState;
 use crate::theme::ThemeTokens;
+use super::message::wrap_text;
 
 pub fn render(
     frame: &mut Frame,
@@ -88,25 +89,67 @@ pub fn render(
         }
     }
 
-    // Append streaming reasoning FIRST (thinking happens before tool calls)
+    // Append streaming reasoning with ASST badge
     if !chat.streaming_reasoning().is_empty() {
         all_lines.push(Line::from(vec![
             Span::raw("  "),
+            Span::styled(
+                " ASST ",
+                Style::default().bg(Color::Indexed(183)).fg(Color::Black),
+            ),
+        ]));
+        all_lines.push(Line::from(vec![
+            Span::raw("       "),
             Span::styled("\u{25be} Reasoning...", theme.fg_dim),
         ]));
+        let dark_blue = Style::default().fg(Color::Indexed(24));
         for reasoning_line in chat.streaming_reasoning().lines() {
             all_lines.push(Line::from(vec![
-                Span::styled("  \u{2502} ", Style::default().fg(Color::Indexed(24))),
+                Span::raw("       "),
+                Span::styled("\u{2502}", dark_blue),
+                Span::raw(" "),
                 Span::styled(reasoning_line, theme.fg_dim),
             ]));
         }
     }
 
-    // Tool calls are now inline in the message timeline (pushed on ToolCall event)
-    // No separate active_tool_calls rendering needed.
-
-    // Append streaming content last (final response)
+    // Append streaming content with word wrapping
     if !chat.streaming_content().is_empty() {
+        let content = chat.streaming_content();
+        let wrap_width = inner_width.saturating_sub(8); // indent for badge + padding
+
+        // Word-wrap the streaming content
+        let wrapped_lines = wrap_text(content, wrap_width);
+
+        // First line with ASST badge (only if no reasoning shown above)
+        let show_badge = chat.streaming_reasoning().is_empty();
+        for (i, line_text) in wrapped_lines.iter().enumerate() {
+            if i == 0 && show_badge {
+                all_lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        " ASST ",
+                        Style::default().bg(Color::Indexed(183)).fg(Color::Black),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(line_text.clone(), theme.fg_active),
+                ]));
+            } else {
+                all_lines.push(Line::from(vec![
+                    Span::raw("       "),
+                    Span::styled(line_text.clone(), theme.fg_active),
+                ]));
+            }
+        }
+
+        // Cursor on last line
+        if let Some(last) = all_lines.last_mut() {
+            last.spans.push(Span::raw("\u{2588}"));
+        }
+
+        // Skip the old single-line rendering below
+    } else if false {
+        // Dead code — replaced by wrapped rendering above
         all_lines.push(Line::from(vec![
             Span::styled(
                 " ASST ",
