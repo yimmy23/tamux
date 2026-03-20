@@ -365,6 +365,21 @@ mod tests {
     }
 
     #[test]
+    fn markdown_renders_bold() {
+        let lines = render_markdown("**bold text** normal", 80);
+        assert!(!lines.is_empty(), "Markdown should produce lines");
+        let has_bold = lines.iter().any(|line| {
+            line.spans.iter().any(|span| {
+                span.style.add_modifier.contains(ratatui::style::Modifier::BOLD)
+            })
+        });
+        let debug: Vec<Vec<String>> = lines.iter()
+            .map(|l| l.spans.iter().map(|s| format!("'{}' mods={:?}", s.content, s.style.add_modifier)).collect())
+            .collect();
+        assert!(has_bold, "Expected BOLD in markdown output: {:?}", debug);
+    }
+
+    #[test]
     fn wrap_text_basic() {
         let lines = wrap_text("hello world foo bar", 12);
         assert_eq!(lines, vec!["hello world", "foo bar"]);
