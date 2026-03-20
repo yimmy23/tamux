@@ -124,7 +124,7 @@ fn render_compact(
     let content_lines = wrap_text(content, content_width);
     let first_content = content_lines.first().cloned().unwrap_or_default();
 
-    // Always show badge (even if content is empty — for reasoning-only messages)
+    // Badge + first line of content
     lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled(
@@ -137,7 +137,15 @@ fn render_compact(
         Span::styled(first_content, theme.fg_active),
     ]));
 
-    // Reasoning block (after badge, before continuation content)
+    // Continuation content lines (ALL content before reasoning)
+    for line in content_lines.iter().skip(1) {
+        lines.push(Line::from(vec![
+            Span::raw(" ".repeat(indent)),
+            Span::styled(line.clone(), theme.fg_active),
+        ]));
+    }
+
+    // Reasoning block AFTER all content (collapsible)
     if msg.role == MessageRole::Assistant {
         if let Some(reasoning) = &msg.reasoning {
             if !reasoning.is_empty() {
@@ -165,14 +173,6 @@ fn render_compact(
                 }
             }
         }
-    }
-
-    // Continuation content lines
-    for line in content_lines.iter().skip(1) {
-        lines.push(Line::from(vec![
-            Span::raw(" ".repeat(indent)),
-            Span::styled(line.clone(), theme.fg_active),
-        ]));
     }
 }
 
