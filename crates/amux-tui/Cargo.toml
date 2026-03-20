@@ -26,4 +26,6 @@ unicode-width = "0.2"
 futures = { workspace = true }
 ureq = { version = "3", features = ["json"] }
 base64 = "0.22"
+tui-markdown = "0.3"
+ratatui-core = "0.1"
 arboard = "3"

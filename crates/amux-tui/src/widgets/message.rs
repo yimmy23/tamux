@@ -1,8 +1,71 @@
 use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 
 use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
 use crate::theme::ThemeTokens;
+
+/// Render markdown content into Lines using tui-markdown.
+/// Converts from ratatui_core types to ratatui types.
+pub(crate) fn render_markdown_pub(content: &str, width: usize) -> Vec<Line<'static>> {
+    render_markdown(content, width)
+}
+
+fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+    let md_text = tui_markdown::from_str(content);
+    // Convert ratatui_core::Line to ratatui::Line via plain text + styles
+    let mut result = Vec::new();
+    for md_line in md_text.lines {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for md_span in md_line.spans {
+            let style = Style::default();
+            // Map ratatui_core style to ratatui style
+            let mut s = style;
+            if let Some(fg) = md_span.style.fg {
+                s = s.fg(convert_color(fg));
+            }
+            if let Some(bg) = md_span.style.bg {
+                s = s.bg(convert_color(bg));
+            }
+            if md_span.style.add_modifier.contains(ratatui_core::style::Modifier::BOLD) {
+                s = s.add_modifier(ratatui::style::Modifier::BOLD);
+            }
+            if md_span.style.add_modifier.contains(ratatui_core::style::Modifier::ITALIC) {
+                s = s.add_modifier(ratatui::style::Modifier::ITALIC);
+            }
+            if md_span.style.add_modifier.contains(ratatui_core::style::Modifier::UNDERLINED) {
+                s = s.add_modifier(ratatui::style::Modifier::UNDERLINED);
+            }
+            spans.push(Span::styled(md_span.content.to_string(), s));
+        }
+        result.push(Line::from(spans));
+    }
+    if result.is_empty() {
+        // Fallback to plain wrap
+        wrap_text(content, width).into_iter()
+            .map(|s| Line::from(Span::raw(s)))
+            .collect()
+    } else {
+        result
+    }
+}
+
+fn convert_color(c: ratatui_core::style::Color) -> Color {
+    match c {
+        ratatui_core::style::Color::Reset => Color::Reset,
+        ratatui_core::style::Color::Black => Color::Black,
+        ratatui_core::style::Color::Red => Color::Red,
+        ratatui_core::style::Color::Green => Color::Green,
+        ratatui_core::style::Color::Yellow => Color::Yellow,
+        ratatui_core::style::Color::Blue => Color::Blue,
+        ratatui_core::style::Color::Magenta => Color::Magenta,
+        ratatui_core::style::Color::Cyan => Color::Cyan,
+        ratatui_core::style::Color::Gray => Color::Gray,
+        ratatui_core::style::Color::White => Color::White,
+        ratatui_core::style::Color::Indexed(i) => Color::Indexed(i),
+        ratatui_core::style::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
+        _ => Color::Reset,
+    }
+}
 
 /// Set of message indices whose reasoning blocks are expanded
 pub type ExpandedReasoning = std::collections::HashSet<usize>;
@@ -120,12 +183,18 @@ fn render_compact(
 
     let (badge, badge_style) = role_badge(msg.role);
 
-    // Badge first — always show the role badge
-    let content_lines = wrap_text(content, content_width);
-    let first_content = content_lines.first().cloned().unwrap_or_default();
+    // Render content — use markdown for assistant, plain wrap for others
+    let md_lines: Vec<Line<'static>> = if msg.role == MessageRole::Assistant {
+        render_markdown(content, content_width)
+    } else {
+        wrap_text(content, content_width).into_iter()
+            .map(|s| Line::from(Span::styled(s, theme.fg_active)))
+            .collect()
+    };
 
     // Badge + first line of content
-    lines.push(Line::from(vec![
+    let first_line = md_lines.first().cloned().unwrap_or_default();
+    let mut badge_line_spans = vec![
         Span::raw("  "),
         Span::styled(
             badge,
@@ -134,15 +203,15 @@ fn render_compact(
                 .fg(Color::Black),
         ),
         Span::raw(" "),
-        Span::styled(first_content, theme.fg_active),
-    ]));
+    ];
+    badge_line_spans.extend(first_line.spans);
+    lines.push(Line::from(badge_line_spans));
 
-    // Continuation content lines (ALL content before reasoning)
-    for line in content_lines.iter().skip(1) {
-        lines.push(Line::from(vec![
-            Span::raw(" ".repeat(indent)),
-            Span::styled(line.clone(), theme.fg_active),
-        ]));
+    // Continuation content lines
+    for line in md_lines.iter().skip(1) {
+        let mut spans = vec![Span::raw(" ".repeat(indent))];
+        spans.extend(line.spans.iter().cloned());
+        lines.push(Line::from(spans));
     }
 
     // Reasoning block AFTER all content (collapsible)

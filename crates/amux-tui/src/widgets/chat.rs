@@ -7,6 +7,10 @@ use crate::state::chat::ChatState;
 use crate::theme::ThemeTokens;
 use super::message::wrap_text;
 
+fn render_streaming_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+    super::message::render_markdown_pub(content, width)
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -118,27 +122,27 @@ pub fn render(
         let content = chat.streaming_content();
         let wrap_width = inner_width.saturating_sub(8); // indent for badge + padding
 
-        // Word-wrap the streaming content
-        let wrapped_lines = wrap_text(content, wrap_width);
+        // Render streaming content as markdown
+        let wrapped_lines: Vec<Line<'static>> = render_streaming_markdown(content, wrap_width);
 
         // First line with ASST badge (only if no reasoning shown above)
         let show_badge = chat.streaming_reasoning().is_empty();
-        for (i, line_text) in wrapped_lines.iter().enumerate() {
+        for (i, md_line) in wrapped_lines.into_iter().enumerate() {
             if i == 0 && show_badge {
-                all_lines.push(Line::from(vec![
+                let mut spans = vec![
                     Span::raw("  "),
                     Span::styled(
                         " ASST ",
                         Style::default().bg(Color::Indexed(183)).fg(Color::Black),
                     ),
                     Span::raw(" "),
-                    Span::styled(line_text.clone(), theme.fg_active),
-                ]));
+                ];
+                spans.extend(md_line.spans);
+                all_lines.push(Line::from(spans));
             } else {
-                all_lines.push(Line::from(vec![
-                    Span::raw("       "),
-                    Span::styled(line_text.clone(), theme.fg_active),
-                ]));
+                let mut spans = vec![Span::raw("       ")];
+                spans.extend(md_line.spans);
+                all_lines.push(Line::from(spans));
             }
         }
 
