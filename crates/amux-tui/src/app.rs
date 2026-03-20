@@ -2104,6 +2104,11 @@ impl TuiModel {
                     self.chat.reduce(chat::ChatAction::ScrollChat(3));
                 } else if cursor_in_sidebar {
                     self.sidebar.reduce(sidebar::SidebarAction::Scroll(3));
+                } else if cursor_in_input {
+                    // Scroll input by moving cursor up
+                    for _ in 0..3 {
+                        self.input.reduce(input::InputAction::MoveCursorUp);
+                    }
                 }
             }
             MouseEventKind::ScrollDown => {
@@ -2111,6 +2116,10 @@ impl TuiModel {
                     self.chat.reduce(chat::ChatAction::ScrollChat(-3));
                 } else if cursor_in_sidebar {
                     self.sidebar.reduce(sidebar::SidebarAction::Scroll(-3));
+                } else if cursor_in_input {
+                    for _ in 0..3 {
+                        self.input.reduce(input::InputAction::MoveCursorDown);
+                    }
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {

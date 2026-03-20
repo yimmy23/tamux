@@ -142,16 +142,30 @@ pub fn render_input(
             lines.push(Line::from(spans));
         }
 
-        // Scroll to keep cursor line visible
-        let (cursor_line, _) = input.cursor_line_col_public();
-        let attachment_lines = attachments.len();
-        let cursor_display_line = attachment_lines + cursor_line;
+        // Calculate visual line of cursor (accounting for wrapping)
+        // The cursor is embedded in the display string — find which Line it's in
+        let cursor_visual_line = {
+            let mut found = attachments.len(); // start after attachment lines
+            let mut char_count = 0;
+            let cursor_in_display = input.cursor_pos(); // byte offset where █ was inserted
+            for (i, line_text) in raw_lines.iter().enumerate() {
+                let line_chars = line_text.chars().count();
+                if char_count + line_chars >= cursor_in_display || i == raw_lines.len() - 1 {
+                    found = attachments.len() + i;
+                    break;
+                }
+                char_count += line_chars + 1; // +1 for \n
+            }
+            found
+        };
+
         let visible_height = inner.height as usize;
-        let scroll_offset = if cursor_display_line >= visible_height {
-            (cursor_display_line - visible_height + 1) as u16
-        } else if lines.len() > visible_height {
-            // Default: show last lines but prefer cursor visibility
-            (lines.len() - visible_height) as u16
+        let total_lines = lines.len();
+        let scroll_offset = if visible_height == 0 || total_lines <= visible_height {
+            0u16
+        } else if cursor_visual_line >= visible_height {
+            // Cursor is below visible area — scroll to show it
+            (cursor_visual_line - visible_height + 1).min(total_lines - visible_height) as u16
         } else {
             0
         };
