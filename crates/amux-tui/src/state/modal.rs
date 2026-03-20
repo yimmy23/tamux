@@ -6,6 +6,7 @@ pub enum ModalKind {
     ThreadPicker,
     ProviderPicker,
     ModelPicker,
+    ErrorViewer,
     ApprovalOverlay,
     Settings,
     EffortPicker,

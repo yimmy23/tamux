@@ -5,6 +5,7 @@
 //! - Anthropic Messages API (`/v1/messages` with `x-api-key` header)
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -16,7 +17,7 @@ use tokio::sync::mpsc;
 
 use super::types::{
     get_provider_api_type, get_provider_definition, ApiTransport, ApiType, AuthMethod,
-    CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
+    AuthSource, CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -101,6 +102,37 @@ impl fmt::Display for TransportCompatibilityError {
 
 impl std::error::Error for TransportCompatibilityError {}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredOpenAICodexAuth {
+    provider: Option<String>,
+    auth_mode: Option<String>,
+    access_token: String,
+    refresh_token: String,
+    account_id: Option<String>,
+    expires_at: Option<i64>,
+    source: Option<String>,
+    updated_at: Option<i64>,
+    created_at: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexCliAuthFile {
+    tokens: Option<CodexCliTokens>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexCliTokens {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct OpenAICodexRequestAuth {
+    access_token: String,
+    account_id: String,
+}
+
 /// Build an appropriate error for a non-success API response, distinguishing
 /// rate-limit (429) errors for retry handling.
 fn check_rate_limit_response(
@@ -128,6 +160,176 @@ impl Stream for CompletionStream {
     ) -> Poll<Option<Self::Item>> {
         self.rx.poll_recv(cx)
     }
+}
+
+fn openai_codex_auth_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| home.join(".tamux").join("openai-codex-auth.json"))
+}
+
+fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| home.join(".codex").join("auth.json"))
+}
+
+fn decode_jwt_payload(access_token: &str) -> Option<serde_json::Value> {
+    let payload = access_token.split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    serde_json::from_slice::<serde_json::Value>(&decoded).ok()
+}
+
+fn extract_openai_codex_account_id(access_token: &str) -> Option<String> {
+    decode_jwt_payload(access_token)?
+        .get("https://api.openai.com/auth")
+        .and_then(|value| value.get("chatgpt_account_id"))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+}
+
+fn extract_jwt_expiry(access_token: &str) -> Option<i64> {
+    decode_jwt_payload(access_token)?
+        .get("exp")
+        .and_then(|value| value.as_i64())
+        .map(|seconds| seconds.saturating_mul(1000))
+}
+
+fn read_stored_openai_codex_auth() -> Option<StoredOpenAICodexAuth> {
+    let path = openai_codex_auth_path()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let parsed: StoredOpenAICodexAuth = serde_json::from_str(&raw).ok()?;
+    if parsed.access_token.trim().is_empty() || parsed.refresh_token.trim().is_empty() {
+        return None;
+    }
+    Some(parsed)
+}
+
+fn write_stored_openai_codex_auth(auth: &StoredOpenAICodexAuth) -> Result<()> {
+    let path = openai_codex_auth_path().context("home directory unavailable for tamux auth")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_vec_pretty(auth)?)?;
+    Ok(())
+}
+
+fn import_codex_cli_auth_if_present() -> Option<StoredOpenAICodexAuth> {
+    if let Some(existing) = read_stored_openai_codex_auth() {
+        return Some(existing);
+    }
+
+    let path = codex_cli_auth_path()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let parsed: CodexCliAuthFile = serde_json::from_str(&raw).ok()?;
+    let tokens = parsed.tokens?;
+    let access_token = tokens.access_token?;
+    let refresh_token = tokens.refresh_token?;
+    let account_id = extract_openai_codex_account_id(&access_token)?;
+    let expires_at = extract_jwt_expiry(&access_token)?;
+    let now = chrono_like_now_millis();
+    let imported = StoredOpenAICodexAuth {
+        provider: Some("openai-codex".to_string()),
+        auth_mode: Some("chatgpt_subscription".to_string()),
+        access_token,
+        refresh_token,
+        account_id: Some(account_id),
+        expires_at: Some(expires_at),
+        source: Some("codex_import".to_string()),
+        updated_at: Some(now),
+        created_at: Some(now),
+    };
+    let _ = write_stored_openai_codex_auth(&imported);
+    read_stored_openai_codex_auth().or(Some(imported))
+}
+
+fn chrono_like_now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+async fn refresh_openai_codex_auth(
+    client: &reqwest::Client,
+    auth: &StoredOpenAICodexAuth,
+) -> Result<StoredOpenAICodexAuth> {
+    let response = client
+        .post("https://auth.openai.com/oauth/token")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", auth.refresh_token.as_str()),
+            ("client_id", "app_EMoamEEZ73f0CkXaXp7hrann"),
+        ])
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        anyhow::bail!("OpenAI token refresh failed: HTTP {status} {text}");
+    }
+
+    let payload: serde_json::Value = response.json().await?;
+    let access_token = payload
+        .get("access_token")
+        .and_then(|value| value.as_str())
+        .context("OpenAI token refresh returned no access_token")?
+        .to_string();
+    let refresh_token = payload
+        .get("refresh_token")
+        .and_then(|value| value.as_str())
+        .context("OpenAI token refresh returned no refresh_token")?
+        .to_string();
+    let account_id = extract_openai_codex_account_id(&access_token)
+        .context("OpenAI token refresh returned no ChatGPT account id")?;
+    let expires_in_ms = payload
+        .get("expires_in")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(3600)
+        .saturating_mul(1000);
+    let now = chrono_like_now_millis();
+    let refreshed = StoredOpenAICodexAuth {
+        provider: Some("openai-codex".to_string()),
+        auth_mode: Some("chatgpt_subscription".to_string()),
+        access_token,
+        refresh_token,
+        account_id: Some(account_id),
+        expires_at: Some(now.saturating_add(expires_in_ms)),
+        source: auth.source.clone().or_else(|| Some("tamux".to_string())),
+        updated_at: Some(now),
+        created_at: auth.created_at.or(Some(now)),
+    };
+    write_stored_openai_codex_auth(&refreshed)?;
+    Ok(refreshed)
+}
+
+async fn resolve_openai_codex_request_auth(
+    client: &reqwest::Client,
+    provider: &str,
+    config: &ProviderConfig,
+) -> Result<Option<OpenAICodexRequestAuth>> {
+    if provider != "openai" || config.auth_source != AuthSource::ChatgptSubscription {
+        return Ok(None);
+    }
+
+    let auth = read_stored_openai_codex_auth().or_else(import_codex_cli_auth_if_present);
+    let mut auth = auth.context(
+        "No ChatGPT subscription auth found. Authenticate in the frontend or import ~/.codex/auth.json.",
+    )?;
+    let now = chrono_like_now_millis();
+    if auth.expires_at.unwrap_or(0) <= now.saturating_add(60_000) {
+        auth = refresh_openai_codex_auth(client, &auth).await?;
+    }
+
+    let account_id = auth
+        .account_id
+        .clone()
+        .or_else(|| extract_openai_codex_account_id(&auth.access_token))
+        .context("ChatGPT subscription auth is missing chatgpt_account_id")?;
+
+    Ok(Some(OpenAICodexRequestAuth {
+        access_token: auth.access_token,
+        account_id,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -930,7 +1132,12 @@ async fn run_openai_responses(
     previous_response_id: Option<&str>,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
-    let url = build_responses_url(&config.base_url);
+    let codex_auth = resolve_openai_codex_request_auth(client, provider, config).await?;
+    let url = if codex_auth.is_some() {
+        "https://chatgpt.com/backend-api/codex/responses".to_string()
+    } else {
+        build_responses_url(&config.base_url)
+    };
     let mut body = serde_json::json!({
         "model": config.model,
         "instructions": system_prompt,
@@ -975,7 +1182,33 @@ async fn run_openai_responses(
         body["reasoning"] = serde_json::json!({ "effort": effort });
     }
 
-    let req = build_openai_auth_request(client, &url, provider, config);
+    if codex_auth.is_some() {
+        body["store"] = serde_json::Value::Bool(false);
+        body["include"] =
+            serde_json::Value::Array(vec![serde_json::Value::String(
+                "reasoning.encrypted_content".to_string(),
+            )]);
+        if body.get("text").is_none() {
+            body["text"] = serde_json::json!({ "verbosity": "high" });
+        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut()) {
+            text_obj.insert(
+                "verbosity".to_string(),
+                serde_json::Value::String("high".to_string()),
+            );
+        }
+    }
+
+    let req = if let Some(codex_auth) = codex_auth {
+        client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", codex_auth.access_token))
+            .header("chatgpt-account-id", codex_auth.account_id)
+            .header("OpenAI-Beta", "responses=experimental")
+            .header("originator", "tamux")
+    } else {
+        build_openai_auth_request(client, &url, provider, config)
+    };
     let response = req.body(body.to_string()).send().await?;
 
     if !response.status().is_success() {

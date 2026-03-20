@@ -12,21 +12,27 @@ pub struct ProviderDef {
     pub default_model: &'static str,
     pub supported_transports: &'static [&'static str],
     pub default_transport: &'static str,
+    pub supported_auth_sources: &'static [&'static str],
+    pub default_auth_source: &'static str,
     pub native_base_url: Option<&'static str>,
 }
 
 pub const CHAT_ONLY_TRANSPORTS: &[&str] = &["chat_completions"];
 pub const RESPONSES_AND_CHAT_TRANSPORTS: &[&str] = &["responses", "chat_completions"];
 pub const NATIVE_AND_CHAT_TRANSPORTS: &[&str] = &["native_assistant", "chat_completions"];
+pub const API_KEY_ONLY_AUTH_SOURCES: &[&str] = &["api_key"];
+pub const OPENAI_AUTH_SOURCES: &[&str] = &["chatgpt_subscription", "api_key"];
 
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
         id: "openai",
-        name: "OpenAI",
+        name: "OpenAI / ChatGPT",
         default_base_url: "https://api.openai.com/v1",
         default_model: "gpt-5.4",
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
+        supported_auth_sources: OPENAI_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -36,6 +42,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "llama-3.3-70b-versatile",
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -45,6 +53,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "llama3.1",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -54,6 +64,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -63,6 +75,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "anthropic/claude-sonnet-4",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -72,6 +86,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "llama-3.3-70b",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -81,6 +97,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "qwen-max",
         supported_transports: NATIVE_AND_CHAT_TRANSPORTS,
         default_transport: "native_assistant",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: Some("https://dashscope-intl.aliyuncs.com/api/v1"),
     },
     ProviderDef {
@@ -90,6 +108,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "moonshot-v1-32k",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -99,6 +119,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "glm-4-plus",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -108,6 +130,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "glm-5",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -117,6 +141,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "kimi-for-coding",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -126,6 +152,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "MiniMax-M2.7",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -135,6 +163,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "MiniMax-M2.7",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -144,6 +174,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "qwen3-coder",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -153,6 +185,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "Qwen/Qwen2.5-72B-Instruct",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -162,6 +196,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -171,6 +207,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "deepseek-ai/DeepSeek-V3",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -180,6 +218,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -189,6 +229,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "claude-sonnet-4-5",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
     ProviderDef {
@@ -198,6 +240,8 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_model: "",
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
         native_base_url: None,
     },
 ];
@@ -230,6 +274,18 @@ pub fn default_transport_for(provider: &str) -> &'static str {
         .unwrap_or("chat_completions")
 }
 
+pub fn supported_auth_sources_for(provider: &str) -> &'static [&'static str] {
+    find_by_id(provider)
+        .map(|def| def.supported_auth_sources)
+        .unwrap_or(API_KEY_ONLY_AUTH_SOURCES)
+}
+
+pub fn default_auth_source_for(provider: &str) -> &'static str {
+    find_by_id(provider)
+        .map(|def| def.default_auth_source)
+        .unwrap_or("api_key")
+}
+
 /// Return a hardcoded list of known models for the given provider so the model
 /// picker works without a live daemon fetch.
 pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
@@ -238,6 +294,17 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
             ("gpt-5.4", "GPT-5.4", 1_000_000),
             ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
             ("gpt-5.4-nano", "GPT-5.4 Nano", 400_000),
+            ("gpt-5.3-codex", "GPT-5.3 Codex", 400_000),
+            ("gpt-5.2-codex", "GPT-5.2 Codex", 400_000),
+            ("gpt-5.2", "GPT-5.2", 400_000),
+            ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", 400_000),
+            ("gpt-5.1-codex", "GPT-5.1 Codex", 400_000),
+            ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 400_000),
+            ("gpt-5.1", "GPT-5.1", 400_000),
+            ("gpt-5-codex", "GPT-5 Codex", 400_000),
+            ("gpt-5-codex-mini", "GPT-5 Codex Mini", 200_000),
+            ("gpt-5", "GPT-5", 400_000),
+            ("codex-mini-latest", "Codex Mini Latest", 200_000),
             ("o4-mini", "o4 Mini", 200_000),
             ("o3", "o3", 200_000),
             ("gpt-4.1", "GPT-4.1", 1_000_000),
@@ -342,6 +409,13 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
         .collect()
 }
 
+pub fn known_context_window_for(provider: &str, model: &str) -> Option<u32> {
+    known_models_for_provider(provider)
+        .into_iter()
+        .find(|entry| entry.id == model)
+        .and_then(|entry| entry.context_window)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,7 +437,7 @@ mod tests {
 
     #[test]
     fn find_by_name_works() {
-        let p = find_by_name("OpenAI").unwrap();
+        let p = find_by_name("OpenAI / ChatGPT").unwrap();
         assert_eq!(p.id, "openai");
     }
 

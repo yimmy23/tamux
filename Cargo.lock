@@ -2916,6 +2916,7 @@ dependencies = [
  "ratatui-textarea",
  "serde",
  "serde_json",
+ "sha2",
  "tamux-protocol",
  "thiserror 2.0.18",
  "tokio",
@@ -2925,6 +2926,7 @@ dependencies = [
  "tui-markdown",
  "unicode-width 0.2.0",
  "ureq",
+ "url",
  "uuid",
 ]
 

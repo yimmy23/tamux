@@ -399,11 +399,12 @@ pub fn render_status_bar(
     area: Rect,
     theme: &ThemeTokens,
     connected: bool,
+    has_error: bool,
     error_active: bool,
     tick: u64,
     error_tick: u64,
     queued_count: usize,
-    status_line: &str,
+    _status_line: &str,
 ) {
     let mut spans = vec![Span::raw(" ")];
 
@@ -415,13 +416,17 @@ pub fn render_status_bar(
         spans.push(Span::styled(" daemon", theme.fg_dim));
     }
 
-    if error_active {
-        let elapsed = tick.saturating_sub(error_tick);
-        let pulse_phase = (elapsed / 10) % 2;
-        let error_color = if pulse_phase == 0 {
-            Style::default().fg(Color::Indexed(203))
+    if has_error {
+        let error_color = if error_active {
+            let elapsed = tick.saturating_sub(error_tick);
+            let pulse_phase = (elapsed / 10) % 2;
+            if pulse_phase == 0 {
+                Style::default().fg(Color::Indexed(203))
+            } else {
+                Style::default().fg(Color::Indexed(88))
+            }
         } else {
-            Style::default().fg(Color::Indexed(88))
+            theme.accent_danger
         };
         spans.push(Span::raw("  "));
         spans.push(Span::styled("●", error_color));
@@ -437,11 +442,6 @@ pub fn render_status_bar(
         ));
     }
 
-    if !status_line.trim().is_empty() {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(status_line.to_string(), theme.fg_active));
-    }
-
     spans.push(Span::raw("    "));
     spans.push(Span::styled("tab", theme.fg_active));
     spans.push(Span::styled(":focus  ", theme.fg_dim));
@@ -449,8 +449,8 @@ pub fn render_status_bar(
     spans.push(Span::styled(":cmd  ", theme.fg_dim));
     spans.push(Span::styled("/", theme.fg_active));
     spans.push(Span::styled(":slash  ", theme.fg_dim));
-    if error_active {
-        spans.push(Span::styled("!", theme.accent_danger));
+    if has_error {
+        spans.push(Span::styled("ctrl+e", theme.accent_danger));
         spans.push(Span::styled(":error  ", theme.fg_dim));
     }
     spans.push(Span::styled("/quit", theme.fg_active));

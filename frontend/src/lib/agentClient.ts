@@ -73,6 +73,21 @@ export interface PreparedOpenAIRequest {
   upstreamThreadId?: string;
 }
 
+type OpenAICodexAuthStatus = {
+  available?: boolean;
+  authMode?: string;
+  accountId?: string;
+  expiresAt?: number;
+  source?: string;
+  apiKey?: string;
+  error?: string;
+};
+
+type ResolvedProviderAuth = {
+  apiKey: string;
+  accountId?: string;
+};
+
 class TransportCompatibilityError extends Error {
   constructor(message: string) {
     super(message);
@@ -100,29 +115,38 @@ export interface ContextCompactionSettings {
 export async function* sendChatCompletion(
   req: ChatRequest,
 ): AsyncGenerator<ChatChunk> {
-  if (!req.config.apiKey && req.provider !== "ollama") {
+  const resolvedAuth = await resolveProviderAuth(req);
+  const resolvedRequest: ChatRequest = {
+    ...req,
+    config: {
+      ...req.config,
+      apiKey: resolvedAuth.apiKey,
+    },
+  };
+
+  if (!resolvedRequest.config.apiKey && resolvedRequest.provider !== "ollama") {
     yield { type: "error", content: `No API key configured for ${req.provider}. Open Settings > Agent to add your key.` };
     return;
   }
 
-  if (!req.config.baseUrl) {
+  if (!resolvedRequest.config.baseUrl) {
     yield { type: "error", content: `No base URL configured for ${req.provider}.` };
     return;
   }
 
   try {
-    const supportedTransports = getSupportedApiTransports(req.provider);
-    const selectedTransport = supportedTransports.includes(req.config.apiTransport)
-      ? req.config.apiTransport
-      : getDefaultApiTransport(req.provider);
+    const supportedTransports = getSupportedApiTransports(resolvedRequest.provider);
+    const selectedTransport = supportedTransports.includes(resolvedRequest.config.apiTransport)
+      ? resolvedRequest.config.apiTransport
+      : getDefaultApiTransport(resolvedRequest.provider);
 
-    if (getProviderApiType(req.provider, req.config.model) === "anthropic") {
-      yield* sendAnthropic(req);
+    if (getProviderApiType(resolvedRequest.provider, resolvedRequest.config.model) === "anthropic") {
+      yield* sendAnthropic(resolvedRequest);
     } else if (selectedTransport === "native_assistant") {
       try {
         yield* sendNativeAssistant({
-          ...req,
-          config: { ...req.config, apiTransport: "native_assistant" },
+          ...resolvedRequest,
+          config: { ...resolvedRequest.config, apiTransport: "native_assistant" },
         });
       } catch (err: any) {
         if (err instanceof TransportCompatibilityError) {
@@ -133,8 +157,8 @@ export async function* sendChatCompletion(
             toTransport: "chat_completions",
           };
           yield* sendOpenAICompatible({
-            ...req,
-            config: { ...req.config, apiTransport: "chat_completions" },
+            ...resolvedRequest,
+            config: { ...resolvedRequest.config, apiTransport: "chat_completions" },
             previousResponseId: undefined,
             upstreamThreadId: undefined,
           });
@@ -145,8 +169,9 @@ export async function* sendChatCompletion(
     } else if (selectedTransport === "responses") {
       try {
         yield* sendOpenAIResponses({
-          ...req,
-          config: { ...req.config, apiTransport: "responses" },
+          ...resolvedRequest,
+          config: { ...resolvedRequest.config, apiTransport: "responses" },
+          _chatgptAccountId: resolvedAuth.accountId,
         });
       } catch (err: any) {
         if (err instanceof TransportCompatibilityError) {
@@ -157,8 +182,8 @@ export async function* sendChatCompletion(
             toTransport: "chat_completions",
           };
           yield* sendOpenAICompatible({
-            ...req,
-            config: { ...req.config, apiTransport: "chat_completions" },
+            ...resolvedRequest,
+            config: { ...resolvedRequest.config, apiTransport: "chat_completions" },
             previousResponseId: undefined,
             upstreamThreadId: undefined,
           });
@@ -167,7 +192,7 @@ export async function* sendChatCompletion(
         }
       }
     } else {
-      yield* sendOpenAICompatible(req);
+      yield* sendOpenAICompatible(resolvedRequest, resolvedAuth.accountId);
     }
   } catch (err: any) {
     if (err.name === "AbortError") {
@@ -176,6 +201,27 @@ export async function* sendChatCompletion(
       yield { type: "error", content: `API error: ${err.message || String(err)}` };
     }
   }
+}
+
+async function resolveProviderAuth(req: ChatRequest): Promise<ResolvedProviderAuth> {
+  if (req.provider !== "openai" || req.config.authSource !== "chatgpt_subscription") {
+    return { apiKey: req.config.apiKey };
+  }
+
+  const amux = (window as any).amux || (window as any).tamux;
+  if (!amux?.openAICodexAuthStatus) {
+    throw new Error("ChatGPT subscription auth is unavailable in this build.");
+  }
+
+  const status = await amux.openAICodexAuthStatus({ refresh: true }) as OpenAICodexAuthStatus;
+  if (status?.available && typeof status.apiKey === "string" && status.apiKey.trim()) {
+    return {
+      apiKey: status.apiKey.trim(),
+      accountId: typeof status.accountId === "string" ? status.accountId.trim() : undefined,
+    };
+  }
+
+  throw new Error(status?.error || "ChatGPT subscription auth not found. Authenticate in Settings > Agent.");
 }
 
 // ---------------------------------------------------------------------------
@@ -393,7 +439,43 @@ async function* sendNativeAssistant(req: ChatRequest): AsyncGenerator<ChatChunk>
   yield { type: "error", content: `${req.provider} native assistant timed out waiting for completion.` };
 }
 
-async function* sendOpenAICompatible(req: ChatRequest): AsyncGenerator<ChatChunk> {
+function isChatGptSubscriptionRequest(req: ChatRequest): boolean {
+  return req.provider === "openai" && req.config.authSource === "chatgpt_subscription";
+}
+
+function buildChatGptCodexResponsesUrl(): string {
+  return "https://chatgpt.com/backend-api/codex/responses";
+}
+
+function buildChatGptCodexHeaders(apiKey: string, accountId?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${apiKey}`,
+    "OpenAI-Beta": "responses=experimental",
+    "originator": "tamux",
+  };
+  if (accountId) {
+    headers["chatgpt-account-id"] = accountId;
+  }
+  return headers;
+}
+
+async function* sendOpenAICompatible(
+  req: ChatRequest,
+  chatgptAccountId?: string,
+): AsyncGenerator<ChatChunk> {
+  if (isChatGptSubscriptionRequest(req)) {
+    yield* sendOpenAIResponses({
+      ...req,
+      config: {
+        ...req.config,
+        apiTransport: "responses",
+      },
+      _chatgptAccountId: chatgptAccountId,
+    });
+    return;
+  }
+
   const url = buildChatCompletionUrl(req.provider, req.config.baseUrl);
 
   const body: Record<string, unknown> = {
@@ -477,8 +559,13 @@ async function* sendOpenAICompatible(req: ChatRequest): AsyncGenerator<ChatChunk
   }
 }
 
-async function* sendOpenAIResponses(req: ChatRequest): AsyncGenerator<ChatChunk> {
-  const url = buildResponsesUrl(req.config.baseUrl);
+async function* sendOpenAIResponses(
+  req: ChatRequest & { _chatgptAccountId?: string },
+): AsyncGenerator<ChatChunk> {
+  const isSubscription = isChatGptSubscriptionRequest(req);
+  const url = isSubscription
+    ? buildChatGptCodexResponsesUrl()
+    : buildResponsesUrl(req.config.baseUrl);
   const body: Record<string, unknown> = {
     model: req.config.model,
     instructions: req.systemPrompt,
@@ -496,6 +583,7 @@ async function* sendOpenAIResponses(req: ChatRequest): AsyncGenerator<ChatChunk>
       };
     }),
     stream: req.streaming,
+    ...(isSubscription ? { store: false } : {}),
   };
 
   if (req.previousResponseId) {
@@ -517,12 +605,22 @@ async function* sendOpenAIResponses(req: ChatRequest): AsyncGenerator<ChatChunk>
     };
   }
 
+  if (isSubscription) {
+    body.include = ["reasoning.encrypted_content"];
+    body.text = {
+      ...(typeof body.text === "object" && body.text !== null ? body.text as Record<string, unknown> : {}),
+      verbosity: "high",
+    };
+  }
+
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(req.config.apiKey ? { Authorization: `Bearer ${req.config.apiKey}` } : {}),
-    },
+    headers: isSubscription
+      ? buildChatGptCodexHeaders(req.config.apiKey, req._chatgptAccountId)
+      : {
+          "Content-Type": "application/json",
+          ...(req.config.apiKey ? { Authorization: `Bearer ${req.config.apiKey}` } : {}),
+        },
     body: JSON.stringify(body),
     signal: req.signal,
   });
@@ -1202,12 +1300,16 @@ export function prepareOpenAIRequest(
   provider: AgentProviderId,
   model: string,
   requestedTransport: ApiTransportMode,
+  authSource?: "api_key" | "chatgpt_subscription",
   assistantId?: string,
   thread?: Pick<AgentThread, "upstreamThreadId" | "upstreamTransport" | "upstreamProvider" | "upstreamModel" | "upstreamAssistantId">,
 ): PreparedOpenAIRequest {
-  const selectedTransport = getSupportedApiTransports(provider).includes(requestedTransport)
+  let selectedTransport = getSupportedApiTransports(provider).includes(requestedTransport)
     ? requestedTransport
     : getDefaultApiTransport(provider);
+  if (provider === "openai" && authSource === "chatgpt_subscription") {
+    selectedTransport = "responses";
+  }
   const compacted = compactMessagesForRequest(messages, settings);
   const compactionActive =
     compacted.length !== messages.length || compacted.some((message) => message.content.startsWith("[Compacted earlier context]"));

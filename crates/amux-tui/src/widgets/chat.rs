@@ -1,14 +1,15 @@
 use ratatui::prelude::*;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message::wrap_text;
-use crate::state::chat::{
-    AgentMessage, ChatAction, ChatHitTarget, ChatState, MessageRole, TranscriptMode,
-};
+use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, TranscriptMode};
 use crate::theme::ThemeTokens;
+
+const MESSAGE_PADDING_X: usize = 2;
+const MESSAGE_PADDING_Y: usize = 1;
 
 fn render_streaming_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
     super::message::render_markdown_pub(content, width)
@@ -57,6 +58,44 @@ impl RenderedChatLine {
     }
 }
 
+fn padded_content_width(inner_width: usize) -> usize {
+    inner_width.saturating_sub(MESSAGE_PADDING_X * 2).max(1)
+}
+
+fn line_display_width(line: &Line<'_>) -> usize {
+    line.spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum()
+}
+
+fn blank_message_line(width: usize, style: Style) -> Line<'static> {
+    Line::from(Span::styled(" ".repeat(width.max(1)), style))
+}
+
+fn pad_message_line(mut line: Line<'static>, width: usize, style: Style) -> Line<'static> {
+    let mut spans = Vec::new();
+    let left = " ".repeat(MESSAGE_PADDING_X);
+    spans.push(Span::styled(left, style));
+
+    for span in line.spans.drain(..) {
+        spans.push(Span::styled(span.content.to_string(), span.style.patch(style)));
+    }
+
+    let content_width = line_display_width(&Line::from(spans.clone()));
+    let right_width = width.saturating_sub(content_width).max(MESSAGE_PADDING_X);
+    spans.push(Span::styled(" ".repeat(right_width), style));
+
+    Line::from(spans).style(line.style.patch(style))
+}
+
+fn message_block_style(msg: &AgentMessage, theme: &ThemeTokens) -> Style {
+    match msg.role {
+        MessageRole::User => theme.fg_active.bg(Color::Indexed(236)),
+        _ => Style::default(),
+    }
+}
+
 fn classify_message_lines(
     msg: &AgentMessage,
     msg_index: usize,
@@ -65,8 +104,7 @@ fn classify_message_lines(
     expanded: &std::collections::HashSet<usize>,
     expanded_tools: &std::collections::HashSet<usize>,
 ) -> Vec<RenderedLineKind> {
-    let indent = 7;
-    let content_width = width.saturating_sub(indent + 1);
+    let content_width = padded_content_width(width);
 
     match mode {
         TranscriptMode::Tools => {
@@ -144,11 +182,10 @@ fn classify_message_lines(
                     .is_some_and(|reasoning| !reasoning.is_empty());
 
             if has_reasoning {
-                let mut kinds = vec![RenderedLineKind::MessageBody];
-                kinds.push(reasoning_toggle_kind);
+                let mut kinds = vec![reasoning_toggle_kind];
 
                 if reasoning_expanded {
-                    let reasoning_width = width.saturating_sub(indent + 2);
+                    let reasoning_width = content_width.saturating_sub(2).max(1);
                     let reasoning_line_count = wrap_text(
                         msg.reasoning.as_deref().unwrap_or_default(),
                         reasoning_width,
@@ -182,9 +219,9 @@ fn build_rendered_lines(
     let mode = chat.transcript_mode();
     let expanded = chat.expanded_reasoning();
     let expanded_tools = chat.expanded_tools();
+    let content_width = padded_content_width(inner_width);
 
     if let Some(thread) = chat.active_thread() {
-        let message_count = thread.messages.len();
         for (idx, msg) in thread.messages.iter().enumerate() {
             let start = all_lines.len();
             let msg_lines = super::message::message_to_lines(
@@ -192,7 +229,7 @@ fn build_rendered_lines(
                 idx,
                 mode,
                 theme,
-                inner_width,
+                content_width,
                 expanded,
                 expanded_tools,
             );
@@ -205,46 +242,55 @@ fn build_rendered_lines(
                 kinds.truncate(msg_lines.len());
             }
 
+            let block_style = message_block_style(msg, theme);
+            for _ in 0..MESSAGE_PADDING_Y {
+                all_lines.push(RenderedChatLine {
+                    line: blank_message_line(inner_width, block_style),
+                    message_index: Some(idx),
+                    kind: RenderedLineKind::MessageBody,
+                });
+            }
+
             for (line, kind) in msg_lines.into_iter().zip(kinds.into_iter()) {
                 all_lines.push(RenderedChatLine {
-                    line,
+                    line: pad_message_line(line, inner_width, block_style),
                     message_index: Some(idx),
                     kind,
                 });
             }
 
+            for _ in 0..MESSAGE_PADDING_Y {
+                all_lines.push(RenderedChatLine {
+                    line: blank_message_line(inner_width, block_style),
+                    message_index: Some(idx),
+                    kind: RenderedLineKind::MessageBody,
+                });
+            }
+
             let end = all_lines.len();
             message_line_ranges.push((start, end));
-
-            if end > start && idx + 1 < message_count {
-                all_lines.push(RenderedChatLine::separator());
-            }
         }
     }
 
+    let assistant_style = Style::default();
     if !chat.streaming_reasoning().is_empty() {
         all_lines.push(RenderedChatLine {
-            line: Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    " ASST ",
-                    Style::default().bg(Color::Indexed(183)).fg(Color::Black),
-                ),
-            ]),
+            line: blank_message_line(inner_width, assistant_style),
             message_index: None,
             kind: RenderedLineKind::Streaming,
         });
         all_lines.push(RenderedChatLine {
-            line: Line::from(vec![
-                Span::raw("       "),
-                Span::styled("\u{25be} Reasoning...", theme.fg_dim),
-            ]),
+            line: pad_message_line(
+                Line::from(vec![Span::styled("\u{25be} Reasoning...", theme.fg_dim)]),
+                inner_width,
+                assistant_style,
+            ),
             message_index: None,
             kind: RenderedLineKind::Streaming,
         });
 
         let dark_blue = Style::default().fg(Color::Indexed(24));
-        let wrap_width = inner_width.saturating_sub(9).max(1);
+        let wrap_width = content_width.saturating_sub(2).max(1);
         for reasoning_line in chat.streaming_reasoning().lines() {
             let wrapped_lines = wrap_text(reasoning_line, wrap_width);
             let wrapped_lines = if wrapped_lines.is_empty() {
@@ -254,12 +300,15 @@ fn build_rendered_lines(
             };
             for wrapped in wrapped_lines {
                 all_lines.push(RenderedChatLine {
-                    line: Line::from(vec![
-                        Span::raw("       "),
-                        Span::styled("\u{2502}", dark_blue),
-                        Span::raw(" "),
-                        Span::styled(wrapped, theme.fg_dim),
-                    ]),
+                    line: pad_message_line(
+                        Line::from(vec![
+                            Span::styled("\u{2502}", dark_blue),
+                            Span::raw(" "),
+                            Span::styled(wrapped, theme.fg_dim),
+                        ]),
+                        inner_width,
+                        assistant_style,
+                    ),
                     message_index: None,
                     kind: RenderedLineKind::Streaming,
                 });
@@ -269,30 +318,19 @@ fn build_rendered_lines(
 
     if !chat.streaming_content().is_empty() {
         let content = chat.streaming_content();
-        let wrap_width = inner_width.saturating_sub(8);
-        let wrapped_lines = render_streaming_markdown(content, wrap_width);
-        let show_badge = chat.streaming_reasoning().is_empty();
-
-        for (idx, md_line) in wrapped_lines.into_iter().enumerate() {
-            let line = if idx == 0 && show_badge {
-                let mut spans = vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        " ASST ",
-                        Style::default().bg(Color::Indexed(183)).fg(Color::Black),
-                    ),
-                    Span::raw(" "),
-                ];
-                spans.extend(md_line.spans);
-                Line::from(spans)
-            } else {
-                let mut spans = vec![Span::raw("       ")];
-                spans.extend(md_line.spans);
-                Line::from(spans)
-            };
-
+        if chat.streaming_reasoning().is_empty() {
             all_lines.push(RenderedChatLine {
-                line,
+                line: blank_message_line(inner_width, assistant_style),
+                message_index: None,
+                kind: RenderedLineKind::Streaming,
+            });
+        }
+        let wrap_width = content_width;
+        let wrapped_lines = render_streaming_markdown(content, wrap_width);
+
+        for md_line in wrapped_lines.into_iter() {
+            all_lines.push(RenderedChatLine {
+                line: pad_message_line(md_line, inner_width, assistant_style),
                 message_index: None,
                 kind: RenderedLineKind::Streaming,
             });
@@ -627,6 +665,10 @@ pub fn selection_point_from_mouse(
     let rel_row = clamped_y.saturating_sub(inner.y) as usize;
     let rel_col = clamped_x.saturating_sub(inner.x) as usize;
 
+    if rel_row < padding {
+        return None;
+    }
+
     let row = if rel_row < padding {
         start_idx
     } else {
@@ -708,33 +750,13 @@ pub fn render(
 
     // Apply selection highlight
     if let Some(sel_idx) = selected_msg {
-        if let Some(&(start, _)) = message_line_ranges.get(sel_idx) {
-            let sel_style = Style::default()
-                .bg(Color::Indexed(236))
-                .add_modifier(Modifier::empty());
+        if let Some(&(start, end)) = message_line_ranges.get(sel_idx) {
+            let sel_style = Style::default().bg(Color::Indexed(238));
 
-            for (line_idx, rendered) in all_lines.iter_mut().enumerate() {
-                if rendered.message_index != Some(sel_idx) {
-                    continue;
-                }
-
-                let plain: String = rendered
-                    .line
-                    .spans
-                    .iter()
-                    .map(|span| span.content.as_ref())
-                    .collect();
-                if plain.trim().is_empty() {
-                    continue;
-                }
-
-                if line_idx == start {
-                    let mut new_spans =
-                        vec![Span::styled("> ", Style::default().fg(Color::Indexed(178)))];
-                    new_spans.extend(rendered.line.spans.iter().cloned());
-                    rendered.line = Line::from(new_spans).style(sel_style);
-                } else {
-                    rendered.line = rendered.line.clone().style(sel_style);
+            for rendered in all_lines.iter_mut().take(end).skip(start) {
+                rendered.line.style = rendered.line.style.patch(sel_style);
+                for span in &mut rendered.line.spans {
+                    span.style = span.style.patch(sel_style);
                 }
             }
         }
@@ -800,7 +822,7 @@ pub fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::chat::{AgentThread, MessageRole};
+    use crate::state::chat::{AgentThread, ChatAction, MessageRole};
 
     fn chat_with_messages(messages: Vec<AgentMessage>) -> ChatState {
         let mut chat = ChatState::new();
@@ -862,7 +884,7 @@ mod tests {
             Rect::new(0, 0, 80, 5),
             &chat,
             &ThemeTokens::default(),
-            Position::new(2, 2),
+            Position::new(2, 1),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));
@@ -882,7 +904,7 @@ mod tests {
             Rect::new(0, 0, 80, 4),
             &chat,
             &ThemeTokens::default(),
-            Position::new(2, 2),
+            Position::new(2, 1),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::ToolToggle(0)));

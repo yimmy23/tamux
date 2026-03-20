@@ -53,7 +53,7 @@ export type AgentProviderId =
   | "opencode-zen"
   | "custom";
 
-const AGENT_PROVIDER_IDS: AgentProviderId[] = [
+export const AGENT_PROVIDER_IDS: AgentProviderId[] = [
   "featherless",
   "openai",
   "qwen",
@@ -99,12 +99,18 @@ export interface AgentProviderConfig {
   apiKey: string;
   assistantId: string;
   apiTransport: ApiTransportMode;
+  authSource: AuthSource;
+  customContextWindowTokens: number | null;
 }
 
 export type ApiType = "openai" | "anthropic";
 export type AuthMethod = "bearer" | "x-api-key";
+export type AuthSource = "api_key" | "chatgpt_subscription";
 export type ApiTransportMode = "native_assistant" | "responses" | "chat_completions";
 export type NativeTransportKind = "alibaba_assistant_api";
+
+const API_KEY_ONLY_AUTH_SOURCES: AuthSource[] = ["api_key"];
+const OPENAI_AUTH_SOURCES: AuthSource[] = ["chatgpt_subscription", "api_key"];
 
 function normalizeApiTransport(
   providerId: AgentProviderId,
@@ -120,6 +126,18 @@ function normalizeApiTransport(
     : getDefaultApiTransport(providerId);
 }
 
+function normalizeAuthSource(
+  providerId: AgentProviderId,
+  value: unknown,
+): AuthSource {
+  const normalized = value === "chatgpt_subscription"
+    ? "chatgpt_subscription"
+    : "api_key";
+  return getSupportedAuthSources(providerId).includes(normalized)
+    ? normalized
+    : getDefaultAuthSource(providerId);
+}
+
 function normalizeProviderConfig(
   providerId: AgentProviderId,
   fallback: AgentProviderConfig,
@@ -130,6 +148,11 @@ function normalizeProviderConfig(
     ...(value ?? {}),
     assistantId: typeof value?.assistantId === "string" ? value.assistantId : fallback.assistantId,
     apiTransport: normalizeApiTransport(providerId, value?.apiTransport ?? fallback.apiTransport),
+    authSource: normalizeAuthSource(providerId, value?.authSource ?? fallback.authSource),
+    customContextWindowTokens:
+      typeof value?.customContextWindowTokens === "number" && Number.isFinite(value.customContextWindowTokens)
+        ? Math.max(1000, Math.trunc(value.customContextWindowTokens))
+        : null,
   };
 }
 
@@ -151,6 +174,8 @@ export interface ProviderDefinition {
   anthropicBaseUrl?: string;
   supportedTransports: ApiTransportMode[];
   defaultTransport: ApiTransportMode;
+  supportedAuthSources: AuthSource[];
+  defaultAuthSource: AuthSource;
   nativeTransportKind?: NativeTransportKind;
   nativeBaseUrl?: string;
   supportsResponseContinuity: boolean;
@@ -160,6 +185,17 @@ const OPENAI_MODELS: ModelDefinition[] = [
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000 },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000 },
   { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000 },
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000 },
+  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000 },
+  { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000 },
+  { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000 },
+  { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", contextWindow: 400_000 },
+  { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000 },
+  { id: "gpt-5.1", name: "GPT-5.1", contextWindow: 400_000 },
+  { id: "gpt-5-codex", name: "GPT-5 Codex", contextWindow: 400_000 },
+  { id: "gpt-5-codex-mini", name: "GPT-5 Codex Mini", contextWindow: 200_000 },
+  { id: "gpt-5", name: "GPT-5", contextWindow: 400_000 },
+  { id: "codex-mini-latest", name: "Codex Mini Latest", contextWindow: 200_000 },
   { id: "o3", name: "o3", contextWindow: 200_000 },
   { id: "o4-mini", name: "o4 Mini", contextWindow: 200_000 },
 ];
@@ -224,26 +260,26 @@ const RESPONSES_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["responses", "chat_co
 const NATIVE_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["native_assistant", "chat_completions"];
 
 export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
-  { id: "featherless", name: "Featherless", defaultBaseUrl: "https://api.featherless.ai/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "openai", name: "OpenAI", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-4o", apiType: "openai", authMethod: "bearer", models: OPENAI_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportsResponseContinuity: true },
-  { id: "qwen", name: "Qwen", defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, supportedTransports: NATIVE_AND_CHAT_TRANSPORTS, defaultTransport: "native_assistant", nativeTransportKind: "alibaba_assistant_api", nativeBaseUrl: "https://dashscope-intl.aliyuncs.com/api/v1", supportsResponseContinuity: false },
-  { id: "qwen-deepinfra", name: "Qwen (DeepInfra)", defaultBaseUrl: "https://api.deepinfra.com/v1/openai", defaultModel: "Qwen/Qwen2.5-72B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "kimi", name: "Kimi (Moonshot)", defaultBaseUrl: "https://api.moonshot.ai/v1", defaultModel: "moonshot-v1-32k", apiType: "openai", authMethod: "bearer", models: KIMI_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "kimi-coding-plan", name: "Kimi Coding Plan", defaultBaseUrl: "https://api.kimi.com/coding/v1", defaultModel: "kimi-for-coding", apiType: "openai", authMethod: "bearer", models: KIMI_CODING_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "z.ai", name: "Z.AI (GLM)", defaultBaseUrl: "https://api.z.ai/api/paas/v4", defaultModel: "glm-4-plus", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "z.ai-coding-plan", name: "Z.AI Coding Plan", defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4", defaultModel: "glm-5", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "openrouter", name: "OpenRouter", defaultBaseUrl: "https://openrouter.ai/api/v1", defaultModel: "anthropic/claude-sonnet-4", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "cerebras", name: "Cerebras", defaultBaseUrl: "https://api.cerebras.ai/v1", defaultModel: "llama-3.3-70b", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "together", name: "Together", defaultBaseUrl: "https://api.together.xyz/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "groq", name: "Groq", defaultBaseUrl: "https://api.groq.com/openai/v1", defaultModel: "llama-3.3-70b-versatile", apiType: "openai", authMethod: "bearer", models: GROQ_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportsResponseContinuity: false },
-  { id: "ollama", name: "Ollama", defaultBaseUrl: "http://localhost:11434/v1", defaultModel: "llama3.1", apiType: "openai", authMethod: "bearer", models: OLLAMA_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "chutes", name: "Chutes", defaultBaseUrl: "https://llm.chutes.ai/v1", defaultModel: "deepseek-ai/DeepSeek-V3", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "huggingface", name: "Hugging Face", defaultBaseUrl: "https://api-inference.huggingface.co/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "minimax", name: "MiniMax", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M1-80k", apiType: "anthropic", authMethod: "bearer", models: MINIMAX_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "minimax-coding-plan", name: "MiniMax Coding Plan", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M2.7", apiType: "anthropic", authMethod: "bearer", models: MINIMAX_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "alibaba-coding-plan", name: "Alibaba Coding Plan", defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", defaultModel: "qwen3-coder", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, anthropicBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic", supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "opencode-zen", name: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1", defaultModel: "claude-sonnet-4-5", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_ZEN_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportsResponseContinuity: false },
-  { id: "custom", name: "Custom", defaultBaseUrl: "", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: false, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportsResponseContinuity: true },
+  { id: "featherless", name: "Featherless", defaultBaseUrl: "https://api.featherless.ai/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.4", apiType: "openai", authMethod: "bearer", models: OPENAI_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
+  { id: "qwen", name: "Qwen", defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, supportedTransports: NATIVE_AND_CHAT_TRANSPORTS, defaultTransport: "native_assistant", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", nativeTransportKind: "alibaba_assistant_api", nativeBaseUrl: "https://dashscope-intl.aliyuncs.com/api/v1", supportsResponseContinuity: false },
+  { id: "qwen-deepinfra", name: "Qwen (DeepInfra)", defaultBaseUrl: "https://api.deepinfra.com/v1/openai", defaultModel: "Qwen/Qwen2.5-72B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "kimi", name: "Kimi (Moonshot)", defaultBaseUrl: "https://api.moonshot.ai/v1", defaultModel: "moonshot-v1-32k", apiType: "openai", authMethod: "bearer", models: KIMI_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "kimi-coding-plan", name: "Kimi Coding Plan", defaultBaseUrl: "https://api.kimi.com/coding/v1", defaultModel: "kimi-for-coding", apiType: "openai", authMethod: "bearer", models: KIMI_CODING_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "z.ai", name: "Z.AI (GLM)", defaultBaseUrl: "https://api.z.ai/api/paas/v4", defaultModel: "glm-4-plus", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "z.ai-coding-plan", name: "Z.AI Coding Plan", defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4", defaultModel: "glm-5", apiType: "openai", authMethod: "bearer", models: ZAI_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "openrouter", name: "OpenRouter", defaultBaseUrl: "https://openrouter.ai/api/v1", defaultModel: "anthropic/claude-sonnet-4", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "cerebras", name: "Cerebras", defaultBaseUrl: "https://api.cerebras.ai/v1", defaultModel: "llama-3.3-70b", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "together", name: "Together", defaultBaseUrl: "https://api.together.xyz/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "groq", name: "Groq", defaultBaseUrl: "https://api.groq.com/openai/v1", defaultModel: "llama-3.3-70b-versatile", apiType: "openai", authMethod: "bearer", models: GROQ_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "ollama", name: "Ollama", defaultBaseUrl: "http://localhost:11434/v1", defaultModel: "llama3.1", apiType: "openai", authMethod: "bearer", models: OLLAMA_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "chutes", name: "Chutes", defaultBaseUrl: "https://llm.chutes.ai/v1", defaultModel: "deepseek-ai/DeepSeek-V3", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "huggingface", name: "Hugging Face", defaultBaseUrl: "https://api-inference.huggingface.co/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "minimax", name: "MiniMax", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M1-80k", apiType: "anthropic", authMethod: "bearer", models: MINIMAX_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "minimax-coding-plan", name: "MiniMax Coding Plan", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M2.7", apiType: "anthropic", authMethod: "bearer", models: MINIMAX_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "alibaba-coding-plan", name: "Alibaba Coding Plan", defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", defaultModel: "qwen3-coder", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, anthropicBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic", supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "opencode-zen", name: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1", defaultModel: "claude-sonnet-4-5", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_ZEN_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "custom", name: "Custom", defaultBaseUrl: "", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: false, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
 ];
 
 export function getProviderDefinition(id: AgentProviderId): ProviderDefinition | undefined {
@@ -256,6 +292,37 @@ export function getSupportedApiTransports(providerId: AgentProviderId): ApiTrans
 
 export function getDefaultApiTransport(providerId: AgentProviderId): ApiTransportMode {
   return getProviderDefinition(providerId)?.defaultTransport ?? "chat_completions";
+}
+
+export function getSupportedAuthSources(providerId: AgentProviderId): AuthSource[] {
+  return getProviderDefinition(providerId)?.supportedAuthSources ?? API_KEY_ONLY_AUTH_SOURCES;
+}
+
+export function getDefaultAuthSource(providerId: AgentProviderId): AuthSource {
+  return getProviderDefinition(providerId)?.defaultAuthSource ?? "api_key";
+}
+
+export function getModelDefinition(
+  providerId: AgentProviderId,
+  modelId: string,
+): ModelDefinition | undefined {
+  const trimmed = modelId.trim();
+  if (!trimmed) return undefined;
+  return getProviderDefinition(providerId)?.models.find((model) => model.id === trimmed);
+}
+
+export function getEffectiveContextWindow(
+  providerId: AgentProviderId,
+  config: Pick<AgentProviderConfig, "model" | "customContextWindowTokens">,
+): number {
+  if (providerId === "custom") {
+    if (typeof config.customContextWindowTokens === "number" && config.customContextWindowTokens > 0) {
+      return Math.max(1000, Math.trunc(config.customContextWindowTokens));
+    }
+    return 128_000;
+  }
+
+  return getModelDefinition(providerId, config.model)?.contextWindow ?? 128_000;
 }
 
 export function providerSupportsResponseContinuity(providerId: AgentProviderId): boolean {
@@ -406,26 +473,26 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are tamux, an agentic terminal multiplexer assistant. You can execute terminal commands, check system resources, and send messages to connected chat platforms (Slack, Discord, Telegram, WhatsApp) via the gateway. Use your tools proactively when the user asks you to perform actions. Be concise and direct.",
 
   activeProvider: "openai",
-  featherless: { baseUrl: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o", apiKey: "", assistantId: "", apiTransport: "responses" },
-  qwen: { baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-max", apiKey: "", assistantId: "", apiTransport: "native_assistant" },
-  "qwen-deepinfra": { baseUrl: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  kimi: { baseUrl: "https://api.moonshot.ai/v1", model: "moonshot-v1-32k", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  "kimi-coding-plan": { baseUrl: "https://api.kimi.com/coding/v1", model: "kimi-for-coding", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  "z.ai": { baseUrl: "https://api.z.ai/api/paas/v4", model: "glm-4-plus", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  "z.ai-coding-plan": { baseUrl: "https://api.z.ai/api/coding/paas/v4", model: "glm-5", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  cerebras: { baseUrl: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  together: { baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", apiKey: "", assistantId: "", apiTransport: "responses" },
-  ollama: { baseUrl: "http://localhost:11434/v1", model: "llama3.1", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  chutes: { baseUrl: "https://llm.chutes.ai/v1", model: "deepseek-ai/DeepSeek-V3", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  huggingface: { baseUrl: "https://api-inference.huggingface.co/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  minimax: { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M1-80k", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  "minimax-coding-plan": { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M2.7", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  "alibaba-coding-plan": { baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", model: "qwen3-coder", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  "opencode-zen": { baseUrl: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", apiKey: "", assistantId: "", apiTransport: "chat_completions" },
-  custom: { baseUrl: "", model: "", apiKey: "", assistantId: "", apiTransport: "responses" },
+  featherless: { baseUrl: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5.4", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: null },
+  qwen: { baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-max", apiKey: "", assistantId: "", apiTransport: "native_assistant", authSource: "api_key", customContextWindowTokens: null },
+  "qwen-deepinfra": { baseUrl: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  kimi: { baseUrl: "https://api.moonshot.ai/v1", model: "moonshot-v1-32k", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "kimi-coding-plan": { baseUrl: "https://api.kimi.com/coding/v1", model: "kimi-for-coding", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "z.ai": { baseUrl: "https://api.z.ai/api/paas/v4", model: "glm-4-plus", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "z.ai-coding-plan": { baseUrl: "https://api.z.ai/api/coding/paas/v4", model: "glm-5", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  cerebras: { baseUrl: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  together: { baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: null },
+  ollama: { baseUrl: "http://localhost:11434/v1", model: "llama3.1", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  chutes: { baseUrl: "https://llm.chutes.ai/v1", model: "deepseek-ai/DeepSeek-V3", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  huggingface: { baseUrl: "https://api-inference.huggingface.co/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  minimax: { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M1-80k", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "minimax-coding-plan": { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M2.7", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "alibaba-coding-plan": { baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", model: "qwen3-coder", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "opencode-zen": { baseUrl: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  custom: { baseUrl: "", model: "", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: 128_000 },
 
   enableBashTool: true,
   enableVisionTool: false,
@@ -1179,20 +1246,12 @@ export async function hydrateAgentStore(): Promise<void> {
 
   if (!shouldPersistHistory(configuredBackend)) {
     const amux = (window as any).tamux ?? (window as any).amux;
-    if (amux?.agentListThreads && amux?.agentGetThread) {
+    if (amux?.agentListThreads) {
       const remoteThreads = await amux.agentListThreads().catch(() => []);
       if (Array.isArray(remoteThreads) && remoteThreads.length > 0) {
-        const detailedThreads = await Promise.all(
-          remoteThreads.map(async (entry: any) => {
-            const threadId = typeof entry?.id === "string" ? entry.id : null;
-            if (!threadId) return null;
-            return amux.agentGetThread(threadId).catch(() => null);
-          }),
-        );
-
         const messages: Record<string, AgentMessage[]> = {};
         const threads: AgentThread[] = [];
-        for (const remoteThread of detailedThreads) {
+        for (const remoteThread of remoteThreads) {
           const hydrated = buildHydratedRemoteThread(
             (remoteThread ?? {}) as RemoteAgentThreadRecord,
             useAgentStore.getState().agentSettings.agentName,

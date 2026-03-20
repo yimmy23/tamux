@@ -1,6 +1,107 @@
 use super::*;
 
 impl TuiModel {
+    pub(super) fn sidebar_items(&self) -> Vec<SidebarFlatItem> {
+        let mut flat_items = Vec::new();
+
+        match self.sidebar.active_tab() {
+            sidebar::SidebarTab::Tasks => {
+                for run in self.tasks.goal_runs() {
+                    flat_items.push(SidebarFlatItem {
+                        target: Some(sidebar::SidebarItemTarget::GoalRun {
+                            goal_run_id: run.id.clone(),
+                            step_id: None,
+                        }),
+                        title: run.title.clone(),
+                    });
+                    if self.sidebar.is_expanded(&run.id) {
+                        for step in &run.steps {
+                            flat_items.push(SidebarFlatItem {
+                                target: Some(sidebar::SidebarItemTarget::GoalRun {
+                                    goal_run_id: run.id.clone(),
+                                    step_id: Some(step.id.clone()),
+                                }),
+                                title: step.title.clone(),
+                            });
+                        }
+                    }
+                }
+
+                for task in self.tasks.tasks() {
+                    if task.goal_run_id.is_none() {
+                        flat_items.push(SidebarFlatItem {
+                            target: Some(sidebar::SidebarItemTarget::Task {
+                                task_id: task.id.clone(),
+                            }),
+                            title: task.title.clone(),
+                        });
+                    }
+                }
+            }
+            sidebar::SidebarTab::Subagents => {
+                for run in self.tasks.goal_runs() {
+                    flat_items.push(SidebarFlatItem {
+                        target: Some(sidebar::SidebarItemTarget::GoalRun {
+                            goal_run_id: run.id.clone(),
+                            step_id: None,
+                        }),
+                        title: run.title.clone(),
+                    });
+                    if self.sidebar.is_expanded(&run.id) {
+                        for task in self
+                            .tasks
+                            .tasks()
+                            .iter()
+                            .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
+                        {
+                            flat_items.push(SidebarFlatItem {
+                                target: Some(sidebar::SidebarItemTarget::Task {
+                                    task_id: task.id.clone(),
+                                }),
+                                title: task.title.clone(),
+                            });
+                        }
+                    }
+                }
+
+                for task in self.tasks.tasks().iter().filter(|task| task.goal_run_id.is_none()) {
+                    flat_items.push(SidebarFlatItem {
+                        target: Some(sidebar::SidebarItemTarget::Task {
+                            task_id: task.id.clone(),
+                        }),
+                        title: task.title.clone(),
+                    });
+                }
+            }
+        }
+
+        flat_items
+    }
+
+    pub(super) fn sidebar_item_count(&self) -> usize {
+        self.sidebar_items().len()
+    }
+
+    pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
+        if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
+            self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
+        }
+        self.main_pane_view = MainPaneView::Task(target);
+        self.task_view_scroll = 0;
+    }
+
+    pub(super) fn sync_thread_picker_item_count(&mut self) {
+        let query = self.modal.command_query().to_lowercase();
+        let count = self
+            .chat
+            .threads()
+            .iter()
+            .filter(|thread| query.is_empty() || thread.title.to_lowercase().contains(&query))
+            .count()
+            + 1;
+        self.modal.set_picker_item_count(count);
+    }
+
     pub(super) fn execute_command(&mut self, command: &str) {
         tracing::info!("execute_command: {:?}", command);
         match command {
@@ -33,10 +134,15 @@ impl TuiModel {
                     .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
                 self.modal.set_picker_item_count(5);
             }
-            "thread" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker)),
-            "new" => self.chat.reduce(chat::ChatAction::NewThread),
+            "thread" => {
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+                self.sync_thread_picker_item_count();
+            }
+            "new" => {
+                self.chat.reduce(chat::ChatAction::NewThread);
+                self.main_pane_view = MainPaneView::Conversation;
+            }
             "settings" => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Settings)),
@@ -127,6 +233,7 @@ impl TuiModel {
             session_id: self.default_session_id.clone(),
         });
 
+        self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Chat;
         self.input.set_mode(input::InputMode::Insert);
         self.status_line = "Prompt sent".to_string();
@@ -154,41 +261,12 @@ impl TuiModel {
 
     pub(super) fn handle_sidebar_enter(&mut self) {
         let selected = self.sidebar.selected_item();
-        let mut flat_items: Vec<SidebarFlatItem> = Vec::new();
-
-        for run in self.tasks.goal_runs() {
-            flat_items.push(SidebarFlatItem {
-                thread_id: None,
-                goal_run_id: Some(run.id.clone()),
-                title: run.title.clone(),
-            });
-            if self.sidebar.is_expanded(&run.id) {
-                for step in &run.steps {
-                    flat_items.push(SidebarFlatItem {
-                        thread_id: None,
-                        goal_run_id: Some(run.id.clone()),
-                        title: step.title.clone(),
-                    });
-                }
-            }
-        }
-
-        for task in self.tasks.tasks() {
-            if task.goal_run_id.is_none() {
-                flat_items.push(SidebarFlatItem {
-                    thread_id: None,
-                    goal_run_id: None,
-                    title: task.title.clone(),
-                });
-            }
-        }
+        let flat_items = self.sidebar_items();
 
         if let Some(item) = flat_items.get(selected) {
-            if let Some(goal_run_id) = &item.goal_run_id {
-                self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
-                self.status_line = format!("Goal: {}", item.title);
-            } else {
-                self.status_line = format!("Task: {}", item.title);
+            if let Some(target) = item.target.clone() {
+                self.open_sidebar_target(target);
+                self.status_line = item.title.clone();
             }
         }
     }

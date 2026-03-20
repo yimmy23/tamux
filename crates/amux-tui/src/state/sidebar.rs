@@ -10,6 +10,17 @@ pub enum SidebarTab {
     Subagents,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidebarItemTarget {
+    GoalRun {
+        goal_run_id: String,
+        step_id: Option<String>,
+    },
+    Task {
+        task_id: String,
+    },
+}
+
 // ── SidebarAction ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]

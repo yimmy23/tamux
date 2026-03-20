@@ -28,14 +28,25 @@ impl TuiModel {
                     Constraint::Percentage(sidebar_pct),
                 ])
                 .split(chunks[1]);
-            widgets::chat::render(
-                frame,
-                body_chunks[0],
-                &self.chat,
-                &self.theme,
-                self.focus == FocusArea::Chat,
-                self.chat_drag_anchor.zip(self.chat_drag_current),
-            );
+            match &self.main_pane_view {
+                MainPaneView::Conversation => widgets::chat::render(
+                    frame,
+                    body_chunks[0],
+                    &self.chat,
+                    &self.theme,
+                    self.focus == FocusArea::Chat,
+                    self.chat_drag_anchor.zip(self.chat_drag_current),
+                ),
+                MainPaneView::Task(target) => widgets::task_view::render(
+                    frame,
+                    body_chunks[0],
+                    &self.tasks,
+                    target,
+                    &self.theme,
+                    self.focus == FocusArea::Chat,
+                    self.task_view_scroll,
+                ),
+            }
             widgets::sidebar::render(
                 frame,
                 body_chunks[1],
@@ -45,14 +56,25 @@ impl TuiModel {
                 self.focus == FocusArea::Sidebar,
             );
         } else {
-            widgets::chat::render(
-                frame,
-                chunks[1],
-                &self.chat,
-                &self.theme,
-                self.focus == FocusArea::Chat,
-                self.chat_drag_anchor.zip(self.chat_drag_current),
-            );
+            match &self.main_pane_view {
+                MainPaneView::Conversation => widgets::chat::render(
+                    frame,
+                    chunks[1],
+                    &self.chat,
+                    &self.theme,
+                    self.focus == FocusArea::Chat,
+                    self.chat_drag_anchor.zip(self.chat_drag_current),
+                ),
+                MainPaneView::Task(target) => widgets::task_view::render(
+                    frame,
+                    chunks[1],
+                    &self.tasks,
+                    target,
+                    &self.theme,
+                    self.focus == FocusArea::Chat,
+                    self.task_view_scroll,
+                ),
+            }
         }
 
         widgets::footer::render_input(
@@ -72,6 +94,7 @@ impl TuiModel {
             chunks[3],
             &self.theme,
             self.connected,
+            self.last_error.is_some(),
             self.error_active,
             self.tick_counter,
             self.error_tick,
@@ -87,6 +110,7 @@ impl TuiModel {
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
                 modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
+                modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
                 modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
                 modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
                     render_helpers::centered_rect(40, 35, area)
@@ -138,6 +162,14 @@ impl TuiModel {
                         &self.theme,
                     );
                 }
+                modal::ModalKind::ErrorViewer => {
+                    render_helpers::render_error_modal(
+                        frame,
+                        overlay_area,
+                        self.last_error.as_deref(),
+                        &self.theme,
+                    );
+                }
                 modal::ModalKind::EffortPicker => {
                     render_helpers::render_effort_picker(
                         frame,
@@ -165,6 +197,7 @@ impl TuiModel {
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
             modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
+            modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
             modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
             modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
                 render_helpers::centered_rect(40, 35, area)

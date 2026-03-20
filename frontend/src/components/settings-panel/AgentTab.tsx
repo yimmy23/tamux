@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
-import { getDefaultApiTransport, getProviderDefinition, getSupportedApiTransports } from "../../lib/agentStore";
+import { getDefaultApiTransport, getDefaultAuthSource, getEffectiveContextWindow, getProviderDefinition, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function AgentTab({
@@ -11,10 +11,13 @@ export function AgentTab({
     resetSettings: () => void;
 }) {
     const [useCustomUrl, setUseCustomUrl] = useState(false);
+    const [subscriptionAuthStatus, setSubscriptionAuthStatus] = useState<any>(null);
+    const [subscriptionAuthBusy, setSubscriptionAuthBusy] = useState(false);
+    const [subscriptionAuthUrl, setSubscriptionAuthUrl] = useState<string | null>(null);
 
     const providerOptions: { id: AgentProviderId; label: string }[] = [
         { id: "featherless", label: "Featherless" },
-        { id: "openai", label: "OpenAI" },
+        { id: "openai", label: "OpenAI / ChatGPT" },
         { id: "qwen", label: "Qwen" },
         { id: "qwen-deepinfra", label: "Qwen (DeepInfra)" },
         { id: "kimi", label: "Kimi (Moonshot)" },
@@ -38,8 +41,98 @@ export function AgentTab({
     const providerConfig = settings[settings.activeProvider] as AgentProviderConfig;
     const providerDef = getProviderDefinition(settings.activeProvider);
     const supportedTransports = getSupportedApiTransports(settings.activeProvider);
+    const supportedAuthSources = getSupportedAuthSources(settings.activeProvider);
     const isCustomProvider = settings.activeProvider === "custom";
     const showUrlEditor = isCustomProvider || useCustomUrl || Boolean(providerConfig.baseUrl && providerConfig.baseUrl !== providerDef?.defaultBaseUrl);
+    const effectiveContextWindow = getEffectiveContextWindow(settings.activeProvider, providerConfig);
+
+    useEffect(() => {
+        if (settings.activeProvider !== "openai" || providerConfig.authSource !== "chatgpt_subscription") {
+            setSubscriptionAuthStatus(null);
+            setSubscriptionAuthUrl(null);
+            return;
+        }
+
+        const amux = (window as any).amux || (window as any).tamux;
+        if (!amux?.openAICodexAuthStatus) {
+            setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
+            return;
+        }
+
+        let cancelled = false;
+        void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+            if (!cancelled) {
+                setSubscriptionAuthStatus(status);
+            }
+        }).catch((error: any) => {
+            if (!cancelled) {
+                setSubscriptionAuthStatus({ ok: false, available: false, error: error?.message || "Failed to read ChatGPT auth" });
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [settings.activeProvider, providerConfig.authSource]);
+
+    useEffect(() => {
+        if (!subscriptionAuthUrl) {
+            return;
+        }
+
+        const timer = window.setInterval(() => {
+            const amux = (window as any).amux || (window as any).tamux;
+            if (!amux?.openAICodexAuthStatus) {
+                return;
+            }
+            void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+                if (status?.available) {
+                    setSubscriptionAuthStatus(status);
+                    setSubscriptionAuthUrl(null);
+                }
+            }).catch(() => {});
+        }, 2000);
+
+        return () => window.clearInterval(timer);
+    }, [subscriptionAuthUrl]);
+
+    const triggerSubscriptionAuth = async () => {
+        const amux = (window as any).amux || (window as any).tamux;
+        if (!amux?.openAICodexAuthLogin) {
+            setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
+            return;
+        }
+
+        setSubscriptionAuthBusy(true);
+        try {
+            const result = await amux.openAICodexAuthLogin();
+            setSubscriptionAuthStatus(result);
+            setSubscriptionAuthUrl(typeof result?.authUrl === "string" ? result.authUrl : null);
+        } catch (error: any) {
+            setSubscriptionAuthStatus({ ok: false, available: false, error: error?.message || "ChatGPT authentication failed" });
+        } finally {
+            setSubscriptionAuthBusy(false);
+        }
+    };
+
+    const clearSubscriptionAuth = async () => {
+        const amux = (window as any).amux || (window as any).tamux;
+        if (!amux?.openAICodexAuthLogout) {
+            setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
+            return;
+        }
+
+        setSubscriptionAuthBusy(true);
+        try {
+            await amux.openAICodexAuthLogout();
+            setSubscriptionAuthStatus({ available: false, authMode: "chatgpt_subscription", error: "No ChatGPT subscription auth found" });
+            setSubscriptionAuthUrl(null);
+        } catch (error: any) {
+            setSubscriptionAuthStatus({ ok: false, available: false, error: error?.message || "Failed to clear ChatGPT auth" });
+        } finally {
+            setSubscriptionAuthBusy(false);
+        }
+    };
 
     return (
         <>
@@ -146,11 +239,69 @@ export function AgentTab({
                             apiKey={providerConfig.apiKey}
                         />
                     </SettingRow>
-                    <SettingRow label="API Key">
-                        <PasswordInput value={providerConfig.apiKey}
-                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, apiKey: value })}
-                            placeholder="Provider API key" />
-                    </SettingRow>
+                    {providerDef?.apiType === "openai" ? (
+                        <SettingRow label="Auth">
+                            <select
+                                value={providerConfig.authSource}
+                                onChange={(e) => updateSetting(settings.activeProvider, {
+                                    ...providerConfig,
+                                    authSource: supportedAuthSources.includes(e.target.value as any)
+                                      ? e.target.value as AgentProviderConfig["authSource"]
+                                      : getDefaultAuthSource(settings.activeProvider),
+                                })}
+                                style={inputStyle}
+                            >
+                                {supportedAuthSources.map((source) => (
+                                    <option key={source} value={source}>
+                                        {source === "chatgpt_subscription" ? "ChatGPT Subscription" : "API Key"}
+                                    </option>
+                                ))}
+                            </select>
+                        </SettingRow>
+                    ) : null}
+                    {providerConfig.authSource === "api_key" ? (
+                        <SettingRow label="API Key">
+                            <PasswordInput value={providerConfig.apiKey}
+                                onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, apiKey: value })}
+                                placeholder="Provider API key" />
+                        </SettingRow>
+                    ) : null}
+                    {settings.activeProvider === "openai" && providerConfig.authSource === "chatgpt_subscription" ? (
+                        <SettingRow label="ChatGPT Auth">
+                            <div style={{ display: "grid", gap: 6, width: "100%" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                                    <span style={{ fontSize: 11, color: subscriptionAuthStatus?.available ? "var(--success, #6ee7b7)" : "var(--text-secondary)" }}>
+                                        {subscriptionAuthStatus?.available
+                                            ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "tamux"})`
+                                            : subscriptionAuthStatus?.error || "No ChatGPT subscription auth found"}
+                                    </span>
+                                    <button type="button" onClick={triggerSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
+                                        {subscriptionAuthBusy ? "Preparing..." : "Get Link"}
+                                    </button>
+                                    {subscriptionAuthStatus?.available ? (
+                                        <button type="button" onClick={clearSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
+                                            Clear
+                                        </button>
+                                    ) : null}
+                                </div>
+                                {subscriptionAuthUrl ? (
+                                    <a
+                                        href={subscriptionAuthUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        style={{ fontSize: 11, color: "var(--accent, #60a5fa)", wordBreak: "break-all", textAlign: "right" }}
+                                    >
+                                        {subscriptionAuthUrl}
+                                    </a>
+                                ) : null}
+                                {subscriptionAuthUrl ? (
+                                    <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "right" }}>
+                                        Open the link above and complete ChatGPT authentication. This row updates automatically after the callback returns.
+                                    </div>
+                                ) : null}
+                            </div>
+                        </SettingRow>
+                    ) : null}
                     {providerDef?.apiType === "openai" ? (
                         <SettingRow label="API Transport">
                             <select
@@ -187,6 +338,33 @@ export function AgentTab({
                             />
                         </SettingRow>
                     ) : null}
+                    <SettingRow label="Context Length">
+                        {isCustomProvider ? (
+                            <NumberInput
+                                value={providerConfig.customContextWindowTokens ?? 128000}
+                                min={16000}
+                                max={2000000}
+                                step={1000}
+                                onChange={(value) => updateSetting(settings.activeProvider, {
+                                    ...providerConfig,
+                                    customContextWindowTokens: Math.max(1000, Math.trunc(value)),
+                                })}
+                            />
+                        ) : (
+                            <span style={{
+                                fontSize: 11,
+                                fontFamily: "var(--font-mono)",
+                                color: "var(--text-muted)",
+                                background: "var(--bg-surface)",
+                                padding: "3px 8px",
+                                border: "1px solid var(--border)",
+                                minWidth: 120,
+                                textAlign: "right",
+                            }}>
+                                {effectiveContextWindow.toLocaleString()} tok
+                            </span>
+                        )}
+                    </SettingRow>
                     <SettingRow label="Reasoning Effort">
                         <select value={settings.reasoningEffort}
                             onChange={(e) => updateSetting("reasoningEffort", e.target.value as AgentSettings["reasoningEffort"])}
@@ -300,10 +478,6 @@ export function AgentTab({
                 <SettingRow label="429 Retry Delay (ms)">
                     <NumberInput value={settings.retryDelayMs} min={100} max={60000} step={100}
                         onChange={(value) => updateSetting("retryDelayMs", value)} />
-                </SettingRow>
-                <SettingRow label="Context Length (tok)">
-                    <NumberInput value={settings.contextWindowTokens} min={16000} max={2000000} step={1000}
-                        onChange={(value) => updateSetting("contextWindowTokens", value)} />
                 </SettingRow>
                 <SettingRow label="Budget Tokens">
                     <NumberInput value={settings.contextBudgetTokens} min={10000} max={500000} step={10000}

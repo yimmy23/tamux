@@ -232,7 +232,8 @@ fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usi
         SettingsTab::Provider => match field {
             "base_url" => Some((5, 19)),
             "api_key" => Some((6, 19)),
-            "assistant_id" => Some((9, 19)),
+            "assistant_id" => Some((10, 19)),
+            "context_window_tokens" => Some((12, 19)),
             _ => None,
         },
         SettingsTab::WebSearch => match field {
@@ -377,7 +378,31 @@ fn render_provider_tab<'a>(
     } else {
         config.model().to_string()
     };
-    let api_key_val = mask_api_key(config.api_key());
+    let api_key_label = if config.auth_source == "chatgpt_subscription" {
+        "ChatGPT Auth"
+    } else {
+        "API Key"
+    };
+    let api_key_val = if config.auth_source == "chatgpt_subscription" {
+        if config.chatgpt_auth_available {
+            format!(
+                "connected{}",
+                config
+                    .chatgpt_auth_source
+                    .as_deref()
+                    .map(|source| format!(" ({source})"))
+                    .unwrap_or_default()
+            )
+        } else {
+            "not authenticated".to_string()
+        }
+    } else {
+        mask_api_key(config.api_key())
+    };
+    let auth_source_val = match config.auth_source.as_str() {
+        "chatgpt_subscription" => "ChatGPT subscription".to_string(),
+        _ => "API key".to_string(),
+    };
     let transport_val = if config.api_transport().is_empty() {
         providers::default_transport_for(&config.provider).to_string()
     } else {
@@ -398,34 +423,49 @@ fn render_provider_tab<'a>(
         config.reasoning_effort().to_string()
     };
     let context_window_val = format!("{} tok", config.context_window_tokens);
+    let api_key_hint = if config.auth_source == "chatgpt_subscription" {
+        if config.chatgpt_auth_available {
+            " [Enter: logout]"
+        } else {
+            " [Enter: login]"
+        }
+    } else {
+        " [Enter: edit]"
+    };
+    let context_hint = if config.provider == "custom" {
+        " [Enter: edit]"
+    } else {
+        ""
+    };
 
     // Field definitions: (index, label, value, field_name, hint)
-    let fields: [(usize, &str, String, &str, &str); 8] = [
+    let fields: [(usize, &str, String, &str, &str); 9] = [
         (0, "Provider", provider_val, "provider", " [Enter: pick]"),
         (1, "Base URL", base_url_val, "base_url", " [Enter: edit]"),
-        (2, "API Key", api_key_val, "api_key", " [Enter: edit]"),
-        (3, "Model", model_val, "model", " [Enter: pick]"),
+        (2, api_key_label, api_key_val, "api_key", api_key_hint),
+        (3, "Auth", auth_source_val, "auth_source", " [Enter: cycle]"),
+        (4, "Model", model_val, "model", " [Enter: pick]"),
         (
-            4,
+            5,
             "Transport",
             transport_val,
             "api_transport",
             " [Enter: cycle]",
         ),
-        (5, "Assistant ID", assistant_id_val, "assistant_id", " [Enter: edit]"),
+        (6, "Assistant ID", assistant_id_val, "assistant_id", " [Enter: edit]"),
         (
-            6,
+            7,
             "Effort",
             effort_val,
             "reasoning_effort",
             " [Enter: pick]",
         ),
         (
-            7,
+            8,
             "Ctx Length",
             context_window_val,
             "context_window_tokens",
-            " [Enter: edit]",
+            context_hint,
         ),
     ];
 

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { abortThreadStream, clearThreadAbortController, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
+import { AGENT_PROVIDER_IDS, abortThreadStream, clearThreadAbortController, getEffectiveContextWindow, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
 import type { AgentMessage, AgentThread, AgentTodoItem, AgentProviderConfig } from "../../lib/agentStore";
 import { prepareOpenAIRequest, sendChatCompletion } from "../../lib/agentClient";
 import type { AgentSettings } from "../../lib/agentStore";
@@ -201,6 +201,22 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         if (!isExternalAgent && !pc?.baseUrl) return;
 
         const appSettings = useSettingsStore.getState().settings;
+        const providerConfigs = Object.fromEntries(
+            AGENT_PROVIDER_IDS.map((id) => {
+                const providerSettings = agentSettings[id] as AgentProviderConfig;
+                return [id, {
+                    base_url: providerSettings.baseUrl || "",
+                    model: providerSettings.model || "",
+                    api_key: providerSettings.apiKey || "",
+                    assistant_id: providerSettings.assistantId || "",
+                    api_transport: providerSettings.apiTransport || "chat_completions",
+                    auth_source: providerSettings.authSource || "api_key",
+                    context_window_tokens: getEffectiveContextWindow(id, providerSettings),
+                    reasoning_effort: agentSettings.reasoningEffort || "high",
+                }];
+            }),
+        );
+
         void amux.agentSetConfig({
             enabled: true,
             agent_backend: agentSettings.agentBackend,
@@ -210,6 +226,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             api_key: pc?.apiKey || "",
             assistant_id: pc?.assistantId || "",
             api_transport: pc?.apiTransport || "chat_completions",
+            auth_source: pc?.authSource || "api_key",
             reasoning_effort: agentSettings.reasoningEffort || "high",
             system_prompt: agentSettings.systemPrompt,
             auto_compact_context: agentSettings.autoCompactContext,
@@ -217,10 +234,11 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
             max_tool_loops: agentSettings.maxToolLoops,
             max_retries: agentSettings.maxRetries,
             retry_delay_ms: agentSettings.retryDelayMs,
-            context_window_tokens: agentSettings.contextWindowTokens,
+            context_window_tokens: pc ? getEffectiveContextWindow(providerKey, pc) : 128000,
             context_budget_tokens: agentSettings.contextBudgetTokens,
             compact_threshold_pct: agentSettings.compactThresholdPercent,
             keep_recent_on_compact: agentSettings.keepRecentOnCompaction,
+            providers: providerConfigs,
             tools: {
                 bash: agentSettings.enableBashTool,
                 web_search: agentSettings.enableWebSearchTool,
@@ -1015,12 +1033,20 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                     } : thread),
                 }));
             };
+            const getContextSettings = () => ({
+                ...useAgentStore.getState().agentSettings,
+                contextWindowTokens: getEffectiveContextWindow(
+                    agentSettings.activeProvider,
+                    getCurrentProviderConfig(),
+                ),
+            });
             let preparedRequest = prepareOpenAIRequest(
                 allCurrentMessages.slice(0, -1),
-                agentSettings,
+                getContextSettings(),
                 agentSettings.activeProvider,
                 getCurrentProviderConfig().model,
                 getCurrentProviderConfig().apiTransport,
+                getCurrentProviderConfig().authSource,
                 getCurrentProviderConfig().assistantId,
                 useAgentStore.getState().threads.find((entry) => entry.id === currentThreadId),
             );
@@ -1215,11 +1241,12 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 if (!receivedToolCalls) break;
                 allCurrentMessages = useAgentStore.getState().getThreadMessages(currentThreadId);
                 preparedRequest = prepareOpenAIRequest(
-                allCurrentMessages.slice(0, -1),
-                    agentSettings,
+                    allCurrentMessages.slice(0, -1),
+                    getContextSettings(),
                     agentSettings.activeProvider,
                     getCurrentProviderConfig().model,
                     getCurrentProviderConfig().apiTransport,
+                    getCurrentProviderConfig().authSource,
                     getCurrentProviderConfig().assistantId,
                     useAgentStore.getState().threads.find((entry) => entry.id === currentThreadId),
                 );

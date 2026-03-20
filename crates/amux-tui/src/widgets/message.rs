@@ -160,8 +160,7 @@ fn render_compact(
     expanded_tools: &ExpandedTools,
     lines: &mut Vec<Line<'static>>,
 ) {
-    let indent = 7;
-    let content_width = width.saturating_sub(indent + 1);
+    let content_width = width.max(1);
 
     // TOOL messages: compact one-liner or expanded with args + result
     if msg.role == MessageRole::Tool {
@@ -169,9 +168,8 @@ fn render_compact(
             let status = msg.tool_status.as_deref().unwrap_or("done");
             let (status_text, status_style) = format_tool_status(status, theme);
             lines.push(Line::from(vec![
-                Span::raw("  "),
                 Span::styled("\u{2699}", theme.accent_assistant),
-                Span::raw(" "),
+                Span::raw("  "),
                 Span::styled(name.clone(), theme.fg_dim),
                 Span::raw(" "),
                 Span::styled(status_text, status_style),
@@ -194,7 +192,6 @@ fn render_compact(
                             args.clone()
                         };
                         lines.push(Line::from(vec![
-                            Span::raw(" ".repeat(detail_indent)),
                             Span::styled("args: ", theme.fg_dim),
                             Span::styled(args_preview, theme.fg_active),
                         ]));
@@ -221,16 +218,12 @@ fn render_compact(
                             rline.to_string()
                         };
                         lines.push(Line::from(vec![
-                            Span::raw(" ".repeat(detail_indent)),
                             Span::styled(prefix.to_string(), theme.fg_dim),
                             Span::styled(truncated, theme.fg_active),
                         ]));
                     }
                     if has_more {
-                        lines.push(Line::from(vec![
-                            Span::raw(" ".repeat(detail_indent)),
-                            Span::styled("        ...", theme.fg_dim),
-                        ]));
+                        lines.push(Line::from(vec![Span::styled("        ...", theme.fg_dim)]));
                     }
                 }
             }
@@ -247,24 +240,24 @@ fn render_compact(
         return;
     }
 
-    let (badge, badge_style) = role_badge(msg.role);
-
-    // Render content — use markdown for assistant, plain wrap for others
     let md_lines: Vec<Line<'static>> = if msg.role == MessageRole::Assistant {
         render_markdown(content, content_width)
+    } else if msg.role == MessageRole::User {
+        wrap_text(content, content_width)
+            .into_iter()
+            .map(|s| Line::from(Span::styled(s, theme.fg_active)))
+            .collect()
+    } else if msg.role == MessageRole::System {
+        wrap_text(content, content_width)
+            .into_iter()
+            .map(|s| Line::from(Span::styled(s, theme.fg_dim)))
+            .collect()
     } else {
         wrap_text(content, content_width)
             .into_iter()
             .map(|s| Line::from(Span::styled(s, theme.fg_active)))
             .collect()
     };
-
-    let badge_span = Span::styled(
-        badge,
-        Style::default()
-            .bg(badge_style.fg.unwrap_or(Color::Indexed(245)))
-            .fg(Color::Black),
-    );
     let has_reasoning = msg.role == MessageRole::Assistant
         && msg
             .reasoning
@@ -272,50 +265,32 @@ fn render_compact(
             .is_some_and(|reasoning| !reasoning.is_empty());
 
     if has_reasoning {
-        lines.push(Line::from(vec![Span::raw("  "), badge_span]));
-
         let reasoning = msg.reasoning.as_deref().unwrap_or_default();
         let is_expanded = expanded.contains(&msg_index);
         if is_expanded {
-            lines.push(Line::from(vec![
-                Span::raw(" ".repeat(indent)),
-                Span::styled("\u{25be} [-] Reasoning", theme.fg_dim),
-            ]));
-            let reasoning_width = width.saturating_sub(indent + 2);
+            lines.push(Line::from(vec![Span::styled(
+                "\u{25be} [-] Reasoning",
+                theme.fg_dim,
+            )]));
+            let reasoning_width = width.saturating_sub(2).max(1);
             let dark_blue = Style::default().fg(Color::Indexed(24));
             for rline in wrap_text(reasoning, reasoning_width) {
                 lines.push(Line::from(vec![
-                    Span::raw(" ".repeat(indent)),
                     Span::styled("\u{2502}", dark_blue),
                     Span::raw(" "),
                     Span::styled(rline, theme.fg_dim),
                 ]));
             }
         } else {
-            lines.push(Line::from(vec![
-                Span::raw(" ".repeat(indent)),
-                Span::styled("\u{25b6} [+] Reasoning", theme.fg_dim),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                "\u{25b6} [+] Reasoning",
+                theme.fg_dim,
+            )]));
         }
 
-        for line in md_lines {
-            let mut spans = vec![Span::raw(" ".repeat(indent))];
-            spans.extend(line.spans);
-            lines.push(Line::from(spans).style(line.style));
-        }
+        lines.extend(md_lines);
     } else {
-        // Badge + first line of content
-        let first_line = md_lines.first().cloned().unwrap_or_default();
-        let mut badge_line_spans = vec![Span::raw("  "), badge_span, Span::raw(" ")];
-        badge_line_spans.extend(first_line.spans);
-        lines.push(Line::from(badge_line_spans).style(first_line.style));
-
-        // Continuation content lines
-        for line in md_lines.iter().skip(1) {
-            let mut spans = vec![Span::raw(" ".repeat(indent))];
-            spans.extend(line.spans.iter().cloned());
-            lines.push(Line::from(spans).style(line.style));
-        }
+        lines.extend(md_lines);
     }
 }
 
@@ -341,9 +316,8 @@ fn render_tools_only(
         };
 
         let mut spans = vec![
-            Span::raw("  "),
             Span::styled("\u{2699}", theme.accent_assistant),
-            Span::raw(" "),
+            Span::raw("  "),
             Span::styled(name.clone(), theme.fg_active),
             Span::raw(" "),
             Span::styled(status_text, status_style),
@@ -381,16 +355,6 @@ fn render_full(
         &full_tools,
         lines,
     );
-}
-
-fn role_badge(role: MessageRole) -> (&'static str, Style) {
-    match role {
-        MessageRole::User => ("USER", Style::default().fg(Color::Indexed(75))),
-        MessageRole::Assistant => ("ASST", Style::default().fg(Color::Indexed(183))),
-        MessageRole::System => ("SYS ", Style::default().fg(Color::Indexed(245))),
-        MessageRole::Tool => ("TOOL", Style::default().fg(Color::Indexed(183))),
-        MessageRole::Unknown => ("??? ", Style::default().fg(Color::Indexed(245))),
-    }
 }
 
 fn format_tool_status(status: &str, theme: &ThemeTokens) -> (&'static str, Style) {
@@ -743,27 +707,16 @@ mod tests {
             &empty_expanded(),
             &empty_tools(),
         );
-        // First line = ASST badge, second line = reasoning hint
-        assert!(lines.len() >= 2);
+        assert!(!lines.is_empty());
         let first_text: String = lines[0]
             .spans
             .iter()
             .map(|s| s.content.to_string())
             .collect();
         assert!(
-            first_text.contains("ASST"),
-            "First line should have ASST badge, got: {}",
+            first_text.contains("Reasoning"),
+            "First line should be reasoning hint, got: {}",
             first_text
-        );
-        let second_text: String = lines[1]
-            .spans
-            .iter()
-            .map(|s| s.content.to_string())
-            .collect();
-        assert!(
-            second_text.contains("Reasoning"),
-            "Second line should be reasoning hint, got: {}",
-            second_text
         );
     }
 
@@ -784,25 +737,25 @@ mod tests {
             &empty_expanded(),
             &empty_tools(),
         );
+        let first_text: String = lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.to_string())
+            .collect();
         let second_text: String = lines[1]
             .spans
             .iter()
             .map(|s| s.content.to_string())
             .collect();
-        let third_text: String = lines[2]
-            .spans
-            .iter()
-            .map(|s| s.content.to_string())
-            .collect();
         assert!(
-            second_text.contains("Reasoning"),
-            "Second line should be reasoning, got: {}",
-            second_text
+            first_text.contains("Reasoning"),
+            "First line should be reasoning, got: {}",
+            first_text
         );
         assert!(
-            !third_text.contains("Reasoning"),
+            !second_text.contains("Reasoning"),
             "Content should start after reasoning, got: {}",
-            third_text
+            second_text
         );
     }
 

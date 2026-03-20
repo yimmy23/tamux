@@ -1,6 +1,142 @@
 use super::*;
 
 impl TuiModel {
+    pub(super) fn provider_field_str<'a>(
+        provider_value: &'a serde_json::Value,
+        camel_case: &str,
+        snake_case: &str,
+    ) -> Option<&'a str> {
+        provider_value
+            .get(camel_case)
+            .and_then(|value| value.as_str())
+            .or_else(|| provider_value.get(snake_case).and_then(|value| value.as_str()))
+    }
+
+    pub(super) fn provider_field_u64(
+        provider_value: &serde_json::Value,
+        camel_case: &str,
+        snake_case: &str,
+    ) -> Option<u64> {
+        provider_value
+            .get(camel_case)
+            .and_then(|value| value.as_u64())
+            .or_else(|| provider_value.get(snake_case).and_then(|value| value.as_u64()))
+    }
+
+    pub(super) fn refresh_openai_auth_status(&mut self) {
+        let status = crate::auth::openai_codex_auth_status();
+        self.config.chatgpt_auth_available = status.available;
+        self.config.chatgpt_auth_source = status.source;
+    }
+
+    pub(super) fn effective_context_window_for_provider_value(
+        provider_id: &str,
+        provider_value: &serde_json::Value,
+    ) -> u32 {
+        if provider_id == "custom" {
+            return provider_value
+                .get("customContextWindowTokens")
+                .and_then(|value| value.as_u64())
+                .map(|value| value.max(1000) as u32)
+                .unwrap_or(128_000);
+        }
+
+        let model = provider_value
+            .get("model")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        providers::known_context_window_for(provider_id, model).unwrap_or(128_000)
+    }
+
+    fn effective_current_context_window(&self) -> u32 {
+        if self.config.provider == "custom" {
+            self.config.custom_context_window_tokens.unwrap_or(128_000)
+        } else {
+            providers::known_context_window_for(&self.config.provider, &self.config.model)
+                .unwrap_or(128_000)
+        }
+    }
+
+    fn provider_config_value(&self, provider_id: &str) -> serde_json::Value {
+        if provider_id == self.config.provider {
+            return serde_json::json!({
+                "baseUrl": &self.config.base_url,
+                "model": &self.config.model,
+                "apiKey": &self.config.api_key,
+                "assistantId": &self.config.assistant_id,
+                "apiTransport": &self.config.api_transport,
+                "authSource": &self.config.auth_source,
+                "customContextWindowTokens": self.config.custom_context_window_tokens,
+            });
+        }
+
+        if let Some(existing) = self
+            .config
+            .agent_config_raw
+            .as_ref()
+            .and_then(|raw| raw.get(provider_id))
+            .cloned()
+        {
+            return existing;
+        }
+
+        let def = providers::find_by_id(provider_id);
+        serde_json::json!({
+            "baseUrl": def.map(|entry| entry.default_base_url).unwrap_or(""),
+            "model": def.map(|entry| entry.default_model).unwrap_or(""),
+            "apiKey": "",
+            "assistantId": "",
+            "apiTransport": providers::default_transport_for(provider_id),
+            "authSource": providers::default_auth_source_for(provider_id),
+            "customContextWindowTokens": if provider_id == "custom" { serde_json::Value::from(128_000u32) } else { serde_json::Value::Null },
+        })
+    }
+
+    fn provider_wire_config_value(&self, provider_id: &str) -> serde_json::Value {
+        let ui_value = self.provider_config_value(provider_id);
+        serde_json::json!({
+            "base_url": Self::provider_field_str(&ui_value, "baseUrl", "base_url").unwrap_or(""),
+            "model": Self::provider_field_str(&ui_value, "model", "model").unwrap_or(""),
+            "api_key": Self::provider_field_str(&ui_value, "apiKey", "api_key").unwrap_or(""),
+            "assistant_id": Self::provider_field_str(&ui_value, "assistantId", "assistant_id").unwrap_or(""),
+            "auth_source": Self::provider_field_str(&ui_value, "authSource", "auth_source").unwrap_or(providers::default_auth_source_for(provider_id)),
+            "api_transport": Self::provider_field_str(&ui_value, "apiTransport", "api_transport").unwrap_or(providers::default_transport_for(provider_id)),
+            "reasoning_effort": &self.config.reasoning_effort,
+            "context_window_tokens": if provider_id == "custom" {
+                Self::provider_field_u64(&ui_value, "customContextWindowTokens", "context_window_tokens")
+                    .unwrap_or(128_000)
+            } else {
+                providers::known_context_window_for(
+                    provider_id,
+                    Self::provider_field_str(&ui_value, "model", "model").unwrap_or(""),
+                )
+                .unwrap_or(128_000) as u64
+            },
+        })
+    }
+
+    fn all_provider_config_values(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut providers_json = serde_json::Map::new();
+        for provider in providers::PROVIDERS {
+            providers_json.insert(
+                provider.id.to_string(),
+                self.provider_config_value(provider.id),
+            );
+        }
+        providers_json
+    }
+
+    fn all_provider_wire_config_values(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut providers_json = serde_json::Map::new();
+        for provider in providers::PROVIDERS {
+            providers_json.insert(
+                provider.id.to_string(),
+                self.provider_wire_config_value(provider.id),
+            );
+        }
+        providers_json
+    }
+
     fn refresh_snapshot_stats(&mut self) {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
@@ -39,15 +175,33 @@ impl TuiModel {
         self.config.snapshot_total_size_bytes = total_size_bytes;
     }
 
-    pub(super) fn sync_config_to_daemon(&self) {
+    pub(super) fn sync_config_to_daemon(&mut self) {
+        let ui_providers_json = self.all_provider_config_values();
+        let daemon_providers_json = self.all_provider_wire_config_values();
+        let mut raw = self
+            .config
+            .agent_config_raw
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
+        raw["activeProvider"] = serde_json::Value::String(self.config.provider.clone());
+        raw["reasoningEffort"] = serde_json::Value::String(self.config.reasoning_effort.clone());
+        raw["contextWindowTokens"] =
+            serde_json::Value::Number(self.effective_current_context_window().into());
+        for (provider_id, provider_value) in &ui_providers_json {
+            raw[provider_id] = provider_value.clone();
+        }
+        self.config.agent_config_raw = Some(raw);
         if let Ok(json) = serde_json::to_string(&serde_json::json!({
             "provider": &self.config.provider,
             "base_url": &self.config.base_url,
             "api_key": &self.config.api_key,
             "assistant_id": &self.config.assistant_id,
+            "auth_source": &self.config.auth_source,
             "model": &self.config.model,
             "api_transport": &self.config.api_transport,
             "reasoning_effort": &self.config.reasoning_effort,
+            "context_window_tokens": self.effective_current_context_window(),
+            "providers": daemon_providers_json,
             "tools": {
                 "bash": self.config.tool_bash,
                 "file_operations": self.config.tool_file_ops,
@@ -115,40 +269,60 @@ impl TuiModel {
             .unwrap_or("openai");
 
         if let Some(provider_config) = json.get(provider_id) {
-            let base_url = provider_config
-                .get("baseUrl")
-                .and_then(|v| v.as_str())
+            let base_url = Self::provider_field_str(provider_config, "baseUrl", "base_url")
                 .unwrap_or("");
-            let model = provider_config
-                .get("model")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let api_key = provider_config
-                .get("apiKey")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let assistant_id = provider_config
-                .get("assistantId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let api_transport = provider_config
-                .get("apiTransport")
-                .and_then(|v| v.as_str())
+            let model = Self::provider_field_str(provider_config, "model", "model").unwrap_or("");
+            let api_key =
+                Self::provider_field_str(provider_config, "apiKey", "api_key").unwrap_or("");
+            let assistant_id = Self::provider_field_str(
+                provider_config,
+                "assistantId",
+                "assistant_id",
+            )
+            .unwrap_or("");
+            let api_transport = Self::provider_field_str(
+                provider_config,
+                "apiTransport",
+                "api_transport",
+            )
                 .unwrap_or_else(|| providers::default_transport_for(provider_id));
+            let auth_source = Self::provider_field_str(
+                provider_config,
+                "authSource",
+                "auth_source",
+            )
+                .unwrap_or_else(|| providers::default_auth_source_for(provider_id));
+            let custom_context_window_tokens = Self::provider_field_u64(
+                provider_config,
+                "customContextWindowTokens",
+                "context_window_tokens",
+            )
+                .map(|v| v.max(1000) as u32);
 
             self.config.provider = provider_id.to_string();
-            if !base_url.is_empty() {
-                self.config.base_url = base_url.to_string();
-            } else if let Some(def) = providers::find_by_id(provider_id) {
-                self.config.base_url = def.default_base_url.to_string();
-            }
-            if !model.is_empty() {
-                self.config.model = model.to_string();
-            }
-            if !api_key.is_empty() {
-                self.config.api_key = api_key.to_string();
-            }
+            self.config.base_url = if !base_url.is_empty() {
+                base_url.to_string()
+            } else {
+                providers::find_by_id(provider_id)
+                    .map(|def| def.default_base_url.to_string())
+                    .unwrap_or_default()
+            };
+            self.config.model = if !model.is_empty() {
+                model.to_string()
+            } else {
+                providers::find_by_id(provider_id)
+                    .map(|def| def.default_model.to_string())
+                    .unwrap_or_default()
+            };
+            self.config.api_key = api_key.to_string();
             self.config.assistant_id = assistant_id.to_string();
+            self.config.auth_source = if providers::supported_auth_sources_for(provider_id)
+                .contains(&auth_source)
+            {
+                auth_source.to_string()
+            } else {
+                providers::default_auth_source_for(provider_id).to_string()
+            };
             self.config.api_transport = if providers::supported_transports_for(provider_id)
                 .contains(&api_transport)
             {
@@ -156,6 +330,11 @@ impl TuiModel {
             } else {
                 providers::default_transport_for(provider_id).to_string()
             };
+            self.config.custom_context_window_tokens = custom_context_window_tokens;
+            self.config.context_window_tokens = Self::effective_context_window_for_provider_value(
+                provider_id,
+                provider_config,
+            );
         }
 
         let get_bool = |key: &str| json.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
@@ -327,11 +506,8 @@ impl TuiModel {
         }
 
         self.config.agent_config_raw = Some(json);
+        self.refresh_openai_auth_status();
         self.refresh_snapshot_stats();
-        self.status_line = format!(
-            "Loaded settings: {} / {}",
-            self.config.provider, self.config.model
-        );
     }
 
     pub(super) fn save_settings(&self) {
@@ -355,6 +531,8 @@ impl TuiModel {
         json["activeProvider"] = serde_json::Value::String(self.config.provider.clone());
         json["reasoningEffort"] = serde_json::Value::String(self.config.reasoning_effort.clone());
         json["apiTransport"] = serde_json::Value::String(self.config.api_transport.clone());
+        json["contextWindowTokens"] =
+            serde_json::Value::Number(self.effective_current_context_window().into());
         json["enableBashTool"] = serde_json::Value::Bool(self.config.tool_bash);
         json["enableWebSearchTool"] = serde_json::Value::Bool(self.config.tool_web_search);
         json["enableWebBrowsingTool"] = serde_json::Value::Bool(self.config.tool_web_browse);
@@ -399,6 +577,8 @@ impl TuiModel {
             "apiKey": &self.config.api_key,
             "assistantId": &self.config.assistant_id,
             "apiTransport": &self.config.api_transport,
+            "authSource": &self.config.auth_source,
+            "customContextWindowTokens": self.config.custom_context_window_tokens,
         });
 
         if let Ok(data) = serde_json::to_string_pretty(&json) {

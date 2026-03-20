@@ -42,6 +42,21 @@ pub struct GoalRunStep {
     pub title: String,
     pub status: Option<GoalRunStatus>,
     pub order: u32,
+    pub instructions: String,
+    pub kind: String,
+    pub task_id: Option<String>,
+    pub summary: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GoalRunEvent {
+    pub id: String,
+    pub timestamp: u64,
+    pub phase: String,
+    pub message: String,
+    pub details: Option<String>,
+    pub step_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,7 +64,18 @@ pub struct GoalRun {
     pub id: String,
     pub title: String,
     pub status: Option<GoalRunStatus>,
+    pub current_step_title: Option<String>,
+    pub child_task_count: u32,
+    pub approval_count: u32,
+    pub last_error: Option<String>,
+    pub goal: String,
+    pub current_step_index: usize,
+    pub reflection_summary: Option<String>,
+    pub memory_updates: Vec<String>,
+    pub generated_skill_path: Option<String>,
+    pub child_task_ids: Vec<String>,
     pub steps: Vec<GoalRunStep>,
+    pub events: Vec<GoalRunEvent>,
     pub created_at: u64,
     pub updated_at: u64,
 }

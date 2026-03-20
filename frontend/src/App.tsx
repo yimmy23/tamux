@@ -440,6 +440,7 @@ export default function App() {
         activeProvider,
         getCurrentProviderConfig().model,
         getCurrentProviderConfig().apiTransport,
+        getCurrentProviderConfig().authSource,
         getCurrentProviderConfig().assistantId,
         useAgentStore.getState().threads.find((entry) => entry.id === threadId),
       );
@@ -602,6 +603,7 @@ export default function App() {
                 activeProvider,
                 currentProviderConfig.model,
                 currentProviderConfig.apiTransport,
+                currentProviderConfig.authSource,
                 currentProviderConfig.assistantId,
                 useAgentStore.getState().threads.find((entry) => entry.id === threadId),
               );

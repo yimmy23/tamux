@@ -260,6 +260,25 @@ declare global {
         agentSendMessage?: (threadId: string | null, content: string, sessionId?: string | null, contextMessages?: unknown[]) => Promise<{ ok?: boolean; error?: string } | unknown>;
         agentListThreads?: () => Promise<unknown[]>;
         agentGetThread?: (threadId: string) => Promise<unknown | null>;
+        openAICodexAuthStatus?: (options?: { refresh?: boolean }) => Promise<{
+            available: boolean;
+            authMode?: string;
+            accountId?: string;
+            expiresAt?: number;
+            source?: string;
+            apiKey?: string;
+            error?: string;
+        }>;
+        openAICodexAuthLogin?: () => Promise<{
+            available: boolean;
+            authMode?: string;
+            accountId?: string;
+            expiresAt?: number;
+            source?: string;
+            apiKey?: string;
+            error?: string;
+        }>;
+        openAICodexAuthLogout?: () => Promise<{ ok: boolean }>;
         agentFetchModels?: (providerId: string, baseUrl: string, apiKey: string) => Promise<{ models?: Array<{ id: string; name?: string; context_window?: number }>; error?: string } | unknown>;
         listInstalledPlugins?: () => Promise<AmuxInstalledPluginRecord[]>;
         loadInstalledPlugins?: () => Promise<AmuxInstalledPluginLoadResult[]>;

@@ -2,9 +2,14 @@ use ratatui::prelude::*;
 use ratatui::text::Span;
 use ratatui::widgets::{Block, BorderType, Borders, Tabs};
 
-use crate::state::sidebar::SidebarState;
+use crate::state::sidebar::{SidebarItemTarget, SidebarState, SidebarTab};
 use crate::state::task::TaskState;
 use crate::theme::ThemeTokens;
+
+pub enum SidebarHitTarget {
+    Tab(SidebarTab),
+    Item(SidebarItemTarget),
+}
 
 pub fn render(
     frame: &mut Frame,
@@ -60,6 +65,54 @@ pub fn render(
         }
         crate::state::sidebar::SidebarTab::Subagents => {
             super::subagents::render(frame, chunks[1], tasks, sidebar, theme);
+        }
+    }
+}
+
+pub fn hit_test(
+    area: Rect,
+    sidebar: &SidebarState,
+    tasks: &TaskState,
+    mouse: Position,
+) -> Option<SidebarHitTarget> {
+    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded);
+    let inner = block.inner(area);
+    if inner.height < 2
+        || mouse.x < inner.x
+        || mouse.x >= inner.x.saturating_add(inner.width)
+        || mouse.y < inner.y
+        || mouse.y >= inner.y.saturating_add(inner.height)
+    {
+        return None;
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(inner);
+
+    if mouse.y == chunks[0].y {
+        let rel_x = mouse.x.saturating_sub(chunks[0].x);
+        let split = chunks[0].width / 2;
+        if rel_x < split {
+            return Some(SidebarHitTarget::Tab(SidebarTab::Tasks));
+        }
+        if rel_x < chunks[0].width {
+            return Some(SidebarHitTarget::Tab(SidebarTab::Subagents));
+        }
+        return None;
+    }
+
+    let row = mouse.y.saturating_sub(chunks[1].y) as usize;
+    let body_height = chunks[1].height as usize;
+    match sidebar.active_tab() {
+        SidebarTab::Tasks => {
+            crate::widgets::task_tree::row_target_at(tasks, sidebar, body_height, row)
+                .map(SidebarHitTarget::Item)
+        }
+        SidebarTab::Subagents => {
+            crate::widgets::subagents::row_target_at(tasks, sidebar, body_height, row)
+                .map(SidebarHitTarget::Item)
         }
     }
 }

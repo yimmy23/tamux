@@ -7,6 +7,19 @@ use crate::state::chat::ChatState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 
+pub(crate) fn visible_window(cursor: usize, item_count: usize, list_height: usize) -> (usize, usize) {
+    if item_count == 0 || list_height == 0 {
+        return (0, 0);
+    }
+
+    let height = list_height.min(item_count);
+    let max_start = item_count.saturating_sub(height);
+    let start = cursor
+        .saturating_sub(height.saturating_sub(1))
+        .min(max_start);
+    (start, height)
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -78,10 +91,14 @@ pub fn render(
     let cursor = modal.picker_cursor();
     let list_h = chunks[2].height as usize;
     let inner_w = inner.width as usize;
+    let total_items = filtered_threads.len() + 1;
+    let (visible_start, visible_len) = visible_window(cursor, total_items, list_h);
 
     let list_items: Vec<ListItem> = (0..list_h)
         .map(|i| {
-            if i == 0 {
+            if i < visible_len {
+                let absolute_index = visible_start + i;
+                if absolute_index == 0 {
                 // "New conversation" item
                 let is_selected = cursor == 0;
                 if is_selected {
@@ -93,11 +110,11 @@ pub fn render(
                         Span::styled("+ New conversation", theme.fg_dim),
                     ]))
                 }
-            } else {
-                let thread_idx = i - 1;
+                } else {
+                let thread_idx = absolute_index - 1;
                 if thread_idx < filtered_threads.len() {
                     let thread = filtered_threads[thread_idx];
-                    let is_selected = cursor == i;
+                    let is_selected = cursor == absolute_index;
                     let is_active = active_id == Some(thread.id.as_str());
 
                     let dot_style = if is_active {
@@ -143,6 +160,9 @@ pub fn render(
                 } else {
                     ListItem::new(Line::raw(""))
                 }
+            }
+            } else {
+                ListItem::new(Line::raw(""))
             }
         })
         .collect();

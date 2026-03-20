@@ -3,9 +3,17 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use crate::state::sidebar::SidebarItemTarget;
 use crate::state::sidebar::SidebarState;
 use crate::state::task::{GoalRunStatus, HeartbeatOutcome, TaskState, TaskStatus};
 use crate::theme::ThemeTokens;
+
+#[derive(Clone)]
+struct SidebarRow {
+    line: Line<'static>,
+    target: Option<SidebarItemTarget>,
+    selectable_index: Option<usize>,
+}
 
 pub fn render(
     frame: &mut Frame,
@@ -14,18 +22,35 @@ pub fn render(
     sidebar: &SidebarState,
     theme: &ThemeTokens,
 ) {
-    let lines = build_lines(tasks, sidebar, theme, area.width as usize);
-    let paragraph = Paragraph::new(lines);
+    let rows = build_rows(tasks, sidebar, theme, area.width as usize);
+    let scroll = resolved_scroll(&rows, sidebar, area.height as usize);
+    let paragraph =
+        Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>()).scroll((
+            scroll as u16,
+            0,
+        ));
     frame.render_widget(paragraph, area);
 }
 
-fn build_lines(
+pub fn row_target_at(
+    tasks: &TaskState,
+    sidebar: &SidebarState,
+    body_height: usize,
+    row: usize,
+) -> Option<SidebarItemTarget> {
+    let rows = build_rows(tasks, sidebar, &ThemeTokens::default(), 80);
+    let scroll = resolved_scroll(&rows, sidebar, body_height);
+    let absolute_row = scroll + row;
+    rows.get(absolute_row).and_then(|item| item.target.clone())
+}
+
+fn build_rows(
     tasks: &TaskState,
     sidebar: &SidebarState,
     theme: &ThemeTokens,
     width: usize,
-) -> Vec<Line<'static>> {
-    let mut lines: Vec<Line<'static>> = Vec::new();
+) -> Vec<SidebarRow> {
+    let mut rows = Vec::new();
     let selected = sidebar.selected_item();
     // item_index tracks selectable items (goal runs, steps, standalone tasks)
     let mut item_index: usize = 0;
@@ -59,7 +84,14 @@ fn build_lines(
         } else {
             Line::from(spans)
         };
-        lines.push(line);
+        rows.push(SidebarRow {
+            line,
+            target: Some(SidebarItemTarget::GoalRun {
+                goal_run_id: run.id.clone(),
+                step_id: None,
+            }),
+            selectable_index: Some(item_index),
+        });
         item_index += 1;
 
         if expanded {
@@ -86,7 +118,14 @@ fn build_lines(
                         Span::raw(step.title.clone()),
                     ])
                 };
-                lines.push(line);
+                rows.push(SidebarRow {
+                    line,
+                    target: Some(SidebarItemTarget::GoalRun {
+                        goal_run_id: run.id.clone(),
+                        step_id: Some(step.id.clone()),
+                    }),
+                    selectable_index: Some(item_index),
+                });
                 item_index += 1;
             }
         }
@@ -101,15 +140,17 @@ fn build_lines(
 
     if !standalone.is_empty() {
         if !goal_runs.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "\u{2500}".repeat(width.min(40)),
-                theme.fg_dim,
-            )));
+            rows.push(SidebarRow {
+                line: Line::from(Span::styled("\u{2500}".repeat(width.min(40)), theme.fg_dim)),
+                target: None,
+                selectable_index: None,
+            });
         }
-        lines.push(Line::from(Span::styled(
-            "Standalone Tasks".to_string(),
-            theme.fg_dim,
-        )));
+        rows.push(SidebarRow {
+            line: Line::from(Span::styled("Standalone Tasks".to_string(), theme.fg_dim)),
+            target: None,
+            selectable_index: None,
+        });
 
         for task in standalone {
             let chip = task_status_chip(task.status, theme);
@@ -130,7 +171,13 @@ fn build_lines(
                     Span::raw(task.title.clone()),
                 ])
             };
-            lines.push(line);
+            rows.push(SidebarRow {
+                line,
+                target: Some(SidebarItemTarget::Task {
+                    task_id: task.id.clone(),
+                }),
+                selectable_index: Some(item_index),
+            });
             item_index += 1;
         }
     }
@@ -139,14 +186,19 @@ fn build_lines(
     let heartbeat_items = tasks.heartbeat_items();
 
     if !heartbeat_items.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "\u{2500}".repeat(width.min(40)),
-            theme.fg_dim,
-        )));
-        lines.push(Line::from(Span::styled(
-            "\u{2665} Heartbeat".to_string(),
-            theme.accent_danger,
-        )));
+        rows.push(SidebarRow {
+            line: Line::from(Span::styled("\u{2500}".repeat(width.min(40)), theme.fg_dim)),
+            target: None,
+            selectable_index: None,
+        });
+        rows.push(SidebarRow {
+            line: Line::from(Span::styled(
+                "\u{2665} Heartbeat".to_string(),
+                theme.accent_danger,
+            )),
+            target: None,
+            selectable_index: None,
+        });
 
         for item in heartbeat_items {
             let dot = heartbeat_dot(item.outcome, theme);
@@ -162,19 +214,43 @@ fn build_lines(
             if matches!(item.outcome, Some(HeartbeatOutcome::Error)) {
                 spans.push(Span::styled(" !", theme.accent_danger));
             }
-            lines.push(Line::from(spans));
+            rows.push(SidebarRow {
+                line: Line::from(spans),
+                target: None,
+                selectable_index: None,
+            });
         }
     }
 
     // Empty state
-    if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " No tasks".to_string(),
-            theme.fg_dim,
-        )));
+    if rows.is_empty() {
+        rows.push(SidebarRow {
+            line: Line::from(Span::styled(" No tasks".to_string(), theme.fg_dim)),
+            target: None,
+            selectable_index: None,
+        });
     }
 
-    lines
+    rows
+}
+
+fn resolved_scroll(rows: &[SidebarRow], sidebar: &SidebarState, body_height: usize) -> usize {
+    let max_scroll = rows.len().saturating_sub(body_height);
+    let mut scroll = sidebar.scroll_offset().min(max_scroll);
+    let Some(selected_row) = rows
+        .iter()
+        .position(|row| row.selectable_index == Some(sidebar.selected_item()))
+    else {
+        return scroll;
+    };
+
+    if selected_row < scroll {
+        scroll = selected_row;
+    } else if selected_row >= scroll.saturating_add(body_height) {
+        scroll = selected_row.saturating_add(1).saturating_sub(body_height);
+    }
+
+    scroll.min(max_scroll)
 }
 
 fn goal_run_status_dot(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Span<'static> {

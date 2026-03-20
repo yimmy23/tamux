@@ -15,8 +15,10 @@ pub struct AgentConfigSnapshot {
     pub model: String,
     pub api_key: String,
     pub assistant_id: String,
+    pub auth_source: String,
     pub api_transport: String,
     pub reasoning_effort: String,
+    pub context_window_tokens: u32,
 }
 
 // ── ConfigAction ──────────────────────────────────────────────────────────────
@@ -40,8 +42,12 @@ pub struct ConfigState {
     pub model: String,
     pub api_key: String,
     pub assistant_id: String,
+    pub auth_source: String,
     pub api_transport: String,
     pub reasoning_effort: String,
+    pub custom_context_window_tokens: Option<u32>,
+    pub chatgpt_auth_available: bool,
+    pub chatgpt_auth_source: Option<String>,
     pub fetched_models: Vec<FetchedModel>,
     pub agent_config_raw: Option<serde_json::Value>,
 
@@ -114,8 +120,12 @@ impl ConfigState {
             model: "gpt-5.4".to_string(),
             api_key: String::new(),
             assistant_id: String::new(),
+            auth_source: "api_key".to_string(),
             api_transport: "responses".to_string(),
             reasoning_effort: String::new(),
+            custom_context_window_tokens: None,
+            chatgpt_auth_available: false,
+            chatgpt_auth_source: None,
             fetched_models: Vec::new(),
             agent_config_raw: None,
             tool_bash: true,
@@ -207,8 +217,10 @@ impl ConfigState {
                 self.model = snapshot.model;
                 self.api_key = snapshot.api_key;
                 self.assistant_id = snapshot.assistant_id;
+                self.auth_source = snapshot.auth_source;
                 self.api_transport = snapshot.api_transport;
                 self.reasoning_effort = snapshot.reasoning_effort;
+                self.context_window_tokens = snapshot.context_window_tokens;
             }
 
             ConfigAction::ConfigRawReceived(raw) => {
@@ -263,8 +275,10 @@ mod tests {
             base_url: "https://api.example.com".into(),
             api_key: "sk-test".into(),
             assistant_id: "asst_test".into(),
+            auth_source: "api_key".into(),
             reasoning_effort: "high".into(),
             api_transport: "responses".into(),
+            context_window_tokens: 128_000,
         }
     }
 

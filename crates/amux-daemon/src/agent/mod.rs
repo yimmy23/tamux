@@ -4216,8 +4216,16 @@ impl AgentEngine {
             if resolved.assistant_id.trim().is_empty() {
                 resolved.assistant_id = config.assistant_id.clone();
             }
+            if resolved.context_window_tokens == 0 {
+                resolved.context_window_tokens = config.context_window_tokens;
+            }
             if !provider_supports_transport(&config.provider, resolved.api_transport) {
                 resolved.api_transport = default_api_transport_for_provider(&config.provider);
+            }
+            if config.provider == "openai"
+                && resolved.auth_source == crate::agent::types::AuthSource::ChatgptSubscription
+            {
+                resolved.api_transport = ApiTransport::Responses;
             }
             return Ok(resolved);
         }
@@ -4241,8 +4249,10 @@ impl AgentEngine {
             model: config.model.clone(),
             api_key: config.api_key.clone(),
             assistant_id: config.assistant_id.clone(),
+            auth_source: config.auth_source,
             api_transport,
             reasoning_effort: config.reasoning_effort.clone(),
+            context_window_tokens: config.context_window_tokens,
             response_schema: None,
         })
     }
@@ -4456,14 +4466,19 @@ fn prepare_llm_request(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> PreparedLlmRequest {
-    let selected_transport = if provider_supports_transport(&config.provider, provider_config.api_transport)
+    let mut selected_transport =
+        if provider_supports_transport(&config.provider, provider_config.api_transport) {
+            provider_config.api_transport
+        } else {
+            default_api_transport_for_provider(&config.provider)
+        };
+    if config.provider == "openai"
+        && provider_config.auth_source == crate::agent::types::AuthSource::ChatgptSubscription
     {
-        provider_config.api_transport
-    } else {
-        default_api_transport_for_provider(&config.provider)
-    };
+        selected_transport = ApiTransport::Responses;
+    }
     let messages = &thread.messages;
-    let compacted = compact_messages_for_request(messages, config);
+    let compacted = compact_messages_for_request(messages, config, provider_config);
     let compaction_active =
         compacted.len() != messages.len() || compacted.iter().any(message_is_compaction_summary);
 
@@ -4548,21 +4563,23 @@ fn prepare_llm_request(
 fn build_api_messages_for_request(
     messages: &[AgentMessage],
     config: &AgentConfig,
+    provider_config: &ProviderConfig,
 ) -> Vec<ApiMessage> {
-    let compacted = compact_messages_for_request(messages, config);
+    let compacted = compact_messages_for_request(messages, config, provider_config);
     messages_to_api_format(&compacted)
 }
 
 fn compact_messages_for_request(
     messages: &[AgentMessage],
     config: &AgentConfig,
+    provider_config: &ProviderConfig,
 ) -> Vec<AgentMessage> {
     if messages.is_empty() || !config.auto_compact_context {
         return messages.to_vec();
     }
 
     let max_messages = config.max_context_messages.max(1) as usize;
-    let target_tokens = effective_context_target_tokens(config);
+    let target_tokens = effective_context_target_tokens(config, provider_config);
     if messages.len() <= max_messages && estimate_message_tokens(messages) <= target_tokens {
         return messages.to_vec();
     }
@@ -4626,8 +4643,11 @@ fn trim_compacted_messages(
     }
 }
 
-fn effective_context_target_tokens(config: &AgentConfig) -> usize {
-    let context_window = config.context_window_tokens.max(1) as usize;
+fn effective_context_target_tokens(config: &AgentConfig, provider_config: &ProviderConfig) -> usize {
+    let context_window = provider_config
+        .context_window_tokens
+        .max(config.context_window_tokens)
+        .max(1) as usize;
     let threshold_pct = config.compact_threshold_pct.clamp(1, 100) as usize;
     let threshold_target = context_window.saturating_mul(threshold_pct) / 100;
     let configured_budget = config

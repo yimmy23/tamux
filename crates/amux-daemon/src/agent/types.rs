@@ -22,6 +22,14 @@ pub enum ApiTransport {
     ChatCompletions,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthSource {
+    #[default]
+    ApiKey,
+    ChatgptSubscription,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeTransportKind {
@@ -62,44 +70,84 @@ pub struct ProviderDefinition {
 
 pub const OPENAI_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
-        id: "gpt-4o",
-        name: "GPT-4o",
-        context_window: 128000,
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        context_window: 1_000_000,
     },
     ModelDefinition {
-        id: "gpt-4o-mini",
-        name: "GPT-4o Mini",
-        context_window: 128000,
+        id: "gpt-5.4-mini",
+        name: "GPT-5.4 Mini",
+        context_window: 400000,
     },
     ModelDefinition {
-        id: "gpt-4-turbo",
-        name: "GPT-4 Turbo",
-        context_window: 128000,
+        id: "gpt-5.4-nano",
+        name: "GPT-5.4 Nano",
+        context_window: 400000,
     },
     ModelDefinition {
-        id: "gpt-4",
-        name: "GPT-4",
-        context_window: 8192,
+        id: "gpt-5.3-codex",
+        name: "GPT-5.3 Codex",
+        context_window: 400000,
     },
     ModelDefinition {
-        id: "gpt-3.5-turbo",
-        name: "GPT-3.5 Turbo",
-        context_window: 16385,
+        id: "gpt-5.2-codex",
+        name: "GPT-5.2 Codex",
+        context_window: 400000,
     },
     ModelDefinition {
-        id: "o1",
-        name: "o1",
+        id: "gpt-5.2",
+        name: "GPT-5.2",
+        context_window: 400000,
+    },
+    ModelDefinition {
+        id: "gpt-5.1-codex-max",
+        name: "GPT-5.1 Codex Max",
+        context_window: 400000,
+    },
+    ModelDefinition {
+        id: "gpt-5.1-codex",
+        name: "GPT-5.1 Codex",
+        context_window: 400000,
+    },
+    ModelDefinition {
+        id: "gpt-5.1-codex-mini",
+        name: "GPT-5.1 Codex Mini",
+        context_window: 400000,
+    },
+    ModelDefinition {
+        id: "gpt-5.1",
+        name: "GPT-5.1",
+        context_window: 400000,
+    },
+    ModelDefinition {
+        id: "gpt-5-codex",
+        name: "GPT-5 Codex",
+        context_window: 400000,
+    },
+    ModelDefinition {
+        id: "gpt-5-codex-mini",
+        name: "GPT-5 Codex Mini",
         context_window: 200000,
     },
     ModelDefinition {
-        id: "o1-mini",
-        name: "o1 Mini",
-        context_window: 128000,
+        id: "gpt-5",
+        name: "GPT-5",
+        context_window: 400000,
     },
     ModelDefinition {
-        id: "o1-preview",
-        name: "o1 Preview",
-        context_window: 128000,
+        id: "codex-mini-latest",
+        name: "Codex Mini Latest",
+        context_window: 200000,
+    },
+    ModelDefinition {
+        id: "o3",
+        name: "o3",
+        context_window: 200000,
+    },
+    ModelDefinition {
+        id: "o4-mini",
+        name: "o4 Mini",
+        context_window: 200000,
     },
 ];
 
@@ -869,6 +917,8 @@ pub struct AgentConfig {
     pub api_key: String,
     #[serde(default)]
     pub assistant_id: String,
+    #[serde(default = "default_auth_source")]
+    pub auth_source: AuthSource,
     #[serde(default = "default_api_transport")]
     pub api_transport: ApiTransport,
     #[serde(default = "default_reasoning_effort")]
@@ -933,6 +983,9 @@ fn default_provider() -> String {
 fn default_api_transport() -> ApiTransport {
     default_api_transport_for_provider("openai")
 }
+fn default_auth_source() -> AuthSource {
+    AuthSource::ApiKey
+}
 fn default_system_prompt() -> String {
     "You are tamux, an always-on agentic terminal multiplexer assistant. You can execute terminal commands, monitor systems, and send messages to connected chat platforms. Use your tools proactively. Be concise and direct.".into()
 }
@@ -985,6 +1038,7 @@ impl Default for AgentConfig {
             model: String::new(),
             api_key: String::new(),
             assistant_id: String::new(),
+            auth_source: default_auth_source(),
             api_transport: default_api_transport(),
             reasoning_effort: default_reasoning_effort(),
             system_prompt: default_system_prompt(),
@@ -1015,10 +1069,14 @@ pub struct ProviderConfig {
     pub api_key: String,
     #[serde(default)]
     pub assistant_id: String,
+    #[serde(default = "default_auth_source")]
+    pub auth_source: AuthSource,
     #[serde(default = "default_api_transport")]
     pub api_transport: ApiTransport,
     #[serde(default = "default_reasoning_effort")]
     pub reasoning_effort: String,
+    #[serde(default = "default_context_window_tokens")]
+    pub context_window_tokens: u32,
     /// When set, request structured output with this JSON schema from the API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,

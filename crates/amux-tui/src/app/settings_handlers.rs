@@ -6,6 +6,30 @@ impl TuiModel {
         match field.as_str() {
             "provider" => self.execute_command("provider"),
             "model" => self.execute_command("model"),
+            "auth_source" => {
+                let supported = providers::supported_auth_sources_for(&self.config.provider);
+                let current_idx = supported
+                    .iter()
+                    .position(|source| *source == self.config.auth_source)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % supported.len().max(1);
+                self.config.auth_source = supported
+                    .get(next_idx)
+                    .copied()
+                    .unwrap_or("api_key")
+                    .to_string();
+                if self.config.provider == "openai"
+                    && self.config.auth_source == "chatgpt_subscription"
+                {
+                    self.refresh_openai_auth_status();
+                }
+                if self.config.provider == "openai"
+                    && self.config.auth_source == "chatgpt_subscription"
+                {
+                    self.config.api_transport = "responses".to_string();
+                }
+                self.sync_config_to_daemon();
+            }
             "api_transport" => {
                 let supported = providers::supported_transports_for(&self.config.provider);
                 let current_idx = supported
@@ -14,6 +38,11 @@ impl TuiModel {
                     .unwrap_or(0);
                 let next_idx = (current_idx + 1) % supported.len().max(1);
                 self.config.api_transport = supported.get(next_idx).copied().unwrap_or("chat_completions").to_string();
+                if self.config.provider == "openai"
+                    && self.config.auth_source == "chatgpt_subscription"
+                {
+                    self.config.api_transport = "responses".to_string();
+                }
                 self.sync_config_to_daemon();
             }
             "assistant_id" => self
@@ -23,9 +52,47 @@ impl TuiModel {
             "base_url" => self
                 .settings
                 .start_editing("base_url", &self.config.base_url.clone()),
-            "api_key" => self
-                .settings
-                .start_editing("api_key", &self.config.api_key.clone()),
+            "api_key" => {
+                if self.config.auth_source == "api_key" {
+                    self.settings
+                        .start_editing("api_key", &self.config.api_key.clone());
+                } else if self.config.chatgpt_auth_available {
+                    match crate::auth::clear_openai_codex_auth() {
+                        Ok(()) => {
+                            self.refresh_openai_auth_status();
+                            self.status_line = "ChatGPT subscription auth cleared".to_string();
+                        }
+                        Err(err) => {
+                            self.status_line =
+                                format!("Failed to clear ChatGPT auth: {err}");
+                        }
+                    }
+                } else {
+                    match crate::auth::begin_openai_codex_auth_flow() {
+                        Ok(crate::auth::OpenAICodexAuthFlowResult::AlreadyAvailable) => {
+                            self.refresh_openai_auth_status();
+                            self.status_line =
+                                "ChatGPT subscription auth already available".to_string();
+                        }
+                        Ok(crate::auth::OpenAICodexAuthFlowResult::ImportedFromCodexCli) => {
+                            self.refresh_openai_auth_status();
+                            self.status_line =
+                                "Imported ChatGPT auth from ~/.codex/auth.json".to_string();
+                        }
+                        Ok(crate::auth::OpenAICodexAuthFlowResult::Started { url }) => {
+                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                let _ = clipboard.set_text(url.clone());
+                            }
+                            self.status_line =
+                                format!("OpenAI auth URL copied to clipboard: {url}");
+                        }
+                        Err(err) => {
+                            self.status_line =
+                                format!("Failed to start ChatGPT auth: {err}");
+                        }
+                    }
+                }
+            }
             "gateway_prefix" => {
                 self.settings
                     .start_editing("gateway_prefix", &self.config.gateway_prefix.clone());
@@ -116,6 +183,14 @@ impl TuiModel {
             "honcho_workspace_id" => self.settings.start_editing(
                 "honcho_workspace_id",
                 &self.config.honcho_workspace_id.clone(),
+            ),
+            "context_window_tokens" if self.config.provider == "custom" => self.settings.start_editing(
+                "context_window_tokens",
+                &self
+                    .config
+                    .custom_context_window_tokens
+                    .unwrap_or(128_000)
+                    .to_string(),
             ),
             "max_context_messages" => self.settings.start_editing(
                 "max_context_messages",

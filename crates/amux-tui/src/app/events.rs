@@ -129,8 +129,10 @@ impl TuiModel {
                         model: cfg.model,
                         api_key: cfg.api_key,
                         assistant_id: cfg.assistant_id,
+                        auth_source: cfg.auth_source,
                         api_transport: cfg.api_transport,
                         reasoning_effort: cfg.reasoning_effort,
+                        context_window_tokens: cfg.context_window_tokens,
                     },
                 ));
             }
@@ -242,7 +244,6 @@ impl TuiModel {
                 self.last_error = Some(message.clone());
                 self.error_active = true;
                 self.error_tick = self.tick_counter;
-                self.status_line = format!("Error: {}", message);
                 if let Some(thread) = self.chat.active_thread_mut() {
                     thread.messages.push(chat::AgentMessage {
                         role: chat::MessageRole::System,

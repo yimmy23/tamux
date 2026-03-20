@@ -38,6 +38,16 @@ impl TuiModel {
             sidebar_start_col,
             input_start_row.saturating_sub(body_start_row),
         );
+        let sidebar_area = if show_sidebar {
+            Rect::new(
+                sidebar_start_col,
+                body_start_row,
+                self.width.saturating_sub(sidebar_start_col),
+                input_start_row.saturating_sub(body_start_row),
+            )
+        } else {
+            Rect::default()
+        };
 
         let cursor_in_body = mouse.row >= body_start_row && mouse.row < input_start_row;
         let cursor_in_sidebar = show_sidebar && cursor_in_body && mouse.column >= sidebar_start_col;
@@ -48,14 +58,18 @@ impl TuiModel {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 if cursor_in_chat {
-                    self.chat.reduce(chat::ChatAction::ScrollChat(3));
-                    if self.chat_drag_anchor.is_some() {
-                        self.chat_drag_current = widgets::chat::selection_point_from_mouse(
-                            chat_area,
-                            &self.chat,
-                            &self.theme,
-                            Position::new(mouse.column, mouse.row),
-                        );
+                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                        self.task_view_scroll = self.task_view_scroll.saturating_sub(3);
+                    } else {
+                        self.chat.reduce(chat::ChatAction::ScrollChat(3));
+                        if self.chat_drag_anchor.is_some() {
+                            self.chat_drag_current = widgets::chat::selection_point_from_mouse(
+                                chat_area,
+                                &self.chat,
+                                &self.theme,
+                                Position::new(mouse.column, mouse.row),
+                            );
+                        }
                     }
                 } else if cursor_in_sidebar {
                     self.sidebar.reduce(sidebar::SidebarAction::Scroll(3));
@@ -67,14 +81,18 @@ impl TuiModel {
             }
             MouseEventKind::ScrollDown => {
                 if cursor_in_chat {
-                    self.chat.reduce(chat::ChatAction::ScrollChat(-3));
-                    if self.chat_drag_anchor.is_some() {
-                        self.chat_drag_current = widgets::chat::selection_point_from_mouse(
-                            chat_area,
-                            &self.chat,
-                            &self.theme,
-                            Position::new(mouse.column, mouse.row),
-                        );
+                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                        self.task_view_scroll = self.task_view_scroll.saturating_add(3);
+                    } else {
+                        self.chat.reduce(chat::ChatAction::ScrollChat(-3));
+                        if self.chat_drag_anchor.is_some() {
+                            self.chat_drag_current = widgets::chat::selection_point_from_mouse(
+                                chat_area,
+                                &self.chat,
+                                &self.theme,
+                                Position::new(mouse.column, mouse.row),
+                            );
+                        }
                     }
                 } else if cursor_in_sidebar {
                     self.sidebar.reduce(sidebar::SidebarAction::Scroll(-3));
@@ -87,23 +105,43 @@ impl TuiModel {
             MouseEventKind::Down(MouseButton::Left) => {
                 if cursor_in_chat {
                     self.focus = FocusArea::Chat;
-                    let pos = widgets::chat::selection_point_from_mouse(
-                        chat_area,
-                        &self.chat,
-                        &self.theme,
-                        Position::new(mouse.column, mouse.row),
-                    );
-                    self.chat_drag_anchor = pos;
-                    self.chat_drag_current = pos;
+                    if matches!(self.main_pane_view, MainPaneView::Conversation) {
+                        let pos = widgets::chat::selection_point_from_mouse(
+                            chat_area,
+                            &self.chat,
+                            &self.theme,
+                            Position::new(mouse.column, mouse.row),
+                        );
+                        self.chat_drag_anchor = pos;
+                        self.chat_drag_current = pos;
+                    }
                 } else if cursor_in_sidebar {
                     self.clear_chat_drag_selection();
                     self.focus = FocusArea::Sidebar;
-                    let click_row = mouse.row.saturating_sub(body_start_row + 2) as usize;
-                    let scroll = self.sidebar.scroll_offset();
-                    let item_idx = click_row + scroll;
-                    self.sidebar.reduce(sidebar::SidebarAction::Navigate(
-                        item_idx as i32 - self.sidebar.selected_item() as i32,
-                    ));
+                    match widgets::sidebar::hit_test(
+                        sidebar_area,
+                        &self.sidebar,
+                        &self.tasks,
+                        Position::new(mouse.column, mouse.row),
+                    ) {
+                        Some(widgets::sidebar::SidebarHitTarget::Tab(tab)) => {
+                            self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
+                        }
+                        Some(widgets::sidebar::SidebarHitTarget::Item(target)) => {
+                            if let Some(index) = self
+                                .sidebar_items()
+                                .iter()
+                                .position(|item| item.target.as_ref() == Some(&target))
+                            {
+                                self.sidebar.navigate(
+                                    index as i32 - self.sidebar.selected_item() as i32,
+                                    self.sidebar_item_count(),
+                                );
+                            }
+                            self.open_sidebar_target(target);
+                        }
+                        None => {}
+                    }
                 } else if cursor_in_input {
                     self.clear_chat_drag_selection();
                     self.focus = FocusArea::Input;
@@ -115,7 +153,9 @@ impl TuiModel {
                 self.input.set_mode(input::InputMode::Insert);
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if self.chat_drag_anchor.is_some() {
+                if self.chat_drag_anchor.is_some()
+                    && matches!(self.main_pane_view, MainPaneView::Conversation)
+                {
                     if mouse.row <= chat_area.y.saturating_add(1) {
                         self.chat.reduce(chat::ChatAction::ScrollChat(1));
                     } else if mouse.row
@@ -269,6 +309,26 @@ impl TuiModel {
             && mouse.row < overlay_area.y.saturating_add(overlay_area.height);
 
         match mouse.kind {
+            MouseEventKind::ScrollUp if inside => match kind {
+                modal::ModalKind::CommandPalette
+                | modal::ModalKind::ThreadPicker
+                | modal::ModalKind::ProviderPicker
+                | modal::ModalKind::ModelPicker
+                | modal::ModalKind::EffortPicker => {
+                    self.modal.reduce(modal::ModalAction::Navigate(-1));
+                }
+                _ => {}
+            },
+            MouseEventKind::ScrollDown if inside => match kind {
+                modal::ModalKind::CommandPalette
+                | modal::ModalKind::ThreadPicker
+                | modal::ModalKind::ProviderPicker
+                | modal::ModalKind::ModelPicker
+                | modal::ModalKind::EffortPicker => {
+                    self.modal.reduce(modal::ModalAction::Navigate(1));
+                }
+                _ => {}
+            },
             MouseEventKind::Down(MouseButton::Left) if !inside => {
                 if matches!(
                     kind,
@@ -277,6 +337,7 @@ impl TuiModel {
                         | modal::ModalKind::ThreadPicker
                         | modal::ModalKind::ProviderPicker
                         | modal::ModalKind::ModelPicker
+                        | modal::ModalKind::ErrorViewer
                         | modal::ModalKind::EffortPicker
                 ) {
                     self.modal.reduce(modal::ModalAction::Pop);
@@ -362,7 +423,7 @@ impl TuiModel {
                     if mouse.row >= chunks[2].y
                         && mouse.row < chunks[2].y.saturating_add(chunks[2].height)
                     {
-                        let idx = mouse.row.saturating_sub(chunks[2].y) as usize;
+                        let row_idx = mouse.row.saturating_sub(chunks[2].y) as usize;
                         let query = self.modal.command_query().to_lowercase();
                         let filtered_threads = self
                             .chat
@@ -372,7 +433,14 @@ impl TuiModel {
                                 query.is_empty() || thread.title.to_lowercase().contains(&query)
                             })
                             .count();
-                        if idx <= filtered_threads {
+                        let total_items = filtered_threads + 1;
+                        let (visible_start, visible_len) = widgets::thread_picker::visible_window(
+                            self.modal.picker_cursor(),
+                            total_items,
+                            chunks[2].height as usize,
+                        );
+                        if row_idx < visible_len {
+                            let idx = visible_start + row_idx;
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }

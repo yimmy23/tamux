@@ -195,8 +195,8 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         Line::raw(""),
         Line::from(Span::styled("  Error", theme.accent_primary)),
         Line::from(vec![
-            Span::styled("  !                ", theme.fg_active),
-            Span::styled("Show last error, clear error dot", theme.fg_dim),
+            Span::styled("  Ctrl+E           ", theme.fg_active),
+            Span::styled("Open last error viewer", theme.fg_dim),
         ]),
         Line::raw(""),
         Line::from(Span::styled("  Commands (/)", theme.accent_primary)),
@@ -248,6 +248,43 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         .scroll((0, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
+}
+
+pub(super) fn render_error_modal(
+    frame: &mut Frame,
+    area: Rect,
+    last_error: Option<&str>,
+    theme: &ThemeTokens,
+) {
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+
+    let block = Block::default()
+        .title(" LAST ERROR ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(theme.accent_danger);
+
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
+    let content = last_error.unwrap_or("No error details available.");
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let paragraph = Paragraph::new(content).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, layout[0]);
+
+    let hints = Line::from(vec![
+        Span::styled("Esc", theme.fg_active),
+        Span::styled(" close  ", theme.fg_dim),
+        Span::styled("Ctrl+E", theme.fg_active),
+        Span::styled(" toggle", theme.fg_dim),
+    ]);
+    frame.render_widget(Paragraph::new(hints), layout[1]);
 }
 
 pub(super) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

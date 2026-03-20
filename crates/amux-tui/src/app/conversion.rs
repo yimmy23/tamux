@@ -88,6 +88,33 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
                     crate::wire::GoalRunStepStatus::Skipped => task::GoalRunStatus::Cancelled,
                 }),
                 order: step.position as u32,
+                instructions: step.instructions,
+                kind: format!("{:?}", step.kind).to_lowercase(),
+                task_id: step.task_id,
+                summary: step.summary,
+                error: step.error,
+            })
+            .collect(),
+        current_step_title: r.current_step_title,
+        child_task_count: r.child_task_count,
+        approval_count: r.approval_count,
+        last_error: r.last_error,
+        goal: r.goal,
+        current_step_index: r.current_step_index,
+        reflection_summary: r.reflection_summary,
+        memory_updates: r.memory_updates,
+        generated_skill_path: r.generated_skill_path,
+        child_task_ids: r.child_task_ids,
+        events: r
+            .events
+            .into_iter()
+            .map(|event| task::GoalRunEvent {
+                id: event.id,
+                timestamp: event.timestamp,
+                phase: event.phase,
+                message: event.message,
+                details: event.details,
+                step_index: event.step_index,
             })
             .collect(),
         created_at: 0,

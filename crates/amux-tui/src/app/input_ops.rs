@@ -44,6 +44,9 @@ impl TuiModel {
                     }
                     self.modal
                         .reduce(modal::ModalAction::SetQuery(self.input.buffer().to_string()));
+                    if modal_kind == modal::ModalKind::ThreadPicker {
+                        self.sync_thread_picker_item_count();
+                    }
                     return;
                 }
                 _ => return,
@@ -111,7 +114,7 @@ impl TuiModel {
                 self.status_line = format!("Attached: {} ({} bytes)", filename, size);
             }
             Err(e) => {
-                self.status_line = format!("Failed to attach '{}': {}", path, e);
+                self.status_line = "Attach failed".to_string();
                 self.last_error = Some(format!("Attach failed: {}", e));
                 self.error_active = true;
                 self.error_tick = self.tick_counter;

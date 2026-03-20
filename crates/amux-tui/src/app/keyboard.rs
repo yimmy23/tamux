@@ -21,6 +21,18 @@ impl TuiModel {
         if matches!(code, KeyCode::Modifier(_)) {
             return false;
         }
+        if code == KeyCode::Char('e') && modifiers.contains(KeyModifiers::CONTROL) {
+            if self.last_error.is_some() {
+                if self.modal.top() == Some(modal::ModalKind::ErrorViewer) {
+                    self.modal.reduce(modal::ModalAction::Pop);
+                } else {
+                    self.modal
+                        .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
+                    self.error_active = false;
+                }
+            }
+            return false;
+        }
         if let Some(modal_kind) = self.modal.top() {
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
@@ -34,32 +46,52 @@ impl TuiModel {
             KeyCode::Char('p') if ctrl => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette)),
-            KeyCode::Char('t') if ctrl => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker)),
+            KeyCode::Char('t') if ctrl => {
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+                self.sync_thread_picker_item_count();
+            }
             KeyCode::Char('b') if ctrl => {
                 let current = self.show_sidebar_override.unwrap_or(self.width >= 80);
                 self.show_sidebar_override = Some(!current);
             }
             KeyCode::Char('d') if ctrl => {
-                let half_page = (self.height / 2) as i32;
-                self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
+                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.task_view_scroll =
+                        self.task_view_scroll.saturating_add((self.height / 2) as usize);
+                } else {
+                    let half_page = (self.height / 2) as i32;
+                    self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
+                }
             }
             KeyCode::Char('u') if ctrl => {
                 if self.focus == FocusArea::Input {
                     self.input.reduce(input::InputAction::ClearLine);
+                } else if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.task_view_scroll =
+                        self.task_view_scroll.saturating_sub((self.height / 2) as usize);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
                 }
             }
             KeyCode::PageDown if self.focus == FocusArea::Chat => {
-                let half_page = (self.height / 2) as i32;
-                self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
+                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.task_view_scroll =
+                        self.task_view_scroll.saturating_add((self.height / 2) as usize);
+                } else {
+                    let half_page = (self.height / 2) as i32;
+                    self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
+                }
             }
             KeyCode::PageUp if self.focus == FocusArea::Chat => {
-                let half_page = (self.height / 2) as i32;
-                self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
+                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.task_view_scroll =
+                        self.task_view_scroll.saturating_sub((self.height / 2) as usize);
+                } else {
+                    let half_page = (self.height / 2) as i32;
+                    self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
+                }
             }
             KeyCode::Esc => {
                 if self.assistant_busy() {
@@ -88,7 +120,14 @@ impl TuiModel {
                     }
                 } else {
                     self.clear_pending_stop();
-                    if self.focus == FocusArea::Chat && self.chat.selected_message().is_some() {
+                    if matches!(self.main_pane_view, MainPaneView::Task(_))
+                        && self.focus == FocusArea::Chat
+                    {
+                        self.main_pane_view = MainPaneView::Conversation;
+                        self.task_view_scroll = 0;
+                    } else if self.focus == FocusArea::Chat
+                        && self.chat.selected_message().is_some()
+                    {
                         self.chat.select_message(None);
                         let current_scroll = self.chat.scroll_offset() as i32;
                         if current_scroll > 0 {
@@ -102,13 +141,6 @@ impl TuiModel {
             }
             KeyCode::Tab => self.focus_next(),
             KeyCode::BackTab => self.focus_prev(),
-            KeyCode::Char('!') if !ctrl && self.focus != FocusArea::Input => {
-                if let Some(err) = &self.last_error {
-                    self.status_line = err.clone();
-                }
-                self.error_active = false;
-                self.last_error = None;
-            }
             KeyCode::Left if self.focus == FocusArea::Input => {
                 self.input.reduce(input::InputAction::MoveCursorLeft);
             }
@@ -138,22 +170,42 @@ impl TuiModel {
                 self.input.reduce(input::InputAction::Redo);
             }
             KeyCode::Home if self.focus == FocusArea::Chat => {
-                self.chat.reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
-                self.chat.select_message(Some(0));
+                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.task_view_scroll = 0;
+                } else {
+                    self.chat.reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
+                    self.chat.select_message(Some(0));
+                }
             }
             KeyCode::End if self.focus == FocusArea::Chat => {
-                let offset = self.chat.scroll_offset() as i32;
-                self.chat.reduce(chat::ChatAction::ScrollChat(-offset));
-                self.chat.select_message(None);
+                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.task_view_scroll = usize::MAX / 4;
+                } else {
+                    let offset = self.chat.scroll_offset() as i32;
+                    self.chat.reduce(chat::ChatAction::ScrollChat(-offset));
+                    self.chat.select_message(None);
+                }
             }
             KeyCode::Down if self.focus != FocusArea::Input => match self.focus {
-                FocusArea::Chat => self.chat.select_next_message(),
-                FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Navigate(1)),
+                FocusArea::Chat => {
+                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                        self.task_view_scroll = self.task_view_scroll.saturating_add(1);
+                    } else {
+                        self.chat.select_next_message()
+                    }
+                }
+                FocusArea::Sidebar => self.sidebar.navigate(1, self.sidebar_item_count()),
                 _ => {}
             },
             KeyCode::Up if self.focus != FocusArea::Input => match self.focus {
-                FocusArea::Chat => self.chat.select_prev_message(),
-                FocusArea::Sidebar => self.sidebar.reduce(sidebar::SidebarAction::Navigate(-1)),
+                FocusArea::Chat => {
+                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                        self.task_view_scroll = self.task_view_scroll.saturating_sub(1);
+                    } else {
+                        self.chat.select_prev_message()
+                    }
+                }
+                FocusArea::Sidebar => self.sidebar.navigate(-1, self.sidebar_item_count()),
                 _ => {}
             },
             KeyCode::Char('r') if self.focus == FocusArea::Chat => {

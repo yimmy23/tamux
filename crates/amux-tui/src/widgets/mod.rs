@@ -13,4 +13,5 @@ pub mod sidebar;
 pub mod splash;
 pub mod subagents;
 pub mod task_tree;
+pub mod task_view;
 pub mod thread_picker;

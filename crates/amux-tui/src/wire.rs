@@ -248,9 +248,13 @@ pub struct AgentConfigSnapshot {
     #[serde(default)]
     pub assistant_id: String,
     #[serde(default)]
+    pub auth_source: String,
+    #[serde(default)]
     pub api_transport: String,
     #[serde(default)]
     pub reasoning_effort: String,
+    #[serde(default)]
+    pub context_window_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

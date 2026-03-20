@@ -69,7 +69,7 @@ pub use modal::{CommandItem, ModalAction, ModalKind, ModalState};
 #[allow(unused_imports)]
 pub use settings::{SettingsAction, SettingsState, SettingsTab};
 #[allow(unused_imports)]
-pub use sidebar::{SidebarAction, SidebarState, SidebarTab};
+pub use sidebar::{SidebarAction, SidebarItemTarget, SidebarState, SidebarTab};
 #[allow(unused_imports)]
 pub use task::{TaskAction, TaskState};
 

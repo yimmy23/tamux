@@ -41,10 +41,14 @@ pub struct Attachment {
 
 /// Flat representation of a sidebar item for matching selected index to data.
 struct SidebarFlatItem {
-    #[allow(dead_code)]
-    thread_id: Option<String>,
-    goal_run_id: Option<String>,
+    target: Option<sidebar::SidebarItemTarget>,
     title: String,
+}
+
+#[derive(Clone, Debug)]
+enum MainPaneView {
+    Conversation,
+    Task(sidebar::SidebarItemTarget),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +105,8 @@ pub struct TuiModel {
 
     // Responsive layout override: when Some, overrides breakpoint-based sidebar visibility
     show_sidebar_override: Option<bool>,
+    main_pane_view: MainPaneView,
+    task_view_scroll: usize,
 
     // Set by /quit command; checked after modal enter to issue quit
     pending_quit: bool,
@@ -155,6 +161,8 @@ impl TuiModel {
             error_tick: 0,
             pending_g: false,
             show_sidebar_override: None,
+            main_pane_view: MainPaneView::Conversation,
+            task_view_scroll: 0,
             pending_quit: false,
             pending_stop: false,
             pending_stop_tick: 0,
