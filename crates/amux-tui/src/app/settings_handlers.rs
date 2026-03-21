@@ -327,19 +327,13 @@ impl TuiModel {
             }
             "subagent_toggle" => {
                 if let Some(entry) = self.subagents.entries.get(self.subagents.selected) {
-                    let mut toggled = entry.clone();
-                    toggled.enabled = !toggled.enabled;
-                    // Build a JSON representation to send to daemon
-                    let json = serde_json::json!({
-                        "id": toggled.id,
-                        "name": toggled.name,
-                        "provider": toggled.provider,
-                        "model": toggled.model,
-                        "role": toggled.role,
-                        "enabled": toggled.enabled,
-                        "created_at": 0,
-                    }).to_string();
-                    self.send_daemon_command(crate::state::DaemonCommand::SetSubAgent(json));
+                    if let Some(ref raw) = entry.raw_json {
+                        let mut updated = raw.clone();
+                        if let Some(obj) = updated.as_object_mut() {
+                            obj.insert("enabled".to_string(), serde_json::Value::Bool(!entry.enabled));
+                        }
+                        self.send_daemon_command(crate::state::DaemonCommand::SetSubAgent(updated.to_string()));
+                    }
                 }
             }
             _ => {}

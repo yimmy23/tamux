@@ -9,6 +9,7 @@ pub struct SubAgentEntry {
     pub model: String,
     pub role: Option<String>,
     pub enabled: bool,
+    pub raw_json: Option<serde_json::Value>,
 }
 
 /// TUI state for the Sub-Agents settings tab.

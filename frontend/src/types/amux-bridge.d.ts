@@ -304,6 +304,8 @@ declare global {
         agentFetchModels?: (providerId: string, baseUrl: string, apiKey: string) => Promise<{ models?: Array<{ id: string; name?: string; context_window?: number }>; error?: string } | unknown>;
         agentGetProviderAuthStates?: () => Promise<unknown[]>;
         agentValidateProvider?: (providerId: string, baseUrl: string, apiKey: string, authSource: string) => Promise<{ valid: boolean; error?: string; models?: unknown[] }>;
+        agentGetConfig?: () => Promise<unknown>;
+        agentSetConfig?: (config: unknown) => Promise<unknown>;
         agentSetSubAgent?: (subAgentJson: string) => Promise<{ ok?: boolean; error?: string }>;
         agentRemoveSubAgent?: (subAgentId: string) => Promise<{ ok?: boolean }>;
         agentListSubAgents?: () => Promise<unknown[]>;

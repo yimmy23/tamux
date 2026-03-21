@@ -867,7 +867,6 @@ impl AgentEngine {
             reasoning_effort: config.reasoning_effort.clone(),
             context_window_tokens: config.context_window_tokens,
             response_schema: None,
-            authenticated: !config.api_key.is_empty(),
         })
     }
 

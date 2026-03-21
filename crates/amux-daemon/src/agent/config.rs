@@ -20,10 +20,9 @@ impl AgentEngine {
         let mut states = Vec::new();
 
         for def in PROVIDER_DEFINITIONS {
-            let (authenticated, has_api_key, auth_source, model, base_url) =
+            let (authenticated, auth_source, model, base_url) =
                 if let Some(pc) = config.providers.get(def.id) {
                     (
-                        !pc.api_key.is_empty(),
                         !pc.api_key.is_empty(),
                         pc.auth_source,
                         pc.model.clone(),
@@ -33,14 +32,12 @@ impl AgentEngine {
                     // Fall back to top-level config if this is the active provider.
                     (
                         !config.api_key.is_empty(),
-                        !config.api_key.is_empty(),
                         config.auth_source,
                         config.model.clone(),
                         config.base_url.clone(),
                     )
                 } else {
                     (
-                        false,
                         false,
                         AuthSource::default(),
                         def.default_model.to_string(),
@@ -53,7 +50,6 @@ impl AgentEngine {
                 provider_name: def.name.to_string(),
                 authenticated,
                 auth_source,
-                has_api_key,
                 model,
                 base_url,
             });

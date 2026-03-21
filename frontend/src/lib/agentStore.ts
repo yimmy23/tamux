@@ -108,7 +108,6 @@ export interface ProviderAuthState {
   provider_name: string;
   authenticated: boolean;
   auth_source: AuthSource;
-  has_api_key: boolean;
   model: string;
   base_url: string;
 }
@@ -681,8 +680,7 @@ export function clearThreadAbortController(threadId: string, controller?: AbortC
   threadAbortControllers.delete(threadId);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getBridge(): any {
+function getBridge(): AmuxBridge | null {
   return (window as any).tamux ?? (window as any).amux ?? null;
 }
 
@@ -1112,7 +1110,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       providers[providerId] = { ...existing, api_key: apiKey, ...(baseUrl ? { base_url: baseUrl } : {}) };
       (config as Record<string, unknown>).providers = providers;
       await bridge.agentSetConfig(config);
-      await get().refreshProviderAuthStates();
+      set({
+        providerAuthStates: get().providerAuthStates.map((s) =>
+          s.provider_id === providerId
+            ? { ...s, authenticated: true }
+            : s
+        ),
+      });
     } catch { /* ignore */ }
   },
   logoutProvider: async (providerId) => {
@@ -1127,7 +1131,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
       (config as Record<string, unknown>).providers = providers;
       await bridge.agentSetConfig(config);
-      await get().refreshProviderAuthStates();
+      set({
+        providerAuthStates: get().providerAuthStates.map((s) =>
+          s.provider_id === providerId
+            ? { ...s, authenticated: false }
+            : s
+        ),
+      });
     } catch { /* ignore */ }
   },
   addSubAgent: async (def) => {

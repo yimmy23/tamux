@@ -1124,9 +1124,6 @@ pub struct ProviderConfig {
     /// When set, request structured output with this JSON schema from the API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,
-    /// Derived from non-empty `api_key` — whether this provider is considered authenticated.
-    #[serde(default)]
-    pub authenticated: bool,
 }
 
 /// A named sub-agent definition that the orchestration engine can dispatch work to.
@@ -1163,7 +1160,6 @@ pub struct ProviderAuthState {
     pub provider_name: String,
     pub authenticated: bool,
     pub auth_source: AuthSource,
-    pub has_api_key: bool,
     pub model: String,
     pub base_url: String,
 }

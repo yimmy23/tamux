@@ -488,6 +488,7 @@ impl DaemonClient {
                         model: v.get("model")?.as_str()?.to_string(),
                         role: v.get("role").and_then(|s| s.as_str()).map(String::from),
                         enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
+                        raw_json: Some(v.clone()),
                     })
                 }).collect();
                 let _ = event_tx.send(ClientEvent::SubAgentList(entries)).await;
@@ -501,6 +502,7 @@ impl DaemonClient {
                     model: v.get("model").and_then(|s| s.as_str()).unwrap_or("").to_string(),
                     role: v.get("role").and_then(|s| s.as_str()).map(String::from),
                     enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
+                    raw_json: Some(v),
                 };
                 let _ = event_tx.send(ClientEvent::SubAgentUpdated(entry)).await;
             }

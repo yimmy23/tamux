@@ -24,7 +24,6 @@ export function ProviderAuthTab() {
         provider_name: d.name,
         authenticated: false,
         auth_source: "api_key" as const,
-        has_api_key: false,
         model: d.defaultModel,
         base_url: d.defaultBaseUrl,
     }))).filter((s) =>
