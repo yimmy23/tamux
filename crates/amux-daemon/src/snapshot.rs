@@ -853,11 +853,7 @@ pub fn cleanup_orphaned_files(history: &HistoryStore) -> Result<usize> {
     for dir_entry in std::fs::read_dir(&root)? {
         let dir_entry = dir_entry?;
         let path = dir_entry.path();
-        if path
-            .extension()
-            .map(|e| e == "gz")
-            .unwrap_or(false)
-        {
+        if path.extension().map(|e| e == "gz").unwrap_or(false) {
             let path_str = path.to_string_lossy().to_string();
             if !known_paths.contains(&path_str) {
                 let _ = std::fs::remove_file(&path);

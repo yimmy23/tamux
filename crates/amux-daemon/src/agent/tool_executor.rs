@@ -824,34 +824,27 @@ pub async fn execute_tool(
 
 async fn execute_list_files(
     args: &serde_json::Value,
-    session_manager: &Arc<SessionManager>,
-    preferred_session_id: Option<SessionId>,
+    _session_manager: &Arc<SessionManager>,
+    _preferred_session_id: Option<SessionId>,
 ) -> Result<String> {
     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
     validate_read_path(path)?;
+    let mut rows = Vec::new();
+    let mut read_dir = tokio::fs::read_dir(path).await?;
+    while let Some(entry) = read_dir.next_entry().await? {
+        let metadata = entry.metadata().await?;
+        let kind = if metadata.is_dir() { "dir" } else { "file" };
+        let size = metadata.len();
+        let name = entry.file_name().to_string_lossy().to_string();
+        rows.push(format!("{kind}\t{size}\t{name}"));
+    }
 
-    let timeout_secs = args
-        .get("timeout_seconds")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(30)
-        .min(600);
-
-    let token = format!("amux_ls_{}", uuid::Uuid::new_v4().simple());
-    let path_b64 = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
-    let script = build_list_files_script(&path_b64, &token);
-
-    let output = execute_terminal_python_capture(
-        session_manager,
-        preferred_session_id,
-        args.get("session").and_then(|v| v.as_str()),
-        &script,
-        &token,
-        "List directory contents through the active terminal session",
-        timeout_secs,
-    )
-    .await?;
-
-    Ok(output)
+    rows.sort();
+    if rows.is_empty() {
+        Ok("(empty directory)".to_string())
+    } else {
+        Ok(rows.join("\n"))
+    }
 }
 
 async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
@@ -1405,6 +1398,7 @@ async fn execute_terminal_python_capture(
     rationale: &str,
     timeout_secs: u64,
 ) -> Result<String> {
+    const MAX_CAPTURE_BYTES: usize = 512_000;
     let sessions = session_manager.list().await;
     if sessions.is_empty() {
         anyhow::bail!("No active terminal sessions are available");
@@ -1498,6 +1492,10 @@ async fn execute_terminal_python_capture(
         match msg {
             DaemonMessage::Output { id, data } if id == resolved_session_id => {
                 output_buf.extend_from_slice(&data);
+                if output_buf.len() > MAX_CAPTURE_BYTES {
+                    let overflow = output_buf.len() - MAX_CAPTURE_BYTES;
+                    output_buf.drain(..overflow);
+                }
             }
             DaemonMessage::ManagedCommandFinished {
                 id,

@@ -1,6 +1,152 @@
 use super::*;
 
 impl TuiModel {
+    pub(super) fn target_thread_id(&self, target: &sidebar::SidebarItemTarget) -> Option<String> {
+        match target {
+            sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } => self
+                .tasks
+                .goal_run_by_id(goal_run_id)
+                .and_then(|run| run.thread_id.clone()),
+            sidebar::SidebarItemTarget::Task { task_id } => {
+                self.tasks.task_by_id(task_id).and_then(|task| {
+                    task.thread_id.clone().or_else(|| {
+                        task.goal_run_id
+                            .as_deref()
+                            .and_then(|goal_run_id| self.tasks.goal_run_by_id(goal_run_id))
+                            .and_then(|run| run.thread_id.clone())
+                    })
+                })
+            }
+        }
+        .or_else(|| self.chat.active_thread_id().map(str::to_string))
+    }
+
+    fn preferred_task_target(&self) -> Option<sidebar::SidebarItemTarget> {
+        if let MainPaneView::Task(target) = &self.main_pane_view {
+            return Some(target.clone());
+        }
+
+        if let Some(target) = self
+            .sidebar_items()
+            .get(self.sidebar.selected_item())
+            .and_then(|item| item.target.clone())
+        {
+            return Some(target);
+        }
+
+        if let Some(active_thread_id) = self.chat.active_thread_id() {
+            if let Some(run) = self
+                .tasks
+                .goal_runs()
+                .iter()
+                .filter(|run| run.thread_id.as_deref() == Some(active_thread_id))
+                .max_by_key(|run| run.updated_at)
+            {
+                return Some(sidebar::SidebarItemTarget::GoalRun {
+                    goal_run_id: run.id.clone(),
+                    step_id: None,
+                });
+            }
+
+            if let Some(task) = self
+                .tasks
+                .tasks()
+                .iter()
+                .rev()
+                .find(|task| task.thread_id.as_deref() == Some(active_thread_id))
+            {
+                return Some(sidebar::SidebarItemTarget::Task {
+                    task_id: task.id.clone(),
+                });
+            }
+        }
+
+        if let Some(run) = self
+            .tasks
+            .goal_runs()
+            .iter()
+            .max_by_key(|run| run.updated_at)
+        {
+            return Some(sidebar::SidebarItemTarget::GoalRun {
+                goal_run_id: run.id.clone(),
+                step_id: None,
+            });
+        }
+
+        self.tasks
+            .tasks()
+            .last()
+            .map(|task| sidebar::SidebarItemTarget::Task {
+                task_id: task.id.clone(),
+            })
+    }
+
+    pub(super) fn open_goal_runner_view(
+        &mut self,
+        target: Option<sidebar::SidebarItemTarget>,
+    ) -> bool {
+        let Some(target) = target.or_else(|| self.preferred_task_target()) else {
+            self.status_line = "No goal/task activity yet".to_string();
+            return false;
+        };
+        self.open_sidebar_target(target);
+        true
+    }
+
+    pub(super) fn request_preview_for_selected_path(&mut self, thread_id: &str) {
+        let Some(context) = self.tasks.work_context_for_thread(thread_id) else {
+            return;
+        };
+        let Some(selected_path) = self.tasks.selected_work_path(thread_id) else {
+            return;
+        };
+        let Some(entry) = context
+            .entries
+            .iter()
+            .find(|entry| entry.path == selected_path)
+        else {
+            return;
+        };
+        if let Some(repo_root) = entry.repo_root.as_deref() {
+            self.send_daemon_command(DaemonCommand::RequestGitDiff {
+                repo_path: repo_root.to_string(),
+                file_path: Some(entry.path.clone()),
+            });
+        } else {
+            self.send_daemon_command(DaemonCommand::RequestFilePreview {
+                path: entry.path.clone(),
+                max_bytes: Some(65_536),
+            });
+        }
+    }
+
+    pub(super) fn ensure_task_view_preview(&mut self) {
+        let MainPaneView::Task(target) = &self.main_pane_view else {
+            return;
+        };
+        let Some(thread_id) = self.target_thread_id(target) else {
+            return;
+        };
+        if self.tasks.selected_work_path(&thread_id).is_none() {
+            if let Some(context) = self.tasks.work_context_for_thread(&thread_id) {
+                if let Some(first) = context.entries.first() {
+                    self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                        thread_id: thread_id.clone(),
+                        path: Some(first.path.clone()),
+                    });
+                }
+            }
+        }
+        self.request_preview_for_selected_path(&thread_id);
+    }
+
+    fn request_task_view_context(&mut self, target: &sidebar::SidebarItemTarget) {
+        if let Some(thread_id) = self.target_thread_id(target) {
+            self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
+            self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
+        }
+    }
+
     pub(super) fn sidebar_items(&self) -> Vec<SidebarFlatItem> {
         let mut flat_items = Vec::new();
 
@@ -64,7 +210,12 @@ impl TuiModel {
                     }
                 }
 
-                for task in self.tasks.tasks().iter().filter(|task| task.goal_run_id.is_none()) {
+                for task in self
+                    .tasks
+                    .tasks()
+                    .iter()
+                    .filter(|task| task.goal_run_id.is_none())
+                {
                     flat_items.push(SidebarFlatItem {
                         target: Some(sidebar::SidebarItemTarget::Task {
                             task_id: task.id.clone(),
@@ -86,6 +237,7 @@ impl TuiModel {
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
             self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
         }
+        self.request_task_view_context(&target);
         self.main_pane_view = MainPaneView::Task(target);
         self.task_view_scroll = 0;
     }
@@ -143,6 +295,12 @@ impl TuiModel {
                 self.chat.reduce(chat::ChatAction::NewThread);
                 self.main_pane_view = MainPaneView::Conversation;
             }
+            "goals" | "tasks" => {
+                let _ = self.open_goal_runner_view(None);
+            }
+            "conversation" | "chat" => {
+                self.main_pane_view = MainPaneView::Conversation;
+            }
             "settings" => self
                 .modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Settings)),
@@ -160,7 +318,7 @@ impl TuiModel {
                 self.status_line = "System prompt: use /settings -> Agent tab".to_string();
             }
             "goal" => {
-                self.status_line = "Goal runs: type your goal as a message".to_string();
+                let _ = self.open_goal_runner_view(None);
             }
             "attach" => {
                 self.status_line =
@@ -242,19 +400,33 @@ impl TuiModel {
     }
 
     pub(super) fn focus_next(&mut self) {
-        self.focus = match self.focus {
-            FocusArea::Chat => FocusArea::Sidebar,
-            FocusArea::Sidebar => FocusArea::Input,
-            FocusArea::Input => FocusArea::Chat,
+        self.focus = if self.sidebar_visible() {
+            match self.focus {
+                FocusArea::Chat => FocusArea::Sidebar,
+                FocusArea::Sidebar => FocusArea::Input,
+                FocusArea::Input => FocusArea::Chat,
+            }
+        } else {
+            match self.focus {
+                FocusArea::Chat | FocusArea::Sidebar => FocusArea::Input,
+                FocusArea::Input => FocusArea::Chat,
+            }
         };
         self.input.set_mode(input::InputMode::Insert);
     }
 
     pub(super) fn focus_prev(&mut self) {
-        self.focus = match self.focus {
-            FocusArea::Chat => FocusArea::Input,
-            FocusArea::Sidebar => FocusArea::Chat,
-            FocusArea::Input => FocusArea::Sidebar,
+        self.focus = if self.sidebar_visible() {
+            match self.focus {
+                FocusArea::Chat => FocusArea::Input,
+                FocusArea::Sidebar => FocusArea::Chat,
+                FocusArea::Input => FocusArea::Sidebar,
+            }
+        } else {
+            match self.focus {
+                FocusArea::Chat | FocusArea::Sidebar => FocusArea::Input,
+                FocusArea::Input => FocusArea::Chat,
+            }
         };
         self.input.set_mode(input::InputMode::Insert);
     }

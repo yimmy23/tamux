@@ -17,8 +17,7 @@ impl TuiModel {
 
         widgets::header::render(frame, chunks[0], &self.config, &self.chat, &self.theme);
 
-        let default_show_sidebar = width >= 80;
-        let show_sidebar = self.show_sidebar_override.unwrap_or(default_show_sidebar);
+        let show_sidebar = self.sidebar_visible();
         if show_sidebar {
             let sidebar_pct = if width >= 120 { 33 } else { 28 };
             let body_chunks = Layout::default()

@@ -34,6 +34,17 @@ pub enum ClientEvent {
     GoalRunList(Vec<crate::state::task::GoalRun>),
     GoalRunDetail(Option<crate::state::task::GoalRun>),
     GoalRunUpdate(crate::state::task::GoalRun),
+    ThreadTodos {
+        thread_id: String,
+        items: Vec<crate::state::task::TodoItem>,
+    },
+    WorkContext(crate::state::task::ThreadWorkContext),
+    GitDiff {
+        repo_path: String,
+        file_path: Option<String>,
+        diff: String,
+    },
+    FilePreview(crate::state::task::FilePreview),
 
     AgentConfig(crate::state::config::AgentConfigSnapshot),
     AgentConfigRaw(serde_json::Value),
@@ -129,6 +140,27 @@ impl DaemonProjection {
             ClientEvent::GoalRunDetail(None) => vec![],
             ClientEvent::GoalRunUpdate(run) => {
                 vec![AppAction::Task(TaskAction::GoalRunUpdate(run))]
+            }
+            ClientEvent::ThreadTodos { thread_id, items } => {
+                vec![AppAction::Task(TaskAction::ThreadTodosReceived {
+                    thread_id,
+                    items,
+                })]
+            }
+            ClientEvent::WorkContext(context) => {
+                vec![AppAction::Task(TaskAction::WorkContextReceived(context))]
+            }
+            ClientEvent::GitDiff {
+                repo_path,
+                file_path,
+                diff,
+            } => vec![AppAction::Task(TaskAction::GitDiffReceived {
+                repo_path,
+                file_path,
+                diff,
+            })],
+            ClientEvent::FilePreview(preview) => {
+                vec![AppAction::Task(TaskAction::FilePreviewReceived(preview))]
             }
 
             // Config events → ConfigAction

@@ -319,7 +319,8 @@ impl TuiModel {
                     self.config.base_url = def.default_base_url.to_string();
                     self.config.model = def.default_model.to_string();
                     self.config.api_key.clear();
-                    self.config.auth_source = providers::default_auth_source_for(def.id).to_string();
+                    self.config.auth_source =
+                        providers::default_auth_source_for(def.id).to_string();
                     self.config.api_transport = def.default_transport.to_string();
                     self.config.assistant_id.clear();
                     self.config.custom_context_window_tokens = if def.id == "custom" {
@@ -330,25 +331,22 @@ impl TuiModel {
                     self.config.context_window_tokens = if def.id == "custom" {
                         self.config.custom_context_window_tokens.unwrap_or(128_000)
                     } else {
-                        providers::known_context_window_for(def.id, def.default_model).unwrap_or(128_000)
+                        providers::known_context_window_for(def.id, def.default_model)
+                            .unwrap_or(128_000)
                     };
 
                     if let Some(raw) = &self.config.agent_config_raw {
                         if let Some(provider_config) = raw.get(def.id) {
-                            if let Some(saved_base_url) = TuiModel::provider_field_str(
-                                provider_config,
-                                "baseUrl",
-                                "base_url",
-                            ) {
+                            if let Some(saved_base_url) =
+                                TuiModel::provider_field_str(provider_config, "baseUrl", "base_url")
+                            {
                                 if !saved_base_url.is_empty() {
                                     self.config.base_url = saved_base_url.to_string();
                                 }
                             }
-                            if let Some(key) = TuiModel::provider_field_str(
-                                provider_config,
-                                "apiKey",
-                                "api_key",
-                            ) {
+                            if let Some(key) =
+                                TuiModel::provider_field_str(provider_config, "apiKey", "api_key")
+                            {
                                 self.config.api_key = key.to_string();
                             }
                             if let Some(saved_model) =
@@ -362,45 +360,39 @@ impl TuiModel {
                                 provider_config,
                                 "apiTransport",
                                 "api_transport",
-                            )
-                            {
-                                self.config.api_transport = if def
-                                    .supported_transports
-                                    .contains(&saved_transport)
-                                {
-                                    saved_transport.to_string()
-                                } else {
-                                    def.default_transport.to_string()
-                                };
+                            ) {
+                                self.config.api_transport =
+                                    if def.supported_transports.contains(&saved_transport) {
+                                        saved_transport.to_string()
+                                    } else {
+                                        def.default_transport.to_string()
+                                    };
                             }
                             if let Some(saved_auth_source) = TuiModel::provider_field_str(
                                 provider_config,
                                 "authSource",
                                 "auth_source",
-                            )
-                            {
-                                self.config.auth_source = if def
-                                    .supported_auth_sources
-                                    .contains(&saved_auth_source)
-                                {
-                                    saved_auth_source.to_string()
-                                } else {
-                                    def.default_auth_source.to_string()
-                                };
+                            ) {
+                                self.config.auth_source =
+                                    if def.supported_auth_sources.contains(&saved_auth_source) {
+                                        saved_auth_source.to_string()
+                                    } else {
+                                        def.default_auth_source.to_string()
+                                    };
                             }
                             if let Some(saved_assistant_id) = TuiModel::provider_field_str(
                                 provider_config,
                                 "assistantId",
                                 "assistant_id",
-                            )
-                            {
+                            ) {
                                 self.config.assistant_id = saved_assistant_id.to_string();
                             }
-                            self.config.custom_context_window_tokens = TuiModel::provider_field_u64(
-                                provider_config,
-                                "customContextWindowTokens",
-                                "context_window_tokens",
-                            )
+                            self.config.custom_context_window_tokens =
+                                TuiModel::provider_field_u64(
+                                    provider_config,
+                                    "customContextWindowTokens",
+                                    "context_window_tokens",
+                                )
                                 .map(|value| value.max(1000) as u32);
                             self.config.context_window_tokens =
                                 TuiModel::effective_context_window_for_provider_value(
@@ -410,9 +402,7 @@ impl TuiModel {
                         }
                     }
 
-                    if def.id == "openai"
-                        && self.config.auth_source == "chatgpt_subscription"
-                    {
+                    if def.id == "openai" && self.config.auth_source == "chatgpt_subscription" {
                         self.config.api_transport = "responses".to_string();
                     }
 

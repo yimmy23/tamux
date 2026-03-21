@@ -353,11 +353,11 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
         ],
         "kimi" => &[
             ("kimi-k2.5", "Kimi K2.5", 262_144),
-            ("kimi-for-coding", "Kimi for Coding", 128_000)
+            ("kimi-for-coding", "Kimi for Coding", 128_000),
         ],
         "kimi-coding-plan" => &[
             ("kimi-k2.5", "Kimi K2.5", 262_144),
-            ("kimi-for-coding", "Kimi for Coding", 128_000)
+            ("kimi-for-coding", "Kimi for Coding", 128_000),
         ],
         "qwen" => &[
             ("qwen-max", "Qwen Max", 32_768),

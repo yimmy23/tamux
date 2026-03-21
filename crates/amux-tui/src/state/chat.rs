@@ -124,6 +124,7 @@ pub enum ChatAction {
     ScrollChat(i32),
     NewThread,
     SetTranscriptMode(TranscriptMode),
+    ResetStreaming,
     ForceStopStreaming,
 }
 
@@ -576,6 +577,12 @@ impl ChatState {
 
             ChatAction::SetTranscriptMode(mode) => {
                 self.transcript_mode = mode;
+            }
+
+            ChatAction::ResetStreaming => {
+                self.streaming_content.clear();
+                self.streaming_reasoning.clear();
+                self.active_tool_calls.clear();
             }
 
             ChatAction::ForceStopStreaming => {

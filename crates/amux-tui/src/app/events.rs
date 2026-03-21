@@ -65,6 +65,7 @@ impl TuiModel {
                 self.connected = false;
                 self.default_session_id = None;
                 self.agent_activity = None;
+                self.chat.reduce(chat::ChatAction::ResetStreaming);
                 self.clear_pending_stop();
                 self.status_line = "Disconnected from daemon".to_string();
             }
@@ -72,6 +73,7 @@ impl TuiModel {
                 self.connected = false;
                 self.default_session_id = None;
                 self.agent_activity = None;
+                self.chat.reduce(chat::ChatAction::ResetStreaming);
                 self.clear_pending_stop();
                 self.status_line = format!("Connection lost. Retrying in {}s", delay_secs);
             }
@@ -120,6 +122,43 @@ impl TuiModel {
                 self.tasks.reduce(task::TaskAction::GoalRunUpdate(
                     conversion::convert_goal_run(run),
                 ));
+            }
+            ClientEvent::ThreadTodos { thread_id, items } => {
+                self.tasks.reduce(task::TaskAction::ThreadTodosReceived {
+                    thread_id,
+                    items: items.into_iter().map(conversion::convert_todo).collect(),
+                });
+            }
+            ClientEvent::WorkContext(context) => {
+                self.tasks.reduce(task::TaskAction::WorkContextReceived(
+                    conversion::convert_work_context(context),
+                ));
+                self.ensure_task_view_preview();
+            }
+            ClientEvent::GitDiff {
+                repo_path,
+                file_path,
+                diff,
+            } => {
+                self.tasks.reduce(task::TaskAction::GitDiffReceived {
+                    repo_path,
+                    file_path,
+                    diff,
+                });
+            }
+            ClientEvent::FilePreview {
+                path,
+                content,
+                truncated,
+                is_text,
+            } => {
+                self.tasks
+                    .reduce(task::TaskAction::FilePreviewReceived(task::FilePreview {
+                        path,
+                        content,
+                        truncated,
+                        is_text,
+                    }));
             }
             ClientEvent::AgentConfig(cfg) => {
                 self.config.reduce(config::ConfigAction::ConfigReceived(

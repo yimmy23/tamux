@@ -16,7 +16,7 @@ use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage};
 
 use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, FetchedModel, GoalRun, GoalRunStatus,
-    HeartbeatItem, TaskStatus,
+    HeartbeatItem, TaskStatus, ThreadWorkContext,
 };
 
 #[cfg(unix)]
@@ -26,8 +26,12 @@ use tokio::net::UnixStream;
 pub enum ClientEvent {
     Connected,
     Disconnected,
-    Reconnecting { delay_secs: u64 },
-    SessionSpawned { session_id: String },
+    Reconnecting {
+        delay_secs: u64,
+    },
+    SessionSpawned {
+        session_id: String,
+    },
 
     ThreadList(Vec<AgentThread>),
     ThreadDetail(Option<AgentThread>),
@@ -40,6 +44,22 @@ pub enum ClientEvent {
     GoalRunList(Vec<GoalRun>),
     GoalRunDetail(Option<GoalRun>),
     GoalRunUpdate(GoalRun),
+    ThreadTodos {
+        thread_id: String,
+        items: Vec<crate::wire::TodoItem>,
+    },
+    WorkContext(ThreadWorkContext),
+    GitDiff {
+        repo_path: String,
+        file_path: Option<String>,
+        diff: String,
+    },
+    FilePreview {
+        path: String,
+        content: String,
+        truncated: bool,
+        is_text: bool,
+    },
     AgentConfig(AgentConfigSnapshot),
     AgentConfigRaw(Value),
     ModelsFetched(Vec<FetchedModel>),
@@ -165,7 +185,10 @@ impl DaemonClient {
                     .await;
 
                 if connected {
-                    info!("Daemon connection closed; retrying in {}s", retry_delay.as_secs());
+                    info!(
+                        "Daemon connection closed; retrying in {}s",
+                        retry_delay.as_secs()
+                    );
                 }
                 tokio::time::sleep(retry_delay).await;
             }
@@ -348,6 +371,54 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse goal run detail: {}", err),
                 }
             }
+            DaemonMessage::AgentTodoDetail {
+                thread_id,
+                todos_json,
+            } => match serde_json::from_str::<Vec<crate::wire::TodoItem>>(&todos_json) {
+                Ok(items) => {
+                    let _ = event_tx
+                        .send(ClientEvent::ThreadTodos { thread_id, items })
+                        .await;
+                }
+                Err(err) => warn!("Failed to parse todo detail: {}", err),
+            },
+            DaemonMessage::AgentWorkContextDetail {
+                thread_id: _,
+                context_json,
+            } => match serde_json::from_str::<ThreadWorkContext>(&context_json) {
+                Ok(context) => {
+                    let _ = event_tx.send(ClientEvent::WorkContext(context)).await;
+                }
+                Err(err) => warn!("Failed to parse work context detail: {}", err),
+            },
+            DaemonMessage::GitDiff {
+                repo_path,
+                file_path,
+                diff,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::GitDiff {
+                        repo_path,
+                        file_path,
+                        diff,
+                    })
+                    .await;
+            }
+            DaemonMessage::FilePreview {
+                path,
+                content,
+                truncated,
+                is_text,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::FilePreview {
+                        path,
+                        content,
+                        truncated,
+                        is_text,
+                    })
+                    .await;
+            }
             DaemonMessage::AgentConfigResponse { config_json } => {
                 match serde_json::from_str::<Value>(&config_json) {
                     Ok(raw) => {
@@ -488,6 +559,7 @@ impl DaemonClient {
                         id: get_string(&event, "task_id").unwrap_or_default(),
                         title: get_string(&event, "message")
                             .unwrap_or_else(|| "Task update".to_string()),
+                        thread_id: None,
                         status: event
                             .get("status")
                             .cloned()
@@ -520,6 +592,26 @@ impl DaemonClient {
                     });
 
                 let _ = event_tx.send(ClientEvent::GoalRunUpdate(goal_run)).await;
+            }
+            "todo_update" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                let items = event
+                    .get("items")
+                    .cloned()
+                    .and_then(|raw| serde_json::from_value::<Vec<crate::wire::TodoItem>>(raw).ok())
+                    .unwrap_or_default();
+                let _ = event_tx
+                    .send(ClientEvent::ThreadTodos { thread_id, items })
+                    .await;
+            }
+            "work_context_update" => {
+                if let Some(context) = event
+                    .get("context")
+                    .cloned()
+                    .and_then(|raw| serde_json::from_value::<ThreadWorkContext>(raw).ok())
+                {
+                    let _ = event_tx.send(ClientEvent::WorkContext(context)).await;
+                }
             }
             _ => {}
         }
@@ -555,6 +647,40 @@ impl DaemonClient {
     pub fn request_thread(&self, thread_id: impl Into<String>) -> Result<()> {
         self.send(ClientMessage::AgentGetThread {
             thread_id: thread_id.into(),
+        })
+    }
+
+    pub fn request_todos(&self, thread_id: impl Into<String>) -> Result<()> {
+        self.send(ClientMessage::AgentGetTodos {
+            thread_id: thread_id.into(),
+        })
+    }
+
+    pub fn request_work_context(&self, thread_id: impl Into<String>) -> Result<()> {
+        self.send(ClientMessage::AgentGetWorkContext {
+            thread_id: thread_id.into(),
+        })
+    }
+
+    pub fn request_git_diff(
+        &self,
+        repo_path: impl Into<String>,
+        file_path: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::GetGitDiff {
+            repo_path: repo_path.into(),
+            file_path,
+        })
+    }
+
+    pub fn request_file_preview(
+        &self,
+        path: impl Into<String>,
+        max_bytes: Option<usize>,
+    ) -> Result<()> {
+        self.send(ClientMessage::GetFilePreview {
+            path: path.into(),
+            max_bytes,
         })
     }
 

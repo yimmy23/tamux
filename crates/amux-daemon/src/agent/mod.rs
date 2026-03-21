@@ -21,7 +21,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -46,10 +47,17 @@ struct StreamCancellationEntry {
     token: CancellationToken,
 }
 
+struct ThreadRepoWatcher {
+    repo_root: String,
+    watcher: RecommendedWatcher,
+}
+
 const ONECONTEXT_BOOTSTRAP_QUERY_MAX_CHARS: usize = 180;
 const ONECONTEXT_BOOTSTRAP_OUTPUT_MAX_CHARS: usize = 5000;
 const MIN_CONTEXT_TARGET_TOKENS: usize = 1024;
 const APPROX_CHARS_PER_TOKEN: usize = 4;
+const FILE_WATCH_DEBOUNCE_MS: u64 = 700;
+const FILE_WATCH_TICK_MS: u64 = 250;
 
 struct ParsedMessageMetadata {
     tool_call_id: Option<String>,
@@ -69,7 +77,8 @@ struct ParsedThreadMetadata {
 }
 
 fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessageMetadata {
-    let metadata = metadata_json.and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
+    let metadata =
+        metadata_json.and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
     let get_str = |keys: &[&str]| -> Option<String> {
         metadata.as_ref().and_then(|value| {
             keys.iter()
@@ -79,7 +88,11 @@ fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessageMetadata 
     };
     let api_transport = metadata
         .as_ref()
-        .and_then(|value| value.get("api_transport").or_else(|| value.get("apiTransport")))
+        .and_then(|value| {
+            value
+                .get("api_transport")
+                .or_else(|| value.get("apiTransport"))
+        })
         .and_then(|value| serde_json::from_value::<ApiTransport>(value.clone()).ok());
 
     ParsedMessageMetadata {
@@ -150,6 +163,13 @@ fn build_thread_metadata_json(thread: &AgentThread) -> Option<String> {
     .ok()
 }
 
+fn file_watch_event_is_relevant(event: &Event) -> bool {
+    matches!(
+        event.kind,
+        EventKind::Any | EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    )
+}
+
 /// Cached check for `aline` CLI availability (checked once per process).
 pub(crate) fn aline_available() -> bool {
     static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -167,6 +187,7 @@ pub struct AgentEngine {
     history: HistoryStore,
     threads: RwLock<HashMap<String, AgentThread>>,
     thread_todos: RwLock<HashMap<String, Vec<TodoItem>>>,
+    thread_work_contexts: RwLock<HashMap<String, ThreadWorkContext>>,
     tasks: Mutex<VecDeque<AgentTask>>,
     goal_runs: Mutex<VecDeque<GoalRun>>,
     inflight_goal_runs: Mutex<HashSet<String>>,
@@ -187,11 +208,15 @@ pub struct AgentEngine {
     /// Active cancellation tokens per thread for stop-stream behavior.
     stream_cancellations: Mutex<HashMap<String, StreamCancellationEntry>>,
     stream_generation: AtomicU64,
+    repo_watchers: Mutex<HashMap<String, ThreadRepoWatcher>>,
+    watcher_refresh_tx: mpsc::UnboundedSender<String>,
+    watcher_refresh_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
 }
 
 impl AgentEngine {
     pub fn new(session_manager: Arc<SessionManager>, config: AgentConfig) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(256);
+        let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
         let data_dir = agent_data_dir();
 
         // Pre-initialize external agent runners for discovery
@@ -210,6 +235,7 @@ impl AgentEngine {
             history: HistoryStore::new().expect("history store initialization failed"),
             threads: RwLock::new(HashMap::new()),
             thread_todos: RwLock::new(HashMap::new()),
+            thread_work_contexts: RwLock::new(HashMap::new()),
             tasks: Mutex::new(VecDeque::new()),
             goal_runs: Mutex::new(VecDeque::new()),
             inflight_goal_runs: Mutex::new(HashSet::new()),
@@ -225,6 +251,9 @@ impl AgentEngine {
             external_runners: RwLock::new(runners),
             stream_cancellations: Mutex::new(HashMap::new()),
             stream_generation: AtomicU64::new(1),
+            repo_watchers: Mutex::new(HashMap::new()),
+            watcher_refresh_tx,
+            watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
         })
     }
 
@@ -275,6 +304,90 @@ impl AgentEngine {
             true
         } else {
             false
+        }
+    }
+
+    async fn ensure_repo_watcher(&self, thread_id: &str, repo_root: &str) {
+        let normalized_root = std::fs::canonicalize(repo_root)
+            .unwrap_or_else(|_| std::path::PathBuf::from(repo_root))
+            .to_string_lossy()
+            .to_string();
+
+        let mut watchers = self.repo_watchers.lock().await;
+        if watchers
+            .get(thread_id)
+            .map(|entry| entry.repo_root == normalized_root)
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        watchers.remove(thread_id);
+
+        let refresh_tx = self.watcher_refresh_tx.clone();
+        let callback_thread_id = thread_id.to_string();
+        let callback_repo_root = normalized_root.clone();
+        let mut watcher =
+            match notify::recommended_watcher(move |result: notify::Result<Event>| match result {
+                Ok(event) => {
+                    if file_watch_event_is_relevant(&event) {
+                        let _ = refresh_tx.send(callback_thread_id.clone());
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %callback_thread_id,
+                        repo_root = %callback_repo_root,
+                        "filesystem watcher error: {error}"
+                    );
+                }
+            }) {
+                Ok(watcher) => watcher,
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        repo_root = %normalized_root,
+                        "failed to create filesystem watcher: {error}"
+                    );
+                    return;
+                }
+            };
+
+        if let Err(error) = watcher.watch(
+            std::path::Path::new(&normalized_root),
+            RecursiveMode::Recursive,
+        ) {
+            tracing::warn!(
+                thread_id = %thread_id,
+                repo_root = %normalized_root,
+                "failed to watch repo root: {error}"
+            );
+            return;
+        }
+
+        tracing::info!(
+            thread_id = %thread_id,
+            repo_root = %normalized_root,
+            "filesystem watcher attached"
+        );
+        watchers.insert(
+            thread_id.to_string(),
+            ThreadRepoWatcher {
+                repo_root: normalized_root,
+                watcher,
+            },
+        );
+    }
+
+    async fn remove_repo_watcher(&self, thread_id: &str) {
+        let removed = self.repo_watchers.lock().await.remove(thread_id);
+        if let Some(entry) = removed {
+            tracing::info!(
+                thread_id = %thread_id,
+                repo_root = %entry.repo_root,
+                "filesystem watcher removed"
+            );
+            drop(entry.watcher);
         }
     }
 
@@ -369,7 +482,8 @@ impl AgentEngine {
             Ok(thread_rows) if !thread_rows.is_empty() => {
                 let mut threads = HashMap::new();
                 for thread_row in thread_rows {
-                    let thread_metadata = parse_thread_metadata(thread_row.metadata_json.as_deref());
+                    let thread_metadata =
+                        parse_thread_metadata(thread_row.metadata_json.as_deref());
                     let messages = self
                         .history
                         .list_messages(&thread_row.id, None)
@@ -508,6 +622,20 @@ impl AgentEngine {
             }
         }
 
+        let work_context_path = self.data_dir.join("work-context.json");
+        if work_context_path.exists() {
+            match tokio::fs::read_to_string(&work_context_path).await {
+                Ok(raw) => {
+                    if let Ok(items) =
+                        serde_json::from_str::<HashMap<String, ThreadWorkContext>>(&raw)
+                    {
+                        *self.thread_work_contexts.write().await = items;
+                    }
+                }
+                Err(e) => tracing::warn!("failed to load thread work context: {e}"),
+            }
+        }
+
         // Load heartbeat items
         let heartbeat_path = self.data_dir.join("heartbeat.json");
         if heartbeat_path.exists() {
@@ -526,6 +654,23 @@ impl AgentEngine {
 
         // Seed built-in skill documents into ~/.tamux/skills/builtin/
         seed_builtin_skills(&self.data_dir);
+
+        let repo_watches = {
+            let contexts = self.thread_work_contexts.read().await;
+            contexts
+                .iter()
+                .filter_map(|(thread_id, context)| {
+                    context
+                        .entries
+                        .iter()
+                        .find_map(|entry| entry.repo_root.clone())
+                        .map(|repo_root| (thread_id.clone(), repo_root))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (thread_id, repo_root) in repo_watches {
+            self.ensure_repo_watcher(&thread_id, &repo_root).await;
+        }
 
         tracing::info!("agent engine hydrated from {:?}", self.data_dir);
 
@@ -758,10 +903,14 @@ impl AgentEngine {
         let heartbeat_interval =
             std::time::Duration::from_secs(config.heartbeat_interval_mins * 60);
         let gateway_poll_interval = std::time::Duration::from_secs(3);
+        let mut watcher_refresh_rx = self.watcher_refresh_rx.lock().await.take();
 
         let mut task_tick = tokio::time::interval(task_interval);
         let mut heartbeat_tick = tokio::time::interval(heartbeat_interval);
         let mut gateway_tick = tokio::time::interval(gateway_poll_interval);
+        let mut watcher_tick =
+            tokio::time::interval(std::time::Duration::from_millis(FILE_WATCH_TICK_MS));
+        let mut pending_watcher_refreshes: HashMap<String, Instant> = HashMap::new();
 
         tracing::info!(
             task_poll_secs = config.task_poll_interval_secs,
@@ -788,6 +937,41 @@ impl AgentEngine {
                     let backend = self.config.read().await.agent_backend.clone();
                     if backend != "openclaw" && backend != "hermes" {
                         self.poll_gateway_messages().await;
+                    }
+                }
+                maybe_thread_id = async {
+                    match watcher_refresh_rx.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending::<Option<String>>().await,
+                    }
+                } => {
+                    if let Some(thread_id) = maybe_thread_id {
+                        pending_watcher_refreshes.insert(
+                            thread_id,
+                            Instant::now() + Duration::from_millis(FILE_WATCH_DEBOUNCE_MS),
+                        );
+                    }
+                }
+                _ = watcher_tick.tick() => {
+                    if pending_watcher_refreshes.is_empty() {
+                        continue;
+                    }
+
+                    let now = Instant::now();
+                    let due_threads = pending_watcher_refreshes
+                        .iter()
+                        .filter_map(|(thread_id, deadline)| {
+                            if *deadline <= now {
+                                Some(thread_id.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    for thread_id in due_threads {
+                        pending_watcher_refreshes.remove(&thread_id);
+                        self.refresh_thread_repo_context(&thread_id).await;
                     }
                 }
                 _ = shutdown.changed() => {
@@ -1333,6 +1517,7 @@ impl AgentEngine {
                 thread.updated_at = now_millis();
             }
         }
+        self.persist_thread_by_id(&tid).await;
 
         // Resolve provider config after the user message is attached so
         // startup/config failures still persist a complete thread history.
@@ -1351,7 +1536,7 @@ impl AgentEngine {
                     None,
                     None,
                 )
-                    .await;
+                .await;
                 self.persist_threads().await;
                 self.emit_turn_error_completion(&tid, &error_text, None, None)
                     .await;
@@ -1637,16 +1822,15 @@ impl AgentEngine {
                         response_id,
                     )
                     .await;
-                    self
-                        .update_thread_upstream_state(
-                            &tid,
-                            &config.provider,
-                            &provider_config.model,
-                            effective_transport_for_turn,
-                            Some(provider_config.assistant_id.as_str()),
-                            upstream_thread_id,
-                        )
-                        .await;
+                    self.update_thread_upstream_state(
+                        &tid,
+                        &config.provider,
+                        &provider_config.model,
+                        effective_transport_for_turn,
+                        Some(provider_config.assistant_id.as_str()),
+                        upstream_thread_id,
+                    )
+                    .await;
 
                     let generation_secs = first_token_at
                         .unwrap_or(llm_started_at)
@@ -1709,16 +1893,16 @@ impl AgentEngine {
                             thread.total_output_tokens += output_tokens.unwrap_or(0);
                         }
                     }
-                    self
-                        .update_thread_upstream_state(
-                            &tid,
-                            &config.provider,
-                            &provider_config.model,
-                            effective_transport_for_turn,
-                            Some(provider_config.assistant_id.as_str()),
-                            upstream_thread_id,
-                        )
-                        .await;
+                    self.persist_thread_by_id(&tid).await;
+                    self.update_thread_upstream_state(
+                        &tid,
+                        &config.provider,
+                        &provider_config.model,
+                        effective_transport_for_turn,
+                        Some(provider_config.assistant_id.as_str()),
+                        upstream_thread_id,
+                    )
+                    .await;
 
                     // Execute each tool call
                     for tc in &tool_calls {
@@ -1793,6 +1977,16 @@ impl AgentEngine {
                             self.refresh_memory_cache().await;
                         }
 
+                        if !result.is_error {
+                            self.capture_tool_work_context(
+                                &tid,
+                                task_id,
+                                tc.function.name.as_str(),
+                                tc.function.arguments.as_str(),
+                            )
+                            .await;
+                        }
+
                         let _ = self.event_tx.send(AgentEvent::ToolResult {
                             thread_id: tid.clone(),
                             call_id: tc.id.clone(),
@@ -1825,6 +2019,7 @@ impl AgentEngine {
                                 });
                             }
                         }
+                        self.persist_thread_by_id(&tid).await;
 
                         if let Some(pending_approval) = result.pending_approval.as_ref() {
                             interrupted_for_approval = true;
@@ -1860,7 +2055,7 @@ impl AgentEngine {
                         Some(provider_config.api_transport),
                         None,
                     )
-                        .await;
+                    .await;
                     break;
                 }
             }
@@ -2014,6 +2209,19 @@ impl AgentEngine {
             .get(thread_id)
             .cloned()
             .unwrap_or_default()
+    }
+
+    pub async fn get_work_context(&self, thread_id: &str) -> ThreadWorkContext {
+        self.refresh_thread_repo_context(thread_id).await;
+        self.thread_work_contexts
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .unwrap_or_else(|| ThreadWorkContext {
+                thread_id: thread_id.to_string(),
+                entries: Vec::new(),
+            })
     }
 
     async fn project_goal_run(&self, goal_run: GoalRun) -> GoalRun {
@@ -2855,6 +3063,13 @@ impl AgentEngine {
         });
     }
 
+    fn emit_work_context_update(&self, thread_id: &str, context: ThreadWorkContext) {
+        let _ = self.event_tx.send(AgentEvent::WorkContextUpdate {
+            thread_id: thread_id.to_string(),
+            context,
+        });
+    }
+
     fn emit_workflow_notice(
         &self,
         thread_id: &str,
@@ -2908,6 +3123,309 @@ impl AgentEngine {
             self.persist_goal_runs().await;
             self.emit_goal_run_update(&goal_run, Some("Goal todo updated".into()));
         }
+    }
+
+    async fn capture_tool_work_context(
+        &self,
+        thread_id: &str,
+        task_id: Option<&str>,
+        tool_name: &str,
+        args_json: &str,
+    ) {
+        match tool_name {
+            "create_file" | "write_file" | "append_to_file" | "replace_in_file"
+            | "apply_file_patch" => {
+                let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) else {
+                    return;
+                };
+                let Some(path) = args
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    return;
+                };
+                self.record_file_work_context(thread_id, task_id, tool_name, path)
+                    .await;
+            }
+            "run_terminal_command" | "run_bash" | "bash_command" => {
+                self.refresh_thread_repo_context(thread_id).await;
+            }
+            _ => {}
+        }
+    }
+
+    async fn record_generated_skill_work_context(&self, goal_run: &GoalRun) {
+        let Some(path) = goal_run.generated_skill_path.as_deref() else {
+            return;
+        };
+
+        let context = ThreadWorkContext {
+            thread_id: goal_run.thread_id.clone().unwrap_or_default(),
+            entries: vec![WorkContextEntry {
+                path: path.to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::GeneratedSkill,
+                source: "generated_skill".to_string(),
+                change_kind: None,
+                repo_root: crate::git::find_git_root(path),
+                goal_run_id: Some(goal_run.id.clone()),
+                step_index: Some(goal_run.current_step_index),
+                session_id: goal_run.session_id.clone(),
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        };
+        if context.thread_id.is_empty() {
+            return;
+        }
+        self.merge_work_context_entries(&context.thread_id, context.entries)
+            .await;
+    }
+
+    async fn record_file_work_context(
+        &self,
+        thread_id: &str,
+        task_id: Option<&str>,
+        source: &str,
+        path: &str,
+    ) {
+        let normalized = std::fs::canonicalize(path)
+            .unwrap_or_else(|_| std::path::PathBuf::from(path))
+            .to_string_lossy()
+            .to_string();
+        let repo_root = crate::git::find_git_root(&normalized);
+        let (goal_run_id, step_index, session_id) = self.goal_context_for_task(task_id).await;
+        let (entry_path, kind) = if let Some(repo_root) = repo_root.as_deref() {
+            let relative = std::path::Path::new(&normalized)
+                .strip_prefix(repo_root)
+                .ok()
+                .map(|value| value.to_string_lossy().trim_start_matches('/').to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| normalized.clone());
+            (relative, WorkContextEntryKind::RepoChange)
+        } else {
+            (normalized.clone(), WorkContextEntryKind::Artifact)
+        };
+
+        self.merge_work_context_entries(
+            thread_id,
+            vec![WorkContextEntry {
+                path: entry_path,
+                previous_path: None,
+                kind,
+                source: source.to_string(),
+                change_kind: None,
+                repo_root,
+                goal_run_id,
+                step_index,
+                session_id,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        )
+        .await;
+        self.refresh_thread_repo_context(thread_id).await;
+    }
+
+    async fn goal_context_for_task(
+        &self,
+        task_id: Option<&str>,
+    ) -> (Option<String>, Option<usize>, Option<String>) {
+        let Some(task_id) = task_id else {
+            return (None, None, None);
+        };
+
+        let task = {
+            let tasks = self.tasks.lock().await;
+            tasks.iter().find(|item| item.id == task_id).cloned()
+        };
+        let Some(task) = task else {
+            return (None, None, None);
+        };
+
+        let goal_run = if let Some(goal_run_id) = task.goal_run_id.as_deref() {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .find(|item| item.id == goal_run_id)
+                .cloned()
+        } else {
+            None
+        };
+        let step_index = goal_run.as_ref().map(|item| item.current_step_index);
+        (
+            task.goal_run_id.clone(),
+            step_index,
+            task.session_id
+                .clone()
+                .or_else(|| goal_run.and_then(|item| item.session_id)),
+        )
+    }
+
+    async fn resolve_thread_repo_root(
+        &self,
+        thread_id: &str,
+    ) -> Option<(String, Option<String>, Option<String>, Option<usize>)> {
+        let goal_runs = self.goal_runs.lock().await;
+        let run = goal_runs
+            .iter()
+            .filter(|run| run.thread_id.as_deref() == Some(thread_id))
+            .max_by_key(|run| run.updated_at)
+            .cloned();
+        drop(goal_runs);
+
+        let session_id =
+            if let Some(run_session_id) = run.as_ref().and_then(|item| item.session_id.clone()) {
+                Some(run_session_id)
+            } else {
+                let tasks = self.tasks.lock().await;
+                tasks
+                    .iter()
+                    .filter(|task| task.thread_id.as_deref() == Some(thread_id))
+                    .find_map(|task| task.session_id.clone())
+            };
+
+        if let Some(session_id) = session_id.as_deref() {
+            if let Some(cwd) = self
+                .session_manager
+                .list()
+                .await
+                .into_iter()
+                .find(|session| session.id.to_string() == session_id)
+                .and_then(|session| session.cwd)
+            {
+                if let Some(repo_root) = crate::git::find_git_root(&cwd) {
+                    return Some((
+                        repo_root,
+                        run.as_ref().map(|item| item.id.clone()),
+                        Some(session_id.to_string()),
+                        run.as_ref().map(|item| item.current_step_index),
+                    ));
+                }
+            }
+        }
+
+        let existing = self.thread_work_contexts.read().await;
+        let repo_root = existing.get(thread_id).and_then(|context| {
+            context
+                .entries
+                .iter()
+                .find_map(|entry| entry.repo_root.clone())
+        });
+        let goal_run_id = run.as_ref().map(|item| item.id.clone());
+        let step_index = run.as_ref().map(|item| item.current_step_index);
+        repo_root.map(|root| (root, goal_run_id, session_id, step_index))
+    }
+
+    async fn refresh_thread_repo_context(&self, thread_id: &str) {
+        let Some((repo_root, goal_run_id, session_id, step_index)) =
+            self.resolve_thread_repo_root(thread_id).await
+        else {
+            self.remove_repo_watcher(thread_id).await;
+            return;
+        };
+
+        self.ensure_repo_watcher(thread_id, &repo_root).await;
+        let changes = crate::git::list_git_changes(&repo_root);
+        let now = now_millis();
+        let entries = changes
+            .into_iter()
+            .map(|entry| WorkContextEntry {
+                path: entry.path,
+                previous_path: entry.previous_path,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some(entry.kind),
+                repo_root: Some(repo_root.clone()),
+                goal_run_id: goal_run_id.clone(),
+                step_index,
+                session_id: session_id.clone(),
+                is_text: true,
+                updated_at: now,
+            })
+            .collect::<Vec<_>>();
+        self.merge_repo_scan_entries(thread_id, &repo_root, entries)
+            .await;
+    }
+
+    async fn merge_repo_scan_entries(
+        &self,
+        thread_id: &str,
+        repo_root: &str,
+        fresh_entries: Vec<WorkContextEntry>,
+    ) {
+        let mut contexts = self.thread_work_contexts.write().await;
+        let context = contexts
+            .entry(thread_id.to_string())
+            .or_insert_with(|| ThreadWorkContext {
+                thread_id: thread_id.to_string(),
+                entries: Vec::new(),
+            });
+
+        context.entries.retain(|entry| {
+            !(entry.repo_root.as_deref() == Some(repo_root) && entry.source == "repo_scan")
+        });
+
+        for fresh in fresh_entries {
+            if let Some(existing) = context
+                .entries
+                .iter_mut()
+                .find(|entry| entry.path == fresh.path && entry.repo_root == fresh.repo_root)
+            {
+                existing.change_kind = fresh.change_kind.clone();
+                existing.previous_path = fresh.previous_path.clone();
+                existing.updated_at = fresh.updated_at;
+                if existing.source == "repo_scan" {
+                    *existing = fresh.clone();
+                }
+            } else {
+                context.entries.push(fresh);
+            }
+        }
+        context
+            .entries
+            .sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let snapshot = context.clone();
+        drop(contexts);
+
+        self.persist_work_context().await;
+        self.emit_work_context_update(thread_id, snapshot);
+    }
+
+    async fn merge_work_context_entries(
+        &self,
+        thread_id: &str,
+        fresh_entries: Vec<WorkContextEntry>,
+    ) {
+        let mut contexts = self.thread_work_contexts.write().await;
+        let context = contexts
+            .entry(thread_id.to_string())
+            .or_insert_with(|| ThreadWorkContext {
+                thread_id: thread_id.to_string(),
+                entries: Vec::new(),
+            });
+
+        for fresh in fresh_entries {
+            if let Some(existing) = context
+                .entries
+                .iter_mut()
+                .find(|entry| entry.path == fresh.path && entry.repo_root == fresh.repo_root)
+            {
+                *existing = fresh;
+            } else {
+                context.entries.push(fresh);
+            }
+        }
+        context
+            .entries
+            .sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let snapshot = context.clone();
+        drop(contexts);
+
+        self.persist_work_context().await;
+        self.emit_work_context_update(thread_id, snapshot);
     }
 
     async fn record_goal_run_todo_snapshot(
@@ -3361,6 +3879,7 @@ impl AgentEngine {
         };
 
         self.persist_goal_runs().await;
+        self.record_generated_skill_work_context(&updated).await;
         self.emit_goal_run_update(&updated, Some("Goal completed".into()));
         Ok(())
     }
@@ -3566,7 +4085,12 @@ impl AgentEngine {
     pub async fn delete_thread(&self, thread_id: &str) -> bool {
         let removed = self.threads.write().await.remove(thread_id).is_some();
         if removed {
+            self.remove_repo_watcher(thread_id).await;
+            self.thread_todos.write().await.remove(thread_id);
+            self.thread_work_contexts.write().await.remove(thread_id);
             self.persist_threads().await;
+            self.persist_todos().await;
+            self.persist_work_context().await;
         }
         removed
     }
@@ -3608,6 +4132,7 @@ impl AgentEngine {
                 thread.updated_at = now_millis();
             }
         }
+        self.persist_thread_by_id(&tid).await;
 
         let onecontext_bootstrap = if is_new_thread {
             self.onecontext_bootstrap_for_new_thread(content).await
@@ -3680,7 +4205,7 @@ impl AgentEngine {
                     None,
                     None,
                 )
-                    .await;
+                .await;
                 self.persist_threads().await;
                 self.emit_turn_error_completion(&tid, &message, None, None)
                     .await;
@@ -3709,7 +4234,7 @@ impl AgentEngine {
                     None,
                     None,
                 )
-                    .await;
+                .await;
                 self.persist_threads().await;
                 self.emit_turn_error_completion(
                     &tid,
@@ -3737,7 +4262,7 @@ impl AgentEngine {
                 None,
                 None,
             )
-                .await;
+            .await;
         }
         self.persist_threads().await;
         self.finish_stream_cancellation(&tid, stream_generation)
@@ -4292,6 +4817,8 @@ impl AgentEngine {
             thread.total_output_tokens += output_tokens;
             thread.updated_at = now_millis();
         }
+        drop(threads);
+        self.persist_thread_by_id(thread_id).await;
     }
 
     async fn emit_turn_error_completion(
@@ -4338,69 +4865,85 @@ impl AgentEngine {
             thread.upstream_thread_id = upstream_thread_id;
             thread.updated_at = now_millis();
         }
+        drop(threads);
+        self.persist_thread_by_id(thread_id).await;
+    }
+
+    fn persist_thread_snapshot(&self, thread: &AgentThread) {
+        let thread_row = amux_protocol::AgentDbThread {
+            id: thread.id.clone(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("assistant".to_string()),
+            title: thread.title.clone(),
+            created_at: thread.created_at as i64,
+            updated_at: thread.updated_at as i64,
+            message_count: thread.messages.len() as i64,
+            total_tokens: (thread.total_input_tokens + thread.total_output_tokens) as i64,
+            last_preview: thread
+                .messages
+                .last()
+                .map(|message| message.content.chars().take(100).collect())
+                .unwrap_or_default(),
+            metadata_json: build_thread_metadata_json(thread),
+        };
+
+        if let Err(e) = self.history.delete_thread(&thread.id) {
+            tracing::warn!(thread_id = %thread.id, "failed to reset sqlite thread state: {e}");
+            return;
+        }
+        if let Err(e) = self.history.create_thread(&thread_row) {
+            tracing::warn!(thread_id = %thread.id, "failed to persist sqlite thread row: {e}");
+            return;
+        }
+
+        for (index, message) in thread.messages.iter().enumerate() {
+            let metadata_json = build_message_metadata_json(message);
+            let row = amux_protocol::AgentDbMessage {
+                id: format!("{}:{}", thread.id, index),
+                thread_id: thread.id.clone(),
+                created_at: message.timestamp as i64,
+                role: match message.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::Tool => "tool",
+                }
+                .to_string(),
+                content: message.content.clone(),
+                provider: message.provider.clone(),
+                model: message.model.clone(),
+                input_tokens: Some(message.input_tokens as i64),
+                output_tokens: Some(message.output_tokens as i64),
+                total_tokens: Some((message.input_tokens + message.output_tokens) as i64),
+                reasoning: message.reasoning.clone(),
+                tool_calls_json: message
+                    .tool_calls
+                    .as_ref()
+                    .and_then(|calls| serde_json::to_string(calls).ok()),
+                metadata_json,
+            };
+            if let Err(e) = self.history.add_message(&row) {
+                tracing::warn!(thread_id = %thread.id, message_index = index, "failed to persist sqlite message row: {e}");
+            }
+        }
+    }
+
+    async fn persist_thread_by_id(&self, thread_id: &str) {
+        let thread = {
+            let threads = self.threads.read().await;
+            threads.get(thread_id).cloned()
+        };
+        if let Some(thread) = thread {
+            self.persist_thread_snapshot(&thread);
+        }
     }
 
     async fn persist_threads(&self) {
         let threads = self.threads.read().await;
         for thread in threads.values() {
-            let thread_row = amux_protocol::AgentDbThread {
-                id: thread.id.clone(),
-                workspace_id: None,
-                surface_id: None,
-                pane_id: None,
-                agent_name: Some("assistant".to_string()),
-                title: thread.title.clone(),
-                created_at: thread.created_at as i64,
-                updated_at: thread.updated_at as i64,
-                message_count: thread.messages.len() as i64,
-                total_tokens: (thread.total_input_tokens + thread.total_output_tokens) as i64,
-                last_preview: thread
-                    .messages
-                    .last()
-                    .map(|message| message.content.chars().take(100).collect())
-                    .unwrap_or_default(),
-                metadata_json: build_thread_metadata_json(thread),
-            };
-
-            if let Err(e) = self.history.delete_thread(&thread.id) {
-                tracing::warn!(thread_id = %thread.id, "failed to reset sqlite thread state: {e}");
-                continue;
-            }
-            if let Err(e) = self.history.create_thread(&thread_row) {
-                tracing::warn!(thread_id = %thread.id, "failed to persist sqlite thread row: {e}");
-                continue;
-            }
-
-            for (index, message) in thread.messages.iter().enumerate() {
-                let metadata_json = build_message_metadata_json(message);
-                let row = amux_protocol::AgentDbMessage {
-                    id: format!("{}:{}", thread.id, index),
-                    thread_id: thread.id.clone(),
-                    created_at: message.timestamp as i64,
-                    role: match message.role {
-                        MessageRole::System => "system",
-                        MessageRole::User => "user",
-                        MessageRole::Assistant => "assistant",
-                        MessageRole::Tool => "tool",
-                    }
-                    .to_string(),
-                    content: message.content.clone(),
-                    provider: message.provider.clone(),
-                    model: message.model.clone(),
-                    input_tokens: Some(message.input_tokens as i64),
-                    output_tokens: Some(message.output_tokens as i64),
-                    total_tokens: Some((message.input_tokens + message.output_tokens) as i64),
-                    reasoning: message.reasoning.clone(),
-                    tool_calls_json: message
-                        .tool_calls
-                        .as_ref()
-                        .and_then(|calls| serde_json::to_string(calls).ok()),
-                    metadata_json,
-                };
-                if let Err(e) = self.history.add_message(&row) {
-                    tracing::warn!(thread_id = %thread.id, message_index = index, "failed to persist sqlite message row: {e}");
-                }
-            }
+            self.persist_thread_snapshot(thread);
         }
     }
 
@@ -4408,6 +4951,13 @@ impl AgentEngine {
         let todos = self.thread_todos.read().await;
         if let Err(e) = persist_json(&self.data_dir.join("todos.json"), &*todos).await {
             tracing::warn!("failed to persist todos: {e}");
+        }
+    }
+
+    async fn persist_work_context(&self) {
+        let items = self.thread_work_contexts.read().await;
+        if let Err(e) = persist_json(&self.data_dir.join("work-context.json"), &*items).await {
+            tracing::warn!("failed to persist work context: {e}");
         }
     }
 
@@ -4482,7 +5032,8 @@ fn prepare_llm_request(
     let compaction_active =
         compacted.len() != messages.len() || compacted.iter().any(message_is_compaction_summary);
 
-    if selected_transport == ApiTransport::NativeAssistant && !provider_config.assistant_id.trim().is_empty()
+    if selected_transport == ApiTransport::NativeAssistant
+        && !provider_config.assistant_id.trim().is_empty()
     {
         let latest_user_message = messages
             .iter()
@@ -4494,7 +5045,8 @@ fn prepare_llm_request(
                 messages: messages_to_api_format(&[user_message]),
                 transport: ApiTransport::NativeAssistant,
                 previous_response_id: None,
-                upstream_thread_id: if thread.upstream_transport == Some(ApiTransport::NativeAssistant)
+                upstream_thread_id: if thread.upstream_transport
+                    == Some(ApiTransport::NativeAssistant)
                     && thread.upstream_provider.as_deref() == Some(config.provider.as_str())
                     && thread.upstream_model.as_deref() == Some(provider_config.model.as_str())
                     && thread.upstream_assistant_id.as_deref()
@@ -4643,7 +5195,10 @@ fn trim_compacted_messages(
     }
 }
 
-fn effective_context_target_tokens(config: &AgentConfig, provider_config: &ProviderConfig) -> usize {
+fn effective_context_target_tokens(
+    config: &AgentConfig,
+    provider_config: &ProviderConfig,
+) -> usize {
     let context_window = provider_config
         .context_window_tokens
         .max(config.context_window_tokens)

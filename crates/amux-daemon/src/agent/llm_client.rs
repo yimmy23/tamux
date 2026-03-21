@@ -16,8 +16,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::types::{
-    get_provider_api_type, get_provider_definition, ApiTransport, ApiType, AuthMethod,
-    AuthSource, CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
+    get_provider_api_type, get_provider_definition, ApiTransport, ApiType, AuthMethod, AuthSource,
+    CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -96,7 +96,11 @@ struct TransportCompatibilityError {
 
 impl fmt::Display for TransportCompatibilityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} transport incompatibility: {}", self.provider, self.details)
+        write!(
+            f,
+            "{} transport incompatibility: {}",
+            self.provider, self.details
+        )
     }
 }
 
@@ -695,7 +699,8 @@ fn apply_openai_auth_headers(
 }
 
 fn build_native_assistant_base_url(provider: &str, config: &ProviderConfig) -> Option<String> {
-    let preferred = get_provider_definition(provider).and_then(|definition| definition.native_base_url);
+    let preferred =
+        get_provider_definition(provider).and_then(|definition| definition.native_base_url);
     preferred
         .or_else(|| (!config.base_url.trim().is_empty()).then_some(config.base_url.as_str()))
         .map(|url| url.trim_end_matches('/').to_string())
@@ -783,7 +788,9 @@ async fn run_native_assistant(
                 if is_compatibility_error {
                     return Err(TransportCompatibilityError {
                         provider: provider.to_string(),
-                        details: format!("native assistant thread creation failed ({status}): {text}"),
+                        details: format!(
+                            "native assistant thread creation failed ({status}): {text}"
+                        ),
                     }
                     .into());
                 }
@@ -794,7 +801,9 @@ async fn run_native_assistant(
                 .get("id")
                 .and_then(|value| value.as_str())
                 .map(ToOwned::to_owned)
-                .ok_or_else(|| anyhow::anyhow!("native assistant thread creation returned no thread id"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("native assistant thread creation returned no thread id")
+                })?
         }
     };
 
@@ -878,9 +887,10 @@ async fn run_native_assistant(
     let run_status_url = format!("{base_url}/threads/{thread_id}/runs/{run_id}");
     for _ in 0..180u32 {
         tokio::time::sleep(Duration::from_millis(1000)).await;
-        let status_response = apply_openai_auth_headers(client.get(&run_status_url), provider, config)
-            .send()
-            .await?;
+        let status_response =
+            apply_openai_auth_headers(client.get(&run_status_url), provider, config)
+                .send()
+                .await?;
         if !status_response.status().is_success() {
             let status = status_response.status();
             let text = status_response
@@ -912,14 +922,9 @@ async fn run_native_assistant(
         {
             "queued" | "in_progress" => continue,
             "completed" => {
-                let content = fetch_native_assistant_message(
-                    client,
-                    provider,
-                    config,
-                    &base_url,
-                    &thread_id,
-                )
-                .await?;
+                let content =
+                    fetch_native_assistant_message(client, provider, config, &base_url, &thread_id)
+                        .await?;
                 let _ = tx
                     .send(Ok(CompletionChunk::Done {
                         content,
@@ -1145,10 +1150,10 @@ async fn run_openai_responses(
         "stream": true,
     });
 
-    if let Some(previous_response_id) = previous_response_id.filter(|value| !value.trim().is_empty())
+    if let Some(previous_response_id) =
+        previous_response_id.filter(|value| !value.trim().is_empty())
     {
-        body["previous_response_id"] =
-            serde_json::Value::String(previous_response_id.to_string());
+        body["previous_response_id"] = serde_json::Value::String(previous_response_id.to_string());
     }
 
     if !tools.is_empty() {
@@ -1184,13 +1189,13 @@ async fn run_openai_responses(
 
     if codex_auth.is_some() {
         body["store"] = serde_json::Value::Bool(false);
-        body["include"] =
-            serde_json::Value::Array(vec![serde_json::Value::String(
-                "reasoning.encrypted_content".to_string(),
-            )]);
+        body["include"] = serde_json::Value::Array(vec![serde_json::Value::String(
+            "reasoning.encrypted_content".to_string(),
+        )]);
         if body.get("text").is_none() {
             body["text"] = serde_json::json!({ "verbosity": "high" });
-        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut()) {
+        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut())
+        {
             text_obj.insert(
                 "verbosity".to_string(),
                 serde_json::Value::String("high".to_string()),
@@ -1202,7 +1207,10 @@ async fn run_openai_responses(
         client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", codex_auth.access_token))
+            .header(
+                "Authorization",
+                format!("Bearer {}", codex_auth.access_token),
+            )
             .header("chatgpt-account-id", codex_auth.account_id)
             .header("OpenAI-Beta", "responses=experimental")
             .header("originator", "tamux")
@@ -1528,12 +1536,13 @@ async fn parse_openai_responses_sse(
                         if item.get("type").and_then(|value| value.as_str())
                             == Some("function_call")
                         {
-                            let entry = pending_tool_calls
-                                .entry(output_index)
-                                .or_insert_with(|| PendingToolCall {
-                                    id: String::new(),
-                                    name: String::new(),
-                                    arguments: String::new(),
+                            let entry =
+                                pending_tool_calls.entry(output_index).or_insert_with(|| {
+                                    PendingToolCall {
+                                        id: String::new(),
+                                        name: String::new(),
+                                        arguments: String::new(),
+                                    }
                                 });
                             if let Some(call_id) =
                                 item.get("call_id").and_then(|value| value.as_str())
@@ -1557,13 +1566,13 @@ async fn parse_openai_responses_sse(
                         .and_then(|value| value.as_u64())
                         .unwrap_or(0) as u32;
                     if let Some(delta) = parsed.get("delta").and_then(|value| value.as_str()) {
-                        let entry = pending_tool_calls
-                            .entry(output_index)
-                            .or_insert_with(|| PendingToolCall {
+                        let entry = pending_tool_calls.entry(output_index).or_insert_with(|| {
+                            PendingToolCall {
                                 id: String::new(),
                                 name: String::new(),
                                 arguments: String::new(),
-                            });
+                            }
+                        });
                         entry.arguments.push_str(delta);
                     }
                 }
@@ -1714,7 +1723,9 @@ async fn run_anthropic(
                         _ => "",
                     }
                 }])
-            } else if m.role == "assistant" && m.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty()) {
+            } else if m.role == "assistant"
+                && m.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
+            {
                 let mut blocks = Vec::new();
                 if let ApiContent::Text(text) = &m.content {
                     if !text.is_empty() {

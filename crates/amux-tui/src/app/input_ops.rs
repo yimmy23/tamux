@@ -42,8 +42,9 @@ impl TuiModel {
                             other => self.input.reduce(input::InputAction::InsertChar(other)),
                         }
                     }
-                    self.modal
-                        .reduce(modal::ModalAction::SetQuery(self.input.buffer().to_string()));
+                    self.modal.reduce(modal::ModalAction::SetQuery(
+                        self.input.buffer().to_string(),
+                    ));
                     if modal_kind == modal::ModalKind::ThreadPicker {
                         self.sync_thread_picker_item_count();
                     }

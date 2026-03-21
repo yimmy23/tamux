@@ -27,6 +27,7 @@ import {
 import { fetchAgentRuns, formatRunStatus, runStatusColor, type AgentRun } from "../../lib/agentRuns";
 import { provisionAgentWorkspaceTerminals } from "../../lib/agentWorkspace";
 import { fetchThreadTodos } from "../../lib/agentTodos";
+import { fetchFilePreview, fetchGitDiff, fetchThreadWorkContext, type ThreadWorkContext, type WorkContextEntry } from "../../lib/agentWorkContext";
 import { useAgentStore } from "../../lib/agentStore";
 import type { Workspace } from "../../lib/types";
 import { shortenHomePath, useWorkspaceStore } from "../../lib/workspaceStore";
@@ -88,58 +89,8 @@ type ThreadTarget = {
     session_id?: string | null;
 };
 
-type GitStatusKind = "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "conflict";
-
-type GitStatusEntry = {
-    code: string;
-    path: string;
-    previousPath: string | null;
-    kind: GitStatusKind;
-};
-
-function classifyGitStatus(code: string): GitStatusKind {
-    const compact = code.replace(/\s/g, "");
-    if (compact === "??") return "untracked";
-    if (compact.includes("U")) return "conflict";
-    if (compact.includes("R")) return "renamed";
-    if (compact.includes("C")) return "copied";
-    if (compact.includes("A")) return "added";
-    if (compact.includes("D")) return "deleted";
-    return "modified";
-}
-
-function parseGitStatus(output: string): GitStatusEntry[] {
-    return output
-        .split(/\r?\n/)
-        .map((line) => {
-            if (!line.trim() || line.length < 4) {
-                return null;
-            }
-
-            const code = line.slice(0, 2);
-            const rawPath = line.slice(3).trim();
-            if (!rawPath) {
-                return null;
-            }
-
-            const renameParts = rawPath.split(" -> ");
-            const previousPath = renameParts.length > 1 ? renameParts[0]?.trim() || null : null;
-            const nextPath = renameParts.length > 1 ? renameParts[renameParts.length - 1]?.trim() : rawPath;
-            if (!nextPath) {
-                return null;
-            }
-
-            return {
-                code,
-                path: nextPath,
-                previousPath,
-                kind: classifyGitStatus(code),
-            } satisfies GitStatusEntry;
-        })
-        .filter((entry): entry is GitStatusEntry => Boolean(entry));
-}
-
-function gitStatusLabel(kind: GitStatusKind): string {
+function workContextKindLabel(entry: WorkContextEntry): string {
+    const kind = entry.changeKind;
     switch (kind) {
         case "added":
             return "Added";
@@ -153,13 +104,17 @@ function gitStatusLabel(kind: GitStatusKind): string {
             return "Untracked";
         case "conflict":
             return "Conflict";
-        default:
+        case "modified":
             return "Modified";
+        default:
+            if (entry.kind === "generated_skill") return "Skill";
+            if (entry.kind === "artifact") return "Artifact";
+            return "Changed";
     }
 }
 
-function gitStatusColor(kind: GitStatusKind): string {
-    switch (kind) {
+function workContextKindColor(entry: WorkContextEntry): string {
+    switch (entry.changeKind) {
         case "added":
         case "copied":
         case "untracked":
@@ -171,6 +126,8 @@ function gitStatusColor(kind: GitStatusKind): string {
         case "conflict":
             return "var(--warning)";
         default:
+            if (entry.kind === "generated_skill") return "var(--mission)";
+            if (entry.kind === "artifact") return "var(--accent)";
             return "var(--text-secondary)";
     }
 }
@@ -1351,20 +1308,25 @@ function TaskCodePreview({
     task: AgentQueueTask;
     location: TaskWorkspaceLocation | null;
 }) {
-    const [entries, setEntries] = useState<GitStatusEntry[]>([]);
+    const [context, setContext] = useState<ThreadWorkContext>({ threadId: "", entries: [] });
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
-    const [diffText, setDiffText] = useState("");
+    const [previewText, setPreviewText] = useState("");
     const [loadingEntries, setLoadingEntries] = useState(false);
     const [loadingDiff, setLoadingDiff] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const amux = (window as any).tamux ?? (window as any).amux;
     const codingTask = taskLooksLikeCoding(task);
+    const threadId = task.thread_id || null;
+    const bridge = (window as any).tamux ?? (window as any).amux;
+    const selectedEntry = useMemo(
+        () => context.entries.find((entry) => entry.path === selectedPath) ?? null,
+        [context.entries, selectedPath],
+    );
 
     useEffect(() => {
-        if (!location?.cwd || !amux?.gitStatus) {
-            setEntries([]);
+        if (!threadId) {
+            setContext({ threadId: "", entries: [] });
             setSelectedPath(null);
-            setDiffText("");
+            setPreviewText("");
             setLoadingEntries(false);
             setLoadingDiff(false);
             setError(null);
@@ -1375,27 +1337,26 @@ function TaskCodePreview({
         setLoadingEntries(true);
         setError(null);
 
-        void amux.gitStatus(location.cwd)
-            .then((output: string) => {
+        void fetchThreadWorkContext(threadId)
+            .then((nextContext) => {
                 if (cancelled) {
                     return;
                 }
 
-                const nextEntries = parseGitStatus(output);
-                setEntries(nextEntries);
+                setContext(nextContext);
                 setSelectedPath((current) => (
-                    current && nextEntries.some((entry) => entry.path === current)
+                    current && nextContext.entries.some((entry) => entry.path === current)
                         ? current
-                        : nextEntries[0]?.path ?? null
+                        : nextContext.entries[0]?.path ?? null
                 ));
             })
             .catch((reason: unknown) => {
                 if (cancelled) {
                     return;
                 }
-                setEntries([]);
+                setContext({ threadId, entries: [] });
                 setSelectedPath(null);
-                setDiffText("");
+                setPreviewText("");
                 setError(reason instanceof Error ? reason.message : String(reason));
             })
             .finally(() => {
@@ -1407,27 +1368,51 @@ function TaskCodePreview({
         return () => {
             cancelled = true;
         };
-    }, [amux, location?.cwd, task.id]);
+    }, [task.id, threadId]);
 
     useEffect(() => {
-        if (!location?.cwd || !selectedPath || !amux?.gitDiff) {
-            setDiffText("");
+        if (!threadId || !bridge?.onAgentEvent) {
+            return;
+        }
+        return bridge.onAgentEvent((event: any) => {
+            if (event?.type !== "work_context_update" || event?.thread_id !== threadId) {
+                return;
+            }
+            void fetchThreadWorkContext(threadId).then((nextContext) => {
+                setContext(nextContext);
+                setSelectedPath((current) => (
+                    current && nextContext.entries.some((entry) => entry.path === current)
+                        ? current
+                        : nextContext.entries[0]?.path ?? null
+                ));
+            });
+        });
+    }, [bridge, threadId]);
+
+    useEffect(() => {
+        if (!selectedEntry) {
+            setPreviewText("");
             setLoadingDiff(false);
             return;
         }
 
         let cancelled = false;
         setLoadingDiff(true);
+        setError(null);
 
-        void amux.gitDiff(location.cwd, selectedPath)
-            .then((output: string) => {
+        const previewPromise = selectedEntry.repoRoot
+            ? fetchGitDiff(selectedEntry.repoRoot, selectedEntry.path)
+            : fetchFilePreview(selectedEntry.path).then((preview) => preview?.content ?? "");
+
+        void previewPromise
+            .then((output) => {
                 if (!cancelled) {
-                    setDiffText(output);
+                    setPreviewText(output);
                 }
             })
             .catch((reason: unknown) => {
                 if (!cancelled) {
-                    setDiffText("");
+                    setPreviewText("");
                     setError(reason instanceof Error ? reason.message : String(reason));
                 }
             })
@@ -1440,19 +1425,19 @@ function TaskCodePreview({
         return () => {
             cancelled = true;
         };
-    }, [amux, location?.cwd, selectedPath]);
+    }, [selectedEntry]);
 
-    if (!location?.cwd || (!codingTask && entries.length === 0 && !loadingEntries && !error)) {
+    if (!threadId || (!codingTask && context.entries.length === 0 && !loadingEntries && !error)) {
         return null;
     }
 
     return (
         <div style={{ marginTop: "var(--space-3)", display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-            <div style={detailLabelStyle}>Code Preview</div>
+            <div style={detailLabelStyle}>Work Context</div>
             <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-                Repo: {shortenHomePath(location.cwd)}
+                Scope: {location?.cwd ? shortenHomePath(location.cwd) : "thread workspace"}
                 <span style={{ marginLeft: "var(--space-2)" }}>
-                    {loadingEntries ? "Scanning changes..." : `${entries.length} changed file${entries.length === 1 ? "" : "s"}`}
+                    {loadingEntries ? "Refreshing..." : `${context.entries.length} file${context.entries.length === 1 ? "" : "s"} / artifact${context.entries.length === 1 ? "" : "s"}`}
                 </span>
             </div>
             {error && (
@@ -1460,7 +1445,7 @@ function TaskCodePreview({
                     {error}
                 </div>
             )}
-            {entries.length > 0 ? (
+            {context.entries.length > 0 ? (
                 <div
                     style={{
                         display: "grid",
@@ -1477,28 +1462,28 @@ function TaskCodePreview({
                             overflow: "auto",
                         }}
                     >
-                        {entries.map((entry) => {
+                        {context.entries.map((entry) => {
                             const selected = entry.path === selectedPath;
                             return (
                                 <button
-                                    key={`${entry.code}:${entry.path}`}
+                                    key={`${entry.source}:${entry.path}`}
                                     type="button"
                                     onClick={() => setSelectedPath(entry.path)}
                                     style={{
                                         textAlign: "left",
                                         padding: "var(--space-2)",
                                         borderRadius: "var(--radius-sm)",
-                                        border: selected ? `1px solid ${gitStatusColor(entry.kind)}` : "1px solid var(--border)",
+                                        border: selected ? `1px solid ${workContextKindColor(entry)}` : "1px solid var(--border)",
                                         background: selected ? "var(--bg-tertiary)" : "var(--bg-secondary)",
                                         cursor: "pointer",
                                     }}
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: 4, flexWrap: "wrap" }}>
-                                        <span style={{ fontSize: "var(--text-xs)", color: gitStatusColor(entry.kind), fontWeight: 600 }}>
-                                            {gitStatusLabel(entry.kind)}
+                                        <span style={{ fontSize: "var(--text-xs)", color: workContextKindColor(entry), fontWeight: 600 }}>
+                                            {workContextKindLabel(entry)}
                                         </span>
                                         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                                            {entry.code}
+                                            {entry.source}
                                         </span>
                                     </div>
                                     <div style={{ fontSize: "var(--text-xs)", color: "var(--text-primary)", fontFamily: "var(--font-mono)", wordBreak: "break-word" }}>
@@ -1525,8 +1510,8 @@ function TaskCodePreview({
                         }}
                     >
                         {loadingDiff ? (
-                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>Loading diff...</div>
-                        ) : diffText.trim() ? (
+                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>Loading preview...</div>
+                        ) : previewText.trim() ? (
                             <pre
                                 style={{
                                     margin: 0,
@@ -1538,18 +1523,18 @@ function TaskCodePreview({
                                     wordBreak: "break-word",
                                 }}
                             >
-                                {diffText}
+                                {previewText}
                             </pre>
                         ) : (
                             <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-                                No diff preview available for the selected file.
+                                No preview available for the selected item.
                             </div>
                         )}
                     </div>
                 </div>
             ) : (
                 <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", padding: "var(--space-2)", borderRadius: "var(--radius-sm)", background: "var(--bg-tertiary)" }}>
-                    {loadingEntries ? "Scanning repository state..." : "No changed files detected in the task workspace."}
+                    {loadingEntries ? "Refreshing work context..." : "No file or artifact activity detected for this task yet."}
                 </div>
             )}
         </div>

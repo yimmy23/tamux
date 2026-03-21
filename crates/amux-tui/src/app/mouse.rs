@@ -24,8 +24,7 @@ impl TuiModel {
         let body_start_row: u16 = 3;
         let actual_input_height = self.input_height();
         let input_start_row: u16 = self.height.saturating_sub(actual_input_height + 1);
-        let default_show_sidebar = self.width >= 80;
-        let show_sidebar = self.show_sidebar_override.unwrap_or(default_show_sidebar);
+        let show_sidebar = self.sidebar_visible();
         let sidebar_pct: u16 = if self.width >= 120 { 33 } else { 28 };
         let sidebar_start_col: u16 = if show_sidebar {
             self.width * (100 - sidebar_pct) / 100
@@ -114,6 +113,25 @@ impl TuiModel {
                         );
                         self.chat_drag_anchor = pos;
                         self.chat_drag_current = pos;
+                    } else if let MainPaneView::Task(target) = &self.main_pane_view {
+                        if let Some(widgets::task_view::TaskViewHitTarget::WorkPath(path)) =
+                            widgets::task_view::hit_test(
+                                chat_area,
+                                &self.tasks,
+                                target,
+                                &self.theme,
+                                self.task_view_scroll,
+                                Position::new(mouse.column, mouse.row),
+                            )
+                        {
+                            if let Some(thread_id) = self.target_thread_id(target) {
+                                self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                                    thread_id: thread_id.clone(),
+                                    path: Some(path),
+                                });
+                                self.request_preview_for_selected_path(&thread_id);
+                            }
+                        }
                     }
                 } else if cursor_in_sidebar {
                     self.clear_chat_drag_selection();
@@ -259,10 +277,10 @@ impl TuiModel {
             if row_idx == target_visual_row {
                 let capped_col = inner_col.min(inner_width);
                 let byte_in_line = Self::byte_offset_for_display_col(line, capped_col);
-                return Some(
-                    self.input
-                        .wrapped_display_offset_to_buffer_offset(wrapped_offset + byte_in_line, inner_width),
-                );
+                return Some(self.input.wrapped_display_offset_to_buffer_offset(
+                    wrapped_offset + byte_in_line,
+                    inner_width,
+                ));
             }
             wrapped_offset += line.len() + 1;
         }

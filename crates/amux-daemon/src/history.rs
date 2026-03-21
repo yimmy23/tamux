@@ -811,7 +811,9 @@ impl HistoryStore {
                 goal_step_title: row.get(20)?,
                 parent_task_id: row.get(21)?,
                 parent_thread_id: row.get(22)?,
-                runtime: row.get::<_, Option<String>>(23)?.unwrap_or_else(|| "daemon".to_string()),
+                runtime: row
+                    .get::<_, Option<String>>(23)?
+                    .unwrap_or_else(|| "daemon".to_string()),
                 retry_count: row.get::<_, i64>(24)? as u32,
                 max_retries: row.get::<_, i64>(25)? as u32,
                 next_retry_at: row.get::<_, Option<i64>>(26)?.map(|value| value as u64),

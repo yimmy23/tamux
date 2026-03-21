@@ -41,6 +41,7 @@ pub(super) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
     task::AgentTask {
         id: t.id,
         title: t.title,
+        thread_id: t.thread_id,
         status: t.status.map(|s| match s {
             crate::wire::TaskStatus::Queued => task::TaskStatus::Queued,
             crate::wire::TaskStatus::InProgress => task::TaskStatus::InProgress,
@@ -64,6 +65,8 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
     task::GoalRun {
         id: r.id,
         title: r.title,
+        thread_id: r.thread_id,
+        session_id: r.session_id,
         status: r.status.map(|s| match s {
             crate::wire::GoalRunStatus::Queued => task::GoalRunStatus::Pending,
             crate::wire::GoalRunStatus::Planning => task::GoalRunStatus::Pending,
@@ -115,10 +118,61 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
                 message: event.message,
                 details: event.details,
                 step_index: event.step_index,
+                todo_snapshot: event.todo_snapshot.into_iter().map(convert_todo).collect(),
             })
             .collect(),
         created_at: 0,
         updated_at: 0,
+    }
+}
+
+pub(super) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
+    task::TodoItem {
+        id: t.id,
+        content: t.content,
+        status: t.status.map(|status| match status {
+            crate::wire::TodoStatus::Pending => task::TodoStatus::Pending,
+            crate::wire::TodoStatus::InProgress => task::TodoStatus::InProgress,
+            crate::wire::TodoStatus::Completed => task::TodoStatus::Completed,
+            crate::wire::TodoStatus::Blocked => task::TodoStatus::Blocked,
+        }),
+        position: t.position,
+        step_index: t.step_index,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+    }
+}
+
+pub(super) fn convert_work_context(c: crate::wire::ThreadWorkContext) -> task::ThreadWorkContext {
+    task::ThreadWorkContext {
+        thread_id: c.thread_id,
+        entries: c
+            .entries
+            .into_iter()
+            .map(|entry| task::WorkContextEntry {
+                path: entry.path,
+                previous_path: entry.previous_path,
+                kind: entry.kind.map(|kind| match kind {
+                    crate::wire::WorkContextEntryKind::RepoChange => {
+                        task::WorkContextEntryKind::RepoChange
+                    }
+                    crate::wire::WorkContextEntryKind::Artifact => {
+                        task::WorkContextEntryKind::Artifact
+                    }
+                    crate::wire::WorkContextEntryKind::GeneratedSkill => {
+                        task::WorkContextEntryKind::GeneratedSkill
+                    }
+                }),
+                source: entry.source,
+                change_kind: entry.change_kind,
+                repo_root: entry.repo_root,
+                goal_run_id: entry.goal_run_id,
+                step_index: entry.step_index,
+                session_id: entry.session_id,
+                is_text: entry.is_text,
+                updated_at: entry.updated_at,
+            })
+            .collect(),
     }
 }
 

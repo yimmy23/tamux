@@ -452,7 +452,13 @@ fn render_provider_tab<'a>(
             "api_transport",
             " [Enter: cycle]",
         ),
-        (6, "Assistant ID", assistant_id_val, "assistant_id", " [Enter: edit]"),
+        (
+            6,
+            "Assistant ID",
+            assistant_id_val,
+            "assistant_id",
+            " [Enter: edit]",
+        ),
         (
             7,
             "Effort",
@@ -1651,6 +1657,10 @@ mod tests {
             Some(SettingsTab::Advanced),
             "expected click on 'A' in Adv to select Advanced"
         );
-        assert_eq!(tab_hit_test(area, 15), None, "divider gap should not hit a tab");
+        assert_eq!(
+            tab_hit_test(area, 15),
+            None,
+            "divider gap should not hit a tab"
+        );
     }
 }

@@ -9,7 +9,11 @@ impl TuiModel {
         provider_value
             .get(camel_case)
             .and_then(|value| value.as_str())
-            .or_else(|| provider_value.get(snake_case).and_then(|value| value.as_str()))
+            .or_else(|| {
+                provider_value
+                    .get(snake_case)
+                    .and_then(|value| value.as_str())
+            })
     }
 
     pub(super) fn provider_field_u64(
@@ -20,7 +24,11 @@ impl TuiModel {
         provider_value
             .get(camel_case)
             .and_then(|value| value.as_u64())
-            .or_else(|| provider_value.get(snake_case).and_then(|value| value.as_u64()))
+            .or_else(|| {
+                provider_value
+                    .get(snake_case)
+                    .and_then(|value| value.as_u64())
+            })
     }
 
     pub(super) fn refresh_openai_auth_status(&mut self) {
@@ -269,35 +277,26 @@ impl TuiModel {
             .unwrap_or("openai");
 
         if let Some(provider_config) = json.get(provider_id) {
-            let base_url = Self::provider_field_str(provider_config, "baseUrl", "base_url")
-                .unwrap_or("");
+            let base_url =
+                Self::provider_field_str(provider_config, "baseUrl", "base_url").unwrap_or("");
             let model = Self::provider_field_str(provider_config, "model", "model").unwrap_or("");
             let api_key =
                 Self::provider_field_str(provider_config, "apiKey", "api_key").unwrap_or("");
-            let assistant_id = Self::provider_field_str(
-                provider_config,
-                "assistantId",
-                "assistant_id",
-            )
-            .unwrap_or("");
-            let api_transport = Self::provider_field_str(
-                provider_config,
-                "apiTransport",
-                "api_transport",
-            )
-                .unwrap_or_else(|| providers::default_transport_for(provider_id));
-            let auth_source = Self::provider_field_str(
-                provider_config,
-                "authSource",
-                "auth_source",
-            )
-                .unwrap_or_else(|| providers::default_auth_source_for(provider_id));
+            let assistant_id =
+                Self::provider_field_str(provider_config, "assistantId", "assistant_id")
+                    .unwrap_or("");
+            let api_transport =
+                Self::provider_field_str(provider_config, "apiTransport", "api_transport")
+                    .unwrap_or_else(|| providers::default_transport_for(provider_id));
+            let auth_source =
+                Self::provider_field_str(provider_config, "authSource", "auth_source")
+                    .unwrap_or_else(|| providers::default_auth_source_for(provider_id));
             let custom_context_window_tokens = Self::provider_field_u64(
                 provider_config,
                 "customContextWindowTokens",
                 "context_window_tokens",
             )
-                .map(|v| v.max(1000) as u32);
+            .map(|v| v.max(1000) as u32);
 
             self.config.provider = provider_id.to_string();
             self.config.base_url = if !base_url.is_empty() {
@@ -316,25 +315,21 @@ impl TuiModel {
             };
             self.config.api_key = api_key.to_string();
             self.config.assistant_id = assistant_id.to_string();
-            self.config.auth_source = if providers::supported_auth_sources_for(provider_id)
-                .contains(&auth_source)
-            {
-                auth_source.to_string()
-            } else {
-                providers::default_auth_source_for(provider_id).to_string()
-            };
-            self.config.api_transport = if providers::supported_transports_for(provider_id)
-                .contains(&api_transport)
-            {
-                api_transport.to_string()
-            } else {
-                providers::default_transport_for(provider_id).to_string()
-            };
+            self.config.auth_source =
+                if providers::supported_auth_sources_for(provider_id).contains(&auth_source) {
+                    auth_source.to_string()
+                } else {
+                    providers::default_auth_source_for(provider_id).to_string()
+                };
+            self.config.api_transport =
+                if providers::supported_transports_for(provider_id).contains(&api_transport) {
+                    api_transport.to_string()
+                } else {
+                    providers::default_transport_for(provider_id).to_string()
+                };
             self.config.custom_context_window_tokens = custom_context_window_tokens;
-            self.config.context_window_tokens = Self::effective_context_window_for_provider_value(
-                provider_id,
-                provider_config,
-            );
+            self.config.context_window_tokens =
+                Self::effective_context_window_for_provider_value(provider_id, provider_config);
         }
 
         let get_bool = |key: &str| json.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
@@ -566,8 +561,7 @@ impl TuiModel {
             serde_json::Value::Number(self.config.keep_recent_on_compact.into());
         json["bashTimeoutSeconds"] =
             serde_json::Value::Number(self.config.bash_timeout_secs.into());
-        json["snapshotMaxCount"] =
-            serde_json::Value::Number(self.config.snapshot_max_count.into());
+        json["snapshotMaxCount"] = serde_json::Value::Number(self.config.snapshot_max_count.into());
         json["snapshotMaxSizeMb"] =
             serde_json::Value::Number(self.config.snapshot_max_size_mb.into());
         json["snapshotAutoCleanup"] = serde_json::Value::Bool(self.config.snapshot_auto_cleanup);

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use amux_protocol::{ClientMessage, DaemonMessage};
@@ -10,6 +11,48 @@ use tokio_util::codec::Framed;
 
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
+
+fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
+    use crate::agent::types::AgentEvent;
+
+    match event {
+        AgentEvent::Delta { thread_id, .. }
+        | AgentEvent::Reasoning { thread_id, .. }
+        | AgentEvent::ToolCall { thread_id, .. }
+        | AgentEvent::ToolResult { thread_id, .. }
+        | AgentEvent::Done { thread_id, .. }
+        | AgentEvent::Error { thread_id, .. }
+        | AgentEvent::ThreadCreated { thread_id, .. }
+        | AgentEvent::TodoUpdate { thread_id, .. }
+        | AgentEvent::WorkContextUpdate { thread_id, .. }
+        | AgentEvent::WorkflowNotice { thread_id, .. } => Some(thread_id.as_str()),
+        AgentEvent::TaskUpdate {
+            task: Some(task), ..
+        } => task
+            .thread_id
+            .as_deref()
+            .or(task.parent_thread_id.as_deref()),
+        AgentEvent::GoalRunUpdate {
+            goal_run: Some(goal_run),
+            ..
+        } => goal_run.thread_id.as_deref(),
+        _ => None,
+    }
+}
+
+fn should_forward_agent_event(
+    event: &crate::agent::types::AgentEvent,
+    client_threads: &HashSet<String>,
+) -> bool {
+    match agent_event_thread_id(event) {
+        Some(thread_id) => client_threads.contains(thread_id),
+        None => matches!(
+            event,
+            crate::agent::types::AgentEvent::HeartbeatResult { .. }
+                | crate::agent::types::AgentEvent::Notification { .. }
+        ),
+    }
+}
 
 /// Socket path / pipe name for IPC.
 #[cfg(unix)]
@@ -200,6 +243,7 @@ where
     // Track which sessions this client is attached to so we can fan-out output.
     let mut attached_rxs: Vec<(amux_protocol::SessionId, broadcast::Receiver<DaemonMessage>)> =
         Vec::new();
+    let mut client_agent_threads: HashSet<String> = HashSet::new();
 
     // Optional agent event subscription.
     let mut agent_event_rx: Option<broadcast::Receiver<crate::agent::types::AgentEvent>> = None;
@@ -210,10 +254,12 @@ where
             loop {
                 match rx.try_recv() {
                     Ok(event) => {
-                        if let Ok(json) = serde_json::to_string(&event) {
-                            framed
-                                .send(DaemonMessage::AgentEvent { event_json: json })
-                                .await?;
+                        if should_forward_agent_event(&event, &client_agent_threads) {
+                            if let Ok(json) = serde_json::to_string(&event) {
+                                framed
+                                    .send(DaemonMessage::AgentEvent { event_json: json })
+                                    .await?;
+                            }
                         }
                     }
                     Err(broadcast::error::TryRecvError::Lagged(n)) => {
@@ -923,6 +969,33 @@ where
                     framed.send(DaemonMessage::GitStatus { path, info }).await?;
                 }
 
+                ClientMessage::GetGitDiff {
+                    repo_path,
+                    file_path,
+                } => {
+                    let diff = crate::git::git_diff(&repo_path, file_path.as_deref());
+                    framed
+                        .send(DaemonMessage::GitDiff {
+                            repo_path,
+                            file_path,
+                            diff,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::GetFilePreview { path, max_bytes } => {
+                    let (content, truncated, is_text) =
+                        crate::git::read_file_preview(&path, max_bytes.unwrap_or(65_536));
+                    framed
+                        .send(DaemonMessage::FilePreview {
+                            path,
+                            content,
+                            truncated,
+                            is_text,
+                        })
+                        .await?;
+                }
+
                 ClientMessage::SubscribeNotifications => {
                     // Acknowledged. The client will receive OscNotification
                     // messages via the output broadcast channel.
@@ -990,22 +1063,16 @@ where
                     session_id,
                     context_messages_json,
                 } => {
+                    let effective_thread_id =
+                        thread_id.or_else(|| Some(format!("thread_{}", uuid::Uuid::new_v4())));
+                    if let Some(thread_id) = effective_thread_id.as_ref() {
+                        client_agent_threads.insert(thread_id.clone());
+                    }
                     let agent = agent.clone();
                     tokio::spawn(async move {
-                        // If thread_id is None but we have context, generate a stable
-                        // thread ID so seeding and sending use the same thread.
-                        let mut thread_id = thread_id;
-                        if thread_id.is_none() {
-                            if let Some(ref json) = context_messages_json {
-                                if json.len() > 2 {
-                                    // non-empty JSON array
-                                    thread_id = Some(format!("thread_{}", uuid::Uuid::new_v4()));
-                                }
-                            }
-                        }
                         let has_context = context_messages_json.is_some();
                         tracing::info!(
-                            thread_id = ?thread_id,
+                            thread_id = ?effective_thread_id,
                             content_len = content.len(),
                             has_context_json = has_context,
                             "AgentSendMessage received"
@@ -1014,16 +1081,23 @@ where
                         if let Some(ref json) = context_messages_json {
                             match serde_json::from_str::<Vec<amux_protocol::AgentDbMessage>>(json) {
                                 Ok(ctx) if !ctx.is_empty() => {
-                                    tracing::info!(count = ctx.len(), "seeding thread with context messages");
-                                    agent.seed_thread_context(thread_id.as_deref(), &ctx).await;
+                                    tracing::info!(
+                                        count = ctx.len(),
+                                        "seeding thread with context messages"
+                                    );
+                                    agent
+                                        .seed_thread_context(effective_thread_id.as_deref(), &ctx)
+                                        .await;
                                 }
                                 Ok(_) => tracing::info!("context_messages_json was empty array"),
-                                Err(e) => tracing::warn!(error = %e, json_len = json.len(), "failed to parse context_messages_json"),
+                                Err(e) => {
+                                    tracing::warn!(error = %e, json_len = json.len(), "failed to parse context_messages_json")
+                                }
                             }
                         }
                         if let Err(e) = agent
                             .send_message_with_session(
-                                thread_id.as_deref(),
+                                effective_thread_id.as_deref(),
                                 session_id.as_deref(),
                                 &content,
                             )
@@ -1035,6 +1109,7 @@ where
                 }
 
                 ClientMessage::AgentStopStream { thread_id } => {
+                    client_agent_threads.insert(thread_id.clone());
                     let _ = agent.stop_stream(&thread_id).await;
                 }
 
@@ -1047,6 +1122,7 @@ where
                 }
 
                 ClientMessage::AgentGetThread { thread_id } => {
+                    client_agent_threads.insert(thread_id.clone());
                     let thread = agent.get_thread(&thread_id).await;
                     let json = serde_json::to_string(&thread).unwrap_or_default();
                     framed
@@ -1055,6 +1131,7 @@ where
                 }
 
                 ClientMessage::AgentDeleteThread { thread_id } => {
+                    client_agent_threads.remove(&thread_id);
                     agent.delete_thread(&thread_id).await;
                 }
 
@@ -1139,6 +1216,9 @@ where
                             client_request_id,
                         )
                         .await;
+                    if let Some(thread_id) = goal_run.thread_id.clone() {
+                        client_agent_threads.insert(thread_id);
+                    }
                     let json = serde_json::to_string(&goal_run).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentGoalRunStarted {
@@ -1189,12 +1269,25 @@ where
                 }
 
                 ClientMessage::AgentGetTodos { thread_id } => {
+                    client_agent_threads.insert(thread_id.clone());
                     let todos = agent.get_todos(&thread_id).await;
                     let json = serde_json::to_string(&todos).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentTodoDetail {
                             thread_id,
                             todos_json: json,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetWorkContext { thread_id } => {
+                    client_agent_threads.insert(thread_id.clone());
+                    let context = agent.get_work_context(&thread_id).await;
+                    let json = serde_json::to_string(&context).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentWorkContextDetail {
+                            thread_id,
+                            context_json: json,
                         })
                         .await?;
                 }
@@ -1275,7 +1368,9 @@ where
                         _ => amux_protocol::ApprovalDecision::ApproveOnce,
                     };
                     tracing::info!(%approval_id, ?decision, "resolving task approval");
-                    agent.handle_task_approval_resolution(&approval_id, decision).await;
+                    agent
+                        .handle_task_approval_resolution(&approval_id, decision)
+                        .await;
                 }
 
                 ClientMessage::AgentSubscribe => {

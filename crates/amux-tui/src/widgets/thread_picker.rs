@@ -7,7 +7,11 @@ use crate::state::chat::ChatState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 
-pub(crate) fn visible_window(cursor: usize, item_count: usize, list_height: usize) -> (usize, usize) {
+pub(crate) fn visible_window(
+    cursor: usize,
+    item_count: usize,
+    list_height: usize,
+) -> (usize, usize) {
     if item_count == 0 || list_height == 0 {
         return (0, 0);
     }
@@ -99,68 +103,68 @@ pub fn render(
             if i < visible_len {
                 let absolute_index = visible_start + i;
                 if absolute_index == 0 {
-                // "New conversation" item
-                let is_selected = cursor == 0;
-                if is_selected {
-                    ListItem::new(Line::from(vec![Span::raw("  + New conversation")]))
-                        .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
-                } else {
-                    ListItem::new(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled("+ New conversation", theme.fg_dim),
-                    ]))
-                }
-                } else {
-                let thread_idx = absolute_index - 1;
-                if thread_idx < filtered_threads.len() {
-                    let thread = filtered_threads[thread_idx];
-                    let is_selected = cursor == absolute_index;
-                    let is_active = active_id == Some(thread.id.as_str());
-
-                    let dot_style = if is_active {
-                        theme.accent_success
-                    } else {
-                        theme.fg_dim
-                    };
-
-                    let time_str = format_time_ago(thread.updated_at);
-                    let tokens = thread.total_input_tokens + thread.total_output_tokens;
-                    let token_str = format_tokens(tokens);
-
-                    let max_title = inner_w.saturating_sub(25);
-                    let title = if thread.title.len() > max_title && max_title > 3 {
-                        format!("{}...", &thread.title[..max_title - 3])
-                    } else {
-                        thread.title.clone()
-                    };
-
+                    // "New conversation" item
+                    let is_selected = cursor == 0;
                     if is_selected {
-                        ListItem::new(Line::from(vec![
-                            Span::styled("\u{25cf}", dot_style),
-                            Span::raw(" "),
-                            Span::raw(title),
-                            Span::raw("  "),
-                            Span::raw(time_str),
-                            Span::raw("  "),
-                            Span::raw(token_str),
-                        ]))
-                        .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
+                        ListItem::new(Line::from(vec![Span::raw("  + New conversation")]))
+                            .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                     } else {
                         ListItem::new(Line::from(vec![
                             Span::raw("  "),
-                            Span::styled("\u{25cf}", dot_style),
-                            Span::raw(" "),
-                            Span::styled(title, theme.fg_active),
-                            Span::raw("  "),
-                            Span::styled(time_str, theme.fg_dim),
-                            Span::raw("  "),
-                            Span::styled(token_str, theme.fg_dim),
+                            Span::styled("+ New conversation", theme.fg_dim),
                         ]))
                     }
                 } else {
-                    ListItem::new(Line::raw(""))
+                    let thread_idx = absolute_index - 1;
+                    if thread_idx < filtered_threads.len() {
+                        let thread = filtered_threads[thread_idx];
+                        let is_selected = cursor == absolute_index;
+                        let is_active = active_id == Some(thread.id.as_str());
+
+                        let dot_style = if is_active {
+                            theme.accent_success
+                        } else {
+                            theme.fg_dim
+                        };
+
+                        let time_str = format_time_ago(thread.updated_at);
+                        let tokens = thread.total_input_tokens + thread.total_output_tokens;
+                        let token_str = format_tokens(tokens);
+
+                        let max_title = inner_w.saturating_sub(25);
+                        let title = if thread.title.len() > max_title && max_title > 3 {
+                            format!("{}...", &thread.title[..max_title - 3])
+                        } else {
+                            thread.title.clone()
+                        };
+
+                        if is_selected {
+                            ListItem::new(Line::from(vec![
+                                Span::styled("\u{25cf}", dot_style),
+                                Span::raw(" "),
+                                Span::raw(title),
+                                Span::raw("  "),
+                                Span::raw(time_str),
+                                Span::raw("  "),
+                                Span::raw(token_str),
+                            ]))
+                            .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
+                        } else {
+                            ListItem::new(Line::from(vec![
+                                Span::raw("  "),
+                                Span::styled("\u{25cf}", dot_style),
+                                Span::raw(" "),
+                                Span::styled(title, theme.fg_active),
+                                Span::raw("  "),
+                                Span::styled(time_str, theme.fg_dim),
+                                Span::raw("  "),
+                                Span::styled(token_str, theme.fg_dim),
+                            ]))
+                        }
+                    } else {
+                        ListItem::new(Line::raw(""))
+                    }
                 }
-            }
             } else {
                 ListItem::new(Line::raw(""))
             }

@@ -144,6 +144,17 @@ enum AgentBridgeCommand {
     GetTodos {
         thread_id: String,
     },
+    GetWorkContext {
+        thread_id: String,
+    },
+    GetGitDiff {
+        repo_path: String,
+        file_path: Option<String>,
+    },
+    GetFilePreview {
+        path: String,
+        max_bytes: Option<usize>,
+    },
     GetConfig,
     SetConfig {
         config_json: String,
@@ -455,6 +466,37 @@ pub async fn attach_session(id: &str) -> Result<()> {
 pub async fn get_git_status(path: String) -> Result<amux_protocol::GitInfo> {
     match roundtrip(ClientMessage::GetGitStatus { path }).await? {
         DaemonMessage::GitStatus { info, .. } => Ok(info),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn get_git_diff(repo_path: String, file_path: Option<String>) -> Result<String> {
+    match roundtrip(ClientMessage::GetGitDiff {
+        repo_path,
+        file_path,
+    })
+    .await?
+    {
+        DaemonMessage::GitDiff { diff, .. } => Ok(diff),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn get_file_preview(path: String, max_bytes: Option<usize>) -> Result<serde_json::Value> {
+    match roundtrip(ClientMessage::GetFilePreview { path, max_bytes }).await? {
+        DaemonMessage::FilePreview {
+            path,
+            content,
+            truncated,
+            is_text,
+        } => Ok(serde_json::json!({
+            "path": path,
+            "content": content,
+            "truncated": truncated,
+            "is_text": is_text,
+        })),
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
     }
@@ -978,6 +1020,21 @@ pub async fn run_agent_bridge() -> Result<()> {
                             AgentBridgeCommand::GetTodos { thread_id } => {
                                 framed.send(ClientMessage::AgentGetTodos { thread_id }).await?;
                             }
+                            AgentBridgeCommand::GetWorkContext { thread_id } => {
+                                framed
+                                    .send(ClientMessage::AgentGetWorkContext { thread_id })
+                                    .await?;
+                            }
+                            AgentBridgeCommand::GetGitDiff { repo_path, file_path } => {
+                                framed
+                                    .send(ClientMessage::GetGitDiff { repo_path, file_path })
+                                    .await?;
+                            }
+                            AgentBridgeCommand::GetFilePreview { path, max_bytes } => {
+                                framed
+                                    .send(ClientMessage::GetFilePreview { path, max_bytes })
+                                    .await?;
+                            }
                             AgentBridgeCommand::GetConfig => {
                                 framed.send(ClientMessage::AgentGetConfig).await?;
                             }
@@ -1060,6 +1117,18 @@ pub async fn run_agent_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::AgentTodoDetail { thread_id, todos_json })) => {
                         let msg = serde_json::json!({"type":"todo-detail","data":{"thread_id":thread_id,"items":serde_json::from_str::<serde_json::Value>(&todos_json).unwrap_or_default()}});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentWorkContextDetail { thread_id, context_json })) => {
+                        let msg = serde_json::json!({"type":"work-context-detail","data":{"thread_id":thread_id,"context":serde_json::from_str::<serde_json::Value>(&context_json).unwrap_or_default()}});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::GitDiff { repo_path, file_path, diff })) => {
+                        let msg = serde_json::json!({"type":"git-diff","data":{"repo_path":repo_path,"file_path":file_path,"diff":diff}});
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::FilePreview { path, content, truncated, is_text })) => {
+                        let msg = serde_json::json!({"type":"file-preview","data":{"path":path,"content":content,"truncated":truncated,"is_text":is_text}});
                         emit_agent_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::AgentConfigResponse { config_json })) => {

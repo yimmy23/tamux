@@ -100,6 +100,25 @@ declare global {
         updated_at?: number | null;
     };
 
+    type AmuxWorkContextEntry = {
+        path: string;
+        previous_path?: string | null;
+        kind?: "repo_change" | "artifact" | "generated_skill" | null;
+        source: string;
+        change_kind?: string | null;
+        repo_root?: string | null;
+        goal_run_id?: string | null;
+        step_index?: number | null;
+        session_id?: string | null;
+        is_text?: boolean;
+        updated_at: number;
+    };
+
+    type AmuxThreadWorkContext = {
+        thread_id: string;
+        entries: AmuxWorkContextEntry[];
+    };
+
     type AmuxGoalRunStep = {
         id: string;
         title: string;
@@ -226,6 +245,9 @@ declare global {
         agentGetRun?: (runId: string) => Promise<AmuxAgentRun | null | unknown>;
         agentListTodos?: () => Promise<Record<string, AmuxTodoItem[]> | unknown>;
         agentGetTodos?: (threadId: string) => Promise<{ thread_id: string; items: AmuxTodoItem[] } | AmuxTodoItem[] | unknown>;
+        agentGetWorkContext?: (threadId: string) => Promise<{ thread_id: string; context: AmuxThreadWorkContext } | AmuxThreadWorkContext | null | unknown>;
+        agentGetGitDiff?: (repoPath: string, filePath?: string | null) => Promise<{ repo_path: string; file_path?: string | null; diff: string } | string | unknown>;
+        agentGetFilePreview?: (path: string, maxBytes?: number | null) => Promise<{ path: string; content: string; truncated: boolean; is_text: boolean } | null | unknown>;
         agentStartGoalRun?: (payload: { goal: string; title?: string | null; sessionId?: string | null; priority?: string | null; threadId?: string | null; clientRequestId?: string | null }) => Promise<AmuxGoalRun | unknown>;
         agentListGoalRuns?: () => Promise<AmuxGoalRun[] | unknown>;
         agentGetGoalRun?: (goalRunId: string) => Promise<AmuxGoalRun | unknown>;

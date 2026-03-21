@@ -193,8 +193,20 @@ fn start_daemon_bridge(
                             DaemonCommand::RequestThread(thread_id) => {
                                 let _ = client.request_thread(thread_id);
                             }
+                            DaemonCommand::RequestThreadTodos(thread_id) => {
+                                let _ = client.request_todos(thread_id);
+                            }
+                            DaemonCommand::RequestThreadWorkContext(thread_id) => {
+                                let _ = client.request_work_context(thread_id);
+                            }
                             DaemonCommand::RequestGoalRunDetail(goal_run_id) => {
                                 let _ = client.request_goal_run(goal_run_id);
+                            }
+                            DaemonCommand::RequestGitDiff { repo_path, file_path } => {
+                                let _ = client.request_git_diff(repo_path, file_path);
+                            }
+                            DaemonCommand::RequestFilePreview { path, max_bytes } => {
+                                let _ = client.request_file_preview(path, max_bytes);
                             }
                             DaemonCommand::SendMessage { thread_id, content, session_id } => {
                                 let _ = client.send_message(thread_id, content, session_id);

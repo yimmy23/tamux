@@ -176,7 +176,15 @@ fn default_command_items() -> Vec<CommandItem> {
         },
         CommandItem {
             command: "goal".into(),
-            description: "Start a goal run".into(),
+            description: "Open Goal Runner view".into(),
+        },
+        CommandItem {
+            command: "goals".into(),
+            description: "Open Goal Runner view".into(),
+        },
+        CommandItem {
+            command: "conversation".into(),
+            description: "Return to conversation view".into(),
         },
         CommandItem {
             command: "view".into(),

@@ -4,9 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use ratatui_core::buffer::Buffer as CoreBuffer;
 use ratatui_core::layout::Rect as CoreRect;
-use ratatui_core::style::{
-    Color as CoreColor, Modifier as CoreModifier, Style as CoreStyle,
-};
+use ratatui_core::style::{Color as CoreColor, Modifier as CoreModifier, Style as CoreStyle};
 use ratatui_core::widgets::Widget as CoreWidget;
 use ratatui_textarea::{CursorMove, TextArea};
 
@@ -218,7 +216,10 @@ fn input_placeholder(
         ));
     }
 
-    Some((animated_placeholder(tick), Style::default().fg(Color::Indexed(239))))
+    Some((
+        animated_placeholder(tick),
+        Style::default().fg(Color::Indexed(239)),
+    ))
 }
 
 fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
@@ -227,10 +228,7 @@ fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
 
     for (row, line) in text.split('\n').enumerate() {
         if remaining <= line.len() {
-            let col = line[..remaining]
-                .chars()
-                .count()
-                .min(line.chars().count());
+            let col = line[..remaining].chars().count().min(line.chars().count());
             return (row, col);
         }
         remaining = remaining.saturating_sub(line.len() + 1);
@@ -259,13 +257,11 @@ fn renderable_textarea(
     let mut textarea = TextArea::from(display_buffer.split('\n'));
     textarea.set_style(to_core_style(theme.fg_active));
     textarea.set_cursor_line_style(CoreStyle::default());
-    textarea.set_cursor_style(
-        to_core_style(
-            theme
-                .accent_primary
-                .add_modifier(Modifier::REVERSED | Modifier::BOLD),
-        ),
-    );
+    textarea.set_cursor_style(to_core_style(
+        theme
+            .accent_primary
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+    ));
 
     if focused && !display_buffer.is_empty() {
         let (row, col) = offset_to_line_col(&display_buffer, display_cursor);
@@ -273,7 +269,8 @@ fn renderable_textarea(
     }
 
     if display_buffer.is_empty() {
-        if let Some((text, style)) = input_placeholder(tick, attachments, agent_activity, input_notice)
+        if let Some((text, style)) =
+            input_placeholder(tick, attachments, agent_activity, input_notice)
         {
             textarea.set_placeholder_text(text);
             textarea.set_placeholder_style(to_core_style(style));
@@ -445,6 +442,8 @@ pub fn render_status_bar(
     spans.push(Span::raw("    "));
     spans.push(Span::styled("tab", theme.fg_active));
     spans.push(Span::styled(":focus  ", theme.fg_dim));
+    spans.push(Span::styled("ctrl+g", theme.fg_active));
+    spans.push(Span::styled(":view  ", theme.fg_dim));
     spans.push(Span::styled("ctrl+p", theme.fg_active));
     spans.push(Span::styled(":cmd  ", theme.fg_dim));
     spans.push(Span::styled("/", theme.fg_active));

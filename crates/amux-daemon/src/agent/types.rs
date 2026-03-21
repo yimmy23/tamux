@@ -1143,6 +1143,43 @@ pub struct TodoItem {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkContextEntryKind {
+    RepoChange,
+    Artifact,
+    GeneratedSkill,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkContextEntry {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+    pub kind: WorkContextEntryKind,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub is_text: bool,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ThreadWorkContext {
+    pub thread_id: String,
+    #[serde(default)]
+    pub entries: Vec<WorkContextEntry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -1213,6 +1250,10 @@ pub enum AgentEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         step_index: Option<usize>,
         items: Vec<TodoItem>,
+    },
+    WorkContextUpdate {
+        thread_id: String,
+        context: ThreadWorkContext,
     },
     WorkflowNotice {
         thread_id: String,

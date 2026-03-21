@@ -161,8 +161,9 @@ impl InputState {
                     let raw_len = (end - raw_idx).max(1);
                     let label_chars = label.chars().count();
                     let mapped_chars = ((raw_progress * label_chars) + (raw_len / 2)) / raw_len;
-                    display_cursor =
-                        Some(display.len() + Self::byte_offset_for_char_index(&label, mapped_chars));
+                    display_cursor = Some(
+                        display.len() + Self::byte_offset_for_char_index(&label, mapped_chars),
+                    );
                 }
 
                 display.push_str(&label);

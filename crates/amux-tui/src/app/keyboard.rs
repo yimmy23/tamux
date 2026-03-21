@@ -51,14 +51,23 @@ impl TuiModel {
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
                 self.sync_thread_picker_item_count();
             }
+            KeyCode::Char('g') if ctrl => {
+                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    self.main_pane_view = MainPaneView::Conversation;
+                } else {
+                    let _ = self.open_goal_runner_view(None);
+                }
+                self.focus = FocusArea::Chat;
+            }
             KeyCode::Char('b') if ctrl => {
                 let current = self.show_sidebar_override.unwrap_or(self.width >= 80);
                 self.show_sidebar_override = Some(!current);
             }
             KeyCode::Char('d') if ctrl => {
                 if matches!(self.main_pane_view, MainPaneView::Task(_)) {
-                    self.task_view_scroll =
-                        self.task_view_scroll.saturating_add((self.height / 2) as usize);
+                    self.task_view_scroll = self
+                        .task_view_scroll
+                        .saturating_add((self.height / 2) as usize);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
@@ -68,8 +77,9 @@ impl TuiModel {
                 if self.focus == FocusArea::Input {
                     self.input.reduce(input::InputAction::ClearLine);
                 } else if matches!(self.main_pane_view, MainPaneView::Task(_)) {
-                    self.task_view_scroll =
-                        self.task_view_scroll.saturating_sub((self.height / 2) as usize);
+                    self.task_view_scroll = self
+                        .task_view_scroll
+                        .saturating_sub((self.height / 2) as usize);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(half_page));
@@ -77,8 +87,9 @@ impl TuiModel {
             }
             KeyCode::PageDown if self.focus == FocusArea::Chat => {
                 if matches!(self.main_pane_view, MainPaneView::Task(_)) {
-                    self.task_view_scroll =
-                        self.task_view_scroll.saturating_add((self.height / 2) as usize);
+                    self.task_view_scroll = self
+                        .task_view_scroll
+                        .saturating_add((self.height / 2) as usize);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(-half_page));
@@ -86,8 +97,9 @@ impl TuiModel {
             }
             KeyCode::PageUp if self.focus == FocusArea::Chat => {
                 if matches!(self.main_pane_view, MainPaneView::Task(_)) {
-                    self.task_view_scroll =
-                        self.task_view_scroll.saturating_sub((self.height / 2) as usize);
+                    self.task_view_scroll = self
+                        .task_view_scroll
+                        .saturating_sub((self.height / 2) as usize);
                 } else {
                     let half_page = (self.height / 2) as i32;
                     self.chat.reduce(chat::ChatAction::ScrollChat(half_page));

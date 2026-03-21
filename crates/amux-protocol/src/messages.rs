@@ -187,6 +187,18 @@ pub enum ClientMessage {
     /// Request git status for a working directory.
     GetGitStatus { path: String },
 
+    /// Request git diff text for a repository path and optional file.
+    GetGitDiff {
+        repo_path: String,
+        file_path: Option<String>,
+    },
+
+    /// Request a text preview for a file path.
+    GetFilePreview {
+        path: String,
+        max_bytes: Option<usize>,
+    },
+
     /// Subscribe to OSC notifications for sessions (the daemon will push
     /// `OscNotification` messages for any attached session).
     SubscribeNotifications,
@@ -279,6 +291,9 @@ pub enum ClientMessage {
 
     /// Get daemon-side todos for a specific thread.
     AgentGetTodos { thread_id: String },
+
+    /// Get daemon-side work context for a specific thread.
+    AgentGetWorkContext { thread_id: String },
 
     /// Get current agent configuration.
     AgentGetConfig,
@@ -475,6 +490,21 @@ pub enum DaemonMessage {
     /// Git status reply.
     GitStatus { path: String, info: GitInfo },
 
+    /// Git diff reply.
+    GitDiff {
+        repo_path: String,
+        file_path: Option<String>,
+        diff: String,
+    },
+
+    /// File preview reply.
+    FilePreview {
+        path: String,
+        content: String,
+        truncated: bool,
+        is_text: bool,
+    },
+
     /// Scrubbed text reply.
     ScrubResult { text: String },
 
@@ -544,6 +574,12 @@ pub enum DaemonMessage {
     AgentTodoDetail {
         thread_id: String,
         todos_json: String,
+    },
+
+    /// Response to AgentGetWorkContext.
+    AgentWorkContextDetail {
+        thread_id: String,
+        context_json: String,
     },
 
     /// Response to AgentGetConfig.
@@ -699,6 +735,16 @@ pub struct GitInfo {
     pub untracked: u32,
     pub modified: u32,
     pub staged: u32,
+}
+
+/// A single git working tree change entry.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GitChangeEntry {
+    pub code: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_path: Option<String>,
+    pub kind: String,
 }
 
 /// Source of a managed command request.

@@ -1715,6 +1715,7 @@ export function AgentChatPanelContextSurface() {
             transcripts={runtime.transcripts}
             scopePaneId={runtime.scopePaneId}
             threads={runtime.threads}
+            activeThreadId={runtime.activeThreadId}
             latestContextSnapshot={runtime.latestContextSnapshot}
             memory={runtime.memory}
             updateMemory={runtime.updateMemory}

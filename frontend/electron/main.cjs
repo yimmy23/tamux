@@ -3699,6 +3699,9 @@ function registerIpcHandlers() {
                     'run-detail',
                     'todo-list',
                     'todo-detail',
+                    'work-context-detail',
+                    'git-diff',
+                    'file-preview',
                     'goal-run-started',
                     'goal-run-list',
                     'goal-run-detail',
@@ -4080,6 +4083,38 @@ function registerIpcHandlers() {
             return await sendAgentQuery({ type: 'get-todos', thread_id: threadId }, 'todo-detail');
         } catch {
             return { thread_id: threadId, items: [] };
+        }
+    });
+
+    ipcMain.handle('agent-get-work-context', async (_event, threadId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-work-context', thread_id: threadId }, 'work-context-detail');
+        } catch {
+            return { thread_id: threadId, context: { thread_id: threadId, entries: [] } };
+        }
+    });
+
+    ipcMain.handle('agent-get-git-diff', async (_event, repoPath, filePath) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-git-diff',
+                repo_path: repoPath,
+                file_path: typeof filePath === 'string' && filePath.trim() ? filePath.trim() : null,
+            }, 'git-diff');
+        } catch {
+            return { repo_path: repoPath, file_path: filePath ?? null, diff: '' };
+        }
+    });
+
+    ipcMain.handle('agent-get-file-preview', async (_event, filePath, maxBytes) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-file-preview',
+                path: filePath,
+                max_bytes: Number.isFinite(maxBytes) ? Math.max(1024, Math.trunc(maxBytes)) : null,
+            }, 'file-preview');
+        } catch {
+            return { path: filePath, content: '', truncated: false, is_text: false };
         }
     });
 

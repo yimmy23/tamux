@@ -23,11 +23,8 @@ pub fn render(
 ) {
     let rows = build_rows(tasks, sidebar, theme);
     let scroll = resolved_scroll(&rows, sidebar, area.height as usize);
-    let paragraph =
-        Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>()).scroll((
-            scroll as u16,
-            0,
-        ));
+    let paragraph = Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>())
+        .scroll((scroll as u16, 0));
     frame.render_widget(paragraph, area);
 }
 

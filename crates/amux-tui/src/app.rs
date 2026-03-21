@@ -253,4 +253,9 @@ impl TuiModel {
             (notice.text.as_str(), style)
         })
     }
+
+    fn sidebar_visible(&self) -> bool {
+        matches!(self.main_pane_view, MainPaneView::Conversation)
+            && self.show_sidebar_override.unwrap_or(self.width >= 80)
+    }
 }

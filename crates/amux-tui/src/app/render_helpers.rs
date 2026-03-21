@@ -111,6 +111,10 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
             Span::styled("Toggle sidebar", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  Ctrl+G           ", theme.fg_active),
+            Span::styled("Toggle Goal Runner view", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  /                ", theme.fg_active),
             Span::styled("Open command palette (from any focus)", theme.fg_dim),
         ]),
@@ -223,6 +227,10 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         Line::from(vec![
             Span::styled("  /new             ", theme.fg_active),
             Span::styled("New conversation", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  /goals           ", theme.fg_active),
+            Span::styled("Open Goal Runner view", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  /attach <path>   ", theme.fg_active),

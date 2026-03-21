@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message::wrap_text;
@@ -73,13 +73,34 @@ fn blank_message_line(width: usize, style: Style) -> Line<'static> {
     Line::from(Span::styled(" ".repeat(width.max(1)), style))
 }
 
+fn rendered_line_plain_text(rendered: &RenderedChatLine) -> String {
+    rendered
+        .line
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
+}
+
+fn rendered_line_content_bounds(rendered: &RenderedChatLine) -> (String, usize, usize) {
+    let plain = rendered_line_plain_text(rendered);
+    let trimmed = plain.trim_end_matches(' ');
+    let trimmed_width = UnicodeWidthStr::width(trimmed);
+    let content_start = MESSAGE_PADDING_X.min(trimmed_width);
+    let content_end = trimmed_width.max(content_start);
+    (plain, content_start, content_end)
+}
+
 fn pad_message_line(mut line: Line<'static>, width: usize, style: Style) -> Line<'static> {
     let mut spans = Vec::new();
     let left = " ".repeat(MESSAGE_PADDING_X);
     spans.push(Span::styled(left, style));
 
     for span in line.spans.drain(..) {
-        spans.push(Span::styled(span.content.to_string(), span.style.patch(style)));
+        spans.push(Span::styled(
+            span.content.to_string(),
+            span.style.patch(style),
+        ));
     }
 
     let content_width = line_display_width(&Line::from(spans.clone()));
@@ -357,22 +378,28 @@ fn resolved_scroll(
         return scroll;
     }
 
-    if let Some(sel_idx) = chat.selected_message() {
-        if let Some(&(sel_start, sel_end)) = message_line_ranges.get(sel_idx) {
-            let window_end = total_lines.saturating_sub(scroll);
-            let window_start = window_end.saturating_sub(inner_height);
+    if !chat.is_streaming() {
+        if let Some(sel_idx) = chat.selected_message() {
+            if let Some(&(sel_start, sel_end)) = message_line_ranges.get(sel_idx) {
+                let window_end = total_lines.saturating_sub(scroll);
+                let window_start = window_end.saturating_sub(inner_height);
 
-            if sel_start < window_start {
-                scroll = total_lines
-                    .saturating_sub(sel_start + inner_height)
-                    .min(max_scroll);
-            } else if sel_end > window_end {
-                scroll = total_lines.saturating_sub(sel_end).min(max_scroll);
+                if sel_start < window_start {
+                    scroll = total_lines
+                        .saturating_sub(sel_start + inner_height)
+                        .min(max_scroll);
+                } else if sel_end > window_end {
+                    scroll = total_lines.saturating_sub(sel_end).min(max_scroll);
+                }
             }
         }
     }
 
     scroll
+}
+
+fn content_inner(area: Rect) -> Rect {
+    area
 }
 
 fn visible_lines(
@@ -400,7 +427,11 @@ fn visible_lines(
     all_lines[start..end].to_vec()
 }
 
-fn visible_window_bounds(total: usize, inner_height: usize, scroll: usize) -> (usize, usize, usize) {
+fn visible_window_bounds(
+    total: usize,
+    inner_height: usize,
+    scroll: usize,
+) -> (usize, usize, usize) {
     if total <= inner_height {
         let padding = inner_height.saturating_sub(total);
         return (padding, 0, total);
@@ -421,17 +452,13 @@ fn visible_rendered_lines(
     theme: &ThemeTokens,
 ) -> Option<(Rect, Vec<RenderedChatLine>)> {
     if (chat.active_thread().is_none() && chat.streaming_content().is_empty())
-        || area.width <= 2
-        || area.height <= 2
+        || area.width == 0
+        || area.height == 0
     {
         return None;
     }
 
-    let inner = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .inner(area);
-
+    let inner = content_inner(area);
     let (all_lines, message_line_ranges) = build_rendered_lines(chat, theme, inner.width as usize);
     let scroll = resolved_scroll(
         chat,
@@ -569,10 +596,7 @@ pub fn selected_text(
     start: SelectionPoint,
     end: SelectionPoint,
 ) -> Option<String> {
-    let inner = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .inner(area);
+    let inner = content_inner(area);
     let (all_lines, message_line_ranges) = build_rendered_lines(chat, theme, inner.width as usize);
     if all_lines.is_empty() {
         return None;
@@ -603,21 +627,24 @@ pub fn selected_text(
 
     for row in start_row..=end_row {
         let rendered = all_lines.get(row)?;
-        let plain: String = rendered
-            .line
-            .spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect();
-        let line_width = UnicodeWidthStr::width(plain.as_str());
-        let from = if row == start_row { start_col } else { 0 };
-        let to = if row == end_row {
-            end_col.max(from)
+        let (plain, content_start, content_end) = rendered_line_content_bounds(rendered);
+        let content_width = content_end.saturating_sub(content_start);
+        let from = if row == start_row {
+            start_col.min(content_width)
         } else {
-            line_width
+            0
+        };
+        let to = if row == end_row {
+            end_col.min(content_width).max(from)
+        } else {
+            content_width
         };
 
-        lines.push(display_slice(&plain, from, to));
+        lines.push(display_slice(
+            &plain,
+            content_start.saturating_add(from),
+            content_start.saturating_add(to),
+        ));
     }
 
     let text = lines.join("\n");
@@ -634,10 +661,7 @@ pub fn selection_point_from_mouse(
     theme: &ThemeTokens,
     mouse: Position,
 ) -> Option<SelectionPoint> {
-    let inner = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .inner(area);
+    let inner = content_inner(area);
     if inner.width == 0 || inner.height == 0 {
         return None;
     }
@@ -656,12 +680,14 @@ pub fn selection_point_from_mouse(
     let (padding, start_idx, end_idx) =
         visible_window_bounds(all_lines.len(), inner.height as usize, scroll);
 
-    let clamped_x = mouse
-        .x
-        .clamp(inner.x, inner.x.saturating_add(inner.width).saturating_sub(1));
-    let clamped_y = mouse
-        .y
-        .clamp(inner.y, inner.y.saturating_add(inner.height).saturating_sub(1));
+    let clamped_x = mouse.x.clamp(
+        inner.x,
+        inner.x.saturating_add(inner.width).saturating_sub(1),
+    );
+    let clamped_y = mouse.y.clamp(
+        inner.y,
+        inner.y.saturating_add(inner.height).saturating_sub(1),
+    );
     let rel_row = clamped_y.saturating_sub(inner.y) as usize;
     let rel_col = clamped_x.saturating_sub(inner.x) as usize;
 
@@ -669,14 +695,22 @@ pub fn selection_point_from_mouse(
         return None;
     }
 
-    let row = if rel_row < padding {
-        start_idx
-    } else {
+    let row = {
         let visible_count = end_idx.saturating_sub(start_idx).max(1);
-        start_idx + rel_row.saturating_sub(padding).min(visible_count.saturating_sub(1))
+        start_idx
+            + rel_row
+                .saturating_sub(padding)
+                .min(visible_count.saturating_sub(1))
     };
+    let rendered = all_lines.get(row)?;
+    let (_, content_start, content_end) = rendered_line_content_bounds(rendered);
+    let content_width = content_end.saturating_sub(content_start);
+    let content_col = rel_col.saturating_sub(content_start).min(content_width);
 
-    Some(SelectionPoint { row, col: rel_col })
+    Some(SelectionPoint {
+        row,
+        col: content_col,
+    })
 }
 pub fn hit_test(
     area: Rect,
@@ -714,27 +748,10 @@ pub fn render(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
-    focused: bool,
+    _focused: bool,
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
-    let border_style = if focused {
-        theme.accent_primary
-    } else {
-        theme.fg_dim
-    };
-    let title_style = if focused {
-        theme.fg_active
-    } else {
-        theme.fg_dim
-    };
-    let block = Block::default()
-        .title(Span::styled(" Conversation ", title_style))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = content_inner(area);
 
     if chat.active_thread().is_none() && chat.streaming_content().is_empty() {
         // Render splash
@@ -785,22 +802,24 @@ pub fn render(
             for absolute_row in range_start..=range_end {
                 let visible_row = padding_rows + absolute_row.saturating_sub(start_idx);
                 if let Some(line) = visible_lines.get_mut(visible_row) {
-                    let plain: String = line
-                        .line
-                        .spans
-                        .iter()
-                        .map(|span| span.content.as_ref())
-                        .collect();
-                    let line_width = UnicodeWidthStr::width(plain.as_str());
+                    let rendered = RenderedChatLine {
+                        line: line.line.clone(),
+                        message_index: line.message_index,
+                        kind: line.kind,
+                    };
+                    let (_, content_start, content_end) = rendered_line_content_bounds(&rendered);
+                    let content_width = content_end.saturating_sub(content_start);
                     let from = if absolute_row == start_point.row {
-                        start_point.col
+                        content_start.saturating_add(start_point.col.min(content_width))
                     } else {
-                        0
+                        content_start
                     };
                     let to = if absolute_row == end_point.row {
-                        end_point.col.max(from)
+                        content_start
+                            .saturating_add(end_point.col.min(content_width))
+                            .max(from)
                     } else {
-                        line_width
+                        content_end
                     };
                     highlight_line_range(&mut line.line, from, to, highlight);
                 }
@@ -884,7 +903,7 @@ mod tests {
             Rect::new(0, 0, 80, 5),
             &chat,
             &ThemeTokens::default(),
-            Position::new(2, 1),
+            Position::new(2, 2),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));
@@ -904,7 +923,7 @@ mod tests {
             Rect::new(0, 0, 80, 4),
             &chat,
             &ThemeTokens::default(),
-            Position::new(2, 1),
+            Position::new(2, 2),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::ToolToggle(0)));

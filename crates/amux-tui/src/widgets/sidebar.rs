@@ -1,6 +1,6 @@
 use ratatui::prelude::*;
 use ratatui::text::Span;
-use ratatui::widgets::{Block, BorderType, Borders, Tabs};
+use ratatui::widgets::Tabs;
 
 use crate::state::sidebar::{SidebarItemTarget, SidebarState, SidebarTab};
 use crate::state::task::TaskState;
@@ -11,20 +11,18 @@ pub enum SidebarHitTarget {
     Item(SidebarItemTarget),
 }
 
+fn content_inner(area: Rect) -> Rect {
+    area
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     sidebar: &SidebarState,
     tasks: &TaskState,
     theme: &ThemeTokens,
-    focused: bool,
+    _focused: bool,
 ) {
-    let border_style = if focused {
-        theme.accent_primary
-    } else {
-        theme.fg_dim
-    };
-
     // Tab titles
     let active_tab = sidebar.active_tab();
     let tab_index = match active_tab {
@@ -38,13 +36,7 @@ pub fn render(
         .highlight_style(theme.fg_active)
         .divider(Span::styled(" | ", theme.fg_dim));
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = content_inner(area);
 
     if inner.height < 2 {
         return;
@@ -75,8 +67,7 @@ pub fn hit_test(
     tasks: &TaskState,
     mouse: Position,
 ) -> Option<SidebarHitTarget> {
-    let block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded);
-    let inner = block.inner(area);
+    let inner = content_inner(area);
     if inner.height < 2
         || mouse.x < inner.x
         || mouse.x >= inner.x.saturating_add(inner.width)

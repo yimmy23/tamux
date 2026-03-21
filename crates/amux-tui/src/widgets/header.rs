@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::state::chat::ChatState;
 use crate::state::config::ConfigState;
@@ -15,8 +15,7 @@ pub fn render(
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .borders(Borders::BOTTOM)
         .border_style(theme.fg_dim);
 
     let model = if config.model.is_empty() {

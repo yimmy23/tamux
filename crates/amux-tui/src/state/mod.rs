@@ -25,7 +25,17 @@ pub enum DaemonCommand {
     Refresh,
     RefreshServices,
     RequestThread(String),
+    RequestThreadTodos(String),
+    RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),
+    RequestGitDiff {
+        repo_path: String,
+        file_path: Option<String>,
+    },
+    RequestFilePreview {
+        path: String,
+        max_bytes: Option<usize>,
+    },
     SendMessage {
         thread_id: Option<String>,
         content: String,

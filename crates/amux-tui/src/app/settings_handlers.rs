@@ -37,7 +37,11 @@ impl TuiModel {
                     .position(|transport| *transport == self.config.api_transport)
                     .unwrap_or(0);
                 let next_idx = (current_idx + 1) % supported.len().max(1);
-                self.config.api_transport = supported.get(next_idx).copied().unwrap_or("chat_completions").to_string();
+                self.config.api_transport = supported
+                    .get(next_idx)
+                    .copied()
+                    .unwrap_or("chat_completions")
+                    .to_string();
                 if self.config.provider == "openai"
                     && self.config.auth_source == "chatgpt_subscription"
                 {
@@ -63,8 +67,7 @@ impl TuiModel {
                             self.status_line = "ChatGPT subscription auth cleared".to_string();
                         }
                         Err(err) => {
-                            self.status_line =
-                                format!("Failed to clear ChatGPT auth: {err}");
+                            self.status_line = format!("Failed to clear ChatGPT auth: {err}");
                         }
                     }
                 } else {
@@ -87,8 +90,7 @@ impl TuiModel {
                                 format!("OpenAI auth URL copied to clipboard: {url}");
                         }
                         Err(err) => {
-                            self.status_line =
-                                format!("Failed to start ChatGPT auth: {err}");
+                            self.status_line = format!("Failed to start ChatGPT auth: {err}");
                         }
                     }
                 }
@@ -184,14 +186,16 @@ impl TuiModel {
                 "honcho_workspace_id",
                 &self.config.honcho_workspace_id.clone(),
             ),
-            "context_window_tokens" if self.config.provider == "custom" => self.settings.start_editing(
-                "context_window_tokens",
-                &self
-                    .config
-                    .custom_context_window_tokens
-                    .unwrap_or(128_000)
-                    .to_string(),
-            ),
+            "context_window_tokens" if self.config.provider == "custom" => {
+                self.settings.start_editing(
+                    "context_window_tokens",
+                    &self
+                        .config
+                        .custom_context_window_tokens
+                        .unwrap_or(128_000)
+                        .to_string(),
+                )
+            }
             "max_context_messages" => self.settings.start_editing(
                 "max_context_messages",
                 &self.config.max_context_messages.to_string(),

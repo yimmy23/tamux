@@ -88,7 +88,11 @@ fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
-    Some(std::path::PathBuf::from(home).join(".codex").join("auth.json"))
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".codex")
+            .join("auth.json"),
+    )
 }
 
 fn read_stored_openai_codex_auth() -> Option<StoredOpenAICodexAuth> {

@@ -90,6 +90,8 @@ pub struct AgentTask {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
     pub status: Option<TaskStatus>,
     #[serde(default)]
     pub progress: u8,
@@ -124,6 +126,10 @@ pub struct GoalRun {
     pub id: String,
     #[serde(default)]
     pub title: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub status: Option<GoalRunStatus>,
     #[serde(default)]
@@ -211,6 +217,77 @@ pub struct GoalRunEvent {
     pub details: Option<String>,
     #[serde(default)]
     pub step_index: Option<usize>,
+    #[serde(default)]
+    pub todo_snapshot: Vec<TodoItem>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TodoItem {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub status: Option<TodoStatus>,
+    #[serde(default)]
+    pub position: usize,
+    #[serde(default)]
+    pub step_index: Option<usize>,
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkContextEntryKind {
+    RepoChange,
+    Artifact,
+    GeneratedSkill,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkContextEntry {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub previous_path: Option<String>,
+    #[serde(default)]
+    pub kind: Option<WorkContextEntryKind>,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub change_kind: Option<String>,
+    #[serde(default)]
+    pub repo_root: Option<String>,
+    #[serde(default)]
+    pub goal_run_id: Option<String>,
+    #[serde(default)]
+    pub step_index: Option<usize>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub is_text: bool,
+    #[serde(default)]
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThreadWorkContext {
+    #[serde(default)]
+    pub thread_id: String,
+    #[serde(default)]
+    pub entries: Vec<WorkContextEntry>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
