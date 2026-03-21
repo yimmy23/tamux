@@ -113,14 +113,36 @@ export default function App() {
     });
   }, []);
 
-  // Request concierge welcome on app mount.
+  // Concierge: listen for welcome events and request one on mount.
+  // This runs in App (always mounted) because runtime.tsx (chat panel)
+  // may not be open when the app loads.
   useEffect(() => {
     const amux = (window as any).tamux ?? (window as any).amux;
-    if (!amux?.agentRequestConciergeWelcome) return;
+    if (!amux?.onAgentEvent) return;
+
+    // Listen for the concierge_welcome event from the daemon.
+    const unsubscribe = amux.onAgentEvent((event: any) => {
+      if (event?.type === "concierge_welcome") {
+        useAgentStore.setState({
+          conciergeWelcome: {
+            content: event.content ?? "",
+            actions: event.actions ?? [],
+          },
+        });
+      }
+    });
+
+    // Request welcome after a short delay for bridge readiness.
     const timer = setTimeout(() => {
-      amux.agentRequestConciergeWelcome().catch(() => {});
+      if (amux.agentRequestConciergeWelcome) {
+        amux.agentRequestConciergeWelcome().catch(() => {});
+      }
     }, 1500);
-    return () => clearTimeout(timer);
+
+    return () => {
+      clearTimeout(timer);
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
