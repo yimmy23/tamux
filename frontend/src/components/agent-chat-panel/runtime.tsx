@@ -686,6 +686,18 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         return unsubscribe;
     }, [agentSettings.agentBackend, addMessage, updateLastAssistantMessage, setActiveThread, setThreadDaemonId, setThreadTodos]);
 
+    // Request concierge welcome after event listener is set up.
+    useEffect(() => {
+        if (agentSettings.agentBackend === "legacy") return;
+        const amux = (window as any).tamux ?? (window as any).amux;
+        if (!amux?.agentRequestConciergeWelcome) return;
+        // Small delay to ensure the event subscription is active.
+        const timer = setTimeout(() => {
+            amux.agentRequestConciergeWelcome().catch(() => {});
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [agentSettings.agentBackend]);
+
     const messages = storeMessages ?? EMPTY_MESSAGES;
     const todos = storeTodos ?? [];
 

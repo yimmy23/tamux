@@ -4196,6 +4196,15 @@ function registerIpcHandlers() {
         }
     });
 
+    ipcMain.handle('agent-request-concierge-welcome', async () => {
+        try {
+            sendAgentCommand({ type: 'request-concierge-welcome' });
+            return { ok: true };
+        } catch {
+            return { ok: false };
+        }
+    });
+
     ipcMain.handle('agent-get-config', async () => {
         try {
             return await sendAgentQuery({ type: 'get-config' }, 'config');

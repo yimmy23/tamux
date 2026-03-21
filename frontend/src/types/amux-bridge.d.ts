@@ -312,6 +312,7 @@ declare global {
         agentGetConciergeConfig?: () => Promise<unknown>;
         agentSetConciergeConfig?: (config: unknown) => Promise<unknown>;
         agentDismissConciergeWelcome?: () => Promise<{ ok?: boolean }>;
+        agentRequestConciergeWelcome?: () => Promise<{ ok?: boolean }>;
         listInstalledPlugins?: () => Promise<AmuxInstalledPluginRecord[]>;
         loadInstalledPlugins?: () => Promise<AmuxInstalledPluginLoadResult[]>;
     };

@@ -378,6 +378,9 @@ pub enum ClientMessage {
 
     /// Dismiss/prune the current welcome message.
     AgentDismissConciergeWelcome,
+
+    /// Request a concierge welcome (sent by frontend on app mount).
+    AgentRequestConciergeWelcome,
 }
 
 // ---------------------------------------------------------------------------
