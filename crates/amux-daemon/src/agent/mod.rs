@@ -37,6 +37,7 @@ mod work_context;
 
 pub mod context;
 pub mod liveness;
+pub mod metacognitive;
 pub mod subagent;
 
 // Re-exports from extracted modules — keeps everything accessible across
