@@ -12,6 +12,45 @@ pub(crate) fn render_markdown_pub(content: &str, width: usize) -> Vec<Line<'stat
 }
 
 fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+    if content.is_empty() {
+        return vec![];
+    }
+
+    let raw_lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::new();
+    let mut markdown_buffer = String::new();
+    let mut idx = 0usize;
+
+    while idx < raw_lines.len() {
+        if is_markdown_table_start(&raw_lines, idx) {
+            if !markdown_buffer.is_empty() {
+                result.extend(render_markdown_segment(&markdown_buffer, width));
+                markdown_buffer.clear();
+            }
+            let start = idx;
+            idx += 2;
+            while idx < raw_lines.len() && is_markdown_table_row(raw_lines[idx]) {
+                idx += 1;
+            }
+            result.extend(render_markdown_table(&raw_lines[start..idx], width));
+            continue;
+        }
+
+        markdown_buffer.push_str(raw_lines[idx]);
+        if idx + 1 < raw_lines.len() {
+            markdown_buffer.push('\n');
+        }
+        idx += 1;
+    }
+
+    if !markdown_buffer.is_empty() {
+        result.extend(render_markdown_segment(&markdown_buffer, width));
+    }
+
+    result
+}
+
+fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
     let md_text = tui_markdown::from_str(content);
     // Convert ratatui_core::Line to ratatui::Line via plain text + styles
     let mut result = Vec::new();
@@ -32,6 +71,167 @@ fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
     } else {
         wrap_styled_lines(result, width)
     }
+}
+
+fn is_markdown_table_row(line: &str) -> bool {
+    line.contains('|')
+}
+
+fn is_markdown_table_separator(line: &str) -> bool {
+    let trimmed = line.trim();
+    !trimmed.is_empty()
+        && trimmed.contains('|')
+        && trimmed
+            .chars()
+            .all(|ch| matches!(ch, '|' | '-' | ':' | ' '))
+}
+
+fn is_markdown_table_start(lines: &[&str], idx: usize) -> bool {
+    idx + 1 < lines.len()
+        && is_markdown_table_row(lines[idx])
+        && is_markdown_table_separator(lines[idx + 1])
+}
+
+fn parse_markdown_table_row(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+fn pad_cell(text: &str, width: usize) -> String {
+    let current = UnicodeWidthStr::width(text);
+    if current >= width {
+        return text.to_string();
+    }
+    format!("{text}{}", " ".repeat(width - current))
+}
+
+fn truncate_to_width(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(text) <= width {
+        return text.to_string();
+    }
+    if width == 1 {
+        return "…".to_string();
+    }
+
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width >= width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out.push('…');
+    out
+}
+
+fn fit_table_widths(rows: &[Vec<String>], width: usize) -> Vec<usize> {
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if cols == 0 {
+        return Vec::new();
+    }
+
+    let gutter_width = cols.saturating_sub(1) * 3;
+    let available = width.saturating_sub(gutter_width).max(cols);
+    let mut widths = vec![1usize; cols];
+
+    for row in rows {
+        for (idx, cell) in row.iter().enumerate() {
+            widths[idx] = widths[idx].max(UnicodeWidthStr::width(cell.as_str()));
+        }
+    }
+
+    let total: usize = widths.iter().sum();
+    if total <= available {
+        return widths;
+    }
+
+    let mut assigned = vec![3usize; cols];
+    let mut remaining = available.saturating_sub(assigned.iter().sum::<usize>());
+    let mut growable: Vec<(usize, usize)> = widths
+        .iter()
+        .enumerate()
+        .map(|(idx, natural)| (idx, natural.saturating_sub(3)))
+        .collect();
+
+    while remaining > 0 {
+        let mut progressed = false;
+        for (idx, extra) in &mut growable {
+            if *extra > 0 && remaining > 0 {
+                assigned[*idx] += 1;
+                *extra -= 1;
+                remaining -= 1;
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+
+    assigned
+}
+
+fn render_markdown_table(lines: &[&str], width: usize) -> Vec<Line<'static>> {
+    if lines.is_empty() {
+        return vec![];
+    }
+
+    let mut rows = Vec::new();
+    for (idx, line) in lines.iter().enumerate() {
+        if idx == 1 && is_markdown_table_separator(line) {
+            continue;
+        }
+        rows.push(parse_markdown_table_row(line));
+    }
+
+    let col_widths = fit_table_widths(&rows, width.max(1));
+    if col_widths.is_empty() {
+        return vec![];
+    }
+
+    let header_style = Style::default().add_modifier(Modifier::BOLD);
+    let separator = col_widths
+        .iter()
+        .map(|col| "─".repeat(*col))
+        .collect::<Vec<_>>()
+        .join("─┼─");
+
+    let mut rendered = Vec::new();
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut spans = Vec::new();
+        for (col_idx, col_width) in col_widths.iter().enumerate() {
+            if col_idx > 0 {
+                spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+            }
+            let cell = row.get(col_idx).map(String::as_str).unwrap_or("");
+            let fitted = pad_cell(&truncate_to_width(cell, *col_width), *col_width);
+            spans.push(Span::styled(
+                fitted,
+                if row_idx == 0 {
+                    header_style
+                } else {
+                    Style::default()
+                },
+            ));
+        }
+        rendered.push(Line::from(spans));
+        if row_idx == 0 {
+            rendered.push(Line::from(Span::styled(
+                separator.clone(),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+    rendered
 }
 
 fn convert_style(style: ratatui_core::style::Style) -> Style {
@@ -585,6 +785,33 @@ mod tests {
             lines.len() > 1,
             "Expected markdown to wrap, got {:?}",
             lines
+        );
+    }
+
+    #[test]
+    fn markdown_tables_render_as_columns() {
+        let lines = render_markdown(
+            "| Skill | Size | Purpose |\n|---|---|---|\n| tamux-rust-dev.md | 3.4KB | Build and test Rust crates |",
+            80,
+        );
+        let plain = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            plain.iter().any(|line| line.contains("│")),
+            "Expected rendered column separators, got {:?}",
+            plain
+        );
+        assert!(
+            plain.iter().all(|line| !line.contains("|---")),
+            "Expected markdown separator row to be rendered, got {:?}",
+            plain
         );
     }
 

@@ -44,13 +44,30 @@ impl TuiModel {
                     &self.theme,
                     self.focus == FocusArea::Chat,
                     self.task_view_scroll,
+                    self.task_show_live_todos,
+                    self.task_show_timeline,
+                    self.task_show_files,
                 ),
+                MainPaneView::WorkContext => widgets::work_context_view::render(
+                    frame,
+                    body_chunks[0],
+                    &self.tasks,
+                    self.chat.active_thread_id(),
+                    self.sidebar.active_tab(),
+                    self.sidebar.selected_item(),
+                    &self.theme,
+                    self.task_view_scroll,
+                ),
+                MainPaneView::GoalComposer => {
+                    render_helpers::render_goal_composer(frame, body_chunks[0], &self.theme)
+                }
             }
             widgets::sidebar::render(
                 frame,
                 body_chunks[1],
                 &self.sidebar,
                 &self.tasks,
+                self.chat.active_thread_id(),
                 &self.theme,
                 self.focus == FocusArea::Sidebar,
             );
@@ -72,7 +89,23 @@ impl TuiModel {
                     &self.theme,
                     self.focus == FocusArea::Chat,
                     self.task_view_scroll,
+                    self.task_show_live_todos,
+                    self.task_show_timeline,
+                    self.task_show_files,
                 ),
+                MainPaneView::WorkContext => widgets::work_context_view::render(
+                    frame,
+                    chunks[1],
+                    &self.tasks,
+                    self.chat.active_thread_id(),
+                    self.sidebar.active_tab(),
+                    self.sidebar.selected_item(),
+                    &self.theme,
+                    self.task_view_scroll,
+                ),
+                MainPaneView::GoalComposer => {
+                    render_helpers::render_goal_composer(frame, chunks[1], &self.theme)
+                }
             }
         }
 
@@ -107,8 +140,10 @@ impl TuiModel {
                 modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
+                modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
                 modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
+                modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
                 modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
                 modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
                 modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
@@ -127,6 +162,15 @@ impl TuiModel {
                         frame,
                         overlay_area,
                         &self.chat,
+                        &self.modal,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::GoalPicker => {
+                    widgets::goal_picker::render(
+                        frame,
+                        overlay_area,
+                        &self.tasks,
                         &self.modal,
                         &self.theme,
                     );
@@ -158,6 +202,15 @@ impl TuiModel {
                         overlay_area,
                         &self.modal,
                         &self.config,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::OpenAIAuth => {
+                    render_helpers::render_openai_auth_modal(
+                        frame,
+                        overlay_area,
+                        self.openai_auth_url.as_deref(),
+                        self.openai_auth_status_text.as_deref(),
                         &self.theme,
                     );
                 }
@@ -194,8 +247,10 @@ impl TuiModel {
             modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
+            modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
             modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
+            modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
             modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
             modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
             modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {

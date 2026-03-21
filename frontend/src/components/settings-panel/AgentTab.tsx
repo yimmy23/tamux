@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
-import { getDefaultApiTransport, getDefaultAuthSource, getEffectiveContextWindow, getProviderDefinition, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
+import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function AgentTab({
@@ -237,6 +237,7 @@ export function AgentTab({
                             onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, model: value })}
                             baseUrl={providerConfig.baseUrl || providerDef?.defaultBaseUrl}
                             apiKey={providerConfig.apiKey}
+                            authSource={providerConfig.authSource}
                         />
                     </SettingRow>
                     {providerDef?.apiType === "openai" ? (
@@ -248,6 +249,15 @@ export function AgentTab({
                                     authSource: supportedAuthSources.includes(e.target.value as any)
                                       ? e.target.value as AgentProviderConfig["authSource"]
                                       : getDefaultAuthSource(settings.activeProvider),
+                                    model: (() => {
+                                        const nextAuthSource = supportedAuthSources.includes(e.target.value as any)
+                                          ? e.target.value as AgentProviderConfig["authSource"]
+                                          : getDefaultAuthSource(settings.activeProvider);
+                                        const supportedModels = getProviderModels(settings.activeProvider, nextAuthSource);
+                                        return supportedModels.some((entry) => entry.id === providerConfig.model)
+                                          ? providerConfig.model
+                                          : getDefaultModelForProvider(settings.activeProvider, nextAuthSource);
+                                    })(),
                                 })}
                                 style={inputStyle}
                             >
@@ -275,24 +285,50 @@ export function AgentTab({
                                             ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "tamux"})`
                                             : subscriptionAuthStatus?.error || "No ChatGPT subscription auth found"}
                                     </span>
-                                    <button type="button" onClick={triggerSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
-                                        {subscriptionAuthBusy ? "Preparing..." : "Get Link"}
-                                    </button>
                                     {subscriptionAuthStatus?.available ? (
                                         <button type="button" onClick={clearSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
-                                            Clear
+                                            {subscriptionAuthBusy ? "Working..." : "Logout"}
                                         </button>
-                                    ) : null}
+                                    ) : (
+                                        <button type="button" onClick={triggerSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
+                                            {subscriptionAuthBusy ? "Preparing..." : "Login"}
+                                        </button>
+                                    )}
                                 </div>
                                 {subscriptionAuthUrl ? (
-                                    <a
-                                        href={subscriptionAuthUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        style={{ fontSize: 11, color: "var(--accent, #60a5fa)", wordBreak: "break-all", textAlign: "right" }}
-                                    >
-                                        {subscriptionAuthUrl}
-                                    </a>
+                                    <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                                        <a
+                                            href={subscriptionAuthUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            style={{ fontSize: 11, color: "var(--accent, #60a5fa)", wordBreak: "break-all", textAlign: "right" }}
+                                        >
+                                            {subscriptionAuthUrl}
+                                        </a>
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => window.open(subscriptionAuthUrl, "_blank", "noopener,noreferrer")}
+                                                style={smallBtnStyle}
+                                            >
+                                                Open Browser
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const amux = (window as any).amux || (window as any).tamux;
+                                                    if (amux?.writeClipboardText) {
+                                                        void amux.writeClipboardText(subscriptionAuthUrl);
+                                                        return;
+                                                    }
+                                                    void navigator.clipboard?.writeText(subscriptionAuthUrl).catch(() => {});
+                                                }}
+                                                style={smallBtnStyle}
+                                            >
+                                                Copy Link
+                                            </button>
+                                        </div>
+                                    </div>
                                 ) : null}
                                 {subscriptionAuthUrl ? (
                                     <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "right" }}>

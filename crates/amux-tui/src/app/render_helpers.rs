@@ -1,4 +1,5 @@
 use super::*;
+use ratatui::style::Modifier;
 
 pub(super) fn render_effort_picker(
     frame: &mut Frame,
@@ -107,10 +108,6 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
             Span::styled("Open thread picker", theme.fg_dim),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+B           ", theme.fg_active),
-            Span::styled("Toggle sidebar", theme.fg_dim),
-        ]),
-        Line::from(vec![
             Span::styled("  Ctrl+G           ", theme.fg_active),
             Span::styled("Toggle Goal Runner view", theme.fg_dim),
         ]),
@@ -151,6 +148,20 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         Line::from(vec![
             Span::styled("  Esc              ", theme.fg_active),
             Span::styled("Clear selection", theme.fg_dim),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled("  Goal Runner", theme.accent_primary)),
+        Line::from(vec![
+            Span::styled("  t                ", theme.fg_active),
+            Span::styled("Toggle live todos section", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  l                ", theme.fg_active),
+            Span::styled("Toggle timeline section", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  f                ", theme.fg_active),
+            Span::styled("Toggle files section", theme.fg_dim),
         ]),
         Line::raw(""),
         Line::from(Span::styled("  Input", theme.accent_primary)),
@@ -230,7 +241,11 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         ]),
         Line::from(vec![
             Span::styled("  /goals           ", theme.fg_active),
-            Span::styled("Open Goal Runner view", theme.fg_dim),
+            Span::styled("Open goal picker / create goal", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  /goal            ", theme.fg_active),
+            Span::styled("Open new goal composer", theme.fg_dim),
         ]),
         Line::from(vec![
             Span::styled("  /attach <path>   ", theme.fg_active),
@@ -256,6 +271,45 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         .scroll((0, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
+}
+
+pub(super) fn render_goal_composer(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
+    use ratatui::widgets::{Paragraph, Wrap};
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(1)])
+        .split(area);
+
+    let title = Paragraph::new(Line::from(Span::styled(
+        "Goal Runner",
+        theme.accent_primary.add_modifier(Modifier::BOLD),
+    )));
+    frame.render_widget(title, layout[0]);
+
+    let content = vec![
+        Line::from(Span::styled(
+            "Describe the goal in the input below and press Enter.",
+            theme.fg_active,
+        )),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Examples", theme.fg_dim.add_modifier(Modifier::BOLD)),
+            Span::raw(": "),
+            Span::styled(
+                "create a migration plan, implement auth, refactor a module, investigate a bug",
+                theme.fg_dim,
+            ),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Esc", theme.fg_active),
+            Span::styled(" back to conversation  ", theme.fg_dim),
+            Span::styled("Ctrl+G", theme.fg_active),
+            Span::styled(" goal picker", theme.fg_dim),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(content).wrap(Wrap { trim: false }), layout[1]);
 }
 
 pub(super) fn render_error_modal(
@@ -291,6 +345,57 @@ pub(super) fn render_error_modal(
         Span::styled(" close  ", theme.fg_dim),
         Span::styled("Ctrl+E", theme.fg_active),
         Span::styled(" toggle", theme.fg_dim),
+    ]);
+    frame.render_widget(Paragraph::new(hints), layout[1]);
+}
+
+pub(super) fn render_openai_auth_modal(
+    frame: &mut Frame,
+    area: Rect,
+    auth_url: Option<&str>,
+    status_text: Option<&str>,
+    theme: &ThemeTokens,
+) {
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+
+    let block = Block::default()
+        .title(" CHATGPT LOGIN ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Double)
+        .border_style(theme.accent_primary);
+
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let mut lines = vec![
+        Line::from(status_text.unwrap_or(
+            "Open this URL in your browser to complete ChatGPT authentication.",
+        )),
+        Line::raw(""),
+        Line::from(auth_url.unwrap_or("No login URL available.")),
+    ];
+    if auth_url.is_some() {
+        lines.push(Line::raw(""));
+        lines.push(Line::from("Press Enter or O to open the browser, or C to copy the link."));
+    }
+
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, layout[0]);
+
+    let hints = Line::from(vec![
+        Span::styled("Enter/O", theme.fg_active),
+        Span::styled(" open  ", theme.fg_dim),
+        Span::styled("C", theme.fg_active),
+        Span::styled(" copy  ", theme.fg_dim),
+        Span::styled("Esc", theme.fg_active),
+        Span::styled(" close", theme.fg_dim),
     ]);
     frame.render_widget(Paragraph::new(hints), layout[1]);
 }

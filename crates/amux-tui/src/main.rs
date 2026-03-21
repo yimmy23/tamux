@@ -202,6 +202,13 @@ fn start_daemon_bridge(
                             DaemonCommand::RequestGoalRunDetail(goal_run_id) => {
                                 let _ = client.request_goal_run(goal_run_id);
                             }
+                            DaemonCommand::StartGoalRun {
+                                goal,
+                                thread_id,
+                                session_id,
+                            } => {
+                                let _ = client.start_goal_run(goal, thread_id, session_id);
+                            }
                             DaemonCommand::RequestGitDiff { repo_path, file_path } => {
                                 let _ = client.request_git_diff(repo_path, file_path);
                             }
@@ -261,66 +268,87 @@ async fn fetch_models_http(base_url: &str, api_key: &str) -> Result<Vec<FetchedM
         }
     };
 
-    // ureq is sync — run in blocking task
     let api_key = api_key.to_string();
-    let result = tokio::task::spawn_blocking(move || -> Result<Vec<FetchedModel>> {
-        let mut resp = ureq::get(&url)
-            .header("Authorization", &format!("Bearer {}", api_key))
-            .header("Accept", "application/json")
-            .call()
-            .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+    let mut last_error: Option<anyhow::Error> = None;
 
-        let body: serde_json::Value = resp
-            .body_mut()
-            .read_json()
-            .map_err(|e| anyhow::anyhow!("JSON parse failed: {}", e))?;
+    for attempt in 0..3 {
+        let url = url.clone();
+        let api_key = api_key.clone();
+        let result = tokio::task::spawn_blocking(move || -> Result<Vec<FetchedModel>> {
+            let mut resp = ureq::get(&url)
+                .header("Authorization", &format!("Bearer {}", api_key))
+                .header("Accept", "application/json")
+                .call()
+                .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
 
-        let mut models = Vec::new();
-        if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-            for item in data {
-                let id = item
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                if id.is_empty() {
+            let body: serde_json::Value = resp
+                .body_mut()
+                .read_json()
+                .map_err(|e| anyhow::anyhow!("JSON parse failed: {}", e))?;
+
+            let mut models = Vec::new();
+            if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
+                for item in data {
+                    let id = item
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if id.is_empty() {
+                        continue;
+                    }
+                    if id.contains("embedding")
+                        || id.contains("tts")
+                        || id.contains("whisper")
+                        || id.contains("dall-e")
+                        || id.contains("davinci")
+                        || id.contains("babbage")
+                        || id.contains("moderation")
+                    {
+                        continue;
+                    }
+                    let name = item.get("name").and_then(|v| v.as_str()).map(String::from);
+                    let context_window = item
+                        .get("context_window")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as u32);
+                    models.push(FetchedModel {
+                        id,
+                        name,
+                        context_window,
+                    });
+                }
+            }
+
+            models.sort_by(|a, b| {
+                b.context_window
+                    .unwrap_or(0)
+                    .cmp(&a.context_window.unwrap_or(0))
+                    .then(a.id.cmp(&b.id))
+            });
+
+            Ok(models)
+        })
+        .await?;
+
+        match result {
+            Ok(models) => return Ok(models),
+            Err(err) => {
+                let message = err.to_string().to_ascii_lowercase();
+                let retryable = message.contains("connection")
+                    || message.contains("timed out")
+                    || message.contains("error sending request")
+                    || message.contains("transport")
+                    || message.contains("io");
+                last_error = Some(err);
+                if retryable && attempt < 2 {
+                    tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
                     continue;
                 }
-                // Skip embedding/tts/whisper/dall-e models
-                if id.contains("embedding")
-                    || id.contains("tts")
-                    || id.contains("whisper")
-                    || id.contains("dall-e")
-                    || id.contains("davinci")
-                    || id.contains("babbage")
-                    || id.contains("moderation")
-                {
-                    continue;
-                }
-                let name = item.get("name").and_then(|v| v.as_str()).map(String::from);
-                let context_window = item
-                    .get("context_window")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u32);
-                models.push(FetchedModel {
-                    id,
-                    name,
-                    context_window,
-                });
+                break;
             }
         }
+    }
 
-        // Sort: longer context windows first, then alphabetical
-        models.sort_by(|a, b| {
-            b.context_window
-                .unwrap_or(0)
-                .cmp(&a.context_window.unwrap_or(0))
-                .then(a.id.cmp(&b.id))
-        });
-
-        Ok(models)
-    })
-    .await??;
-
-    Ok(result)
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("model fetch failed")))
 }

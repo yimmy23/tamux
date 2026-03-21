@@ -155,6 +155,46 @@ fn check_rate_limit_response(
     }
 }
 
+fn is_transient_transport_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
+            if reqwest_error.is_timeout()
+                || reqwest_error.is_connect()
+                || reqwest_error.is_request()
+                || reqwest_error.is_body()
+                || reqwest_error.is_decode()
+            {
+                return true;
+            }
+        }
+
+        if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
+            use std::io::ErrorKind;
+
+            if matches!(
+                io_error.kind(),
+                ErrorKind::TimedOut
+                    | ErrorKind::Interrupted
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::ConnectionRefused
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::UnexpectedEof
+                    | ErrorKind::WouldBlock
+            ) {
+                return true;
+            }
+        }
+    }
+
+    let message = err.to_string().to_ascii_lowercase();
+    message.contains("error sending request for url")
+        || message.contains("connection reset")
+        || message.contains("connection refused")
+        || message.contains("timed out")
+        || message.contains("unexpected eof")
+}
+
 impl Stream for CompletionStream {
     type Item = Result<CompletionChunk>;
 
@@ -467,7 +507,8 @@ pub fn send_completion_request(
                 Ok(()) => break,
                 Err(e) => {
                     let is_rate_limited = e.downcast_ref::<RateLimitError>().is_some();
-                    if is_rate_limited {
+                    let is_transient_transport = is_transient_transport_error(&e);
+                    if is_rate_limited || is_transient_transport {
                         match retry_strategy {
                             RetryStrategy::Bounded {
                                 max_retries,
@@ -484,7 +525,7 @@ pub fn send_completion_request(
                                 tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
                                 continue;
                             }
-                            RetryStrategy::DurableRateLimited => {
+                            RetryStrategy::DurableRateLimited if is_rate_limited => {
                                 retry_attempt = retry_attempt.saturating_add(1);
                                 let delay_ms = if retry_attempt <= 10 { 2_000 } else { 60_000 };
                                 let _ = tx

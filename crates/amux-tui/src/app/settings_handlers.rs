@@ -1,6 +1,30 @@
 use super::*;
 
 impl TuiModel {
+    pub(super) fn refresh_provider_models_for_current_auth(&mut self) {
+        let models = providers::known_models_for_provider_auth(
+            &self.config.provider,
+            &self.config.auth_source,
+        );
+        if !models.is_empty() {
+            self.config
+                .reduce(config::ConfigAction::ModelsFetched(models.clone()));
+            if !models.iter().any(|model| model.id == self.config.model) {
+                let fallback =
+                    providers::default_model_for_provider_auth(&self.config.provider, &self.config.auth_source);
+                self.config
+                    .reduce(config::ConfigAction::SetModel(fallback));
+            }
+        }
+    }
+
+    fn show_openai_auth_modal(&mut self, url: String, status_text: &str) {
+        self.openai_auth_url = Some(url);
+        self.openai_auth_status_text = Some(status_text.to_string());
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
+    }
+
     pub(super) fn activate_settings_field(&mut self) {
         let field = self.settings.current_field_name().to_string();
         match field.as_str() {
@@ -23,6 +47,7 @@ impl TuiModel {
                 {
                     self.refresh_openai_auth_status();
                 }
+                self.refresh_provider_models_for_current_auth();
                 if self.config.provider == "openai"
                     && self.config.auth_source == "chatgpt_subscription"
                 {
@@ -83,11 +108,10 @@ impl TuiModel {
                                 "Imported ChatGPT auth from ~/.codex/auth.json".to_string();
                         }
                         Ok(crate::auth::OpenAICodexAuthFlowResult::Started { url }) => {
-                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                let _ = clipboard.set_text(url.clone());
-                            }
-                            self.status_line =
-                                format!("OpenAI auth URL copied to clipboard: {url}");
+                            self.show_openai_auth_modal(
+                                url,
+                                "Open this URL in your browser to complete ChatGPT authentication.",
+                            );
                         }
                         Err(err) => {
                             self.status_line = format!("Failed to start ChatGPT auth: {err}");

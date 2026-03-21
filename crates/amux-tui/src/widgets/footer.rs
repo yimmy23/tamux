@@ -442,8 +442,10 @@ pub fn render_status_bar(
     spans.push(Span::raw("    "));
     spans.push(Span::styled("tab", theme.fg_active));
     spans.push(Span::styled(":focus  ", theme.fg_dim));
+    spans.push(Span::styled("ctrl+t", theme.fg_active));
+    spans.push(Span::styled(":threads  ", theme.fg_dim));
     spans.push(Span::styled("ctrl+g", theme.fg_active));
-    spans.push(Span::styled(":view  ", theme.fg_dim));
+    spans.push(Span::styled(":goals  ", theme.fg_dim));
     spans.push(Span::styled("ctrl+p", theme.fg_active));
     spans.push(Span::styled(":cmd  ", theme.fg_dim));
     spans.push(Span::styled("/", theme.fg_active));

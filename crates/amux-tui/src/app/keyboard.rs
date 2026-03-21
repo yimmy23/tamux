@@ -21,7 +21,10 @@ impl TuiModel {
         if matches!(code, KeyCode::Modifier(_)) {
             return false;
         }
-        if code == KeyCode::Char('e') && modifiers.contains(KeyModifiers::CONTROL) {
+        
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+
+        if code == KeyCode::Char('e') && ctrl {
             if self.last_error.is_some() {
                 if self.modal.top() == Some(modal::ModalKind::ErrorViewer) {
                     self.modal.reduce(modal::ModalAction::Pop);
@@ -37,7 +40,6 @@ impl TuiModel {
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
 
-        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
         if code != KeyCode::Esc {
             self.clear_pending_stop();
         }
@@ -52,11 +54,9 @@ impl TuiModel {
                 self.sync_thread_picker_item_count();
             }
             KeyCode::Char('g') if ctrl => {
-                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
-                    self.main_pane_view = MainPaneView::Conversation;
-                } else {
-                    let _ = self.open_goal_runner_view(None);
-                }
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+                self.sync_goal_picker_item_count();
                 self.focus = FocusArea::Chat;
             }
             KeyCode::Char('b') if ctrl => {
@@ -64,7 +64,10 @@ impl TuiModel {
                 self.show_sidebar_override = Some(!current);
             }
             KeyCode::Char('d') if ctrl => {
-                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                if matches!(
+                    self.main_pane_view,
+                    MainPaneView::Task(_) | MainPaneView::WorkContext
+                ) {
                     self.task_view_scroll = self
                         .task_view_scroll
                         .saturating_add((self.height / 2) as usize);
@@ -76,7 +79,10 @@ impl TuiModel {
             KeyCode::Char('u') if ctrl => {
                 if self.focus == FocusArea::Input {
                     self.input.reduce(input::InputAction::ClearLine);
-                } else if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                } else if matches!(
+                    self.main_pane_view,
+                    MainPaneView::Task(_) | MainPaneView::WorkContext
+                ) {
                     self.task_view_scroll = self
                         .task_view_scroll
                         .saturating_sub((self.height / 2) as usize);
@@ -86,7 +92,10 @@ impl TuiModel {
                 }
             }
             KeyCode::PageDown if self.focus == FocusArea::Chat => {
-                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                if matches!(
+                    self.main_pane_view,
+                    MainPaneView::Task(_) | MainPaneView::WorkContext
+                ) {
                     self.task_view_scroll = self
                         .task_view_scroll
                         .saturating_add((self.height / 2) as usize);
@@ -96,7 +105,10 @@ impl TuiModel {
                 }
             }
             KeyCode::PageUp if self.focus == FocusArea::Chat => {
-                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                if matches!(
+                    self.main_pane_view,
+                    MainPaneView::Task(_) | MainPaneView::WorkContext
+                ) {
                     self.task_view_scroll = self
                         .task_view_scroll
                         .saturating_sub((self.height / 2) as usize);
@@ -132,19 +144,39 @@ impl TuiModel {
                     }
                 } else {
                     self.clear_pending_stop();
-                    if matches!(self.main_pane_view, MainPaneView::Task(_))
-                        && self.focus == FocusArea::Chat
-                    {
-                        self.main_pane_view = MainPaneView::Conversation;
-                        self.task_view_scroll = 0;
-                    } else if self.focus == FocusArea::Chat
-                        && self.chat.selected_message().is_some()
-                    {
-                        self.chat.select_message(None);
-                        let current_scroll = self.chat.scroll_offset() as i32;
-                        if current_scroll > 0 {
-                            self.chat
-                                .reduce(chat::ChatAction::ScrollChat(-current_scroll));
+                    if self.focus == FocusArea::Chat {
+                        match &self.main_pane_view {
+                            MainPaneView::Task(target) => {
+                                if let Some(thread_id) = self.target_thread_id(target) {
+                                    if self.tasks.selected_work_path(&thread_id).is_some() {
+                                        self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                                            thread_id,
+                                            path: None,
+                                        });
+                                        return false;
+                                    }
+                                }
+                                self.main_pane_view = MainPaneView::Conversation;
+                                self.task_view_scroll = 0;
+                            }
+                            MainPaneView::WorkContext => {
+                                self.main_pane_view = MainPaneView::Conversation;
+                                self.task_view_scroll = 0;
+                            }
+                            MainPaneView::GoalComposer => {
+                                self.main_pane_view = MainPaneView::Conversation;
+                            }
+                            MainPaneView::Conversation => {
+                                if self.chat.selected_message().is_some() {
+                                    self.chat.select_message(None);
+                                    let current_scroll = self.chat.scroll_offset() as i32;
+                                    if current_scroll > 0 {
+                                        self.chat.reduce(chat::ChatAction::ScrollChat(
+                                            -current_scroll,
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     } else if self.focus == FocusArea::Input {
                         self.focus = FocusArea::Chat;
@@ -160,12 +192,12 @@ impl TuiModel {
                 self.input.reduce(input::InputAction::MoveCursorRight);
             }
             KeyCode::Up if self.focus == FocusArea::Input => {
-                let wrap_w = self.width.saturating_sub(6) as usize;
+                let wrap_w = self.input_wrap_width();
                 self.input
                     .reduce(input::InputAction::MoveCursorUpVisual(wrap_w));
             }
             KeyCode::Down if self.focus == FocusArea::Input => {
-                let wrap_w = self.width.saturating_sub(6) as usize;
+                let wrap_w = self.input_wrap_width();
                 self.input
                     .reduce(input::InputAction::MoveCursorDownVisual(wrap_w));
             }
@@ -182,7 +214,10 @@ impl TuiModel {
                 self.input.reduce(input::InputAction::Redo);
             }
             KeyCode::Home if self.focus == FocusArea::Chat => {
-                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                if matches!(
+                    self.main_pane_view,
+                    MainPaneView::Task(_) | MainPaneView::WorkContext
+                ) {
                     self.task_view_scroll = 0;
                 } else {
                     self.chat.reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
@@ -190,7 +225,10 @@ impl TuiModel {
                 }
             }
             KeyCode::End if self.focus == FocusArea::Chat => {
-                if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                if matches!(
+                    self.main_pane_view,
+                    MainPaneView::Task(_) | MainPaneView::WorkContext
+                ) {
                     self.task_view_scroll = usize::MAX / 4;
                 } else {
                     let offset = self.chat.scroll_offset() as i32;
@@ -200,7 +238,10 @@ impl TuiModel {
             }
             KeyCode::Down if self.focus != FocusArea::Input => match self.focus {
                 FocusArea::Chat => {
-                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    if matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(_) | MainPaneView::WorkContext
+                    ) {
                         self.task_view_scroll = self.task_view_scroll.saturating_add(1);
                     } else {
                         self.chat.select_next_message()
@@ -211,7 +252,10 @@ impl TuiModel {
             },
             KeyCode::Up if self.focus != FocusArea::Input => match self.focus {
                 FocusArea::Chat => {
-                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    if matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(_) | MainPaneView::WorkContext
+                    ) {
                         self.task_view_scroll = self.task_view_scroll.saturating_sub(1);
                     } else {
                         self.chat.select_prev_message()
@@ -220,12 +264,38 @@ impl TuiModel {
                 FocusArea::Sidebar => self.sidebar.navigate(-1, self.sidebar_item_count()),
                 _ => {}
             },
+            KeyCode::Left if self.focus == FocusArea::Sidebar => {
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
+            }
+            KeyCode::Right if self.focus == FocusArea::Sidebar => {
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Todos));
+            }
             KeyCode::Char('r') if self.focus == FocusArea::Chat => {
                 if let Some(sel) = self.chat.selected_message() {
                     self.chat.toggle_reasoning(sel);
                 } else {
                     self.chat.toggle_last_reasoning();
                 }
+            }
+            KeyCode::Char('t')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+            {
+                self.task_show_live_todos = !self.task_show_live_todos;
+            }
+            KeyCode::Char('l')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+            {
+                self.task_show_timeline = !self.task_show_timeline;
+            }
+            KeyCode::Char('f')
+                if self.focus == FocusArea::Chat
+                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+            {
+                self.task_show_files = !self.task_show_files;
             }
             KeyCode::Char('e') if self.focus == FocusArea::Chat => {
                 if let Some(sel) = self.chat.selected_message() {
@@ -310,7 +380,11 @@ impl TuiModel {
                             self.execute_command(cmd);
                         }
                     } else {
-                        self.submit_prompt(prompt);
+                        if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
+                            self.start_goal_run_from_prompt(prompt);
+                        } else {
+                            self.submit_prompt(prompt);
+                        }
                     }
                 }
             }

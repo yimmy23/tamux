@@ -69,9 +69,17 @@ pub fn render(
     spans.push(Span::raw("  "));
     spans.push(Span::styled(usage, theme.fg_dim));
 
-    let header_text = Line::from(spans);
-    let paragraph = Paragraph::new(header_text).block(block);
-    frame.render_widget(paragraph, area);
+    let header_text = Line::from(spans).alignment(Alignment::Center);
+    frame.render_widget(block, area);
+    let text_area = if area.height >= 2 {
+        Rect::new(area.x, area.y + area.height.saturating_sub(2), area.width, 1)
+    } else {
+        area
+    };
+    frame.render_widget(
+        Paragraph::new(header_text).alignment(Alignment::Center),
+        text_area,
+    );
 }
 
 #[cfg(test)]

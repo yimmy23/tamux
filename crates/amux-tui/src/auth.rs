@@ -140,6 +140,40 @@ pub fn clear_openai_codex_auth() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+pub fn open_external_url(url: &str) -> Result<()> {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn()
+        .context("failed to open browser")?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn open_external_url(url: &str) -> Result<()> {
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .context("failed to open browser")?;
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn open_external_url(url: &str) -> Result<()> {
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .context("failed to open browser")?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+pub fn open_external_url(_url: &str) -> Result<()> {
+    Err(anyhow::anyhow!(
+        "opening URLs is not supported on this platform"
+    ))
+}
+
 fn decode_jwt_payload(access_token: &str) -> Option<serde_json::Value> {
     let payload = access_token.split('.').nth(1)?;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD

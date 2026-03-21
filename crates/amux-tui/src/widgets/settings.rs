@@ -42,6 +42,15 @@ fn render_edit_line_with_cursor(text: &str, cursor_col: usize) -> String {
     out
 }
 
+fn clip_inline_text(text: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max_chars {
+        return text.to_string();
+    }
+    let tail: String = chars[chars.len().saturating_sub(max_chars)..].iter().collect();
+    format!("…{}", tail)
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -485,12 +494,12 @@ fn render_provider_tab<'a>(
             // Show edit buffer with cursor block
             if *field_name == "api_key" {
                 // Show raw characters while editing API key
-                format!("{}\u{2588}", settings.edit_buffer())
+                clip_inline_text(&format!("{}\u{2588}", settings.edit_buffer()), 52)
             } else {
-                format!("{}\u{2588}", settings.edit_buffer())
+                clip_inline_text(&format!("{}\u{2588}", settings.edit_buffer()), 52)
             }
         } else {
-            value.clone()
+            clip_inline_text(value, 52)
         };
 
         let marker_style = if is_selected {

@@ -28,6 +28,11 @@ pub enum DaemonCommand {
     RequestThreadTodos(String),
     RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),
+    StartGoalRun {
+        goal: String,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+    },
     RequestGitDiff {
         repo_path: String,
         file_path: Option<String>,

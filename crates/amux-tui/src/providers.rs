@@ -286,10 +286,34 @@ pub fn default_auth_source_for(provider: &str) -> &'static str {
         .unwrap_or("api_key")
 }
 
+pub fn default_model_for_provider_auth(provider: &str, auth_source: &str) -> String {
+    known_models_for_provider_auth(provider, auth_source)
+        .first()
+        .map(|model| model.id.clone())
+        .unwrap_or_else(|| {
+            find_by_id(provider)
+                .map(|def| def.default_model.to_string())
+                .unwrap_or_default()
+        })
+}
+
 /// Return a hardcoded list of known models for the given provider so the model
 /// picker works without a live daemon fetch.
 pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
+    known_models_for_provider_auth(provider, "api_key")
+}
+
+pub fn known_models_for_provider_auth(provider: &str, auth_source: &str) -> Vec<FetchedModel> {
     let models: &[(&str, &str, u32)] = match provider {
+        "openai" if auth_source == "chatgpt_subscription" => &[
+            ("gpt-5.4", "GPT-5.4", 1_000_000),
+            ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
+            ("gpt-5.3-codex", "GPT-5.3 Codex", 400_000),
+            ("gpt-5.2-codex", "GPT-5.2 Codex", 400_000),
+            ("gpt-5.2", "GPT-5.2", 400_000),
+            ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", 400_000),
+            ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 400_000),
+        ],
         "openai" => &[
             ("gpt-5.4", "GPT-5.4", 1_000_000),
             ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
@@ -410,7 +434,7 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
 }
 
 pub fn known_context_window_for(provider: &str, model: &str) -> Option<u32> {
-    known_models_for_provider(provider)
+    known_models_for_provider_auth(provider, "api_key")
         .into_iter()
         .find(|entry| entry.id == model)
         .and_then(|entry| entry.context_window)
@@ -452,6 +476,14 @@ mod tests {
         let models = known_models_for_provider("openai");
         assert!(!models.is_empty());
         assert!(models.iter().any(|m| m.id == "gpt-5.4"));
+    }
+
+    #[test]
+    fn known_models_openai_chatgpt_subscription_is_restricted() {
+        let models = known_models_for_provider_auth("openai", "chatgpt_subscription");
+        assert!(models.iter().any(|m| m.id == "gpt-5.4"));
+        assert!(!models.iter().any(|m| m.id == "gpt-4o"));
+        assert!(!models.iter().any(|m| m.id == "o3"));
     }
 
     #[test]

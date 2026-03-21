@@ -9,7 +9,7 @@ use crate::state::task::{
     WorkContextEntryKind,
 };
 use crate::theme::ThemeTokens;
-use crate::widgets::message::wrap_text;
+use crate::widgets::message::{render_markdown_pub, wrap_text};
 
 fn content_inner(area: Rect) -> Rect {
     area
@@ -19,10 +19,12 @@ fn content_inner(area: Rect) -> Rect {
 struct RenderRow {
     line: Line<'static>,
     work_path: Option<String>,
+    close_preview: bool,
 }
 
 pub enum TaskViewHitTarget {
     WorkPath(String),
+    ClosePreview,
 }
 
 fn goal_status_label(status: Option<GoalRunStatus>) -> &'static str {
@@ -79,6 +81,7 @@ fn push_wrapped_text(
                 Span::styled(wrapped, style),
             ]),
             work_path: None,
+            close_preview: false,
         });
     }
 }
@@ -87,6 +90,7 @@ fn push_blank(rows: &mut Vec<RenderRow>) {
     rows.push(RenderRow {
         line: Line::raw(""),
         work_path: None,
+        close_preview: false,
     });
 }
 
@@ -97,7 +101,33 @@ fn push_section_title(rows: &mut Vec<RenderRow>, title: &str, style: Style) {
     rows.push(RenderRow {
         line: Line::from(Span::styled(title.to_string(), style)),
         work_path: None,
+        close_preview: false,
     });
+}
+
+fn is_markdown_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdx")
+}
+
+fn push_preview_text(
+    rows: &mut Vec<RenderRow>,
+    path: &str,
+    content: &str,
+    theme: &ThemeTokens,
+    width: usize,
+) {
+    if is_markdown_path(path) {
+        for line in render_markdown_pub(content, width.max(1)) {
+            rows.push(RenderRow {
+                line,
+                work_path: None,
+                close_preview: false,
+            });
+        }
+    } else {
+        push_wrapped_text(rows, content, theme.fg_dim, width, 0);
+    }
 }
 
 fn related_tasks_for_step<'a>(
@@ -133,6 +163,7 @@ fn push_todo_items(
                 Span::styled("No todos", theme.fg_dim),
             ]),
             work_path: None,
+            close_preview: false,
         });
         return;
     }
@@ -148,6 +179,7 @@ fn push_todo_items(
                 Span::styled(item.content, theme.fg_active),
             ]),
             work_path: None,
+            close_preview: false,
         });
     }
 }
@@ -164,6 +196,7 @@ fn render_goal_summary(
             Span::styled(goal_status_label(run.status), theme.fg_active),
         ]),
         work_path: None,
+        close_preview: false,
     });
     rows.push(RenderRow {
         line: Line::from(vec![
@@ -174,6 +207,7 @@ fn render_goal_summary(
             Span::styled(run.approval_count.to_string(), theme.fg_active),
         ]),
         work_path: None,
+        close_preview: false,
     });
     if let Some(current_step_title) = &run.current_step_title {
         rows.push(RenderRow {
@@ -182,6 +216,7 @@ fn render_goal_summary(
                 Span::styled(current_step_title.clone(), theme.fg_active),
             ]),
             work_path: None,
+            close_preview: false,
         });
     }
     if !run.goal.is_empty() {
@@ -223,6 +258,7 @@ fn render_steps(
         rows.push(RenderRow {
             line: Line::from(Span::styled("No steps", theme.fg_dim)),
             work_path: None,
+            close_preview: false,
         });
         return;
     }
@@ -246,6 +282,7 @@ fn render_steps(
         rows.push(RenderRow {
             line,
             work_path: None,
+            close_preview: false,
         });
 
         if !step.instructions.is_empty() {
@@ -268,6 +305,7 @@ fn render_steps(
                     Span::styled(task_status_label(task.status), theme.fg_dim),
                 ]),
                 work_path: None,
+                close_preview: false,
             });
         }
     }
@@ -347,6 +385,7 @@ fn render_work_context(
                 theme.fg_dim,
             )),
             work_path: None,
+            close_preview: false,
         });
         return;
     }
@@ -371,6 +410,7 @@ fn render_work_context(
                 Span::styled(entry.path.clone(), theme.fg_active),
             ]),
             work_path: Some(entry.path.clone()),
+            close_preview: false,
         });
         if let Some(previous_path) = &entry.previous_path {
             push_wrapped_text(
@@ -399,6 +439,15 @@ fn render_work_context(
         "Preview",
         theme.accent_primary.add_modifier(Modifier::BOLD),
     );
+    rows.push(RenderRow {
+        line: Line::from(vec![
+            Span::styled("[x]", theme.accent_danger),
+            Span::raw(" "),
+            Span::styled("Close preview", theme.fg_dim),
+        ]),
+        work_path: None,
+        close_preview: true,
+    });
     if let Some(repo_root) = selected_entry.repo_root.as_deref() {
         if let Some(diff) = tasks.diff_for_path(repo_root, &selected_entry.path) {
             if diff.trim().is_empty() {
@@ -408,6 +457,7 @@ fn render_work_context(
                         theme.fg_dim,
                     )),
                     work_path: None,
+                    close_preview: false,
                 });
             } else {
                 push_wrapped_text(rows, diff, theme.fg_dim, width, 0);
@@ -427,7 +477,7 @@ fn render_work_context(
     };
     if let Some(preview) = tasks.preview_for_path(&preview_key) {
         if preview.is_text {
-            push_wrapped_text(rows, &preview.content, theme.fg_dim, width, 0);
+            push_preview_text(rows, &selected_entry.path, &preview.content, theme, width);
         } else {
             rows.push(RenderRow {
                 line: Line::from(Span::styled(
@@ -435,12 +485,14 @@ fn render_work_context(
                     theme.fg_dim,
                 )),
                 work_path: None,
+                close_preview: false,
             });
         }
     } else {
         rows.push(RenderRow {
             line: Line::from(Span::styled("Loading preview...", theme.fg_dim)),
             work_path: None,
+            close_preview: false,
         });
     }
 }
@@ -450,6 +502,9 @@ fn build_rows(
     target: &SidebarItemTarget,
     theme: &ThemeTokens,
     width: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
 ) -> (String, Vec<RenderRow>) {
     let mut rows = Vec::new();
     let section_style = theme.accent_primary.add_modifier(Modifier::BOLD);
@@ -466,6 +521,7 @@ fn build_rows(
                     vec![RenderRow {
                         line: Line::from(Span::styled("Goal run not found", theme.accent_danger)),
                         work_path: None,
+                        close_preview: false,
                     }],
                 );
             };
@@ -476,9 +532,15 @@ fn build_rows(
                     Span::styled(run.id.clone(), theme.fg_active),
                 ]),
                 work_path: None,
+                close_preview: false,
             });
             render_goal_summary(&mut rows, run, theme, width);
-            render_live_todos(&mut rows, tasks, run.thread_id.as_deref(), theme, width);
+            if show_live_todos {
+                render_live_todos(&mut rows, tasks, run.thread_id.as_deref(), theme, width);
+            }
+            if show_files {
+                render_work_context(&mut rows, tasks, run.thread_id.as_deref(), theme, width);
+            }
             render_steps(&mut rows, tasks, run, step_id.as_deref(), theme, width);
 
             let child_tasks: Vec<_> = tasks
@@ -491,6 +553,7 @@ fn build_rows(
                 rows.push(RenderRow {
                     line: Line::from(Span::styled("No tasks", theme.fg_dim)),
                     work_path: None,
+                    close_preview: false,
                 });
             } else {
                 for task in child_tasks {
@@ -502,6 +565,7 @@ fn build_rows(
                             Span::styled(task_status_label(task.status), theme.fg_dim),
                         ]),
                         work_path: None,
+                        close_preview: false,
                     });
                 }
             }
@@ -516,8 +580,9 @@ fn build_rows(
                     push_wrapped_text(&mut rows, &format!("• {}", update), theme.fg_dim, width, 0);
                 }
             }
-            render_step_timeline(&mut rows, run, theme, width);
-            render_work_context(&mut rows, tasks, run.thread_id.as_deref(), theme, width);
+            if show_timeline {
+                render_step_timeline(&mut rows, run, theme, width);
+            }
 
             (format!(" Goal: {} ", run.title), rows)
         }
@@ -528,6 +593,7 @@ fn build_rows(
                     vec![RenderRow {
                         line: Line::from(Span::styled("Task not found", theme.accent_danger)),
                         work_path: None,
+                        close_preview: false,
                     }],
                 );
             };
@@ -538,6 +604,7 @@ fn build_rows(
                     Span::styled(task_status_label(task.status), theme.fg_active),
                 ]),
                 work_path: None,
+                close_preview: false,
             });
             rows.push(RenderRow {
                 line: Line::from(vec![
@@ -545,6 +612,7 @@ fn build_rows(
                     Span::styled(format!("{}%", task.progress), theme.fg_active),
                 ]),
                 work_path: None,
+                close_preview: false,
             });
             if let Some(session_id) = &task.session_id {
                 rows.push(RenderRow {
@@ -553,6 +621,7 @@ fn build_rows(
                         Span::styled(session_id.clone(), theme.fg_active),
                     ]),
                     work_path: None,
+                    close_preview: false,
                 });
             }
 
@@ -577,6 +646,7 @@ fn build_rows(
                         ])
                         .style(highlight_style),
                         work_path: None,
+                        close_preview: false,
                     });
                     if !step.instructions.is_empty() {
                         push_wrapped_text(&mut rows, &step.instructions, theme.fg_dim, width, 2);
@@ -585,15 +655,21 @@ fn build_rows(
                         push_wrapped_text(&mut rows, summary, theme.fg_active, width, 2);
                     }
                 }
-                render_step_timeline(&mut rows, run, theme, width);
+                if show_timeline {
+                    render_step_timeline(&mut rows, run, theme, width);
+                }
             }
 
-            render_live_todos(&mut rows, tasks, task.thread_id.as_deref(), theme, width);
+            if show_live_todos {
+                render_live_todos(&mut rows, tasks, task.thread_id.as_deref(), theme, width);
+            }
+            if show_files {
+                render_work_context(&mut rows, tasks, task.thread_id.as_deref(), theme, width);
+            }
             if let Some(blocked_reason) = &task.blocked_reason {
                 push_section_title(&mut rows, "Blocked Reason", section_style);
                 push_wrapped_text(&mut rows, blocked_reason, theme.accent_danger, width, 0);
             }
-            render_work_context(&mut rows, tasks, task.thread_id.as_deref(), theme, width);
 
             (format!(" Task: {} ", task.title), rows)
         }
@@ -606,6 +682,9 @@ pub fn hit_test(
     target: &SidebarItemTarget,
     theme: &ThemeTokens,
     scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
     position: Position,
 ) -> Option<TaskViewHitTarget> {
     let inner = content_inner(area);
@@ -613,11 +692,23 @@ pub fn hit_test(
         return None;
     }
 
-    let (_, rows) = build_rows(tasks, target, theme, inner.width as usize);
+    let (_, rows) = build_rows(
+        tasks,
+        target,
+        theme,
+        inner.width as usize,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
     let row_index = scroll + position.y.saturating_sub(inner.y) as usize;
-    rows.get(row_index)
-        .and_then(|row| row.work_path.clone())
-        .map(TaskViewHitTarget::WorkPath)
+    rows.get(row_index).and_then(|row| {
+        if row.close_preview {
+            Some(TaskViewHitTarget::ClosePreview)
+        } else {
+            row.work_path.clone().map(TaskViewHitTarget::WorkPath)
+        }
+    })
 }
 
 pub fn render(
@@ -628,8 +719,19 @@ pub fn render(
     theme: &ThemeTokens,
     _focused: bool,
     scroll: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
 ) {
-    let (_, rows) = build_rows(tasks, target, theme, area.width as usize);
+    let (_, rows) = build_rows(
+        tasks,
+        target,
+        theme,
+        area.width as usize,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    );
     let inner = content_inner(area);
 
     if inner.width == 0 || inner.height == 0 {

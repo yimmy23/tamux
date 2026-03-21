@@ -1,8 +1,8 @@
 import { useState, useMemo, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { BUILTIN_THEMES } from "../../lib/themes";
 import type { AmuxSettings } from "../../lib/types";
-import type { AgentProviderId, ModelDefinition } from "../../lib/agentStore";
-import { getProviderDefinition } from "../../lib/agentStore";
+import type { AgentProviderId, AuthSource, ModelDefinition } from "../../lib/agentStore";
+import { getProviderDefinition, getProviderModels } from "../../lib/agentStore";
 
 export type SettingsUpdater = <K extends keyof AmuxSettings>(key: K, value: AmuxSettings[K]) => void;
 
@@ -227,13 +227,14 @@ export const smallBtnStyle: CSSProperties = {
     padding: "4px 8px",
 };
 
-export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, apiKey }: {
+export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, apiKey, authSource }: {
     providerId: AgentProviderId;
     value: string;
     onChange: (value: string) => void;
     disabled?: boolean;
     baseUrl?: string;
     apiKey?: string;
+    authSource?: AuthSource;
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
@@ -245,8 +246,9 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
     const inputRef = useRef<HTMLInputElement>(null);
 
     const definition = getProviderDefinition(providerId);
-    const predefinedModels = definition?.models ?? [];
-    const supportsFetch = definition?.supportsModelFetch ?? false;
+    const predefinedModels = getProviderModels(providerId, authSource);
+    const supportsFetch = (definition?.supportsModelFetch ?? false)
+        && !(providerId === "openai" && authSource === "chatgpt_subscription");
     
     const allModels = useMemo(() => {
         const merged = [...predefinedModels];

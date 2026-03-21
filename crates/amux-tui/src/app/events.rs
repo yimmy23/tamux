@@ -90,9 +90,12 @@ impl TuiModel {
                     .reduce(chat::ChatAction::ThreadListReceived(threads));
             }
             ClientEvent::ThreadDetail(Some(thread)) => {
+                let thread_id = thread.id.clone();
                 self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
                     conversion::convert_thread(thread),
                 ));
+                self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
+                self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
             }
             ClientEvent::ThreadDetail(None) => {}
             ClientEvent::ThreadCreated { thread_id, title } => {
@@ -111,6 +114,16 @@ impl TuiModel {
                 let runs = runs.into_iter().map(conversion::convert_goal_run).collect();
                 self.tasks
                     .reduce(task::TaskAction::GoalRunListReceived(runs));
+            }
+            ClientEvent::GoalRunStarted(run) => {
+                let run = conversion::convert_goal_run(run);
+                let target = sidebar::SidebarItemTarget::GoalRun {
+                    goal_run_id: run.id.clone(),
+                    step_id: None,
+                };
+                self.tasks.reduce(task::TaskAction::GoalRunUpdate(run));
+                self.open_sidebar_target(target);
+                self.status_line = "Goal run started".to_string();
             }
             ClientEvent::GoalRunDetail(Some(run)) => {
                 self.tasks.reduce(task::TaskAction::GoalRunDetailReceived(

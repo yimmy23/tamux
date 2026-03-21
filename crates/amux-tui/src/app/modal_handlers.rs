@@ -234,9 +234,32 @@ impl TuiModel {
             return false;
         }
 
+        if kind == modal::ModalKind::OpenAIAuth {
+            match code {
+                KeyCode::Esc => {
+                    self.modal.reduce(modal::ModalAction::Pop);
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    if let Some(url) = self.openai_auth_url.as_deref() {
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            let _ = clipboard.set_text(url.to_string());
+                            self.status_line = "Copied ChatGPT login URL to clipboard".to_string();
+                        }
+                    }
+                }
+                KeyCode::Char('o') | KeyCode::Char('O') | KeyCode::Enter => {
+                    self.handle_modal_enter(kind);
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         let is_searchable = matches!(
             kind,
-            modal::ModalKind::CommandPalette | modal::ModalKind::ThreadPicker
+            modal::ModalKind::CommandPalette
+                | modal::ModalKind::ThreadPicker
+                | modal::ModalKind::GoalPicker
         );
 
         match code {
@@ -260,6 +283,8 @@ impl TuiModel {
                 ));
                 if kind == modal::ModalKind::ThreadPicker {
                     self.sync_thread_picker_item_count();
+                } else if kind == modal::ModalKind::GoalPicker {
+                    self.sync_goal_picker_item_count();
                 }
             }
             KeyCode::Char(c) if is_searchable => {
@@ -269,6 +294,8 @@ impl TuiModel {
                 ));
                 if kind == modal::ModalKind::ThreadPicker {
                     self.sync_thread_picker_item_count();
+                } else if kind == modal::ModalKind::GoalPicker {
+                    self.sync_goal_picker_item_count();
                 }
             }
             _ => {}
@@ -310,6 +337,28 @@ impl TuiModel {
                     self.main_pane_view = MainPaneView::Conversation;
                     self.send_daemon_command(DaemonCommand::RequestThread(tid));
                     self.status_line = format!("Thread: {}", title);
+                }
+            }
+            modal::ModalKind::GoalPicker => {
+                let cursor = self.modal.picker_cursor();
+                let selected = if cursor == 0 {
+                    None
+                } else {
+                    self.filtered_goal_runs().get(cursor - 1).map(|run| {
+                    sidebar::SidebarItemTarget::GoalRun {
+                        goal_run_id: run.id.clone(),
+                        step_id: None,
+                    }
+                    })
+                };
+                self.modal.reduce(modal::ModalAction::Pop);
+                self.input.reduce(input::InputAction::Clear);
+                if cursor == 0 {
+                    self.open_new_goal_view();
+                } else if let Some(target) = selected {
+                    self.open_sidebar_target(target);
+                } else {
+                    self.status_line = "No goals available".to_string();
                 }
             }
             modal::ModalKind::ProviderPicker => {
@@ -406,9 +455,7 @@ impl TuiModel {
                         self.config.api_transport = "responses".to_string();
                     }
 
-                    let models = providers::known_models_for_provider(def.id);
-                    self.config
-                        .reduce(config::ConfigAction::ModelsFetched(models));
+                    self.refresh_provider_models_for_current_auth();
                     self.status_line = format!("Provider: {}", def.name);
                     self.sync_config_to_daemon();
                 }
@@ -439,6 +486,16 @@ impl TuiModel {
                     }
                 }
                 self.modal.reduce(modal::ModalAction::Pop);
+            }
+            modal::ModalKind::OpenAIAuth => {
+                if let Some(url) = self.openai_auth_url.clone() {
+                    if crate::auth::open_external_url(&url).is_ok() {
+                        self.status_line = "Opened ChatGPT login in browser".to_string();
+                    } else if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                        let _ = clipboard.set_text(url);
+                        self.status_line = "Copied ChatGPT login URL to clipboard".to_string();
+                    }
+                }
             }
             modal::ModalKind::EffortPicker => {
                 let efforts = ["", "low", "medium", "high", "xhigh"];

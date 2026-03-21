@@ -4,8 +4,10 @@
 pub enum ModalKind {
     CommandPalette,
     ThreadPicker,
+    GoalPicker,
     ProviderPicker,
     ModelPicker,
+    OpenAIAuth,
     ErrorViewer,
     ApprovalOverlay,
     Settings,

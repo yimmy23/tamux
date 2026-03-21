@@ -268,7 +268,7 @@ fn build_rendered_lines(
                 all_lines.push(RenderedChatLine {
                     line: blank_message_line(inner_width, block_style),
                     message_index: Some(idx),
-                    kind: RenderedLineKind::MessageBody,
+                    kind: RenderedLineKind::Padding,
                 });
             }
 
@@ -284,7 +284,7 @@ fn build_rendered_lines(
                 all_lines.push(RenderedChatLine {
                     line: blank_message_line(inner_width, block_style),
                     message_index: Some(idx),
-                    kind: RenderedLineKind::MessageBody,
+                    kind: RenderedLineKind::Padding,
                 });
             }
 
@@ -469,6 +469,35 @@ fn visible_rendered_lines(
     let visible = visible_lines(&all_lines, inner.height as usize, scroll);
 
     Some((inner, visible))
+}
+
+fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usize> {
+    let current = all_lines.get(row)?;
+    let current_has_content = !matches!(current.kind, RenderedLineKind::Padding)
+        && rendered_line_content_bounds(current).2 > rendered_line_content_bounds(current).1;
+    if current_has_content {
+        return Some(row);
+    }
+
+    for next in row + 1..all_lines.len() {
+        let line = &all_lines[next];
+        if !matches!(line.kind, RenderedLineKind::Padding)
+            && rendered_line_content_bounds(line).2 > rendered_line_content_bounds(line).1
+        {
+            return Some(next);
+        }
+    }
+
+    for prev in (0..row).rev() {
+        let line = &all_lines[prev];
+        if !matches!(line.kind, RenderedLineKind::Padding)
+            && rendered_line_content_bounds(line).2 > rendered_line_content_bounds(line).1
+        {
+            return Some(prev);
+        }
+    }
+
+    None
 }
 
 fn normalize_selection(
@@ -702,6 +731,7 @@ pub fn selection_point_from_mouse(
                 .saturating_sub(padding)
                 .min(visible_count.saturating_sub(1))
     };
+    let row = nearest_content_row(&all_lines, row)?;
     let rendered = all_lines.get(row)?;
     let (_, content_start, content_end) = rendered_line_content_bounds(rendered);
     let content_width = content_end.saturating_sub(content_start);
@@ -728,7 +758,24 @@ pub fn hit_test(
         return None;
     }
     let row = mouse.y.saturating_sub(inner.y) as usize;
-    let hit = visible.get(row)?;
+    let mut resolved_row = row;
+    if visible
+        .get(resolved_row)
+        .is_some_and(|line| matches!(line.kind, RenderedLineKind::Padding))
+    {
+        if let Some(next) = (resolved_row + 1..visible.len()).find(|idx| {
+            !matches!(visible[*idx].kind, RenderedLineKind::Padding)
+                && visible[*idx].message_index.is_some()
+        }) {
+            resolved_row = next;
+        } else if let Some(prev) = (0..resolved_row).rev().find(|idx| {
+            !matches!(visible[*idx].kind, RenderedLineKind::Padding)
+                && visible[*idx].message_index.is_some()
+        }) {
+            resolved_row = prev;
+        }
+    }
+    let hit = visible.get(resolved_row)?;
     let message_index = hit.message_index?;
 
     match hit.kind {

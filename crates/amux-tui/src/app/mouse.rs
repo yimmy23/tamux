@@ -57,7 +57,10 @@ impl TuiModel {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 if cursor_in_chat {
-                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    if matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(_) | MainPaneView::WorkContext
+                    ) {
                         self.task_view_scroll = self.task_view_scroll.saturating_sub(3);
                     } else {
                         self.chat.reduce(chat::ChatAction::ScrollChat(3));
@@ -80,7 +83,10 @@ impl TuiModel {
             }
             MouseEventKind::ScrollDown => {
                 if cursor_in_chat {
-                    if matches!(self.main_pane_view, MainPaneView::Task(_)) {
+                    if matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(_) | MainPaneView::WorkContext
+                    ) {
                         self.task_view_scroll = self.task_view_scroll.saturating_add(3);
                     } else {
                         self.chat.reduce(chat::ChatAction::ScrollChat(-3));
@@ -114,22 +120,33 @@ impl TuiModel {
                         self.chat_drag_anchor = pos;
                         self.chat_drag_current = pos;
                     } else if let MainPaneView::Task(target) = &self.main_pane_view {
-                        if let Some(widgets::task_view::TaskViewHitTarget::WorkPath(path)) =
-                            widgets::task_view::hit_test(
-                                chat_area,
-                                &self.tasks,
-                                target,
-                                &self.theme,
-                                self.task_view_scroll,
-                                Position::new(mouse.column, mouse.row),
-                            )
-                        {
+                        if let Some(hit) = widgets::task_view::hit_test(
+                            chat_area,
+                            &self.tasks,
+                            target,
+                            &self.theme,
+                            self.task_view_scroll,
+                            self.task_show_live_todos,
+                            self.task_show_timeline,
+                            self.task_show_files,
+                            Position::new(mouse.column, mouse.row),
+                        ) {
                             if let Some(thread_id) = self.target_thread_id(target) {
-                                self.tasks.reduce(task::TaskAction::SelectWorkPath {
-                                    thread_id: thread_id.clone(),
-                                    path: Some(path),
-                                });
-                                self.request_preview_for_selected_path(&thread_id);
+                                match hit {
+                                    widgets::task_view::TaskViewHitTarget::WorkPath(path) => {
+                                        self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                                            thread_id: thread_id.clone(),
+                                            path: Some(path),
+                                        });
+                                        self.request_preview_for_selected_path(&thread_id);
+                                    }
+                                    widgets::task_view::TaskViewHitTarget::ClosePreview => {
+                                        self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                                            thread_id,
+                                            path: None,
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
@@ -140,23 +157,35 @@ impl TuiModel {
                         sidebar_area,
                         &self.sidebar,
                         &self.tasks,
+                        self.chat.active_thread_id(),
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::sidebar::SidebarHitTarget::Tab(tab)) => {
                             self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
                         }
-                        Some(widgets::sidebar::SidebarHitTarget::Item(target)) => {
-                            if let Some(index) = self
-                                .sidebar_items()
-                                .iter()
-                                .position(|item| item.target.as_ref() == Some(&target))
+                        Some(widgets::sidebar::SidebarHitTarget::File(path)) => {
+                            if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string)
                             {
+                                let index = self
+                                    .tasks
+                                    .work_context_for_thread(&thread_id)
+                                    .and_then(|context| {
+                                        context.entries.iter().position(|entry| entry.path == path)
+                                    })
+                                    .unwrap_or(0);
                                 self.sidebar.navigate(
                                     index as i32 - self.sidebar.selected_item() as i32,
                                     self.sidebar_item_count(),
                                 );
+                                self.handle_sidebar_enter();
                             }
-                            self.open_sidebar_target(target);
+                        }
+                        Some(widgets::sidebar::SidebarHitTarget::Todo(index)) => {
+                            self.sidebar.navigate(
+                                index as i32 - self.sidebar.selected_item() as i32,
+                                self.sidebar_item_count(),
+                            );
+                            self.handle_sidebar_enter();
                         }
                         None => {}
                     }
@@ -254,7 +283,7 @@ impl TuiModel {
     }
 
     fn input_offset_from_mouse(&self, input_start_row: u16, mouse: MouseEvent) -> Option<usize> {
-        let inner_width = self.width.saturating_sub(4) as usize;
+        let inner_width = self.input_wrap_width();
         if inner_width == 0 {
             return Some(0);
         }
@@ -330,8 +359,10 @@ impl TuiModel {
             MouseEventKind::ScrollUp if inside => match kind {
                 modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
+                | modal::ModalKind::GoalPicker
                 | modal::ModalKind::ProviderPicker
                 | modal::ModalKind::ModelPicker
+                | modal::ModalKind::OpenAIAuth
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(-1));
                 }
@@ -340,8 +371,10 @@ impl TuiModel {
             MouseEventKind::ScrollDown if inside => match kind {
                 modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
+                | modal::ModalKind::GoalPicker
                 | modal::ModalKind::ProviderPicker
                 | modal::ModalKind::ModelPicker
+                | modal::ModalKind::OpenAIAuth
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(1));
                 }
@@ -353,8 +386,10 @@ impl TuiModel {
                     modal::ModalKind::Help
                         | modal::ModalKind::CommandPalette
                         | modal::ModalKind::ThreadPicker
+                        | modal::ModalKind::GoalPicker
                         | modal::ModalKind::ProviderPicker
                         | modal::ModalKind::ModelPicker
+                        | modal::ModalKind::OpenAIAuth
                         | modal::ModalKind::ErrorViewer
                         | modal::ModalKind::EffortPicker
                 ) {
@@ -464,6 +499,36 @@ impl TuiModel {
                         }
                     }
                 }
+                modal::ModalKind::GoalPicker => {
+                    let inner = Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Double)
+                        .inner(overlay_area);
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([
+                            Constraint::Length(1),
+                            Constraint::Length(1),
+                            Constraint::Min(1),
+                            Constraint::Length(1),
+                        ])
+                        .split(inner);
+                    if mouse.row >= chunks[2].y
+                        && mouse.row < chunks[2].y.saturating_add(chunks[2].height)
+                    {
+                        let row_idx = mouse.row.saturating_sub(chunks[2].y) as usize;
+                        let total_items = self.filtered_goal_runs().len() + 1;
+                        let (visible_start, visible_len) = widgets::thread_picker::visible_window(
+                            self.modal.picker_cursor(),
+                            total_items,
+                            chunks[2].height as usize,
+                        );
+                        if row_idx < visible_len {
+                            self.modal_navigate_to(visible_start + row_idx);
+                            self.handle_modal_enter(kind);
+                        }
+                    }
+                }
                 modal::ModalKind::ProviderPicker => {
                     let inner = Block::default()
                         .borders(Borders::ALL)
@@ -496,6 +561,7 @@ impl TuiModel {
                         }
                     }
                 }
+                modal::ModalKind::OpenAIAuth => {}
                 modal::ModalKind::EffortPicker => {
                     let inner = Block::default()
                         .borders(Borders::ALL)

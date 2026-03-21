@@ -6,8 +6,8 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
-    Tasks,
-    Subagents,
+    Files,
+    Todos,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +43,7 @@ pub struct SidebarState {
 impl SidebarState {
     pub fn new() -> Self {
         Self {
-            active_tab: SidebarTab::Tasks,
+            active_tab: SidebarTab::Files,
             selected_item: 0,
             scroll_offset: 0,
             expanded_nodes: HashSet::new(),
@@ -137,8 +137,8 @@ mod tests {
         assert_eq!(state.selected_item(), 5);
         assert_eq!(state.scroll_offset(), 3);
 
-        state.reduce(SidebarAction::SwitchTab(SidebarTab::Subagents));
-        assert_eq!(state.active_tab(), SidebarTab::Subagents);
+        state.reduce(SidebarAction::SwitchTab(SidebarTab::Todos));
+        assert_eq!(state.active_tab(), SidebarTab::Todos);
         assert_eq!(state.selected_item(), 0);
         assert_eq!(state.scroll_offset(), 0);
     }
@@ -204,6 +204,6 @@ mod tests {
     #[test]
     fn default_tab_is_tasks() {
         let state = SidebarState::new();
-        assert_eq!(state.active_tab(), SidebarTab::Tasks);
+        assert_eq!(state.active_tab(), SidebarTab::Files);
     }
 }

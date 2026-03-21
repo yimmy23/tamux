@@ -1,8 +1,12 @@
 use super::*;
 
 impl TuiModel {
+    pub(super) fn input_wrap_width(&self) -> usize {
+        self.width.saturating_sub(4).max(1) as usize
+    }
+
     pub(super) fn input_height(&self) -> u16 {
-        let inner_w = self.width.saturating_sub(4) as usize;
+        let inner_w = self.input_wrap_width();
         if inner_w <= 2 {
             return 3;
         }
@@ -34,7 +38,9 @@ impl TuiModel {
                     }
                     return;
                 }
-                modal::ModalKind::CommandPalette | modal::ModalKind::ThreadPicker => {
+                modal::ModalKind::CommandPalette
+                | modal::ModalKind::ThreadPicker
+                | modal::ModalKind::GoalPicker => {
                     self.input.reduce(input::InputAction::Clear);
                     for ch in text.chars() {
                         match ch {
@@ -47,6 +53,8 @@ impl TuiModel {
                     ));
                     if modal_kind == modal::ModalKind::ThreadPicker {
                         self.sync_thread_picker_item_count();
+                    } else if modal_kind == modal::ModalKind::GoalPicker {
+                        self.sync_goal_picker_item_count();
                     }
                     return;
                 }

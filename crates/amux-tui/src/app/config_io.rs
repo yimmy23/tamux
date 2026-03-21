@@ -321,6 +321,16 @@ impl TuiModel {
                 } else {
                     providers::default_auth_source_for(provider_id).to_string()
                 };
+            let supported_models =
+                providers::known_models_for_provider_auth(provider_id, &self.config.auth_source);
+            if !supported_models.is_empty()
+                && !supported_models
+                    .iter()
+                    .any(|entry| entry.id == self.config.model)
+            {
+                self.config.model =
+                    providers::default_model_for_provider_auth(provider_id, &self.config.auth_source);
+            }
             self.config.api_transport =
                 if providers::supported_transports_for(provider_id).contains(&api_transport) {
                     api_transport.to_string()

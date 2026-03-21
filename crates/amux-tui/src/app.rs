@@ -49,6 +49,8 @@ struct SidebarFlatItem {
 enum MainPaneView {
     Conversation,
     Task(sidebar::SidebarItemTarget),
+    WorkContext,
+    GoalComposer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +102,10 @@ pub struct TuiModel {
     error_active: bool,
     error_tick: u64,
 
+    // Pending ChatGPT subscription login flow
+    openai_auth_url: Option<String>,
+    openai_auth_status_text: Option<String>,
+
     // Vim motion state
     pending_g: bool,
 
@@ -107,6 +113,9 @@ pub struct TuiModel {
     show_sidebar_override: Option<bool>,
     main_pane_view: MainPaneView,
     task_view_scroll: usize,
+    task_show_live_todos: bool,
+    task_show_timeline: bool,
+    task_show_files: bool,
 
     // Set by /quit command; checked after modal enter to issue quit
     pending_quit: bool,
@@ -159,10 +168,15 @@ impl TuiModel {
             last_error: None,
             error_active: false,
             error_tick: 0,
+            openai_auth_url: None,
+            openai_auth_status_text: None,
             pending_g: false,
             show_sidebar_override: None,
             main_pane_view: MainPaneView::Conversation,
             task_view_scroll: 0,
+            task_show_live_todos: true,
+            task_show_timeline: true,
+            task_show_files: true,
             pending_quit: false,
             pending_stop: false,
             pending_stop_tick: 0,
@@ -255,7 +269,19 @@ impl TuiModel {
     }
 
     fn sidebar_visible(&self) -> bool {
-        matches!(self.main_pane_view, MainPaneView::Conversation)
-            && self.show_sidebar_override.unwrap_or(self.width >= 80)
+        if !matches!(
+            self.main_pane_view,
+            MainPaneView::Conversation | MainPaneView::WorkContext
+        ) {
+            return false;
+        }
+        let Some(thread_id) = self.chat.active_thread_id() else {
+            return false;
+        };
+        !self.tasks.todos_for_thread(thread_id).is_empty()
+            || self
+                .tasks
+                .work_context_for_thread(thread_id)
+                .is_some_and(|context| !context.entries.is_empty())
     }
 }

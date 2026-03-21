@@ -26,14 +26,6 @@ impl TuiModel {
             return Some(target.clone());
         }
 
-        if let Some(target) = self
-            .sidebar_items()
-            .get(self.sidebar.selected_item())
-            .and_then(|item| item.target.clone())
-        {
-            return Some(target);
-        }
-
         if let Some(active_thread_id) = self.chat.active_thread_id() {
             if let Some(run) = self
                 .tasks
@@ -93,6 +85,19 @@ impl TuiModel {
         true
     }
 
+    pub(super) fn filtered_goal_runs(&self) -> Vec<&task::GoalRun> {
+        let query = self.modal.command_query().to_lowercase();
+        self.tasks
+            .goal_runs()
+            .iter()
+            .filter(|run| {
+                query.is_empty()
+                    || run.title.to_lowercase().contains(&query)
+                    || run.goal.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
     pub(super) fn request_preview_for_selected_path(&mut self, thread_id: &str) {
         let Some(context) = self.tasks.work_context_for_thread(thread_id) else {
             return;
@@ -147,90 +152,8 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn sidebar_items(&self) -> Vec<SidebarFlatItem> {
-        let mut flat_items = Vec::new();
-
-        match self.sidebar.active_tab() {
-            sidebar::SidebarTab::Tasks => {
-                for run in self.tasks.goal_runs() {
-                    flat_items.push(SidebarFlatItem {
-                        target: Some(sidebar::SidebarItemTarget::GoalRun {
-                            goal_run_id: run.id.clone(),
-                            step_id: None,
-                        }),
-                        title: run.title.clone(),
-                    });
-                    if self.sidebar.is_expanded(&run.id) {
-                        for step in &run.steps {
-                            flat_items.push(SidebarFlatItem {
-                                target: Some(sidebar::SidebarItemTarget::GoalRun {
-                                    goal_run_id: run.id.clone(),
-                                    step_id: Some(step.id.clone()),
-                                }),
-                                title: step.title.clone(),
-                            });
-                        }
-                    }
-                }
-
-                for task in self.tasks.tasks() {
-                    if task.goal_run_id.is_none() {
-                        flat_items.push(SidebarFlatItem {
-                            target: Some(sidebar::SidebarItemTarget::Task {
-                                task_id: task.id.clone(),
-                            }),
-                            title: task.title.clone(),
-                        });
-                    }
-                }
-            }
-            sidebar::SidebarTab::Subagents => {
-                for run in self.tasks.goal_runs() {
-                    flat_items.push(SidebarFlatItem {
-                        target: Some(sidebar::SidebarItemTarget::GoalRun {
-                            goal_run_id: run.id.clone(),
-                            step_id: None,
-                        }),
-                        title: run.title.clone(),
-                    });
-                    if self.sidebar.is_expanded(&run.id) {
-                        for task in self
-                            .tasks
-                            .tasks()
-                            .iter()
-                            .filter(|task| task.goal_run_id.as_deref() == Some(run.id.as_str()))
-                        {
-                            flat_items.push(SidebarFlatItem {
-                                target: Some(sidebar::SidebarItemTarget::Task {
-                                    task_id: task.id.clone(),
-                                }),
-                                title: task.title.clone(),
-                            });
-                        }
-                    }
-                }
-
-                for task in self
-                    .tasks
-                    .tasks()
-                    .iter()
-                    .filter(|task| task.goal_run_id.is_none())
-                {
-                    flat_items.push(SidebarFlatItem {
-                        target: Some(sidebar::SidebarItemTarget::Task {
-                            task_id: task.id.clone(),
-                        }),
-                        title: task.title.clone(),
-                    });
-                }
-            }
-        }
-
-        flat_items
-    }
-
     pub(super) fn sidebar_item_count(&self) -> usize {
-        self.sidebar_items().len()
+        widgets::sidebar::body_item_count(&self.tasks, &self.sidebar, self.chat.active_thread_id())
     }
 
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
@@ -254,6 +177,33 @@ impl TuiModel {
         self.modal.set_picker_item_count(count);
     }
 
+    pub(super) fn sync_goal_picker_item_count(&mut self) {
+        self.modal
+            .set_picker_item_count(self.filtered_goal_runs().len() + 1);
+    }
+
+    pub(super) fn open_new_goal_view(&mut self) {
+        self.main_pane_view = MainPaneView::GoalComposer;
+        self.task_view_scroll = 0;
+        self.focus = FocusArea::Input;
+        self.input.reduce(input::InputAction::Clear);
+        self.attachments.clear();
+        self.status_line = "Describe the goal in the input and press Enter".to_string();
+    }
+
+    pub(super) fn start_goal_run_from_prompt(&mut self, goal: String) {
+        if !self.connected {
+            self.status_line = "Not connected to daemon".to_string();
+            return;
+        }
+        self.send_daemon_command(DaemonCommand::StartGoalRun {
+            goal,
+            thread_id: None,
+            session_id: self.default_session_id.clone(),
+        });
+        self.status_line = "Starting goal run...".to_string();
+    }
+
     pub(super) fn execute_command(&mut self, command: &str) {
         tracing::info!("execute_command: {:?}", command);
         match command {
@@ -263,16 +213,23 @@ impl TuiModel {
                 self.modal.set_picker_item_count(providers::PROVIDERS.len());
             }
             "model" => {
-                let models = providers::known_models_for_provider(&self.config.provider);
+                let models = providers::known_models_for_provider_auth(
+                    &self.config.provider,
+                    &self.config.auth_source,
+                );
                 if !models.is_empty() {
                     self.config
                         .reduce(config::ConfigAction::ModelsFetched(models));
                 }
-                self.send_daemon_command(DaemonCommand::FetchModels {
-                    provider_id: self.config.provider.clone(),
-                    base_url: self.config.base_url.clone(),
-                    api_key: self.config.api_key.clone(),
-                });
+                if !(self.config.provider == "openai"
+                    && self.config.auth_source == "chatgpt_subscription")
+                {
+                    self.send_daemon_command(DaemonCommand::FetchModels {
+                        provider_id: self.config.provider.clone(),
+                        base_url: self.config.base_url.clone(),
+                        api_key: self.config.api_key.clone(),
+                    });
+                }
                 let count = self.config.fetched_models().len().max(1);
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
@@ -291,12 +248,19 @@ impl TuiModel {
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
                 self.sync_thread_picker_item_count();
             }
+            "goals" => {
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+                self.sync_goal_picker_item_count();
+            }
             "new" => {
                 self.chat.reduce(chat::ChatAction::NewThread);
                 self.main_pane_view = MainPaneView::Conversation;
             }
-            "goals" | "tasks" => {
-                let _ = self.open_goal_runner_view(None);
+            "tasks" => {
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
+                self.sync_goal_picker_item_count();
             }
             "conversation" | "chat" => {
                 self.main_pane_view = MainPaneView::Conversation;
@@ -318,7 +282,7 @@ impl TuiModel {
                 self.status_line = "System prompt: use /settings -> Agent tab".to_string();
             }
             "goal" => {
-                let _ = self.open_goal_runner_view(None);
+                self.open_new_goal_view();
             }
             "attach" => {
                 self.status_line =
@@ -432,13 +396,33 @@ impl TuiModel {
     }
 
     pub(super) fn handle_sidebar_enter(&mut self) {
-        let selected = self.sidebar.selected_item();
-        let flat_items = self.sidebar_items();
+        let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+            return;
+        };
 
-        if let Some(item) = flat_items.get(selected) {
-            if let Some(target) = item.target.clone() {
-                self.open_sidebar_target(target);
-                self.status_line = item.title.clone();
+        match self.sidebar.active_tab() {
+            sidebar::SidebarTab::Files => {
+                let Some(path) = self
+                    .tasks
+                    .work_context_for_thread(&thread_id)
+                    .and_then(|context| context.entries.get(self.sidebar.selected_item()))
+                    .map(|entry| entry.path.clone())
+                else {
+                    return;
+                };
+                self.main_pane_view = MainPaneView::WorkContext;
+                self.task_view_scroll = 0;
+                self.tasks.reduce(task::TaskAction::SelectWorkPath {
+                    thread_id: thread_id.clone(),
+                    path: Some(path.clone()),
+                });
+                self.request_preview_for_selected_path(&thread_id);
+                self.status_line = path;
+            }
+            sidebar::SidebarTab::Todos => {
+                self.main_pane_view = MainPaneView::WorkContext;
+                self.task_view_scroll = 0;
+                self.status_line = "Todo details".to_string();
             }
         }
     }

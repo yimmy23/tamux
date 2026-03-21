@@ -143,12 +143,19 @@ function normalizeProviderConfig(
   fallback: AgentProviderConfig,
   value: Partial<AgentProviderConfig> | undefined,
 ): AgentProviderConfig {
+  const authSource = normalizeAuthSource(providerId, value?.authSource ?? fallback.authSource);
+  const requestedModel = typeof value?.model === "string" ? value.model.trim() : fallback.model.trim();
+  const supportedModels = getProviderModels(providerId, authSource);
+  const model = requestedModel && supportedModels.some((entry) => entry.id === requestedModel)
+    ? requestedModel
+    : getDefaultModelForProvider(providerId, authSource);
   return {
     ...fallback,
     ...(value ?? {}),
+    model,
     assistantId: typeof value?.assistantId === "string" ? value.assistantId : fallback.assistantId,
     apiTransport: normalizeApiTransport(providerId, value?.apiTransport ?? fallback.apiTransport),
-    authSource: normalizeAuthSource(providerId, value?.authSource ?? fallback.authSource),
+    authSource,
     customContextWindowTokens:
       typeof value?.customContextWindowTokens === "number" && Number.isFinite(value.customContextWindowTokens)
         ? Math.max(1000, Math.trunc(value.customContextWindowTokens))
@@ -181,7 +188,7 @@ export interface ProviderDefinition {
   supportsResponseContinuity: boolean;
 }
 
-const OPENAI_MODELS: ModelDefinition[] = [
+const OPENAI_API_MODELS: ModelDefinition[] = [
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000 },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000 },
   { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000 },
@@ -198,6 +205,16 @@ const OPENAI_MODELS: ModelDefinition[] = [
   { id: "codex-mini-latest", name: "Codex Mini Latest", contextWindow: 200_000 },
   { id: "o3", name: "o3", contextWindow: 200_000 },
   { id: "o4-mini", name: "o4 Mini", contextWindow: 200_000 },
+];
+
+const OPENAI_CHATGPT_SUBSCRIPTION_MODELS: ModelDefinition[] = [
+  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000 },
+  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000 },
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000 },
+  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000 },
+  { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000 },
+  { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000 },
+  { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000 },
 ];
 
 const ZAI_MODELS: ModelDefinition[] = [
@@ -261,7 +278,7 @@ const NATIVE_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["native_assistant", "cha
 
 export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "featherless", name: "Featherless", defaultBaseUrl: "https://api.featherless.ai/v1", defaultModel: "meta-llama/Llama-3.3-70B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
-  { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.4", apiType: "openai", authMethod: "bearer", models: OPENAI_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
+  { id: "openai", name: "OpenAI / ChatGPT", defaultBaseUrl: "https://api.openai.com/v1", defaultModel: "gpt-5.4", apiType: "openai", authMethod: "bearer", models: OPENAI_API_MODELS, supportsModelFetch: true, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: OPENAI_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
   { id: "qwen", name: "Qwen", defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-max", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: true, supportedTransports: NATIVE_AND_CHAT_TRANSPORTS, defaultTransport: "native_assistant", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", nativeTransportKind: "alibaba_assistant_api", nativeBaseUrl: "https://dashscope-intl.aliyuncs.com/api/v1", supportsResponseContinuity: false },
   { id: "qwen-deepinfra", name: "Qwen (DeepInfra)", defaultBaseUrl: "https://api.deepinfra.com/v1/openai", defaultModel: "Qwen/Qwen2.5-72B-Instruct", apiType: "openai", authMethod: "bearer", models: [], supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "kimi", name: "Kimi (Moonshot)", defaultBaseUrl: "https://api.moonshot.ai/v1", defaultModel: "moonshot-v1-32k", apiType: "openai", authMethod: "bearer", models: KIMI_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
@@ -302,18 +319,40 @@ export function getDefaultAuthSource(providerId: AgentProviderId): AuthSource {
   return getProviderDefinition(providerId)?.defaultAuthSource ?? "api_key";
 }
 
+export function getProviderModels(
+  providerId: AgentProviderId,
+  authSource?: AuthSource,
+): ModelDefinition[] {
+  if (providerId === "openai" && authSource === "chatgpt_subscription") {
+    return OPENAI_CHATGPT_SUBSCRIPTION_MODELS;
+  }
+  return getProviderDefinition(providerId)?.models ?? [];
+}
+
+export function getDefaultModelForProvider(
+  providerId: AgentProviderId,
+  authSource?: AuthSource,
+): string {
+  const models = getProviderModels(providerId, authSource);
+  if (models.length > 0) {
+    return models[0].id;
+  }
+  return getProviderDefinition(providerId)?.defaultModel ?? "";
+}
+
 export function getModelDefinition(
   providerId: AgentProviderId,
   modelId: string,
+  authSource?: AuthSource,
 ): ModelDefinition | undefined {
   const trimmed = modelId.trim();
   if (!trimmed) return undefined;
-  return getProviderDefinition(providerId)?.models.find((model) => model.id === trimmed);
+  return getProviderModels(providerId, authSource).find((model) => model.id === trimmed);
 }
 
 export function getEffectiveContextWindow(
   providerId: AgentProviderId,
-  config: Pick<AgentProviderConfig, "model" | "customContextWindowTokens">,
+  config: Pick<AgentProviderConfig, "model" | "customContextWindowTokens" | "authSource">,
 ): number {
   if (providerId === "custom") {
     if (typeof config.customContextWindowTokens === "number" && config.customContextWindowTokens > 0) {
@@ -322,7 +361,7 @@ export function getEffectiveContextWindow(
     return 128_000;
   }
 
-  return getModelDefinition(providerId, config.model)?.contextWindow ?? 128_000;
+  return getModelDefinition(providerId, config.model, config.authSource)?.contextWindow ?? 128_000;
 }
 
 export function providerSupportsResponseContinuity(providerId: AgentProviderId): boolean {

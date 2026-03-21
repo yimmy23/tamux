@@ -42,6 +42,7 @@ pub enum ClientEvent {
     TaskList(Vec<AgentTask>),
     TaskUpdate(AgentTask),
     GoalRunList(Vec<GoalRun>),
+    GoalRunStarted(GoalRun),
     GoalRunDetail(Option<GoalRun>),
     GoalRunUpdate(GoalRun),
     ThreadTodos {
@@ -363,6 +364,14 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse goal run list: {}", err),
                 }
             }
+            DaemonMessage::AgentGoalRunStarted { goal_run_json } => {
+                match serde_json::from_str::<GoalRun>(&goal_run_json) {
+                    Ok(goal_run) => {
+                        let _ = event_tx.send(ClientEvent::GoalRunStarted(goal_run)).await;
+                    }
+                    Err(err) => warn!("Failed to parse goal run started payload: {}", err),
+                }
+            }
             DaemonMessage::AgentGoalRunDetail { goal_run_json } => {
                 match serde_json::from_str::<Option<GoalRun>>(&goal_run_json) {
                     Ok(goal_run) => {
@@ -641,6 +650,22 @@ impl DaemonClient {
     pub fn request_goal_run(&self, goal_run_id: impl Into<String>) -> Result<()> {
         self.send(ClientMessage::AgentGetGoalRun {
             goal_run_id: goal_run_id.into(),
+        })
+    }
+
+    pub fn start_goal_run(
+        &self,
+        goal: String,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentStartGoalRun {
+            goal,
+            title: None,
+            thread_id,
+            session_id,
+            priority: None,
+            client_request_id: None,
         })
     }
 
