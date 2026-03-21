@@ -1366,6 +1366,28 @@ pub struct AgentMessage {
     pub timestamp: u64,
 }
 
+impl AgentMessage {
+    pub fn user(content: impl Into<String>, now: u64) -> Self {
+        Self {
+            role: MessageRole::User,
+            content: content.into(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            reasoning: None,
+            timestamp: now,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {

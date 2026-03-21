@@ -182,6 +182,8 @@ impl EscalationState {
 
     /// Apply an [`EscalationDecision`] to mutate the state.
     pub fn apply(&mut self, decision: &EscalationDecision, now: u64) {
+        const MAX_ESCALATION_HISTORY: usize = 100;
+
         if decision.should_escalate {
             self.escalation_history.push(EscalationEvent {
                 level: decision.target_level,
@@ -189,6 +191,11 @@ impl EscalationState {
                 timestamp: now,
                 outcome: None,
             });
+
+            if self.escalation_history.len() > MAX_ESCALATION_HISTORY {
+                self.escalation_history
+                    .drain(..self.escalation_history.len() - MAX_ESCALATION_HISTORY);
+            }
 
             self.current_level = decision.target_level;
             self.attempts_at_level = 0;
@@ -207,6 +214,7 @@ impl EscalationState {
     pub fn reset(&mut self, now: u64) {
         self.current_level = EscalationLevel::SelfCorrection;
         self.attempts_at_level = 0;
+        self.escalation_history.clear();
         self.started_at = now;
     }
 }

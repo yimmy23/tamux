@@ -318,8 +318,10 @@ impl AgentEngine {
     }
 
     pub(super) async fn persist_tasks(&self) {
-        let tasks = self.tasks.lock().await;
-        for task in tasks.iter() {
+        const MAX_TASK_LOGS: usize = 200;
+        let mut tasks = self.tasks.lock().await;
+        for task in tasks.iter_mut() {
+            task.logs.truncate(MAX_TASK_LOGS);
             if let Err(e) = self.history.upsert_agent_task(task) {
                 tracing::warn!(task_id = %task.id, "failed to persist task to sqlite: {e}");
             }
@@ -330,8 +332,10 @@ impl AgentEngine {
     }
 
     pub(super) async fn persist_goal_runs(&self) {
-        let goal_runs = self.goal_runs.lock().await;
-        for goal_run in goal_runs.iter() {
+        const MAX_GOAL_RUN_EVENTS: usize = 200;
+        let mut goal_runs = self.goal_runs.lock().await;
+        for goal_run in goal_runs.iter_mut() {
+            goal_run.events.truncate(MAX_GOAL_RUN_EVENTS);
             if let Err(e) = self.history.upsert_goal_run(goal_run) {
                 tracing::warn!(goal_run_id = %goal_run.id, "failed to persist goal run to sqlite: {e}");
             }

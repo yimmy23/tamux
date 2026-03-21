@@ -221,6 +221,7 @@ impl AgentEngine {
     /// Main background loop — processes tasks, runs heartbeats, polls gateway.
     pub async fn run_loop(self: Arc<Self>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let config = self.config.read().await.clone();
+        let agent_backend = config.agent_backend.clone();
 
         let task_interval = std::time::Duration::from_secs(config.task_poll_interval_secs);
         let heartbeat_interval =
@@ -259,8 +260,7 @@ impl AgentEngine {
                 _ = gateway_tick.tick() => {
                     // Skip built-in gateway polling when using an external agent
                     // — the external agent handles its own gateway connections
-                    let backend = self.config.read().await.agent_backend.clone();
-                    if backend != "openclaw" && backend != "hermes" {
+                    if agent_backend != "openclaw" && agent_backend != "hermes" {
                         self.poll_gateway_messages().await;
                     }
                 }
@@ -360,23 +360,10 @@ impl AgentEngine {
             None => return,
         };
 
-        // Re-read channel lists from settings.json every cycle
-        // so we pick up changes without restart
-        let settings_path = self
-            .data_dir
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("settings.json");
-        let (discord_channels, slack_channels) =
-            match tokio::fs::read_to_string(&settings_path).await {
-                Ok(raw) => {
-                    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
-                    let dc = parse_channel_filter(&read_setting_str(&v, "discordChannelFilter"));
-                    let sc = parse_channel_filter(&read_setting_str(&v, "slackChannelFilter"));
-                    (dc, sc)
-                }
-                Err(_) => (Vec::new(), Vec::new()),
-            };
+        // Use cached channel lists (populated by init_gateway) instead of
+        // re-reading settings.json from disk every poll cycle.
+        let discord_channels = self.gateway_discord_channels.read().await.clone();
+        let slack_channels = self.gateway_slack_channels.read().await.clone();
 
         // Collect messages from all platforms
         let mut incoming = Vec::new();

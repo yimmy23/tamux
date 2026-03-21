@@ -184,16 +184,18 @@ fn trim_compacted_messages(
     has_summary: bool,
 ) {
     let removable_floor = if has_summary { 2 } else { 1 };
-    while (messages.len() > max_messages || estimate_message_tokens(messages) > target_tokens)
+    let mut total_tokens = estimate_message_tokens(messages);
+    while (messages.len() > max_messages || total_tokens > target_tokens)
         && messages.len() > removable_floor
     {
         let remove_index = if has_summary { 1 } else { 0 };
+        total_tokens -= estimate_single_message_tokens(&messages[remove_index]);
         messages.remove(remove_index);
     }
 
     if has_summary
         && messages.len() > 1
-        && (messages.len() > max_messages || estimate_message_tokens(messages) > target_tokens)
+        && (messages.len() > max_messages || total_tokens > target_tokens)
     {
         messages.remove(0);
     }

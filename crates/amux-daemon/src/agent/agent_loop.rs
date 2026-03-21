@@ -42,23 +42,7 @@ impl AgentEngine {
         {
             let mut threads = self.threads.write().await;
             if let Some(thread) = threads.get_mut(&tid) {
-                thread.messages.push(AgentMessage {
-                    role: MessageRole::User,
-                    content: content.into(),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    tool_name: None,
-                    tool_arguments: None,
-                    tool_status: None,
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    provider: None,
-                    model: None,
-                    api_transport: None,
-                    response_id: None,
-                    reasoning: None,
-                    timestamp: now_millis(),
-                });
+                thread.messages.push(AgentMessage::user(content, now_millis()));
                 thread.updated_at = now_millis();
             }
         }
@@ -666,7 +650,6 @@ impl AgentEngine {
                                 });
                             }
                         }
-                        self.persist_thread_by_id(&tid).await;
 
                         if let Some(pending_approval) = result.pending_approval.as_ref() {
                             interrupted_for_approval = true;
