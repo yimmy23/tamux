@@ -1538,11 +1538,66 @@ where
                         .await?;
                 }
 
+                ClientMessage::AgentLoginProvider {
+                    provider_id,
+                    api_key,
+                    base_url,
+                } => {
+                    // Surgical update: modify only the target provider's key.
+                    let mut config = agent.get_config().await;
+                    let entry = config.providers.entry(provider_id.clone()).or_insert_with(|| {
+                        let def = crate::agent::types::get_provider_definition(&provider_id);
+                        crate::agent::types::ProviderConfig {
+                            base_url: if base_url.is_empty() {
+                                def.map(|d| d.default_base_url.to_string()).unwrap_or_default()
+                            } else {
+                                base_url.clone()
+                            },
+                            model: def.map(|d| d.default_model.to_string()).unwrap_or_default(),
+                            api_key: String::new(),
+                            assistant_id: String::new(),
+                            auth_source: crate::agent::types::AuthSource::ApiKey,
+                            api_transport: crate::agent::types::default_api_transport_for_provider(&provider_id),
+                            reasoning_effort: "high".into(),
+                            context_window_tokens: 128_000,
+                            response_schema: None,
+                        }
+                    });
+                    entry.api_key = api_key;
+                    if !base_url.is_empty() {
+                        entry.base_url = base_url;
+                    }
+                    agent.set_config(config).await;
+
+                    let states = agent.get_provider_auth_states().await;
+                    let json = serde_json::to_string(&states).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentProviderAuthStates { states_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentLogoutProvider { provider_id } => {
+                    let mut config = agent.get_config().await;
+                    if let Some(entry) = config.providers.get_mut(&provider_id) {
+                        entry.api_key.clear();
+                    }
+                    if config.provider == provider_id {
+                        config.api_key.clear();
+                    }
+                    agent.set_config(config).await;
+
+                    let states = agent.get_provider_auth_states().await;
+                    let json = serde_json::to_string(&states).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentProviderAuthStates { states_json: json })
+                        .await?;
+                }
+
                 ClientMessage::AgentValidateProvider {
                     provider_id,
                     base_url,
                     api_key,
-                    auth_source: _,
+                    auth_source,
                 } => {
                     // Resolve credentials: if the client didn't provide them,
                     // look up stored credentials from the agent config.
@@ -1585,21 +1640,29 @@ where
                         };
                         (url, key)
                     };
-                    match crate::agent::llm_client::fetch_models(
+                    let auth_source = if auth_source == "chatgpt_subscription" {
+                        crate::agent::types::AuthSource::ChatgptSubscription
+                    } else {
+                        crate::agent::types::AuthSource::ApiKey
+                    };
+                    match crate::agent::llm_client::validate_provider_connection(
                         &provider_id,
                         &resolved_url,
                         &resolved_key,
+                        auth_source,
                     )
                     .await
                     {
                         Ok(models) => {
-                            let json = serde_json::to_string(&models).unwrap_or_default();
+                            let json = models
+                                .as_ref()
+                                .map(|value| serde_json::to_string(value).unwrap_or_default());
                             framed
                                 .send(DaemonMessage::AgentProviderValidation {
                                     provider_id,
                                     valid: true,
                                     error: None,
-                                    models_json: Some(json),
+                                    models_json: json,
                                 })
                                 .await?;
                         }

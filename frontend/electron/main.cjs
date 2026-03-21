@@ -4230,6 +4230,28 @@ function registerIpcHandlers() {
         }
     });
 
+    ipcMain.handle('agent-login-provider', async (_event, providerId, apiKey, baseUrl) => {
+        try {
+            return await sendAgentQuery(
+                { type: 'login-provider', provider_id: providerId, api_key: apiKey, base_url: baseUrl || '' },
+                'provider-auth-states'
+            );
+        } catch (err) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-logout-provider', async (_event, providerId) => {
+        try {
+            return await sendAgentQuery(
+                { type: 'logout-provider', provider_id: providerId },
+                'provider-auth-states'
+            );
+        } catch (err) {
+            return { error: err.message };
+        }
+    });
+
     ipcMain.handle('agent-validate-provider', async (_event, providerId, baseUrl, apiKey, authSource) => {
         try {
             return await sendAgentQuery(

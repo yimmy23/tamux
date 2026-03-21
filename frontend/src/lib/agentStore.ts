@@ -1117,43 +1117,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
   loginProvider: async (providerId, apiKey, baseUrl) => {
     const bridge = getBridge();
-    if (!bridge?.agentGetConfig || !bridge?.agentSetConfig) return;
+    if (!bridge?.agentLoginProvider) return;
     try {
-      const config = await bridge.agentGetConfig();
-      if (!config) return;
-      const providers = (config as Record<string, unknown>).providers as Record<string, Record<string, unknown>> || {};
-      const existing = providers[providerId] || {};
-      providers[providerId] = { ...existing, api_key: apiKey, ...(baseUrl ? { base_url: baseUrl } : {}) };
-      (config as Record<string, unknown>).providers = providers;
-      await bridge.agentSetConfig(config);
-      set({
-        providerAuthStates: get().providerAuthStates.map((s) =>
-          s.provider_id === providerId
-            ? { ...s, authenticated: true }
-            : s
-        ),
-      });
+      const result = await bridge.agentLoginProvider(providerId, apiKey, baseUrl);
+      // The daemon returns updated auth states directly.
+      if (Array.isArray(result)) {
+        set({ providerAuthStates: result as ProviderAuthState[] });
+      }
     } catch { /* ignore */ }
   },
   logoutProvider: async (providerId) => {
     const bridge = getBridge();
-    if (!bridge?.agentGetConfig || !bridge?.agentSetConfig) return;
+    if (!bridge?.agentLogoutProvider) return;
     try {
-      const config = await bridge.agentGetConfig();
-      if (!config) return;
-      const providers = (config as Record<string, unknown>).providers as Record<string, Record<string, unknown>> || {};
-      if (providers[providerId]) {
-        providers[providerId] = { ...providers[providerId], api_key: "" };
+      const result = await bridge.agentLogoutProvider(providerId);
+      if (Array.isArray(result)) {
+        set({ providerAuthStates: result as ProviderAuthState[] });
       }
-      (config as Record<string, unknown>).providers = providers;
-      await bridge.agentSetConfig(config);
-      set({
-        providerAuthStates: get().providerAuthStates.map((s) =>
-          s.provider_id === providerId
-            ? { ...s, authenticated: false }
-            : s
-        ),
-      });
     } catch { /* ignore */ }
   },
   addSubAgent: async (def) => {
@@ -1431,6 +1411,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     if (!bridge?.agentSetConciergeConfig) return;
     try {
       await bridge.agentSetConciergeConfig(config);
+      if (bridge.agentGetConciergeConfig) {
+        const refreshed = await bridge.agentGetConciergeConfig();
+        if (refreshed && typeof refreshed === "object") {
+          set({ conciergeConfig: refreshed as any });
+          return;
+        }
+      }
       set({ conciergeConfig: config as any });
     } catch { /* ignore */ }
   },

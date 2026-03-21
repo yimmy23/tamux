@@ -361,6 +361,19 @@ pub enum ClientMessage {
     /// Get authentication states for all configured providers.
     AgentGetProviderAuthStates,
 
+    /// Set a provider's API key (surgical update, no full config round-trip).
+    AgentLoginProvider {
+        provider_id: String,
+        api_key: String,
+        #[serde(default)]
+        base_url: String,
+    },
+
+    /// Clear a provider's API key.
+    AgentLogoutProvider {
+        provider_id: String,
+    },
+
     /// Create or update a sub-agent definition.
     AgentSetSubAgent { sub_agent_json: String },
 

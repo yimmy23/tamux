@@ -303,6 +303,8 @@ declare global {
         openAICodexAuthLogout?: () => Promise<{ ok: boolean }>;
         agentFetchModels?: (providerId: string, baseUrl: string, apiKey: string) => Promise<{ models?: Array<{ id: string; name?: string; context_window?: number }>; error?: string } | unknown>;
         agentGetProviderAuthStates?: () => Promise<unknown[]>;
+        agentLoginProvider?: (providerId: string, apiKey: string, baseUrl?: string) => Promise<unknown[] | { error?: string }>;
+        agentLogoutProvider?: (providerId: string) => Promise<unknown[] | { error?: string }>;
         agentValidateProvider?: (providerId: string, baseUrl: string, apiKey: string, authSource: string) => Promise<{ valid: boolean; error?: string; models?: unknown[] }>;
         agentGetConfig?: () => Promise<unknown>;
         agentSetConfig?: (config: unknown) => Promise<unknown>;

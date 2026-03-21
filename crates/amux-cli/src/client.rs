@@ -174,6 +174,15 @@ enum AgentBridgeCommand {
         auth_source: String,
     },
     GetProviderAuthStates,
+    LoginProvider {
+        provider_id: String,
+        api_key: String,
+        #[serde(default)]
+        base_url: String,
+    },
+    LogoutProvider {
+        provider_id: String,
+    },
     SetSubAgent {
         sub_agent_json: String,
     },
@@ -1080,6 +1089,16 @@ pub async fn run_agent_bridge() -> Result<()> {
                                     api_key,
                                     auth_source,
                                 }).await?;
+                            }
+                            AgentBridgeCommand::LoginProvider { provider_id, api_key, base_url } => {
+                                framed.send(ClientMessage::AgentLoginProvider {
+                                    provider_id,
+                                    api_key,
+                                    base_url,
+                                }).await?;
+                            }
+                            AgentBridgeCommand::LogoutProvider { provider_id } => {
+                                framed.send(ClientMessage::AgentLogoutProvider { provider_id }).await?;
                             }
                             AgentBridgeCommand::GetProviderAuthStates => {
                                 framed.send(ClientMessage::AgentGetProviderAuthStates).await?;
