@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::agent::types::{
-    AgentTask, GoalRun, GoalRunStatus, TaskStatus, ThreadWorkContext, TodoItem,
+    AgentTask, GoalRun, GoalRunStatus, ThreadWorkContext, TodoItem,
 };
 
 /// Schema version for forward-compatible checkpoint deserialization.

@@ -276,15 +276,6 @@ pub(super) fn read_setting_str(v: &serde_json::Value, key: &str) -> String {
         .to_string()
 }
 
-/// Parse a comma-separated channel filter string into a list.
-pub(super) fn parse_channel_filter(filter: &str) -> Vec<String> {
-    filter
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
 pub(super) fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

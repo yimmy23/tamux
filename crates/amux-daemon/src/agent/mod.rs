@@ -14,6 +14,7 @@ pub mod tool_executor;
 pub mod types;
 
 mod agent_loop;
+#[allow(dead_code)]
 mod circuit_breaker;
 mod compaction;
 mod config;
@@ -70,7 +71,7 @@ use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
 
 use self::llm_client::{
-    messages_to_api_format, send_completion_request, ApiContent, ApiMessage, RetryStrategy,
+    send_completion_request, ApiContent, ApiMessage, RetryStrategy,
 };
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;

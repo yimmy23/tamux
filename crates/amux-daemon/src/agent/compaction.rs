@@ -116,15 +116,6 @@ pub(super) fn prepare_llm_request(
     }
 }
 
-pub(super) fn build_api_messages_for_request(
-    messages: &[AgentMessage],
-    config: &AgentConfig,
-    provider_config: &ProviderConfig,
-) -> Vec<ApiMessage> {
-    let compacted = compact_messages_for_request(messages, config, provider_config);
-    messages_to_api_format(&compacted)
-}
-
 pub(super) fn compact_messages_for_request(
     messages: &[AgentMessage],
     config: &AgentConfig,

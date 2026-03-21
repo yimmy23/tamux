@@ -8,12 +8,12 @@ pub(super) struct SendMessageOutcome {
 }
 
 #[derive(Clone)]
-pub(super) struct StreamCancellationEntry {
+pub struct StreamCancellationEntry {
     pub generation: u64,
     pub token: CancellationToken,
 }
 
-pub(super) struct ThreadRepoWatcher {
+pub struct ThreadRepoWatcher {
     pub repo_root: String,
     pub watcher: RecommendedWatcher,
 }

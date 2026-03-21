@@ -8,10 +8,6 @@
 //! Incoming messages are routed to the agent engine for processing.
 
 use std::collections::HashMap;
-use std::sync::Arc;
-
-use anyhow::Result;
-use tokio::sync::RwLock;
 
 use super::types::GatewayConfig;
 

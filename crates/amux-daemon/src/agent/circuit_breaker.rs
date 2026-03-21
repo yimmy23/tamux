@@ -1,4 +1,6 @@
 //! Circuit breaker — protect against cascading failures from LLM API outages.
+//!
+//! Not yet wired into the LLM call path — infrastructure ready for integration.
 
 /// The three states of a circuit breaker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
