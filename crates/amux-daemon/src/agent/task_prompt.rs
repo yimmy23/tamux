@@ -136,7 +136,7 @@ pub(super) async fn resolve_preferred_session_id(
         .map(|session| session.id)
 }
 
-/// Utility functions also used elsewhere.
+// -- Utility functions --
 
 pub(super) fn agent_data_dir() -> std::path::PathBuf {
     let base = if cfg!(windows) {

@@ -168,20 +168,15 @@ pub struct HealthIndicators {
 }
 
 /// Overall health state for an entity (task or goal run).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthState {
+    #[default]
     Healthy,
     Degraded,
     Stuck,
     Crashed,
     WaitingForInput,
-}
-
-impl Default for HealthState {
-    fn default() -> Self {
-        Self::Healthy
-    }
 }
 
 /// A health log entry for audit trail.
