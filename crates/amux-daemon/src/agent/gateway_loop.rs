@@ -300,34 +300,40 @@ impl AgentEngine {
                     }
                 }
                 _ = supervisor_tick.tick() => {
-                    let tasks = self.tasks.lock().await;
+                    // Clone minimal task data under lock, then release before processing
+                    let supervised: Vec<_> = {
+                        let tasks = self.tasks.lock().await;
+                        tasks.iter()
+                            .filter(|t| t.status == TaskStatus::InProgress && t.supervisor_config.is_some())
+                            .map(|t| (
+                                t.id.clone(),
+                                t.started_at.unwrap_or(t.created_at),
+                                t.max_duration_secs,
+                                t.supervisor_config.clone().unwrap(),
+                            ))
+                            .collect()
+                    }; // lock released
+
                     let now_secs = now_millis() / 1000;
-                    for task in tasks.iter() {
-                        if task.status != TaskStatus::InProgress {
-                            continue;
-                        }
-                        let supervisor_config = match &task.supervisor_config {
-                            Some(cfg) => cfg,
-                            None => continue,
-                        };
+                    for (task_id, started_at, max_dur, cfg) in supervised {
                         let snapshot = crate::agent::subagent::supervisor::SubagentSnapshot {
-                            task_id: task.id.clone(),
+                            task_id: task_id.clone(),
                             last_tool_call_at: None,
                             tool_calls_total: 0,
                             tool_calls_failed: 0,
                             consecutive_errors: 0,
                             recent_tool_names: Vec::new(),
                             context_utilization_pct: 0,
-                            started_at: task.started_at.unwrap_or(task.created_at),
-                            max_duration_secs: task.max_duration_secs,
+                            started_at,
+                            max_duration_secs: max_dur,
                         };
                         if let Some(action) = crate::agent::subagent::supervisor::check_health(
                             &snapshot,
-                            supervisor_config,
+                            &cfg,
                             now_secs,
                         ) {
                             let _ = self.event_tx.send(AgentEvent::SubagentHealthChange {
-                                task_id: task.id.clone(),
+                                task_id,
                                 previous_state: SubagentHealthState::Healthy,
                                 new_state: action.health_state,
                                 reason: action.reason,

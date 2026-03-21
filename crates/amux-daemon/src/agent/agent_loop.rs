@@ -2,14 +2,6 @@
 
 use super::*;
 
-/// Compute success rate from a finalized execution trace.
-fn trace_collector_success_rate(trace: &crate::agent::learning::traces::ExecutionTrace) -> f64 {
-    if trace.steps.is_empty() {
-        return 0.0;
-    }
-    let succeeded = trace.steps.iter().filter(|s| s.succeeded).count();
-    succeeded as f64 / trace.steps.len() as f64
-}
 
 impl AgentEngine {
     pub(super) async fn send_message_inner(
@@ -616,15 +608,17 @@ impl AgentEngine {
                             termination_consecutive_errors = 0;
                             termination_tool_successes += 1;
                         }
-                        trace_collector.record_step(
-                            &tc.function.name,
-                            &crate::agent::learning::traces::hash_arguments(&tc.function.arguments),
-                            !result.is_error,
-                            0, // duration not tracked at this level
-                            0, // tokens tracked at message level
-                            if result.is_error { Some(result.content.clone()) } else { None },
-                            now_millis(),
-                        );
+                        if task_id.is_some() {
+                            trace_collector.record_step(
+                                &tc.function.name,
+                                &crate::agent::learning::traces::hash_arguments(&tc.function.arguments),
+                                !result.is_error,
+                                0, // duration not tracked at this level
+                                0, // tokens tracked at message level
+                                if result.is_error { Some(result.content.clone()) } else { None },
+                                now_millis(),
+                            );
+                        }
 
                         if tc.function.name == "update_memory" && !result.is_error {
                             self.refresh_memory_cache().await;
@@ -721,6 +715,8 @@ impl AgentEngine {
                     }
 
                     // Check context budget
+                    // Check budget every 5 tool calls to avoid full-message scan on each iteration
+                    if termination_tool_calls % 5 == 0 {
                     if let Some(ref mut budget) = task_context_budget {
                         let current_tokens = {
                             let threads = self.threads.read().await;
@@ -750,6 +746,7 @@ impl AgentEngine {
                             _ => {}
                         }
                     }
+                    } // end budget check every 5 tool calls
 
                     // Loop continues — next iteration will include tool results in context
                 }
@@ -779,50 +776,53 @@ impl AgentEngine {
             });
         }
 
-        // Finalize execution trace and persist
-        let trace_outcome = if interrupted_for_approval {
-            crate::agent::learning::traces::TraceOutcome::Partial { completed_pct: 50.0 }
-        } else if was_cancelled {
-            crate::agent::learning::traces::TraceOutcome::Cancelled
-        } else {
-            crate::agent::learning::traces::TraceOutcome::Success
-        };
-        let trace = trace_collector.finalize(
-            trace_outcome,
-            None,
-            task_id.map(str::to_string),
-            None,
-            now_millis(),
-        );
-        if trace.steps.len() > 0 {
-            let tool_seq = crate::agent::learning::traces::extract_tool_sequence(&trace);
-            let tool_seq_json = serde_json::to_string(&tool_seq).unwrap_or_default();
-            let metrics_json = serde_json::to_string(&serde_json::json!({
-                "total_duration_ms": trace.total_duration_ms,
-                "total_tokens_used": trace.total_tokens_used,
-                "step_count": trace.steps.len(),
-                "success_rate": trace_collector_success_rate(&trace),
-            }))
-            .unwrap_or_default();
-            let outcome_str = match &trace.outcome {
-                crate::agent::learning::traces::TraceOutcome::Success => "success",
-                crate::agent::learning::traces::TraceOutcome::Failure { .. } => "failure",
-                crate::agent::learning::traces::TraceOutcome::Partial { .. } => "partial",
-                crate::agent::learning::traces::TraceOutcome::Cancelled => "cancelled",
+        // Finalize execution trace and persist (only for task-driven turns)
+        if task_id.is_some() {
+            let trace_outcome = if interrupted_for_approval {
+                crate::agent::learning::traces::TraceOutcome::Partial { completed_pct: 50.0 }
+            } else if was_cancelled {
+                crate::agent::learning::traces::TraceOutcome::Cancelled
+            } else {
+                crate::agent::learning::traces::TraceOutcome::Success
             };
-            let _ = self.history.insert_execution_trace(
-                &trace.trace_id,
+            let final_success_rate = trace_collector.success_rate();
+            let trace = trace_collector.finalize(
+                trace_outcome,
                 None,
-                task_id,
-                &trace.task_type,
-                outcome_str,
-                trace.quality_score,
-                &tool_seq_json,
-                &metrics_json,
-                trace.total_duration_ms,
-                trace.total_tokens_used,
-                trace.created_at,
+                task_id.map(str::to_string),
+                None,
+                now_millis(),
             );
+            if !trace.steps.is_empty() {
+                let tool_seq = crate::agent::learning::traces::extract_tool_sequence(&trace);
+                let tool_seq_json = serde_json::to_string(&tool_seq).unwrap_or_default();
+                let metrics_json = serde_json::to_string(&serde_json::json!({
+                    "total_duration_ms": trace.total_duration_ms,
+                    "total_tokens_used": trace.total_tokens_used,
+                    "step_count": trace.steps.len(),
+                    "success_rate": final_success_rate,
+                }))
+                .unwrap_or_default();
+                let outcome_str = match &trace.outcome {
+                    crate::agent::learning::traces::TraceOutcome::Success => "success",
+                    crate::agent::learning::traces::TraceOutcome::Failure { .. } => "failure",
+                    crate::agent::learning::traces::TraceOutcome::Partial { .. } => "partial",
+                    crate::agent::learning::traces::TraceOutcome::Cancelled => "cancelled",
+                };
+                let _ = self.history.insert_execution_trace(
+                    &trace.trace_id,
+                    None,
+                    task_id,
+                    &trace.task_type,
+                    outcome_str,
+                    trace.quality_score,
+                    &tool_seq_json,
+                    &metrics_json,
+                    trace.total_duration_ms,
+                    trace.total_tokens_used,
+                    trace.created_at,
+                );
+            }
         }
 
         self.persist_threads().await;

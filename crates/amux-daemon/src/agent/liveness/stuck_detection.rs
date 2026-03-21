@@ -132,6 +132,74 @@ impl StuckDetector {
 }
 
 // ---------------------------------------------------------------------------
+// Public utility — shared cycle detection
+// ---------------------------------------------------------------------------
+
+/// Check whether the recent tool names contain a repeating cycle (period 1 or 2)
+/// of at least `min_length` entries.
+///
+/// Returns `true` when a loop is detected, `false` otherwise.  This is the
+/// shared implementation used by both the [`StuckDetector`] and the sub-agent
+/// supervisor.
+pub fn has_tool_call_loop(recent: &[String], min_length: usize) -> bool {
+    if recent.len() < min_length {
+        return false;
+    }
+
+    for period in 1..=2 {
+        let check_len = std::cmp::max(min_length, 2 * period);
+        if recent.len() < check_len {
+            continue;
+        }
+
+        let tail = &recent[recent.len() - check_len..];
+        let is_repeating = tail
+            .iter()
+            .enumerate()
+            .all(|(i, name)| *name == tail[i % period]);
+
+        if is_repeating {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Same as [`has_tool_call_loop`] but returns a human-readable evidence string
+/// describing the detected pattern, or `None` when no loop is found.
+pub fn detect_tool_call_loop_evidence(recent: &[String], min_length: usize) -> Option<String> {
+    if recent.len() < min_length {
+        return None;
+    }
+
+    for period in 1..=2 {
+        let check_len = std::cmp::max(min_length, 2 * period);
+        if recent.len() < check_len {
+            continue;
+        }
+
+        let tail = &recent[recent.len() - check_len..];
+        let is_repeating = tail
+            .iter()
+            .enumerate()
+            .all(|(i, name)| *name == tail[i % period]);
+
+        if is_repeating {
+            let pattern: Vec<&str> = tail[..period].iter().map(|s| s.as_str()).collect();
+            let repetitions = check_len / period;
+            return Some(format!(
+                "tool call loop detected: [{}] repeated {} times",
+                pattern.join(" -> "),
+                repetitions
+            ));
+        }
+    }
+
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Detection helpers (private)
 // ---------------------------------------------------------------------------
 
@@ -202,42 +270,31 @@ fn detect_error_loop(snapshot: &DetectionSnapshot, threshold: u32) -> Option<(f6
 }
 
 /// Detect whether recent tool calls form a repeating loop.
+///
+/// Delegates to the shared [`detect_tool_call_loop_evidence`] utility and
+/// adds a confidence score based on the repetition length.
 fn detect_tool_loop(snapshot: &DetectionSnapshot, min_length: usize) -> Option<(f64, String)> {
     let names = &snapshot.recent_tool_names;
-    if names.len() < min_length {
-        return None;
-    }
+    let evidence = detect_tool_call_loop_evidence(names, min_length)?;
 
-    // Check for repeating patterns of period 1 or 2 in the tail.
-    for period in 1..=2 {
-        let check_len = std::cmp::max(min_length, 2 * period);
-        if names.len() < check_len {
-            continue;
+    // Compute confidence from the number of repetitions.
+    let check_len = std::cmp::max(min_length, 2);
+    let repetitions = if names.len() >= check_len {
+        // Period detection: try period 1 first, then 2.
+        let mut reps = 2usize;
+        for period in 1..=2 {
+            let cl = std::cmp::max(min_length, 2 * period);
+            if names.len() >= cl {
+                reps = cl / period;
+                break;
+            }
         }
-
-        let tail = &names[names.len() - check_len..];
-        let is_repeating = tail
-            .iter()
-            .enumerate()
-            .all(|(i, name)| *name == tail[i % period]);
-
-        if is_repeating {
-            let pattern: Vec<&str> = tail[..period].iter().map(|s| s.as_str()).collect();
-            let repetitions = check_len / period;
-            // Higher confidence for longer loops.
-            let confidence = (0.6 + 0.1 * (repetitions as f64 - 2.0).max(0.0)).min(1.0);
-            return Some((
-                confidence,
-                format!(
-                    "tool call loop detected: [{}] repeated {} times",
-                    pattern.join(" -> "),
-                    repetitions
-                ),
-            ));
-        }
-    }
-
-    None
+        reps
+    } else {
+        2
+    };
+    let confidence = (0.6 + 0.1 * (repetitions as f64 - 2.0).max(0.0)).min(1.0);
+    Some((confidence, evidence))
 }
 
 /// Detect whether the context budget is nearly exhausted.

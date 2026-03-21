@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::context_item::*;
+use crate::agent::APPROX_CHARS_PER_TOKEN;
 
 /// Strategy for compressing context items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,8 +97,6 @@ pub fn select_strategy(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-const APPROX_CHARS_PER_TOKEN: usize = 4;
 
 /// Truncate `text` so its estimated token count is at most `max_tokens`.
 fn truncate_to_tokens(text: &str, max_tokens: u32) -> String {

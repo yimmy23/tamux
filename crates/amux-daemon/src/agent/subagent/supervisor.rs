@@ -1,5 +1,6 @@
 //! Sub-agent supervisor — health monitoring, stuck detection, and intervention.
 
+use crate::agent::liveness::stuck_detection::detect_tool_call_loop_evidence;
 use crate::agent::types::{
     InterventionAction, InterventionLevel, StuckReason, SubagentHealthState, SupervisorConfig,
 };
@@ -194,39 +195,12 @@ pub fn select_intervention(
 
 /// Detect a repeating cycle in the recent tool names list.
 ///
-/// We look for the shortest repeating pattern of length 1 or 2 that covers
-/// at least 4 consecutive entries.  For example `["a","b","a","b"]` or
-/// `["a","a","a","a"]` both count.
+/// Delegates to the shared [`detect_tool_call_loop_evidence`] utility in
+/// `crate::agent::liveness::stuck_detection`.  Looks for the shortest
+/// repeating pattern of length 1 or 2 that covers at least 4 consecutive
+/// entries.
 fn detect_tool_call_loop(names: &[String]) -> Option<String> {
-    if names.len() < 4 {
-        return None;
-    }
-
-    // Check the last 4+ entries for a repeating pattern of period 1 or 2.
-    for period in 1..=2 {
-        // We need at least 2 full cycles → 2 * period entries, and at least 4.
-        let min_len = std::cmp::max(4, 2 * period);
-        if names.len() < min_len {
-            continue;
-        }
-
-        let tail = &names[names.len() - min_len..];
-        let is_repeating = tail
-            .iter()
-            .enumerate()
-            .all(|(i, name)| *name == tail[i % period]);
-
-        if is_repeating {
-            let pattern: Vec<&str> = tail[..period].iter().map(|s| s.as_str()).collect();
-            return Some(format!(
-                "tool call loop detected: [{}] repeated {} times",
-                pattern.join(" -> "),
-                min_len / period
-            ));
-        }
-    }
-
-    None
+    detect_tool_call_loop_evidence(names, 4)
 }
 
 // ---------------------------------------------------------------------------

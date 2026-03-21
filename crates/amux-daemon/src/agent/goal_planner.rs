@@ -118,7 +118,7 @@ impl AgentEngine {
                     .get(goal_run.thread_id.as_deref().unwrap_or(""))
                     .cloned()
                     .unwrap_or_default();
-                let now = crate::agent::task_prompt::now_millis();
+                let now = now_millis();
                 let checkpoint = crate::agent::liveness::checkpoint::checkpoint_save(
                     crate::agent::liveness::state_layers::CheckpointType::PreStep,
                     &goal_run,
@@ -309,7 +309,7 @@ impl AgentEngine {
                 .get(updated.thread_id.as_deref().unwrap_or(""))
                 .cloned()
                 .unwrap_or_default();
-            let cp_now = crate::agent::task_prompt::now_millis();
+            let cp_now = now_millis();
             let checkpoint = crate::agent::liveness::checkpoint::checkpoint_save(
                 crate::agent::liveness::state_layers::CheckpointType::PostStep,
                 &updated,

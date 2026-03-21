@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::context_item::*;
+use crate::agent::summarize_text;
 
 // ---------------------------------------------------------------------------
 // Data structures
@@ -165,7 +166,7 @@ pub fn compress_for_archive(content: &str, max_chars: usize) -> (String, Option<
     let summary = build_extractive_summary(content);
 
     // Truncate at a character boundary, trying to land on a whitespace break.
-    let truncated = smart_truncate(content, max_chars);
+    let truncated = summarize_text(content, max_chars);
 
     (truncated, Some(summary))
 }
@@ -194,26 +195,10 @@ fn build_extractive_summary(content: &str) -> String {
     }
 
     if summary.len() > MAX_SUMMARY_CHARS {
-        smart_truncate(&summary, MAX_SUMMARY_CHARS)
+        summarize_text(&summary, MAX_SUMMARY_CHARS)
     } else {
         summary
     }
-}
-
-/// Truncate `s` to at most `max_chars`, preferring to break on whitespace.
-fn smart_truncate(s: &str, max_chars: usize) -> String {
-    if s.len() <= max_chars {
-        return s.to_owned();
-    }
-
-    // Walk back from the limit to find a whitespace boundary.
-    let boundary = s[..max_chars]
-        .rfind(char::is_whitespace)
-        .unwrap_or(max_chars);
-
-    let mut out = s[..boundary].to_owned();
-    out.push_str("...");
-    out
 }
 
 // ---------------------------------------------------------------------------

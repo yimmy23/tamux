@@ -163,7 +163,7 @@ pub(super) fn normalized_tool_signature(tool_call: &ToolCall) -> String {
     format!("{}:{}", tool_call.function.name, normalized_args)
 }
 
-pub(super) fn summarize_text(value: &str, max_chars: usize) -> String {
+pub(in crate::agent) fn summarize_text(value: &str, max_chars: usize) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if normalized.chars().count() <= max_chars {
         return normalized;
@@ -553,14 +553,6 @@ pub(super) fn parse_yaml_block<T: serde::de::DeserializeOwned>(raw: &str) -> Res
     }
 
     anyhow::bail!("failed to parse YAML from model output")
-}
-
-pub(super) fn parse_goal_llm_json(raw: &str) -> Result<GoalPlanResponse> {
-    parse_json_block(raw)
-}
-
-pub(super) fn parse_goal_reflection_json(raw: &str) -> Result<GoalReflectionResponse> {
-    parse_json_block(raw)
 }
 
 /// Build a correction prompt when the model fails to return valid JSON.

@@ -21,7 +21,7 @@ pub(super) struct ThreadRepoWatcher {
 pub(super) const ONECONTEXT_BOOTSTRAP_QUERY_MAX_CHARS: usize = 180;
 pub(super) const ONECONTEXT_BOOTSTRAP_OUTPUT_MAX_CHARS: usize = 5000;
 pub(super) const MIN_CONTEXT_TARGET_TOKENS: usize = 1024;
-pub(super) const APPROX_CHARS_PER_TOKEN: usize = 4;
+pub(in crate::agent) const APPROX_CHARS_PER_TOKEN: usize = 4;
 pub(super) const FILE_WATCH_DEBOUNCE_MS: u64 = 700;
 pub(super) const FILE_WATCH_TICK_MS: u64 = 250;
 

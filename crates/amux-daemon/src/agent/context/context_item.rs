@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::APPROX_CHARS_PER_TOKEN;
+
 /// What kind of context this item represents.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -54,8 +56,6 @@ pub struct ContextItem {
     /// Estimated token count for this item.
     pub estimated_tokens: u32,
 }
-
-const APPROX_CHARS_PER_TOKEN: usize = 4;
 
 impl ContextItem {
     /// Estimate the token count for this item's content.
