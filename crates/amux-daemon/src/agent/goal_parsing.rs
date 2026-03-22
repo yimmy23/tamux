@@ -4,8 +4,8 @@ use anyhow::Result;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use super::types::*;
 use super::now_millis;
+use super::types::*;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub(super) struct GoalPlanResponse {
@@ -175,7 +175,10 @@ pub(in crate::agent) fn summarize_text(value: &str, max_chars: usize) -> String 
     format!("{truncated}…")
 }
 
-pub(super) fn resolve_goal_run_control_step(goal_run: &GoalRun, step_index: Option<usize>) -> usize {
+pub(super) fn resolve_goal_run_control_step(
+    goal_run: &GoalRun,
+    step_index: Option<usize>,
+) -> usize {
     if goal_run.steps.is_empty() {
         return 0;
     }
@@ -223,7 +226,10 @@ pub(super) fn retry_goal_run_step(goal_run: &mut GoalRun, step_index: Option<usi
     Ok(())
 }
 
-pub(super) fn rerun_goal_run_from_step(goal_run: &mut GoalRun, step_index: Option<usize>) -> Result<()> {
+pub(super) fn rerun_goal_run_from_step(
+    goal_run: &mut GoalRun,
+    step_index: Option<usize>,
+) -> Result<()> {
     if goal_run.steps.is_empty() {
         anyhow::bail!("goal run has no steps to rerun");
     }
@@ -321,7 +327,11 @@ pub(super) fn project_goal_run_snapshot(
     goal_run
 }
 
-pub(super) fn make_goal_run_event(phase: &str, message: &str, details: Option<String>) -> GoalRunEvent {
+pub(super) fn make_goal_run_event(
+    phase: &str,
+    message: &str,
+    details: Option<String>,
+) -> GoalRunEvent {
     make_goal_run_event_with_todos(phase, message, details, None, Vec::new())
 }
 

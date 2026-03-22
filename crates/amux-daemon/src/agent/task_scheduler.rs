@@ -2,8 +2,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::types::*;
 use super::now_millis;
+use super::types::*;
 
 pub(super) fn make_task_log_entry(
     attempt: u32,
@@ -378,7 +378,10 @@ pub(super) fn subagent_parent_key(task: &AgentTask) -> Option<String> {
         })
 }
 
-pub(super) fn task_workspace_key(task: &AgentTask, sessions: &[amux_protocol::SessionInfo]) -> Option<String> {
+pub(super) fn task_workspace_key(
+    task: &AgentTask,
+    sessions: &[amux_protocol::SessionInfo],
+) -> Option<String> {
     let session_hint = task.session_id.as_deref()?.trim();
     if session_hint.is_empty() {
         return None;

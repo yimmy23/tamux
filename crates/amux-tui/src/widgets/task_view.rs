@@ -237,6 +237,83 @@ fn render_goal_summary(
     }
 }
 
+fn checkpoint_type_label(raw: &str) -> &'static str {
+    match raw {
+        "pre_step" => "pre-step",
+        "post_step" => "post-step",
+        "pre_recovery" => "recovery",
+        "periodic" => "periodic",
+        "manual" => "manual",
+        _ => "checkpoint",
+    }
+}
+
+fn short_checkpoint_id(id: &str) -> String {
+    if id.chars().count() <= 18 {
+        return id.to_string();
+    }
+    let tail: String = id
+        .chars()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("…{tail}")
+}
+
+fn render_checkpoints(
+    rows: &mut Vec<RenderRow>,
+    tasks: &TaskState,
+    run: &GoalRun,
+    theme: &ThemeTokens,
+    width: usize,
+) {
+    push_section_title(
+        rows,
+        "Checkpoints",
+        theme.accent_primary.add_modifier(Modifier::BOLD),
+    );
+    let checkpoints = tasks.checkpoints_for_goal_run(&run.id);
+    if checkpoints.is_empty() {
+        rows.push(RenderRow {
+            line: Line::from(Span::styled("No checkpoints recorded yet.", theme.fg_dim)),
+            work_path: None,
+            close_preview: false,
+        });
+        return;
+    }
+
+    for checkpoint in checkpoints.iter().take(6) {
+        let step_label = checkpoint
+            .step_index
+            .map(|step_index| format!("step {}", step_index + 1))
+            .unwrap_or_else(|| "step ?".to_string());
+        rows.push(RenderRow {
+            line: Line::from(vec![
+                Span::styled("[", theme.fg_dim),
+                Span::styled(
+                    checkpoint_type_label(&checkpoint.checkpoint_type),
+                    theme.fg_active,
+                ),
+                Span::styled("]", theme.fg_dim),
+                Span::raw(" "),
+                Span::styled(step_label, theme.fg_dim),
+                Span::raw("  "),
+                Span::styled(format!("{} task(s)", checkpoint.task_count), theme.fg_dim),
+                Span::raw("  "),
+                Span::styled(short_checkpoint_id(&checkpoint.id), theme.accent_primary),
+            ]),
+            work_path: None,
+            close_preview: false,
+        });
+        if let Some(preview) = checkpoint.context_summary_preview.as_deref() {
+            push_wrapped_text(rows, preview, theme.fg_dim, width, 2);
+        }
+    }
+}
+
 fn render_steps(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
@@ -535,6 +612,7 @@ fn build_rows(
                 close_preview: false,
             });
             render_goal_summary(&mut rows, run, theme, width);
+            render_checkpoints(&mut rows, tasks, run, theme, width);
             if show_live_todos {
                 render_live_todos(&mut rows, tasks, run.thread_id.as_deref(), theme, width);
             }

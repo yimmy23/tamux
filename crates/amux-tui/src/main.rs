@@ -202,6 +202,9 @@ fn start_daemon_bridge(
                             DaemonCommand::RequestGoalRunDetail(goal_run_id) => {
                                 let _ = client.request_goal_run(goal_run_id);
                             }
+                            DaemonCommand::RequestGoalRunCheckpoints(goal_run_id) => {
+                                let _ = client.list_checkpoints(goal_run_id);
+                            }
                             DaemonCommand::StartGoalRun {
                                 goal,
                                 thread_id,
@@ -271,6 +274,13 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::DismissConciergeWelcome => {
                                 let _ = client.dismiss_concierge_welcome();
+                            }
+                            DaemonCommand::RecordAttention {
+                                surface,
+                                thread_id,
+                                goal_run_id,
+                            } => {
+                                let _ = client.record_attention(surface, thread_id, goal_run_id);
                             }
                         }
                     }

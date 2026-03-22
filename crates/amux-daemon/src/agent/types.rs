@@ -961,6 +961,18 @@ pub struct AgentConfig {
     pub api_key: String,
     #[serde(default)]
     pub assistant_id: String,
+    #[serde(default, rename = "enableHonchoMemory", alias = "enable_honcho_memory")]
+    pub enable_honcho_memory: bool,
+    #[serde(default, rename = "honchoApiKey", alias = "honcho_api_key")]
+    pub honcho_api_key: String,
+    #[serde(default, rename = "honchoBaseUrl", alias = "honcho_base_url")]
+    pub honcho_base_url: String,
+    #[serde(
+        default = "default_honcho_workspace_id",
+        rename = "honchoWorkspaceId",
+        alias = "honcho_workspace_id"
+    )]
+    pub honcho_workspace_id: String,
     #[serde(default = "default_auth_source")]
     pub auth_source: AuthSource,
     #[serde(default = "default_api_transport")]
@@ -1008,9 +1020,170 @@ pub struct AgentConfig {
     /// Concierge agent configuration.
     #[serde(default)]
     pub concierge: ConciergeConfig,
+    /// Anticipatory pre-loading and surfacing controls.
+    #[serde(default)]
+    pub anticipatory: AnticipatoryConfig,
+    /// Learned operator-model controls.
+    #[serde(default)]
+    pub operator_model: OperatorModelConfig,
+    /// Multi-agent collaboration controls.
+    #[serde(default)]
+    pub collaboration: CollaborationConfig,
+    /// Trusted provenance and compliance controls.
+    #[serde(default)]
+    pub compliance: ComplianceConfig,
+    /// Runtime tool synthesis controls.
+    #[serde(default)]
+    pub tool_synthesis: ToolSynthesisConfig,
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnticipatoryConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub morning_brief: bool,
+    #[serde(default)]
+    pub predictive_hydration: bool,
+    #[serde(default)]
+    pub stuck_detection: bool,
+    #[serde(default = "default_morning_brief_window_minutes")]
+    pub morning_brief_window_minutes: u32,
+    #[serde(default = "default_stuck_detection_delay_seconds")]
+    pub stuck_detection_delay_seconds: u64,
+    #[serde(default = "default_surfacing_min_confidence")]
+    pub surfacing_min_confidence: f64,
+    #[serde(default = "default_surface_cooldown_seconds")]
+    pub surface_cooldown_seconds: u64,
+}
+
+impl Default for AnticipatoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            morning_brief: false,
+            predictive_hydration: false,
+            stuck_detection: false,
+            morning_brief_window_minutes: default_morning_brief_window_minutes(),
+            stuck_detection_delay_seconds: default_stuck_detection_delay_seconds(),
+            surfacing_min_confidence: default_surfacing_min_confidence(),
+            surface_cooldown_seconds: default_surface_cooldown_seconds(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorModelConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allow_message_statistics: bool,
+    #[serde(default)]
+    pub allow_approval_learning: bool,
+    #[serde(default)]
+    pub allow_attention_tracking: bool,
+    #[serde(default)]
+    pub allow_implicit_feedback: bool,
+}
+
+impl Default for OperatorModelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_message_statistics: false,
+            allow_approval_learning: false,
+            allow_attention_tracking: false,
+            allow_implicit_feedback: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CollaborationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ComplianceMode {
+    #[default]
+    Standard,
+    Soc2,
+    Hipaa,
+    Fedramp,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceConfig {
+    #[serde(default)]
+    pub mode: ComplianceMode,
+    #[serde(default = "default_compliance_retention_days")]
+    pub retention_days: u32,
+    #[serde(default)]
+    pub sign_all_events: bool,
+}
+
+impl Default for ComplianceConfig {
+    fn default() -> Self {
+        Self {
+            mode: ComplianceMode::default(),
+            retention_days: default_compliance_retention_days(),
+            sign_all_events: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSynthesisConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub require_activation: bool,
+    #[serde(default = "default_generated_tool_limit")]
+    pub max_generated_tools: usize,
+    #[serde(default = "default_generated_tool_auto_promote_threshold")]
+    pub auto_promote_threshold: f64,
+    #[serde(default)]
+    pub sandbox: ToolSynthesisSandboxConfig,
+}
+
+impl Default for ToolSynthesisConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            require_activation: true,
+            max_generated_tools: default_generated_tool_limit(),
+            auto_promote_threshold: default_generated_tool_auto_promote_threshold(),
+            sandbox: ToolSynthesisSandboxConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSynthesisSandboxConfig {
+    #[serde(default = "default_generated_tool_timeout_secs")]
+    pub max_execution_time_secs: u64,
+    #[serde(default)]
+    pub allow_network: bool,
+    #[serde(default)]
+    pub allow_filesystem: bool,
+    #[serde(default = "default_generated_tool_output_kb")]
+    pub max_output_kb: usize,
+}
+
+impl Default for ToolSynthesisSandboxConfig {
+    fn default() -> Self {
+        Self {
+            max_execution_time_secs: default_generated_tool_timeout_secs(),
+            allow_network: false,
+            allow_filesystem: false,
+            max_output_kb: default_generated_tool_output_kb(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1075,6 +1248,36 @@ fn default_task_poll_secs() -> u64 {
 fn default_heartbeat_mins() -> u64 {
     30
 }
+fn default_morning_brief_window_minutes() -> u32 {
+    30
+}
+fn default_stuck_detection_delay_seconds() -> u64 {
+    45
+}
+fn default_surfacing_min_confidence() -> f64 {
+    0.7
+}
+fn default_surface_cooldown_seconds() -> u64 {
+    300
+}
+fn default_honcho_workspace_id() -> String {
+    "tamux".to_string()
+}
+fn default_compliance_retention_days() -> u32 {
+    90
+}
+fn default_generated_tool_limit() -> usize {
+    20
+}
+fn default_generated_tool_auto_promote_threshold() -> f64 {
+    0.85
+}
+fn default_generated_tool_timeout_secs() -> u64 {
+    30
+}
+fn default_generated_tool_output_kb() -> usize {
+    512
+}
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -1084,6 +1287,10 @@ impl Default for AgentConfig {
             model: String::new(),
             api_key: String::new(),
             assistant_id: String::new(),
+            enable_honcho_memory: false,
+            honcho_api_key: String::new(),
+            honcho_base_url: String::new(),
+            honcho_workspace_id: default_honcho_workspace_id(),
             auth_source: default_auth_source(),
             api_transport: default_api_transport(),
             reasoning_effort: default_reasoning_effort(),
@@ -1105,6 +1312,11 @@ impl Default for AgentConfig {
             agent_backend: AgentBackend::default(),
             sub_agents: Vec::new(),
             concierge: ConciergeConfig::default(),
+            anticipatory: AnticipatoryConfig::default(),
+            operator_model: OperatorModelConfig::default(),
+            collaboration: CollaborationConfig::default(),
+            compliance: ComplianceConfig::default(),
+            tool_synthesis: ToolSynthesisConfig::default(),
             extra: HashMap::new(),
         }
     }
@@ -1327,6 +1539,23 @@ pub struct ThreadWorkContext {
     pub entries: Vec<WorkContextEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnticipatoryItem {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default)]
+    pub bullets: Vec<String>,
+    pub confidence: f64,
+    #[serde(default)]
+    pub goal_run_id: Option<String>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
@@ -1408,6 +1637,9 @@ pub enum AgentEvent {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<String>,
+    },
+    AnticipatoryUpdate {
+        items: Vec<AnticipatoryItem>,
     },
     HeartbeatResult {
         item_id: String,
@@ -1837,7 +2069,6 @@ pub struct AgentTask {
     pub logs: Vec<AgentTaskLogEntry>,
 
     // -- Sub-agent management extensions (Phase 1) --
-
     /// Restrict which tools this sub-agent may call. `None` = all tools allowed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_whitelist: Option<Vec<String>>,
@@ -1864,7 +2095,6 @@ pub struct AgentTask {
     pub supervisor_config: Option<SupervisorConfig>,
 
     // -- Provider/model override for sub-agent dispatch --
-
     /// Override provider for this task (from SubAgentDefinition).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_provider: Option<String>,

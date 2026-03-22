@@ -15,13 +15,11 @@ pub fn available_models(config: &ConfigState) -> Vec<crate::state::config::Fetch
             0,
             crate::state::config::FetchedModel {
                 id: current_model.to_string(),
-                name: Some(
-                    if config.custom_model_name.trim().is_empty() {
-                        current_model.to_string()
-                    } else {
-                        config.custom_model_name.clone()
-                    },
-                ),
+                name: Some(if config.custom_model_name.trim().is_empty() {
+                    current_model.to_string()
+                } else {
+                    config.custom_model_name.clone()
+                }),
                 context_window: None,
             },
         );

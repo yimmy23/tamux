@@ -106,10 +106,7 @@ pub fn detect_stuck_reason(
         if elapsed > max_dur {
             return Some((
                 StuckReason::Timeout,
-                format!(
-                    "elapsed {}s exceeds max_duration {}s",
-                    elapsed, max_dur
-                ),
+                format!("elapsed {}s exceeds max_duration {}s", elapsed, max_dur),
             ));
         }
     }
@@ -134,10 +131,7 @@ pub fn detect_stuck_reason(
     if snapshot.consecutive_errors >= 3 {
         return Some((
             StuckReason::ErrorLoop,
-            format!(
-                "{} consecutive errors",
-                snapshot.consecutive_errors
-            ),
+            format!("{} consecutive errors", snapshot.consecutive_errors),
         ));
     }
 
@@ -237,7 +231,10 @@ mod tests {
         let snap = healthy_snapshot();
         let cfg = default_config();
         let result = check_health(&snap, &cfg, 1010);
-        assert!(result.is_none(), "healthy agent should not produce an action");
+        assert!(
+            result.is_none(),
+            "healthy agent should not produce an action"
+        );
     }
 
     // ----- NoProgress -----------------------------------------------------
@@ -306,12 +303,7 @@ mod tests {
     #[test]
     fn tool_call_loop_detected_with_abab_pattern() {
         let mut snap = healthy_snapshot();
-        snap.recent_tool_names = vec![
-            "read".into(),
-            "write".into(),
-            "read".into(),
-            "write".into(),
-        ];
+        snap.recent_tool_names = vec!["read".into(), "write".into(), "read".into(), "write".into()];
         let cfg = default_config();
         let (reason, evidence) = detect_stuck_reason(&snap, &cfg, 1010).unwrap();
         assert_eq!(reason, StuckReason::ToolCallLoop);
@@ -321,12 +313,7 @@ mod tests {
     #[test]
     fn tool_call_loop_detected_with_single_repeating() {
         let mut snap = healthy_snapshot();
-        snap.recent_tool_names = vec![
-            "read".into(),
-            "read".into(),
-            "read".into(),
-            "read".into(),
-        ];
+        snap.recent_tool_names = vec!["read".into(), "read".into(), "read".into(), "read".into()];
         let cfg = default_config();
         let (reason, _) = detect_stuck_reason(&snap, &cfg, 1010).unwrap();
         assert_eq!(reason, StuckReason::ToolCallLoop);
@@ -383,8 +370,8 @@ mod tests {
         snap.max_duration_secs = Some(500);
         let cfg = default_config();
         let now = 400; // elapsed 300 < max 500
-        // Timeout should not fire.  Other checks may or may not fire, but
-        // let's ensure at least timeout isn't the reason.
+                       // Timeout should not fire.  Other checks may or may not fire, but
+                       // let's ensure at least timeout isn't the reason.
         if let Some((reason, _)) = detect_stuck_reason(&snap, &cfg, now) {
             assert_ne!(reason, StuckReason::Timeout);
         }
@@ -394,8 +381,7 @@ mod tests {
 
     #[test]
     fn passive_no_progress_returns_none() {
-        let result =
-            select_intervention(StuckReason::NoProgress, InterventionLevel::Passive, 0, 2);
+        let result = select_intervention(StuckReason::NoProgress, InterventionLevel::Passive, 0, 2);
         assert!(result.is_none());
     }
 
@@ -408,13 +394,15 @@ mod tests {
         cfg.intervention_level = InterventionLevel::Passive;
         let now = 500;
         let result = check_health(&snap, &cfg, now);
-        assert!(result.is_none(), "passive mode should suppress NoProgress actions");
+        assert!(
+            result.is_none(),
+            "passive mode should suppress NoProgress actions"
+        );
     }
 
     #[test]
     fn normal_no_progress_returns_self_assess() {
-        let action =
-            select_intervention(StuckReason::NoProgress, InterventionLevel::Normal, 0, 2);
+        let action = select_intervention(StuckReason::NoProgress, InterventionLevel::Normal, 0, 2);
         assert_eq!(action, Some(InterventionAction::SelfAssess));
     }
 
@@ -427,15 +415,13 @@ mod tests {
 
     #[test]
     fn error_loop_first_retry_returns_compress() {
-        let action =
-            select_intervention(StuckReason::ErrorLoop, InterventionLevel::Normal, 0, 2);
+        let action = select_intervention(StuckReason::ErrorLoop, InterventionLevel::Normal, 0, 2);
         assert_eq!(action, Some(InterventionAction::CompressContext));
     }
 
     #[test]
     fn error_loop_retries_exhausted_escalates() {
-        let action =
-            select_intervention(StuckReason::ErrorLoop, InterventionLevel::Normal, 2, 2);
+        let action = select_intervention(StuckReason::ErrorLoop, InterventionLevel::Normal, 2, 2);
         assert_eq!(action, Some(InterventionAction::EscalateToParent));
     }
 
@@ -459,8 +445,7 @@ mod tests {
 
     #[test]
     fn timeout_escalates_to_user() {
-        let action =
-            select_intervention(StuckReason::Timeout, InterventionLevel::Normal, 0, 2);
+        let action = select_intervention(StuckReason::Timeout, InterventionLevel::Normal, 0, 2);
         assert_eq!(action, Some(InterventionAction::EscalateToUser));
     }
 

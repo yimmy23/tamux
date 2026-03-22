@@ -21,7 +21,7 @@ impl TuiModel {
         if matches!(code, KeyCode::Modifier(_)) {
             return false;
         }
-        
+
         let ctrl = modifiers.contains(KeyModifiers::CONTROL);
 
         if code == KeyCode::Char('e') && ctrl {
@@ -75,6 +75,18 @@ impl TuiModel {
                     return false;
                 }
                 _ => {}
+            }
+        }
+
+        if code == KeyCode::Enter
+            && !modifiers
+                .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL)
+            && self.should_show_provider_onboarding()
+        {
+            let pending_input = self.input.buffer().trim();
+            if !pending_input.starts_with('/') {
+                self.open_provider_setup();
+                return false;
             }
         }
 
@@ -209,9 +221,8 @@ impl TuiModel {
                                     self.chat.select_message(None);
                                     let current_scroll = self.chat.scroll_offset() as i32;
                                     if current_scroll > 0 {
-                                        self.chat.reduce(chat::ChatAction::ScrollChat(
-                                            -current_scroll,
-                                        ));
+                                        self.chat
+                                            .reduce(chat::ChatAction::ScrollChat(-current_scroll));
                                     }
                                 }
                             }
@@ -303,24 +314,24 @@ impl TuiModel {
                 _ => {}
             },
             KeyCode::Left if self.focus == FocusArea::Sidebar => {
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
+                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+                    sidebar::SidebarTab::Files,
+                ));
             }
             KeyCode::Right if self.focus == FocusArea::Sidebar => {
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Todos));
+                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+                    sidebar::SidebarTab::Todos,
+                ));
             }
-            KeyCode::Char('[')
-                if self.sidebar_visible() && self.focus != FocusArea::Input =>
-            {
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
+            KeyCode::Char('[') if self.sidebar_visible() && self.focus != FocusArea::Input => {
+                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+                    sidebar::SidebarTab::Files,
+                ));
             }
-            KeyCode::Char(']')
-                if self.sidebar_visible() && self.focus != FocusArea::Input =>
-            {
-                self.sidebar
-                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Todos));
+            KeyCode::Char(']') if self.sidebar_visible() && self.focus != FocusArea::Input => {
+                self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(
+                    sidebar::SidebarTab::Todos,
+                ));
             }
             KeyCode::Char('r') if self.focus == FocusArea::Chat => {
                 if let Some(sel) = self.chat.selected_message() {

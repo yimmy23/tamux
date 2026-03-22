@@ -79,14 +79,22 @@ impl ConciergeEngine {
         drop(config);
 
         let context = self.gather_context(threads, tasks, detail_level).await;
-        tracing::info!("concierge: gathered {} threads, {} tasks", context.recent_threads.len(), context.pending_tasks.len());
+        tracing::info!(
+            "concierge: gathered {} threads, {} tasks",
+            context.recent_threads.len(),
+            context.pending_tasks.len()
+        );
         let (content, actions) = self.compose_welcome(detail_level, &context).await;
 
         if content.is_empty() {
             tracing::warn!("concierge: empty welcome content, skipping emit");
             return;
         }
-        tracing::info!("concierge: welcome composed, {} chars, {} actions", content.len(), actions.len());
+        tracing::info!(
+            "concierge: welcome composed, {} chars, {} actions",
+            content.len(),
+            actions.len()
+        );
 
         // Add welcome message to the concierge thread.
         {
@@ -121,7 +129,10 @@ impl ConciergeEngine {
             detail_level,
             actions,
         });
-        tracing::info!("concierge: ConciergeWelcome event emitted, receivers={}", send_result.unwrap_or(0));
+        tracing::info!(
+            "concierge: ConciergeWelcome event emitted, receivers={}",
+            send_result.unwrap_or(0)
+        );
     }
 
     /// Generate a welcome and return the data directly (for inline sending).
@@ -175,7 +186,11 @@ impl ConciergeEngine {
         }
         *self.pending_welcome_count.write().await += 1;
 
-        tracing::info!("concierge: generate_welcome done, {} chars, {} actions", content.len(), actions.len());
+        tracing::info!(
+            "concierge: generate_welcome done, {} chars, {} actions",
+            content.len(),
+            actions.len()
+        );
         Some((content, detail_level, actions))
     }
 
@@ -269,7 +284,14 @@ impl ConciergeEngine {
                         TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked
                     )
                 })
-                .map(|t| format!("- [{}] {} ({})", format!("{:?}", t.status), t.title, format_timestamp(t.created_at)))
+                .map(|t| {
+                    format!(
+                        "- [{}] {} ({})",
+                        format!("{:?}", t.status),
+                        t.title,
+                        format_timestamp(t.created_at)
+                    )
+                })
                 .collect()
         } else {
             Vec::new()
@@ -418,10 +440,16 @@ impl ConciergeEngine {
         Ok(full_content)
     }
 
-    fn build_llm_prompt(&self, detail_level: ConciergeDetailLevel, context: &WelcomeContext) -> String {
+    fn build_llm_prompt(
+        &self,
+        detail_level: ConciergeDetailLevel,
+        context: &WelcomeContext,
+    ) -> String {
         let mut prompt = String::new();
 
-        prompt.push_str("Generate a concise welcome greeting for the user who just opened tamux.\n\n");
+        prompt.push_str(
+            "Generate a concise welcome greeting for the user who just opened tamux.\n\n",
+        );
 
         // Session context.
         if let Some(last) = context.recent_threads.first() {
@@ -490,7 +518,10 @@ impl ConciergeEngine {
                 last.message_count
             )];
             if !context.pending_tasks.is_empty() {
-                parts.push(format!("**Pending tasks:** {}", context.pending_tasks.len()));
+                parts.push(format!(
+                    "**Pending tasks:** {}",
+                    context.pending_tasks.len()
+                ));
             }
             parts.push("What would you like to work on?".into());
             parts.join("\n")
@@ -533,11 +564,7 @@ fn resolve_concierge_provider(config: &AgentConfig) -> Result<ProviderConfig> {
         .provider
         .as_deref()
         .unwrap_or(&config.provider);
-    let model = config
-        .concierge
-        .model
-        .as_deref()
-        .unwrap_or(&config.model);
+    let model = config.concierge.model.as_deref().unwrap_or(&config.model);
 
     // Check named providers first.
     if let Some(pc) = config.providers.get(provider_id) {

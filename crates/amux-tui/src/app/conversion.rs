@@ -126,6 +126,19 @@ pub(super) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
     }
 }
 
+pub(super) fn convert_checkpoint_summary(
+    checkpoint: crate::wire::CheckpointSummary,
+) -> task::GoalRunCheckpointSummary {
+    task::GoalRunCheckpointSummary {
+        id: checkpoint.id,
+        checkpoint_type: checkpoint.checkpoint_type,
+        step_index: checkpoint.step_index,
+        task_count: checkpoint.task_count,
+        context_summary_preview: checkpoint.context_summary_preview,
+        created_at: checkpoint.created_at,
+    }
+}
+
 pub(super) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
     task::TodoItem {
         id: t.id,

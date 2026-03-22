@@ -195,8 +195,31 @@ impl AgentEngine {
             }
         }
 
-        // Load memory files
+        // Load/seed memory files
+        ensure_memory_files(&self.data_dir).await?;
         self.refresh_memory_cache().await;
+        self.refresh_operator_model().await?;
+        match self.history.list_collaboration_sessions() {
+            Ok(rows) if !rows.is_empty() => {
+                let mut collaboration = HashMap::new();
+                for row in rows {
+                    match serde_json::from_str::<super::collaboration::CollaborationSession>(
+                        &row.session_json,
+                    ) {
+                        Ok(session) => {
+                            collaboration.insert(row.parent_task_id, session);
+                        }
+                        Err(error) => tracing::warn!(
+                            parent_task_id = %row.parent_task_id,
+                            "failed to hydrate collaboration session: {error}"
+                        ),
+                    }
+                }
+                *self.collaboration.write().await = collaboration;
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!("failed to load collaboration sessions: {error}"),
+        }
 
         // Seed built-in skill documents into ~/.tamux/skills/builtin/
         seed_builtin_skills(&self.data_dir);

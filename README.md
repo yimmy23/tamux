@@ -14,6 +14,24 @@
 
 Official website: [https://tamux.app](https://tamux.app)
 
+## Summary
+
+tamux is a daemon-first terminal multiplexer with a built-in agent runtime.
+
+In practice that means:
+
+- terminals, agent threads, tasks, approvals, and goal runs live in the daemon
+- Electron, the TUI, the CLI, MCP clients, and chat gateways all talk to the same daemon state
+- the built-in daemon agent can plan work, run tools, spawn sub-agents, pause for approval, persist memory, and learn from prior runs
+- persistence is split between SQLite for structured state and files for editable memory, transcripts, skills, and append-only telemetry
+
+## See More
+
+- [How tamux Works](docs/how-tamux-works.md) — current system overview
+- [Self-Orchestrating Agent Architecture](docs/self-orchestrating-agent.md) — deeper agent internals
+- [Getting Started](docs/getting-started.md) — install and first-run path
+- [Goal Runners](docs/goal-runners.md) — durable autonomy flow
+
 
 tamux combines tmux-like session management with first-class AI agent integration, structured safety infrastructure, and a modern React-based UI. The backend is written in Rust for performance and reliability; the frontend is a React/TypeScript application rendered inside an Electron shell.
 
@@ -123,7 +141,8 @@ The daemon agent is a **self-orchestrating system** that goes beyond simple prom
 - **Execution learning** -- traces record every tool call. Pattern mining builds confidence-scored tool sequences. Heuristics optimize context allocation and tool selection per task type.
 - **Production hardening** -- circuit breaker for LLM API protection, per-tool token-bucket rate limiting, bounded data structures with retention policies.
 
-> **Full architecture documentation:** [docs/self-orchestrating-agent.md](docs/self-orchestrating-agent.md)
+> **Current system overview:** [docs/how-tamux-works.md](docs/how-tamux-works.md)  
+> **Deep agent internals:** [docs/self-orchestrating-agent.md](docs/self-orchestrating-agent.md)
 
 ### Infrastructure
 

@@ -107,8 +107,8 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
                 strategy: ReplanStrategy::SpawnExpert {
                     expertise: infer_expertise(&ctx.step_title),
                 },
-                reasoning: "Second attempt with no progress — delegating to a specialist sub-agent."
-                    .into(),
+                reasoning:
+                    "Second attempt with no progress — delegating to a specialist sub-agent.".into(),
                 confidence: 0.75,
                 fallback: Some(ReplanStrategy::UserGuidance {
                     question: format!(

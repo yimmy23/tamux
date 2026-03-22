@@ -274,7 +274,10 @@ fn selection_snapshot(
 }
 
 fn line_plain_text(line: &Line<'static>) -> String {
-    line.spans.iter().map(|span| span.content.as_ref()).collect()
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
 }
 
 fn line_display_width(line: &Line<'static>) -> usize {
@@ -310,7 +313,12 @@ fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     result
 }
 
-fn highlight_line_range(line: &mut Line<'static>, start_col: usize, end_col: usize, highlight: Style) {
+fn highlight_line_range(
+    line: &mut Line<'static>,
+    start_col: usize,
+    end_col: usize,
+    highlight: Style,
+) {
     if start_col >= end_col {
         return;
     }

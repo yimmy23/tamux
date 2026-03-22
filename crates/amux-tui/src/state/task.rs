@@ -84,6 +84,16 @@ pub struct GoalRun {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GoalRunCheckpointSummary {
+    pub id: String,
+    pub checkpoint_type: String,
+    pub step_index: Option<usize>,
+    pub task_count: usize,
+    pub context_summary_preview: Option<String>,
+    pub created_at: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeartbeatOutcome {
     Ok,
@@ -164,6 +174,10 @@ pub enum TaskAction {
     GoalRunListReceived(Vec<GoalRun>),
     GoalRunDetailReceived(GoalRun),
     GoalRunUpdate(GoalRun),
+    GoalRunCheckpointsReceived {
+        goal_run_id: String,
+        checkpoints: Vec<GoalRunCheckpointSummary>,
+    },
     ThreadTodosReceived {
         thread_id: String,
         items: Vec<TodoItem>,
@@ -187,6 +201,7 @@ pub enum TaskAction {
 pub struct TaskState {
     tasks: Vec<AgentTask>,
     goal_runs: Vec<GoalRun>,
+    goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
     thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
     work_contexts: std::collections::HashMap<String, ThreadWorkContext>,
     selected_work_paths: std::collections::HashMap<String, String>,
@@ -200,6 +215,7 @@ impl TaskState {
         Self {
             tasks: Vec::new(),
             goal_runs: Vec::new(),
+            goal_run_checkpoints: std::collections::HashMap::new(),
             thread_todos: std::collections::HashMap::new(),
             work_contexts: std::collections::HashMap::new(),
             selected_work_paths: std::collections::HashMap::new(),
@@ -254,6 +270,13 @@ impl TaskState {
         self.goal_runs.iter().find(|r| r.id == id)
     }
 
+    pub fn checkpoints_for_goal_run(&self, goal_run_id: &str) -> &[GoalRunCheckpointSummary] {
+        self.goal_run_checkpoints
+            .get(goal_run_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
     pub fn reduce(&mut self, action: TaskAction) {
         match action {
             TaskAction::TaskListReceived(tasks) => {
@@ -278,6 +301,13 @@ impl TaskState {
                 } else {
                     self.goal_runs.push(run);
                 }
+            }
+
+            TaskAction::GoalRunCheckpointsReceived {
+                goal_run_id,
+                checkpoints,
+            } => {
+                self.goal_run_checkpoints.insert(goal_run_id, checkpoints);
             }
 
             TaskAction::ThreadTodosReceived { thread_id, items } => {
@@ -423,6 +453,28 @@ mod tests {
         // Insert new via update
         state.reduce(TaskAction::GoalRunUpdate(make_goal_run("g2", "New Goal")));
         assert_eq!(state.goal_runs().len(), 2);
+    }
+
+    #[test]
+    fn goal_run_checkpoints_received_replaces_goal_run_checkpoints() {
+        let mut state = TaskState::new();
+        state.reduce(TaskAction::GoalRunCheckpointsReceived {
+            goal_run_id: "g1".into(),
+            checkpoints: vec![GoalRunCheckpointSummary {
+                id: "cp_1".into(),
+                checkpoint_type: "manual".into(),
+                task_count: 2,
+                ..Default::default()
+            }],
+        });
+        assert_eq!(state.checkpoints_for_goal_run("g1").len(), 1);
+        assert_eq!(state.checkpoints_for_goal_run("g1")[0].id, "cp_1");
+
+        state.reduce(TaskAction::GoalRunCheckpointsReceived {
+            goal_run_id: "g1".into(),
+            checkpoints: vec![],
+        });
+        assert!(state.checkpoints_for_goal_run("g1").is_empty());
     }
 
     #[test]

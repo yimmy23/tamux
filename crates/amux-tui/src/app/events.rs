@@ -19,6 +19,7 @@ impl TuiModel {
         {
             self.input_notice = None;
         }
+        self.publish_attention_surface_if_changed();
     }
 
     fn handle_client_event(&mut self, event: ClientEvent) {
@@ -68,6 +69,7 @@ impl TuiModel {
             }
             ClientEvent::Disconnected => {
                 self.connected = false;
+                self.last_attention_surface = None;
                 self.default_session_id = None;
                 self.agent_activity = None;
                 self.concierge
@@ -78,6 +80,7 @@ impl TuiModel {
             }
             ClientEvent::Reconnecting { delay_secs } => {
                 self.connected = false;
+                self.last_attention_surface = None;
                 self.default_session_id = None;
                 self.agent_activity = None;
                 self.concierge
@@ -144,6 +147,19 @@ impl TuiModel {
                 self.tasks.reduce(task::TaskAction::GoalRunUpdate(
                     conversion::convert_goal_run(run),
                 ));
+            }
+            ClientEvent::GoalRunCheckpoints {
+                goal_run_id,
+                checkpoints,
+            } => {
+                self.tasks
+                    .reduce(task::TaskAction::GoalRunCheckpointsReceived {
+                        goal_run_id,
+                        checkpoints: checkpoints
+                            .into_iter()
+                            .map(conversion::convert_checkpoint_summary)
+                            .collect(),
+                    });
             }
             ClientEvent::ThreadTodos { thread_id, items } => {
                 self.tasks.reduce(task::TaskAction::ThreadTodosReceived {
@@ -222,6 +238,10 @@ impl TuiModel {
                 self.tasks
                     .reduce(task::TaskAction::HeartbeatItemsReceived(items));
             }
+            ClientEvent::AnticipatoryItems(items) => {
+                self.anticipatory
+                    .reduce(crate::state::AnticipatoryAction::Replace(items));
+            }
             ClientEvent::Delta { thread_id, content } => {
                 self.agent_activity = Some("writing".to_string());
                 self.chat
@@ -298,19 +318,36 @@ impl TuiModel {
                 }
             }
             ClientEvent::ProviderAuthStates(entries) => {
-                self.auth.reduce(crate::state::auth::AuthAction::Received(entries));
+                self.auth
+                    .reduce(crate::state::auth::AuthAction::Received(entries));
             }
-            ClientEvent::ProviderValidation { provider_id, valid, error } => {
-                self.auth.reduce(crate::state::auth::AuthAction::ValidationResult { provider_id, valid, error });
+            ClientEvent::ProviderValidation {
+                provider_id,
+                valid,
+                error,
+            } => {
+                self.auth
+                    .reduce(crate::state::auth::AuthAction::ValidationResult {
+                        provider_id,
+                        valid,
+                        error,
+                    });
             }
             ClientEvent::SubAgentList(entries) => {
-                self.subagents.reduce(crate::state::subagents::SubAgentsAction::ListReceived(entries));
+                self.subagents
+                    .reduce(crate::state::subagents::SubAgentsAction::ListReceived(
+                        entries,
+                    ));
             }
             ClientEvent::SubAgentUpdated(entry) => {
-                self.subagents.reduce(crate::state::subagents::SubAgentsAction::Updated(entry));
+                self.subagents
+                    .reduce(crate::state::subagents::SubAgentsAction::Updated(entry));
             }
             ClientEvent::SubAgentRemoved { sub_agent_id } => {
-                self.subagents.reduce(crate::state::subagents::SubAgentsAction::Removed(sub_agent_id));
+                self.subagents
+                    .reduce(crate::state::subagents::SubAgentsAction::Removed(
+                        sub_agent_id,
+                    ));
             }
             ClientEvent::ConciergeConfig(raw) => {
                 let detail_level = raw
@@ -318,25 +355,26 @@ impl TuiModel {
                     .and_then(|value| value.as_str())
                     .unwrap_or("proactive_triage")
                     .to_string();
-                self.concierge.reduce(crate::state::ConciergeAction::ConfigReceived {
-                    enabled: raw
-                        .get("enabled")
-                        .and_then(|value| value.as_bool())
-                        .unwrap_or(true),
-                    detail_level,
-                    provider: raw
-                        .get("provider")
-                        .and_then(|value| value.as_str())
-                        .map(str::to_string),
-                    model: raw
-                        .get("model")
-                        .and_then(|value| value.as_str())
-                        .map(str::to_string),
-                    auto_cleanup_on_navigate: raw
-                        .get("auto_cleanup_on_navigate")
-                        .and_then(|value| value.as_bool())
-                        .unwrap_or(true),
-                });
+                self.concierge
+                    .reduce(crate::state::ConciergeAction::ConfigReceived {
+                        enabled: raw
+                            .get("enabled")
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(true),
+                        detail_level,
+                        provider: raw
+                            .get("provider")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        model: raw
+                            .get("model")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string),
+                        auto_cleanup_on_navigate: raw
+                            .get("auto_cleanup_on_navigate")
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(true),
+                    });
             }
             ClientEvent::ConciergeWelcome { content, actions } => {
                 self.concierge
@@ -344,9 +382,7 @@ impl TuiModel {
                 if self.chat.active_thread_id().is_none() {
                     self.chat
                         .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-                    self.send_daemon_command(DaemonCommand::RequestThread(
-                        "concierge".to_string(),
-                    ));
+                    self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
                     self.main_pane_view = MainPaneView::Conversation;
                     self.focus = FocusArea::Chat;
                 } else if self.chat.active_thread_id() == Some("concierge") {

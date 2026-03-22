@@ -1,4 +1,5 @@
 // Widget modules
+pub mod anticipatory;
 pub mod approval;
 pub mod chat;
 pub mod command_palette;
@@ -8,6 +9,7 @@ pub mod goal_picker;
 pub mod header;
 pub mod message;
 pub mod model_picker;
+pub mod onboarding;
 pub mod provider_picker;
 pub mod reasoning;
 pub mod settings;

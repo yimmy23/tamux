@@ -2,6 +2,8 @@
 
 tamux's daemon agent is a **self-orchestrating system** — it can autonomously decompose goals, manage sub-agents, monitor its own health, recover from failures, learn from execution patterns, and escalate when it gets stuck. This document describes the architecture in detail.
 
+For the broader current-system view covering daemon ownership, memory layers, persistence, clients, and moat features, see [how-tamux-works.md](./how-tamux-works.md).
+
 > **Quick orientation:** The agent module lives at `crates/amux-daemon/src/agent/` and is split into 56 focused files organized by responsibility. The entry point is `engine.rs` (struct definition) with the main execution loop in `agent_loop.rs`.
 
 ---
@@ -270,7 +272,7 @@ Successful tool sequences are cached with LRU eviction and can be promoted to pe
 
 ## Database Schema
 
-All state is stored in the daemon's `command-history.db` SQLite database:
+Core orchestration state is stored in the daemon's `command-history.db` SQLite database. Some moat-specific operator artifacts intentionally live as sidecar files under the agent data directory, notably `operator_model.json` and the generated-tool registry/skill files:
 
 | Table | Purpose |
 |-------|---------|
@@ -279,6 +281,7 @@ All state is stored in the daemon's `command-history.db` SQLite database:
 | `agent_health_log` | Health state transitions and interventions |
 | `context_archive` | Archived context with FTS5 full-text search |
 | `execution_traces` | Tool call sequences and outcome metrics |
+| `collaboration_sessions` | Persisted subagent collaboration-session snapshots |
 
 ---
 

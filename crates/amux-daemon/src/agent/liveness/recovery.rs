@@ -150,7 +150,9 @@ impl RecoveryPlanner {
     ///
     /// Formula: `base * 2^attempt`, capped at 300 s.
     pub fn compute_backoff_secs(&self, attempt: u32) -> u64 {
-        let delay = self.backoff_base_secs.saturating_mul(1u64 << attempt.min(31));
+        let delay = self
+            .backoff_base_secs
+            .saturating_mul(1u64 << attempt.min(31));
         delay.min(MAX_BACKOFF_SECS)
     }
 
@@ -287,8 +289,7 @@ mod tests {
 
     #[test]
     fn recovery_message_includes_goal_title() {
-        let msg =
-            RecoveryPlanner::build_recovery_message("Deploy v2", StuckReason::NoProgress, 1);
+        let msg = RecoveryPlanner::build_recovery_message("Deploy v2", StuckReason::NoProgress, 1);
         assert!(
             msg.contains("Deploy v2"),
             "message should contain goal title: {}",
@@ -298,8 +299,7 @@ mod tests {
 
     #[test]
     fn recovery_message_includes_attempt_count() {
-        let msg =
-            RecoveryPlanner::build_recovery_message("Deploy v2", StuckReason::ErrorLoop, 2);
+        let msg = RecoveryPlanner::build_recovery_message("Deploy v2", StuckReason::ErrorLoop, 2);
         assert!(
             msg.contains("2/3"),
             "message should contain attempt count: {}",
@@ -326,9 +326,7 @@ mod tests {
             strategy: RecoveryStrategy::CompressAndRetry,
             attempt_number: 1,
             created_at: 12345,
-            outcome: Some(RecoveryOutcome::Recovered {
-                resumed_at_step: 3,
-            }),
+            outcome: Some(RecoveryOutcome::Recovered { resumed_at_step: 3 }),
         };
         let json = serde_json::to_string(&attempt).unwrap();
         let restored: RecoveryAttempt = serde_json::from_str(&json).unwrap();
@@ -336,9 +334,7 @@ mod tests {
         assert_eq!(restored.attempt_number, 1);
         assert!(matches!(
             restored.outcome,
-            Some(RecoveryOutcome::Recovered {
-                resumed_at_step: 3
-            })
+            Some(RecoveryOutcome::Recovered { resumed_at_step: 3 })
         ));
     }
 
@@ -354,9 +350,7 @@ mod tests {
 
     #[test]
     fn recovery_outcome_escalated_roundtrip() {
-        let outcome = RecoveryOutcome::Escalated {
-            to: "user".into(),
-        };
+        let outcome = RecoveryOutcome::Escalated { to: "user".into() };
         let json = serde_json::to_string(&outcome).unwrap();
         let restored: RecoveryOutcome = serde_json::from_str(&json).unwrap();
         assert!(matches!(restored, RecoveryOutcome::Escalated { to } if to == "user"));

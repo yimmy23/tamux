@@ -309,7 +309,10 @@ pub(super) fn render_goal_composer(frame: &mut Frame, area: Rect, theme: &ThemeT
             Span::styled(" goal picker", theme.fg_dim),
         ]),
     ];
-    frame.render_widget(Paragraph::new(content).wrap(Wrap { trim: false }), layout[1]);
+    frame.render_widget(
+        Paragraph::new(content).wrap(Wrap { trim: false }),
+        layout[1],
+    );
 }
 
 pub(super) fn render_error_modal(
@@ -375,15 +378,18 @@ pub(super) fn render_openai_auth_modal(
         .split(inner);
 
     let mut lines = vec![
-        Line::from(status_text.unwrap_or(
-            "Open this URL in your browser to complete ChatGPT authentication.",
-        )),
+        Line::from(
+            status_text
+                .unwrap_or("Open this URL in your browser to complete ChatGPT authentication."),
+        ),
         Line::raw(""),
         Line::from(auth_url.unwrap_or("No login URL available.")),
     ];
     if auth_url.is_some() {
         lines.push(Line::raw(""));
-        lines.push(Line::from("Press Enter or O to open the browser, or C to copy the link."));
+        lines.push(Line::from(
+            "Press Enter or O to open the browser, or C to copy the link.",
+        ));
     }
 
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });

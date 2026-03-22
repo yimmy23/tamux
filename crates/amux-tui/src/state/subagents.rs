@@ -23,12 +23,18 @@ impl SubAgentEditorField {
     ];
 
     pub fn prev(self) -> Self {
-        let index = Self::ALL.iter().position(|field| *field == self).unwrap_or(0);
+        let index = Self::ALL
+            .iter()
+            .position(|field| *field == self)
+            .unwrap_or(0);
         Self::ALL[index.saturating_sub(1)]
     }
 
     pub fn next(self) -> Self {
-        let index = Self::ALL.iter().position(|field| *field == self).unwrap_or(0);
+        let index = Self::ALL
+            .iter()
+            .position(|field| *field == self)
+            .unwrap_or(0);
         Self::ALL[(index + 1).min(Self::ALL.len().saturating_sub(1))]
     }
 }

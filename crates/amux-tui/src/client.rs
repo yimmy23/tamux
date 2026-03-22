@@ -15,8 +15,8 @@ use amux_protocol::default_tcp_addr;
 use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage};
 
 use crate::wire::{
-    AgentConfigSnapshot, AgentTask, AgentThread, FetchedModel, GoalRun, GoalRunStatus,
-    HeartbeatItem, TaskStatus, ThreadWorkContext,
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadWorkContext,
 };
 
 #[cfg(unix)]
@@ -45,6 +45,10 @@ pub enum ClientEvent {
     GoalRunStarted(GoalRun),
     GoalRunDetail(Option<GoalRun>),
     GoalRunUpdate(GoalRun),
+    GoalRunCheckpoints {
+        goal_run_id: String,
+        checkpoints: Vec<CheckpointSummary>,
+    },
     ThreadTodos {
         thread_id: String,
         items: Vec<crate::wire::TodoItem>,
@@ -65,6 +69,7 @@ pub enum ClientEvent {
     AgentConfigRaw(Value),
     ModelsFetched(Vec<FetchedModel>),
     HeartbeatItems(Vec<HeartbeatItem>),
+    AnticipatoryItems(Vec<AnticipatoryItem>),
 
     Delta {
         thread_id: String,
@@ -104,10 +109,16 @@ pub enum ClientEvent {
     },
 
     ProviderAuthStates(Vec<crate::state::ProviderAuthEntry>),
-    ProviderValidation { provider_id: String, valid: bool, error: Option<String> },
+    ProviderValidation {
+        provider_id: String,
+        valid: bool,
+        error: Option<String>,
+    },
     SubAgentList(Vec<crate::state::SubAgentEntry>),
     SubAgentUpdated(crate::state::SubAgentEntry),
-    SubAgentRemoved { sub_agent_id: String },
+    SubAgentRemoved {
+        sub_agent_id: String,
+    },
     ConciergeConfig(Value),
 
     ConciergeWelcome {
@@ -393,6 +404,43 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse goal run detail: {}", err),
                 }
             }
+            DaemonMessage::AgentCheckpointList { checkpoints_json } => {
+                match serde_json::from_str::<Vec<CheckpointSummary>>(&checkpoints_json) {
+                    Ok(checkpoints) => {
+                        let goal_run_id = checkpoints
+                            .first()
+                            .map(|checkpoint| checkpoint.goal_run_id.clone())
+                            .unwrap_or_default();
+                        let _ = event_tx
+                            .send(ClientEvent::GoalRunCheckpoints {
+                                goal_run_id,
+                                checkpoints,
+                            })
+                            .await;
+                    }
+                    Err(err) => warn!("Failed to parse checkpoint list: {}", err),
+                }
+            }
+            DaemonMessage::AgentCheckpointRestored { outcome_json } => {
+                match serde_json::from_str::<RestoreOutcome>(&outcome_json) {
+                    Ok(outcome) => {
+                        let details = format!(
+                            "goal {} at step {} • restored {} task(s)",
+                            outcome.goal_run_id,
+                            outcome.restored_step_index + 1,
+                            outcome.tasks_restored
+                        );
+                        let _ = event_tx
+                            .send(ClientEvent::WorkflowNotice {
+                                kind: "checkpoint-restored".to_string(),
+                                message: "Checkpoint restored".to_string(),
+                                details: Some(details),
+                            })
+                            .await;
+                    }
+                    Err(err) => warn!("Failed to parse checkpoint restore outcome: {}", err),
+                }
+            }
             DaemonMessage::AgentTodoDetail {
                 thread_id,
                 todos_json,
@@ -454,6 +502,14 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }
             }
+            DaemonMessage::AgentModelsResponse { models_json } => {
+                match serde_json::from_str::<Vec<FetchedModel>>(&models_json) {
+                    Ok(models) => {
+                        let _ = event_tx.send(ClientEvent::ModelsFetched(models)).await;
+                    }
+                    Err(err) => warn!("Failed to parse models response: {}", err),
+                }
+            }
             DaemonMessage::AgentHeartbeatItems { items_json } => {
                 match serde_json::from_str::<Vec<HeartbeatItem>>(&items_json) {
                     Ok(items) => {
@@ -470,43 +526,89 @@ impl DaemonClient {
                     .await;
             }
             DaemonMessage::AgentProviderAuthStates { states_json } => {
-                let states: Vec<serde_json::Value> = serde_json::from_str(&states_json).unwrap_or_default();
-                let entries = states.iter().filter_map(|v| {
-                    Some(crate::state::ProviderAuthEntry {
-                        provider_id: v.get("provider_id")?.as_str()?.to_string(),
-                        provider_name: v.get("provider_name")?.as_str()?.to_string(),
-                        authenticated: v.get("authenticated")?.as_bool()?,
-                        auth_source: v.get("auth_source").and_then(|s| s.as_str()).unwrap_or("api_key").to_string(),
-                        model: v.get("model").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                let states: Vec<serde_json::Value> =
+                    serde_json::from_str(&states_json).unwrap_or_default();
+                let entries = states
+                    .iter()
+                    .filter_map(|v| {
+                        Some(crate::state::ProviderAuthEntry {
+                            provider_id: v.get("provider_id")?.as_str()?.to_string(),
+                            provider_name: v.get("provider_name")?.as_str()?.to_string(),
+                            authenticated: v.get("authenticated")?.as_bool()?,
+                            auth_source: v
+                                .get("auth_source")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("api_key")
+                                .to_string(),
+                            model: v
+                                .get("model")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        })
                     })
-                }).collect();
-                let _ = event_tx.send(ClientEvent::ProviderAuthStates(entries)).await;
+                    .collect();
+                let _ = event_tx
+                    .send(ClientEvent::ProviderAuthStates(entries))
+                    .await;
             }
-            DaemonMessage::AgentProviderValidation { provider_id, valid, error, .. } => {
-                let _ = event_tx.send(ClientEvent::ProviderValidation { provider_id, valid, error }).await;
+            DaemonMessage::AgentProviderValidation {
+                provider_id,
+                valid,
+                error,
+                ..
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::ProviderValidation {
+                        provider_id,
+                        valid,
+                        error,
+                    })
+                    .await;
             }
             DaemonMessage::AgentSubAgentList { sub_agents_json } => {
-                let items: Vec<serde_json::Value> = serde_json::from_str(&sub_agents_json).unwrap_or_default();
-                let entries = items.iter().filter_map(|v| {
-                    Some(crate::state::SubAgentEntry {
-                        id: v.get("id")?.as_str()?.to_string(),
-                        name: v.get("name")?.as_str()?.to_string(),
-                        provider: v.get("provider")?.as_str()?.to_string(),
-                        model: v.get("model")?.as_str()?.to_string(),
-                        role: v.get("role").and_then(|s| s.as_str()).map(String::from),
-                        enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
-                        raw_json: Some(v.clone()),
+                let items: Vec<serde_json::Value> =
+                    serde_json::from_str(&sub_agents_json).unwrap_or_default();
+                let entries = items
+                    .iter()
+                    .filter_map(|v| {
+                        Some(crate::state::SubAgentEntry {
+                            id: v.get("id")?.as_str()?.to_string(),
+                            name: v.get("name")?.as_str()?.to_string(),
+                            provider: v.get("provider")?.as_str()?.to_string(),
+                            model: v.get("model")?.as_str()?.to_string(),
+                            role: v.get("role").and_then(|s| s.as_str()).map(String::from),
+                            enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
+                            raw_json: Some(v.clone()),
+                        })
                     })
-                }).collect();
+                    .collect();
                 let _ = event_tx.send(ClientEvent::SubAgentList(entries)).await;
             }
             DaemonMessage::AgentSubAgentUpdated { sub_agent_json } => {
-                let v: serde_json::Value = serde_json::from_str(&sub_agent_json).unwrap_or_default();
+                let v: serde_json::Value =
+                    serde_json::from_str(&sub_agent_json).unwrap_or_default();
                 let entry = crate::state::SubAgentEntry {
-                    id: v.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                    name: v.get("name").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                    provider: v.get("provider").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                    model: v.get("model").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                    id: v
+                        .get("id")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    name: v
+                        .get("name")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    provider: v
+                        .get("provider")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    model: v
+                        .get("model")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     role: v.get("role").and_then(|s| s.as_str()).map(String::from),
                     enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
                     raw_json: Some(v),
@@ -514,7 +616,9 @@ impl DaemonClient {
                 let _ = event_tx.send(ClientEvent::SubAgentUpdated(entry)).await;
             }
             DaemonMessage::AgentSubAgentRemoved { sub_agent_id } => {
-                let _ = event_tx.send(ClientEvent::SubAgentRemoved { sub_agent_id }).await;
+                let _ = event_tx
+                    .send(ClientEvent::SubAgentRemoved { sub_agent_id })
+                    .await;
             }
             DaemonMessage::AgentConciergeConfig { config_json } => {
                 match serde_json::from_str::<Value>(&config_json) {
@@ -627,6 +731,14 @@ impl DaemonClient {
                     })
                     .await;
             }
+            "anticipatory_update" => {
+                let items = event
+                    .get("items")
+                    .cloned()
+                    .and_then(|raw| serde_json::from_value::<Vec<AnticipatoryItem>>(raw).ok())
+                    .unwrap_or_default();
+                let _ = event_tx.send(ClientEvent::AnticipatoryItems(items)).await;
+            }
             "task_update" => {
                 let task = event
                     .get("task")
@@ -715,10 +827,7 @@ impl DaemonClient {
                     })
                     .unwrap_or_default();
                 let _ = event_tx
-                    .send(ClientEvent::ConciergeWelcome {
-                        content,
-                        actions,
-                    })
+                    .send(ClientEvent::ConciergeWelcome { content, actions })
                     .await;
             }
             _ => {}
@@ -849,13 +958,15 @@ impl DaemonClient {
 
     pub fn fetch_models(
         &self,
-        _provider_id: String,
-        _base_url: String,
-        _api_key: String,
+        provider_id: String,
+        base_url: String,
+        api_key: String,
     ) -> Result<()> {
-        // Models fetching is not yet supported in the protocol; no-op stub.
-        warn!("fetch_models: not supported by current protocol");
-        Ok(())
+        self.send(ClientMessage::AgentFetchModels {
+            provider_id,
+            base_url,
+            api_key,
+        })
     }
 
     pub fn set_config_json(&self, config_json: String) -> Result<()> {
@@ -905,8 +1016,25 @@ impl DaemonClient {
         self.send(ClientMessage::AgentRequestConciergeWelcome)
     }
 
+    pub fn list_checkpoints(&self, goal_run_id: String) -> Result<()> {
+        self.send(ClientMessage::AgentListCheckpoints { goal_run_id })
+    }
+
     pub fn dismiss_concierge_welcome(&self) -> Result<()> {
         self.send(ClientMessage::AgentDismissConciergeWelcome)
+    }
+
+    pub fn record_attention(
+        &self,
+        surface: String,
+        thread_id: Option<String>,
+        goal_run_id: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentRecordAttention {
+            surface,
+            thread_id,
+            goal_run_id,
+        })
     }
 
     pub fn resolve_task_approval(&self, approval_id: String, decision: String) -> Result<()> {

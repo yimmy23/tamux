@@ -269,7 +269,12 @@ impl AgentEngine {
                         "Task completed".into()
                     }),
                 );
+                if updated.status == TaskStatus::Completed {
+                    self.settle_task_skill_consultations(&updated, "success")
+                        .await;
+                }
                 if updated.source == "subagent" {
+                    self.record_collaboration_outcome(&updated, "success").await;
                     self.record_subagent_outcome_on_parent(
                         &updated,
                         TaskLogLevel::Info,
@@ -349,9 +354,14 @@ impl AgentEngine {
                         _ => format!("Failed: {error_text}"),
                     }),
                 );
+                if updated.status == TaskStatus::Failed {
+                    self.settle_task_skill_consultations(&updated, "failure")
+                        .await;
+                }
                 if updated.source == "subagent"
                     && matches!(updated.status, TaskStatus::Failed | TaskStatus::Cancelled)
                 {
+                    self.record_collaboration_outcome(&updated, "failure").await;
                     self.record_subagent_outcome_on_parent(
                         &updated,
                         TaskLogLevel::Error,

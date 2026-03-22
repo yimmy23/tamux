@@ -1,15 +1,16 @@
 // Sub-module declarations — uncomment as modules are implemented
+pub mod anticipatory;
 pub mod approval;
+pub mod auth;
 pub mod chat;
+pub mod concierge;
 pub mod config;
 pub mod input;
 pub mod modal;
 pub mod settings;
 pub mod sidebar;
-pub mod task;
-pub mod auth;
-pub mod concierge;
 pub mod subagents;
+pub mod task;
 
 // ── Focus ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ pub enum DaemonCommand {
     RequestThreadTodos(String),
     RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),
+    RequestGoalRunCheckpoints(String),
     StartGoalRun {
         goal: String,
         thread_id: Option<String>,
@@ -76,22 +78,33 @@ pub enum DaemonCommand {
         api_key: String,
         auth_source: String,
     },
-    SetSubAgent(String),     // sub_agent_json
-    RemoveSubAgent(String),  // sub_agent_id
+    SetSubAgent(String),    // sub_agent_json
+    RemoveSubAgent(String), // sub_agent_id
     ListSubAgents,
     GetConciergeConfig,
     SetConciergeConfig(String), // config_json
     RequestConciergeWelcome,
     DismissConciergeWelcome,
+    RecordAttention {
+        surface: String,
+        thread_id: Option<String>,
+        goal_run_id: Option<String>,
+    },
 }
 
 // ── Placeholder sub-action enums ──────────────────────────────────────────────
 // These will be filled in by later tasks.
 
 #[allow(unused_imports)]
+pub use anticipatory::{AnticipatoryAction, AnticipatoryState};
+#[allow(unused_imports)]
 pub use approval::{ApprovalAction, ApprovalState, PendingApproval, RiskLevel};
 #[allow(unused_imports)]
+pub use auth::{AuthAction, AuthState, ProviderAuthEntry};
+#[allow(unused_imports)]
 pub use chat::{ChatAction, ChatState, ToolCallStatus, ToolCallVm, TranscriptMode};
+#[allow(unused_imports)]
+pub use concierge::{ConciergeAction, ConciergeActionVm, ConciergeState};
 #[allow(unused_imports)]
 pub use config::{ConfigAction, ConfigState};
 #[allow(unused_imports)]
@@ -103,13 +116,9 @@ pub use settings::{SettingsAction, SettingsState, SettingsTab};
 #[allow(unused_imports)]
 pub use sidebar::{SidebarAction, SidebarItemTarget, SidebarState, SidebarTab};
 #[allow(unused_imports)]
-pub use task::{TaskAction, TaskState};
-#[allow(unused_imports)]
-pub use auth::{AuthAction, AuthState, ProviderAuthEntry};
-#[allow(unused_imports)]
-pub use concierge::{ConciergeAction, ConciergeActionVm, ConciergeState};
-#[allow(unused_imports)]
 pub use subagents::{SubAgentEntry, SubAgentsAction, SubAgentsState};
+#[allow(unused_imports)]
+pub use task::{TaskAction, TaskState};
 
 // ── Top-level app action ──────────────────────────────────────────────────────
 

@@ -76,11 +76,7 @@ impl ArchiveManager {
     ///
     /// The content is compressed via [`compress_for_archive`] using a default
     /// maximum of 2 000 characters.
-    pub fn prepare_for_archive(
-        item: &ContextItem,
-        thread_id: &str,
-        now: u64,
-    ) -> ArchiveEntry {
+    pub fn prepare_for_archive(item: &ContextItem, thread_id: &str, now: u64) -> ArchiveEntry {
         const MAX_COMPRESSED_CHARS: usize = 2_000;
 
         let (compressed_content, summary) =
@@ -386,8 +382,7 @@ mod tests {
         };
 
         let serialized = serde_json::to_string(&entry).expect("serialize");
-        let deserialized: ArchiveEntry =
-            serde_json::from_str(&serialized).expect("deserialize");
+        let deserialized: ArchiveEntry = serde_json::from_str(&serialized).expect("deserialize");
 
         assert_eq!(deserialized.id, entry.id);
         assert_eq!(deserialized.thread_id, entry.thread_id);
@@ -395,7 +390,10 @@ mod tests {
         assert_eq!(deserialized.compressed_content, entry.compressed_content);
         assert_eq!(deserialized.summary, entry.summary);
         assert!((deserialized.relevance_score - entry.relevance_score).abs() < f64::EPSILON);
-        assert_eq!(deserialized.token_count_original, entry.token_count_original);
+        assert_eq!(
+            deserialized.token_count_original,
+            entry.token_count_original
+        );
         assert_eq!(
             deserialized.token_count_compressed,
             entry.token_count_compressed

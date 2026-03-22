@@ -15,8 +15,16 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use tokio::sync::broadcast;
 
+use crate::history::{HistoryStore, SkillVariantRecord};
 use crate::session_manager::SessionManager;
 
+use super::memory::{apply_memory_update, MemoryTarget, MemoryUpdateMode, MemoryWriteContext};
+use super::semantic_env::{execute_semantic_query, infer_workspace_context_tags};
+use super::session_recall::execute_session_search as run_session_search;
+use super::tool_synthesis::{
+    activate_generated_tool, execute_generated_tool, generated_tool_definitions,
+    list_generated_tools, promote_generated_tool, synthesize_tool,
+};
 use super::types::{
     AgentConfig, AgentEvent, NotificationSeverity, TodoItem, TodoStatus, ToolCall, ToolDefinition,
     ToolFunctionDef, ToolPendingApproval, ToolResult,
@@ -26,12 +34,16 @@ use super::AgentEngine;
 const ONECONTEXT_TOOL_QUERY_MAX_CHARS: usize = 300;
 const ONECONTEXT_TOOL_OUTPUT_MAX_CHARS: usize = 12_000;
 const ONECONTEXT_TOOL_TIMEOUT_SECS: u64 = 8;
+const SESSION_SEARCH_OUTPUT_MAX_CHARS: usize = 12_000;
 
 // ---------------------------------------------------------------------------
 // Tool definitions (OpenAI function calling schema)
 // ---------------------------------------------------------------------------
 
-pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
+pub fn get_available_tools(
+    config: &AgentConfig,
+    agent_data_dir: &std::path::Path,
+) -> Vec<ToolDefinition> {
     let mut tools = Vec::new();
 
     if config.tools.bash {
@@ -216,6 +228,31 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
         }),
     ));
     tools.push(tool_def(
+        "session_search",
+        "Search prior sessions, transcripts, cognitive traces, and operational history for relevant past context.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Search query" },
+                "limit": { "type": "integer", "description": "Max results (default: 8)" }
+            },
+            "required": ["query"]
+        }),
+    ));
+    if config.enable_honcho_memory && !config.honcho_api_key.trim().is_empty() {
+        tools.push(tool_def(
+            "agent_query_memory",
+            "Query Honcho cross-session memory for long-term user, workspace, or assistant context.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Question to ask Honcho memory." }
+                },
+                "required": ["query"]
+            }),
+        ));
+    }
+    tools.push(tool_def(
         "onecontext_search",
         "Search Aline OneContext history for related prior sessions/events/turns.",
         serde_json::json!({
@@ -277,11 +314,13 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
 
     tools.push(tool_def(
         "update_memory",
-        "Update your persistent memory with new knowledge. Persists across sessions and restarts.",
+        "Update curated persistent memory. Use this only for durable operator preferences or stable project facts, not temporary task state.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "content": { "type": "string", "description": "Updated memory content (markdown)" }
+                "target": { "type": "string", "enum": ["memory", "user", "soul"], "description": "Memory file to update (default: memory)" },
+                "mode": { "type": "string", "enum": ["replace", "append", "remove"], "description": "How to apply the content (default: replace)" },
+                "content": { "type": "string", "description": "Markdown content or exact fragment for remove mode" }
             },
             "required": ["content"]
         }),
@@ -295,6 +334,20 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
             "properties": {
                 "query": { "type": "string", "description": "Optional name/path filter for relevant skills" },
                 "limit": { "type": "integer", "description": "Max skills to return (default: 20)" }
+            }
+        }),
+    ));
+
+    tools.push(tool_def(
+        "semantic_query",
+        "Query local workspace manifests, compose services, code import relationships, learned workspace conventions, and recent temporal workspace history.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "kind": { "type": "string", "enum": ["summary", "packages", "dependencies", "dependents", "services", "service_dependencies", "service_dependents", "imports", "imported_by", "conventions", "temporal"], "description": "Semantic query mode (default: summary)" },
+                "target": { "type": "string", "description": "Package, service, file path fragment, or module name depending on the selected semantic query mode" },
+                "path": { "type": "string", "description": "Optional workspace root directory; defaults to the active session cwd or current directory" },
+                "limit": { "type": "integer", "description": "Max results to list for list-oriented semantic modes (default: 20)" }
             }
         }),
     ));
@@ -458,6 +511,39 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
             "limit": { "type": "integer", "description": "Maximum subagents to return (default: 20)" }
         }
     })));
+    if config.collaboration.enabled {
+        tools.push(tool_def("broadcast_contribution", "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string", "description": "Short topic under discussion" },
+                "position": { "type": "string", "description": "Your current stance or recommendation" },
+                "evidence": { "type": "array", "items": { "type": "string" }, "description": "Supporting evidence bullets" },
+                "confidence": { "type": "number", "description": "Confidence in the range 0.0-1.0" }
+            },
+            "required": ["topic", "position"]
+        })));
+        tools.push(tool_def("read_peer_memory", "Read sibling subagent contributions, shared context, disagreements, and consensus for the current parent task.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope" }
+            }
+        })));
+        tools.push(tool_def("vote_on_disagreement", "Cast a weighted vote on a live subagent disagreement for the current collaboration session.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "disagreement_id": { "type": "string", "description": "Disagreement ID from read_peer_memory or list_collaboration_sessions" },
+                "position": { "type": "string", "description": "Position you vote for" },
+                "confidence": { "type": "number", "description": "Optional explicit confidence override in the range 0.0-1.0" }
+            },
+            "required": ["disagreement_id", "position"]
+        })));
+        tools.push(tool_def("list_collaboration_sessions", "Inspect live collaboration sessions, contributions, disagreements, and consensus built from subagent work.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "parent_task_id": { "type": "string", "description": "Optional parent task scope" }
+            }
+        })));
+    }
     tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
         "type": "object",
         "properties": {
@@ -619,7 +705,60 @@ pub fn get_available_tools(config: &AgentConfig) -> Vec<ToolDefinition> {
         "required": ["snippet"]
     })));
 
+    if config.tool_synthesis.enabled {
+        tools.push(tool_def("synthesize_tool", "Generate a guarded runtime tool from a conservative CLI --help surface or a GET OpenAPI operation, then register it in the local generated-tool registry.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "kind": { "type": "string", "enum": ["cli", "openapi"], "description": "Generation source kind (default: cli)" },
+                "target": { "type": "string", "description": "CLI invocation or OpenAPI spec URL" },
+                "name": { "type": "string", "description": "Optional generated tool name override" },
+                "operation_id": { "type": "string", "description": "Optional OpenAPI operationId to select" },
+                "activate": { "type": "boolean", "description": "Activate immediately when policy allows it" }
+            },
+            "required": ["target"]
+        })));
+        tools.push(tool_def(
+            "list_generated_tools",
+            "List generated runtime tools with status, effectiveness, and promotion metadata.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        ));
+        tools.push(tool_def("promote_generated_tool", "Promote a generated runtime tool into the generated skills library when it proves useful.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "tool": { "type": "string", "description": "Generated tool ID" }
+            },
+            "required": ["tool"]
+        })));
+        tools.push(tool_def("activate_generated_tool", "Activate a newly synthesized runtime tool after review so it can appear in the callable tool surface on the next turn.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "tool": { "type": "string", "description": "Generated tool ID" }
+            },
+            "required": ["tool"]
+        })));
+        tools.extend(generated_tool_definitions(config, agent_data_dir));
+    }
+
     tools
+}
+
+pub fn get_memory_flush_tools() -> Vec<ToolDefinition> {
+    vec![tool_def(
+        "update_memory",
+        "Update curated persistent memory. Use this only for durable operator preferences or stable project facts, not temporary task state.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "target": { "type": "string", "enum": ["memory", "user", "soul"], "description": "Memory file to update (default: memory)" },
+                "mode": { "type": "string", "enum": ["replace", "append", "remove"], "description": "How to apply the content (default: replace)" },
+                "content": { "type": "string", "description": "Markdown content or exact fragment for remove mode" }
+            },
+            "required": ["content"]
+        }),
+    )]
 }
 
 fn tool_def(name: &str, description: &str, parameters: serde_json::Value) -> ToolDefinition {
@@ -701,6 +840,7 @@ pub async fn execute_tool(
         "run_terminal_command" => {
             match execute_run_terminal_command(
                 &args,
+                agent,
                 session_manager,
                 session_id,
                 event_tx,
@@ -716,8 +856,15 @@ pub async fn execute_tool(
             }
         }
         "execute_managed_command" => {
-            match execute_managed_command(&args, session_manager, session_id, event_tx, thread_id)
-                .await
+            match execute_managed_command(
+                &args,
+                agent,
+                session_manager,
+                session_id,
+                event_tx,
+                thread_id,
+            )
+            .await
             {
                 Ok((content, approval)) => {
                     pending_approval = approval;
@@ -742,6 +889,16 @@ pub async fn execute_tool(
             .await
         }
         "list_subagents" => execute_list_subagents(&args, agent, thread_id, task_id).await,
+        "broadcast_contribution" => {
+            execute_broadcast_contribution(&args, agent, thread_id, task_id).await
+        }
+        "read_peer_memory" => execute_read_peer_memory(&args, agent, task_id).await,
+        "vote_on_disagreement" => {
+            execute_vote_on_disagreement(&args, agent, thread_id, task_id).await
+        }
+        "list_collaboration_sessions" => {
+            execute_list_collaboration_sessions(&args, agent, task_id).await
+        }
         "enqueue_task" => execute_enqueue_task(&args, agent).await,
         "list_tasks" => execute_list_tasks(&args, agent).await,
         "cancel_task" => execute_cancel_task(&args, agent).await,
@@ -776,8 +933,15 @@ pub async fn execute_tool(
         }
         // Daemon-native tools
         "bash_command" => {
-            match execute_bash_command(&args, session_manager, session_id, event_tx, thread_id)
-                .await
+            match execute_bash_command(
+                &args,
+                agent,
+                session_manager,
+                session_id,
+                event_tx,
+                thread_id,
+            )
+            .await
             {
                 Ok((content, approval)) => {
                     pending_approval = approval;
@@ -797,15 +961,76 @@ pub async fn execute_tool(
         "get_system_info" => execute_system_info().await,
         "list_processes" => execute_list_processes(&args).await,
         "search_history" => execute_search_history(&args, session_manager).await,
+        "session_search" => execute_session_search(&args, session_manager).await,
+        "agent_query_memory" => execute_agent_query_memory(&args, agent).await,
         "onecontext_search" => execute_onecontext_search(&args).await,
         "notify_user" => execute_notify(&args, event_tx).await,
         "update_todo" => execute_update_todo(&args, agent, thread_id, task_id).await,
-        "update_memory" => execute_update_memory(&args, agent_data_dir).await,
-        "list_skills" => execute_list_skills(&args, agent_data_dir).await,
-        "read_skill" => execute_read_skill(&args, agent_data_dir).await,
+        "update_memory" => {
+            execute_update_memory(&args, agent, thread_id, task_id, agent_data_dir).await
+        }
+        "list_skills" => execute_list_skills(&args, agent_data_dir, &agent.history).await,
+        "semantic_query" => {
+            execute_semantic_query(
+                &args,
+                session_manager,
+                session_id,
+                &agent.history,
+                agent_data_dir,
+            )
+            .await
+        }
+        "read_skill" => {
+            execute_read_skill(
+                &args,
+                agent,
+                agent_data_dir,
+                &agent.history,
+                session_manager,
+                session_id,
+                thread_id,
+                task_id,
+            )
+            .await
+        }
+        "synthesize_tool" => synthesize_tool(&args, agent, agent_data_dir, http_client).await,
+        "list_generated_tools" => list_generated_tools(agent_data_dir),
+        "promote_generated_tool" => {
+            let tool = args
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
+                .and_then(|tool| promote_generated_tool(agent_data_dir, tool));
+            tool
+        }
+        "activate_generated_tool" => {
+            let tool = args
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
+                .and_then(|tool| activate_generated_tool(agent_data_dir, tool));
+            tool
+        }
         "web_search" => execute_web_search(&args, http_client).await,
         "fetch_url" => execute_fetch_url(&args, http_client).await,
-        other => Err(anyhow::anyhow!("Unknown tool: {other}")),
+        other => match execute_generated_tool(
+            other,
+            &args,
+            agent,
+            agent_data_dir,
+            http_client,
+            Some(thread_id),
+        )
+        .await
+        {
+            Ok(Some(content)) => Ok(content),
+            Ok(None) => Err(anyhow::anyhow!("Unknown tool: {other}")),
+            Err(error) => Err(error),
+        },
     };
 
     match result {
@@ -838,7 +1063,10 @@ pub async fn execute_tool(
     }
 }
 
-fn parse_tool_args(tool_name: &str, raw_arguments: &str) -> std::result::Result<serde_json::Value, String> {
+fn parse_tool_args(
+    tool_name: &str,
+    raw_arguments: &str,
+) -> std::result::Result<serde_json::Value, String> {
     serde_json::from_str(raw_arguments).map_err(|error| {
         let preview: String = raw_arguments.chars().take(240).collect();
         format!(
@@ -851,7 +1079,8 @@ fn parse_tool_args(tool_name: &str, raw_arguments: &str) -> std::result::Result<
 }
 
 fn get_string_arg<'a>(args: &'a serde_json::Value, names: &[&str]) -> Option<&'a str> {
-    names.iter()
+    names
+        .iter()
         .find_map(|name| args.get(*name).and_then(|value| value.as_str()))
 }
 
@@ -863,7 +1092,9 @@ fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {
     if let Some(value) = get_string_arg(args, &["content", "contents", "text", "data", "body"]) {
         return Ok(value.to_string());
     }
-    if let Some(encoded) = get_string_arg(args, &["content_base64", "contents_base64", "data_base64"]) {
+    if let Some(encoded) =
+        get_string_arg(args, &["content_base64", "contents_base64", "data_base64"])
+    {
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .map_err(|error| anyhow::anyhow!("invalid base64 file content: {error}"))?;
@@ -1692,6 +1923,50 @@ async fn execute_search_history(
     }
 }
 
+async fn execute_session_search(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+) -> Result<String> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?
+        .trim();
+    if query.is_empty() {
+        return Err(anyhow::anyhow!("'query' must not be empty"));
+    }
+
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(8)
+        .clamp(1, 20) as usize;
+    let body = run_session_search(session_manager, query, limit)?;
+    if body.chars().count() > SESSION_SEARCH_OUTPUT_MAX_CHARS {
+        Ok(body
+            .chars()
+            .take(SESSION_SEARCH_OUTPUT_MAX_CHARS)
+            .collect::<String>())
+    } else {
+        Ok(body)
+    }
+}
+
+async fn execute_agent_query_memory(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?
+        .trim();
+    if query.is_empty() {
+        anyhow::bail!("'query' must not be empty");
+    }
+    agent.query_honcho_memory(query).await
+}
+
 async fn execute_onecontext_search(args: &serde_json::Value) -> Result<String> {
     let query = args
         .get("query")
@@ -1851,24 +2126,54 @@ async fn execute_notify(
 
 async fn execute_update_memory(
     args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
     agent_data_dir: &std::path::Path,
 ) -> Result<String> {
+    let target = MemoryTarget::parse(
+        args.get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("memory"),
+    )?;
+    let mode = MemoryUpdateMode::parse(
+        args.get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("replace"),
+    )?;
     let content = args
         .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
-
-    let memory_dir = super::active_memory_dir(agent_data_dir);
-    let memory_path = memory_dir.join("MEMORY.md");
-    tokio::fs::create_dir_all(&memory_dir).await?;
-    tokio::fs::write(&memory_path, content).await?;
-
-    Ok("Memory updated successfully.".into())
+    let goal_run_id = if let Some(current_task_id) = task_id {
+        let tasks = agent.tasks.lock().await;
+        tasks
+            .iter()
+            .find(|task| task.id == current_task_id)
+            .and_then(|task| task.goal_run_id.clone())
+    } else {
+        None
+    };
+    apply_memory_update(
+        agent_data_dir,
+        &agent.history,
+        target,
+        mode,
+        content,
+        MemoryWriteContext {
+            source_kind: "tool",
+            thread_id: Some(thread_id),
+            task_id,
+            goal_run_id: goal_run_id.as_deref(),
+        },
+    )
+    .await
 }
 
 async fn execute_list_skills(
     args: &serde_json::Value,
     agent_data_dir: &std::path::Path,
+    history: &HistoryStore,
 ) -> Result<String> {
     let skills_root = super::skills_dir(agent_data_dir);
     let query = args
@@ -1882,40 +2187,27 @@ async fn execute_list_skills(
         .unwrap_or(20)
         .clamp(1, 100) as usize;
 
-    let mut files = Vec::new();
-    collect_skill_documents(&skills_root, &mut files)?;
-    if files.is_empty() {
+    let mut entries = sync_skill_catalog(&skills_root, history)?;
+    if entries.is_empty() {
         return Ok(format!(
             "No local skills found under {}.",
             skills_root.display()
         ));
     }
 
-    files.sort();
-    let root_canonical = std::fs::canonicalize(&skills_root).unwrap_or(skills_root.clone());
-    let mut entries = files
-        .into_iter()
-        .filter_map(|path| {
-            let relative = path
-                .strip_prefix(&root_canonical)
-                .or_else(|_| path.strip_prefix(&skills_root))
-                .ok()?
-                .to_string_lossy()
-                .replace('\\', "/");
-            let stem = path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("skill");
-            Some((stem.to_string(), relative))
-        })
-        .filter(|(stem, relative)| match query.as_ref() {
-            Some(needle) => {
-                stem.to_lowercase().contains(needle) || relative.to_lowercase().contains(needle)
-            }
-            None => true,
-        })
-        .take(limit)
-        .collect::<Vec<_>>();
+    entries.retain(|entry| match query.as_ref() {
+        Some(needle) => {
+            entry.skill_name.to_ascii_lowercase().contains(needle)
+                || entry.variant_name.to_ascii_lowercase().contains(needle)
+                || entry.relative_path.to_ascii_lowercase().contains(needle)
+                || entry
+                    .context_tags
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase().contains(needle))
+        }
+        None => true,
+    });
+    entries.truncate(limit);
 
     if entries.is_empty() {
         return Ok(format!(
@@ -1925,15 +2217,35 @@ async fn execute_list_skills(
     }
 
     let mut body = format!("Local skills under {}:\n", skills_root.display());
-    for (stem, relative) in entries.drain(..) {
-        body.push_str(&format!("- {} ({})\n", stem, relative));
+    for entry in entries {
+        let tags = if entry.context_tags.is_empty() {
+            "none".to_string()
+        } else {
+            entry.context_tags.join(", ")
+        };
+        body.push_str(&format!(
+            "- {} [{} | status={}] ({}) tags={} uses={} success={:.0}%\n",
+            entry.skill_name,
+            entry.variant_name,
+            entry.status,
+            entry.relative_path,
+            tags,
+            entry.use_count,
+            entry.success_rate() * 100.0,
+        ));
     }
     Ok(body)
 }
 
 async fn execute_read_skill(
     args: &serde_json::Value,
+    agent: &AgentEngine,
     agent_data_dir: &std::path::Path,
+    history: &HistoryStore,
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+    thread_id: &str,
+    task_id: Option<&str>,
 ) -> Result<String> {
     let skill = args
         .get("skill")
@@ -1950,8 +2262,35 @@ async fn execute_read_skill(
         .unwrap_or(200)
         .clamp(20, 1000) as usize;
     let skills_root = super::skills_dir(agent_data_dir);
-    let skill_path = resolve_skill_path(&skills_root, skill)?;
+    sync_skill_catalog(&skills_root, history)?;
+    let context_tags = resolve_skill_context_tags(session_manager, session_id).await;
+    let variant = history.resolve_skill_variant(skill, &context_tags)?;
+    let candidate_variants = variant
+        .as_ref()
+        .and_then(|selected| {
+            history
+                .list_skill_variants(Some(&selected.skill_name), 8)
+                .ok()
+        })
+        .unwrap_or_default();
+    let skill_path = resolve_skill_path(&skills_root, skill, variant.as_ref())?;
     let content = tokio::fs::read_to_string(&skill_path).await?;
+    if let Some(variant) = variant.as_ref() {
+        let (goal_run_id, _, _) = agent.goal_context_for_task(task_id).await;
+        agent
+            .persist_skill_selection_causal_trace(
+                thread_id,
+                goal_run_id.as_deref(),
+                task_id,
+                variant,
+                &candidate_variants,
+                &context_tags,
+            )
+            .await;
+        agent
+            .record_skill_consultation(thread_id, task_id, variant, &context_tags)
+            .await;
+    }
     let total_lines = content.lines().count();
     let lines = content.lines().take(max_lines).collect::<Vec<_>>();
     let relative = skill_path
@@ -1960,7 +2299,25 @@ async fn execute_read_skill(
         .display()
         .to_string();
 
-    let mut body = format!("Skill {}:\n\n{}", relative, lines.join("\n"));
+    let mut body = if let Some(variant) = variant {
+        let tags = if variant.context_tags.is_empty() {
+            "none".to_string()
+        } else {
+            variant.context_tags.join(", ")
+        };
+        format!(
+            "Skill {} [{} | {} | uses={} | success={:.0}% | tags={}]:\n\n{}",
+            relative,
+            variant.skill_name,
+            variant.variant_name,
+            variant.use_count.saturating_add(1),
+            variant.success_rate() * 100.0,
+            tags,
+            lines.join("\n")
+        )
+    } else {
+        format!("Skill {}:\n\n{}", relative, lines.join("\n"))
+    };
     if total_lines > max_lines {
         body.push_str(&format!(
             "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
@@ -2112,16 +2469,21 @@ fn emit_workflow_notice_for_tool(
         "update_memory" => (
             "memory-updated",
             "Agent updated persistent memory.".to_string(),
-            None,
+            Some(args.to_string()),
         ),
         "list_skills" | "read_skill" => (
             "skill-consulted",
             format!("Agent consulted local skills via {tool_name}."),
             Some(args.to_string()),
         ),
-        "onecontext_search" => (
+        "onecontext_search" | "session_search" | "agent_query_memory" => (
             "history-consulted",
-            "Agent consulted OneContext history.".to_string(),
+            format!("Agent consulted history via {tool_name}."),
+            Some(args.to_string()),
+        ),
+        "semantic_query" => (
+            "semantic-query",
+            "Agent consulted local workspace semantics.".to_string(),
             Some(args.to_string()),
         ),
         _ => return,
@@ -2166,9 +2528,23 @@ fn collect_skill_documents(dir: &std::path::Path, out: &mut Vec<std::path::PathB
     Ok(())
 }
 
-fn resolve_skill_path(skills_root: &std::path::Path, skill: &str) -> Result<std::path::PathBuf> {
+fn resolve_skill_path(
+    skills_root: &std::path::Path,
+    skill: &str,
+    variant: Option<&SkillVariantRecord>,
+) -> Result<std::path::PathBuf> {
     validate_read_path(skill)?;
     let root_canonical = std::fs::canonicalize(skills_root).unwrap_or(skills_root.to_path_buf());
+
+    if let Some(variant) = variant {
+        let candidate = skills_root.join(&variant.relative_path);
+        let canonical = std::fs::canonicalize(&candidate)
+            .with_context(|| format!("skill '{}' was not found", skill))?;
+        if !canonical.starts_with(&root_canonical) {
+            anyhow::bail!("skill path must stay inside {}", skills_root.display());
+        }
+        return Ok(canonical);
+    }
 
     let direct_candidate = std::path::Path::new(skill);
     if direct_candidate.components().count() > 1 || direct_candidate.is_absolute() {
@@ -2229,6 +2605,48 @@ fn resolve_skill_path(skills_root: &std::path::Path, skill: &str) -> Result<std:
         skill,
         skills_root.display()
     )
+}
+
+fn sync_skill_catalog(
+    skills_root: &std::path::Path,
+    history: &HistoryStore,
+) -> Result<Vec<SkillVariantRecord>> {
+    let mut files = Vec::new();
+    collect_skill_documents(skills_root, &mut files)?;
+    let mut entries = Vec::new();
+    for path in files {
+        if let Ok(record) = history.register_skill_document(&path) {
+            entries.push(record);
+        }
+    }
+    entries.sort_by(|left, right| {
+        left.skill_name
+            .cmp(&right.skill_name)
+            .then_with(|| left.variant_name.cmp(&right.variant_name))
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+    });
+    Ok(entries)
+}
+
+async fn resolve_skill_context_tags(
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+) -> Vec<String> {
+    let root = if let Some(session_id) = session_id {
+        let sessions = session_manager.list().await;
+        sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .and_then(|session| session.cwd.clone())
+            .map(PathBuf::from)
+    } else {
+        None
+    }
+    .or_else(|| std::env::current_dir().ok());
+
+    root.filter(|path| path.is_dir())
+        .map(|path| infer_workspace_context_tags(&path))
+        .unwrap_or_default()
 }
 
 async fn execute_fetch_url(
@@ -2334,6 +2752,7 @@ async fn execute_read_terminal(
 
 async fn execute_run_terminal_command(
     args: &serde_json::Value,
+    agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
@@ -2344,6 +2763,7 @@ async fn execute_run_terminal_command(
             managed_alias_args(args, "Run a shell command in a managed terminal session");
         execute_managed_command(
             &managed_args,
+            agent,
             session_manager,
             session_id,
             event_tx,
@@ -2358,6 +2778,7 @@ async fn execute_run_terminal_command(
 
 async fn execute_bash_command(
     args: &serde_json::Value,
+    agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
@@ -2368,6 +2789,7 @@ async fn execute_bash_command(
             managed_alias_args(args, "Run a shell command in a managed terminal session");
         execute_managed_command(
             &managed_args,
+            agent,
             session_manager,
             session_id,
             event_tx,
@@ -2450,8 +2872,7 @@ fn command_requires_managed_state(command: &str) -> bool {
 
     matches!(
         first,
-        "cd"
-            | "pushd"
+        "cd" | "pushd"
             | "popd"
             | "export"
             | "unset"
@@ -2475,25 +2896,8 @@ fn command_requires_managed_state(command: &str) -> bool {
 fn command_looks_interactive(command: &str) -> bool {
     let normalized = command.trim().to_ascii_lowercase();
     [
-        "vim ",
-        "nvim ",
-        "nano ",
-        "less ",
-        "more ",
-        "top",
-        "htop",
-        "watch ",
-        "tail -f",
-        "ssh ",
-        "sftp ",
-        "scp ",
-        "man ",
-        "bash",
-        "zsh",
-        "fish",
-        "python",
-        "ipython",
-        "node",
+        "vim ", "nvim ", "nano ", "less ", "more ", "top", "htop", "watch ", "tail -f", "ssh ",
+        "sftp ", "scp ", "man ", "bash", "zsh", "fish", "python", "ipython", "node",
     ]
     .iter()
     .any(|pattern| normalized == *pattern || normalized.starts_with(pattern))
@@ -2617,6 +3021,7 @@ fn managed_alias_args(args: &serde_json::Value, fallback_rationale: &str) -> ser
 
 async fn execute_managed_command(
     args: &serde_json::Value,
+    agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
@@ -2874,25 +3279,49 @@ async fn execute_managed_command(
                 }
             }
         }
-        DaemonMessage::ApprovalRequired { approval, .. } => Ok((
-            format!(
-                "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}",
-                approval.approval_id,
-                approval.risk_level,
-                approval.blast_radius,
-                approval.command,
-            ),
-            Some(ToolPendingApproval {
-                approval_id: approval.approval_id,
-                execution_id: approval.execution_id,
-                command: approval.command,
-                rationale: approval.rationale,
-                risk_level: approval.risk_level,
-                blast_radius: approval.blast_radius,
-                reasons: approval.reasons,
-                session_id: Some(resolved_session_id.to_string()),
-            }),
-        )),
+        DaemonMessage::ApprovalRequired { mut approval, .. } => {
+            if let Some(advisory) =
+                agent.command_blast_radius_advisory("execute_managed_command", command)
+            {
+                approval
+                    .reasons
+                    .push(format!("causal history: {}", advisory.evidence));
+                for reason in advisory.recent_reasons.iter().take(2) {
+                    approval.reasons.push(format!(
+                        "recent related issue: {}",
+                        crate::agent::summarize_text(reason, 120)
+                    ));
+                }
+                if approval.risk_level == "medium" && advisory.risk_level == "high" {
+                    approval.risk_level = "high".to_string();
+                }
+                if !approval.blast_radius.contains("historical") {
+                    approval.blast_radius =
+                        format!("{} + historical {}", approval.blast_radius, advisory.family);
+                }
+            }
+
+            Ok((
+                format!(
+                    "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                    approval.approval_id,
+                    approval.risk_level,
+                    approval.blast_radius,
+                    approval.command,
+                    approval.reasons.join("\n- "),
+                ),
+                Some(ToolPendingApproval {
+                    approval_id: approval.approval_id,
+                    execution_id: approval.execution_id,
+                    command: approval.command,
+                    rationale: approval.rationale,
+                    risk_level: approval.risk_level,
+                    blast_radius: approval.blast_radius,
+                    reasons: approval.reasons,
+                    session_id: Some(resolved_session_id.to_string()),
+                }),
+            ))
+        }
         other => Err(anyhow::anyhow!(
             "unexpected managed command response: {}",
             serde_json::to_string(&other).unwrap_or_else(|_| "<unserializable>".to_string())
@@ -3211,6 +3640,11 @@ async fn execute_spawn_subagent(
             agent.persist_tasks().await;
         }
     }
+    if let Some(parent_task_id) = task_id {
+        agent
+            .register_subagent_collaboration(parent_task_id, &subagent)
+            .await;
+    }
 
     let lane_suffix = allocated_lane_summary
         .map(|value| format!("\nDedicated lane: {value}"))
@@ -3287,6 +3721,210 @@ async fn execute_list_subagents(
 
     subagents.truncate(limit);
     Ok(serde_json::to_string_pretty(&subagents).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_broadcast_contribution(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration moat is disabled in agent config");
+    }
+    let task_id =
+        task_id.ok_or_else(|| anyhow::anyhow!("broadcast_contribution requires a current task"))?;
+    let task = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
+        anyhow::anyhow!("broadcast_contribution is only available inside subagents")
+    })?;
+    let topic = args
+        .get("topic")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'topic' argument"))?;
+    let position = args
+        .get("position")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'position' argument"))?;
+    let evidence = args
+        .get("evidence")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let confidence = args
+        .get("confidence")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.6);
+    let report = agent
+        .record_collaboration_contribution(
+            &parent_task_id,
+            task_id,
+            topic,
+            position,
+            evidence,
+            confidence,
+        )
+        .await?;
+    agent
+        .record_provenance_event(
+            "collaboration_contribution",
+            "subagent broadcast a collaboration contribution",
+            serde_json::json!({
+                "parent_task_id": parent_task_id,
+                "task_id": task_id,
+                "topic": topic,
+                "position": position,
+                "thread_id": thread_id,
+            }),
+            task.goal_run_id.as_deref(),
+            Some(task_id),
+            Some(thread_id),
+            None,
+            None,
+        )
+        .await;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_read_peer_memory(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration moat is disabled in agent config");
+    }
+    let task_id =
+        task_id.ok_or_else(|| anyhow::anyhow!("read_peer_memory requires a current task"))?;
+    let task = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(task.parent_task_id.clone())
+        .ok_or_else(|| anyhow::anyhow!("read_peer_memory is only available inside subagents"))?;
+    let report = agent
+        .collaboration_peer_memory_json(&parent_task_id, task_id)
+        .await?;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_vote_on_disagreement(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration moat is disabled in agent config");
+    }
+    let task_id =
+        task_id.ok_or_else(|| anyhow::anyhow!("vote_on_disagreement requires a current task"))?;
+    let task = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
+        anyhow::anyhow!("vote_on_disagreement is only available inside subagents")
+    })?;
+    let disagreement_id = args
+        .get("disagreement_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'disagreement_id' argument"))?;
+    let position = args
+        .get("position")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'position' argument"))?;
+    let confidence = args.get("confidence").and_then(|value| value.as_f64());
+    let report = agent
+        .vote_on_collaboration_disagreement(
+            &parent_task_id,
+            disagreement_id,
+            task_id,
+            position,
+            confidence,
+        )
+        .await?;
+    agent
+        .record_provenance_event(
+            "collaboration_vote",
+            "subagent voted on a disagreement",
+            serde_json::json!({
+                "parent_task_id": parent_task_id,
+                "task_id": task_id,
+                "disagreement_id": disagreement_id,
+                "position": position,
+                "thread_id": thread_id,
+            }),
+            task.goal_run_id.as_deref(),
+            Some(task_id),
+            Some(thread_id),
+            None,
+            None,
+        )
+        .await;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_list_collaboration_sessions(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration moat is disabled in agent config");
+    }
+    let fallback_parent = if let Some(task_id) = task_id {
+        agent
+            .list_tasks()
+            .await
+            .into_iter()
+            .find(|task| task.id == task_id)
+            .and_then(|task| task.parent_task_id.or_else(|| Some(task.id)))
+    } else {
+        None
+    };
+    let parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(fallback_parent);
+    let report = agent
+        .collaboration_sessions_json(parent_task_id.as_deref())
+        .await?;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "[]".to_string()))
 }
 
 async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
@@ -4043,9 +4681,10 @@ mod tests {
     use super::{
         build_list_files_script, build_write_file_command, build_write_file_script,
         command_looks_interactive, command_requires_managed_state, managed_alias_args,
-        parse_capture_output, resolve_skill_path, should_use_managed_execution,
-        validate_read_path, validate_write_path,
+        parse_capture_output, resolve_skill_path, should_use_managed_execution, validate_read_path,
+        validate_write_path,
     };
+    use crate::history::SkillVariantRecord;
     use base64::Engine;
     use std::fs;
 
@@ -4184,9 +4823,46 @@ mod tests {
         let skill_path = generated.join("build-release.md");
         fs::write(&skill_path, "# Build release\n").expect("skill file should be written");
 
-        let resolved =
-            resolve_skill_path(&root, "build-release").expect("generated skill should resolve");
+        let resolved = resolve_skill_path(&root, "build-release", None)
+            .expect("generated skill should resolve");
         assert_eq!(resolved, skill_path);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_skill_path_prefers_selected_variant() {
+        let root = std::env::temp_dir().join(format!("tamux-skill-test-{}", uuid::Uuid::new_v4()));
+        let generated = root.join("generated");
+        fs::create_dir_all(&generated).expect("skill test directory should be created");
+        let canonical = generated.join("build-release.md");
+        let frontend = generated.join("build-release--frontend.md");
+        fs::write(&canonical, "# Build release\n").expect("canonical skill file should be written");
+        fs::write(&frontend, "# Frontend build release\n")
+            .expect("variant skill file should be written");
+
+        let resolved = resolve_skill_path(
+            &root,
+            "build-release",
+            Some(&SkillVariantRecord {
+                variant_id: "variant-1".to_string(),
+                skill_name: "build-release".to_string(),
+                variant_name: "frontend".to_string(),
+                relative_path: "generated/build-release--frontend.md".to_string(),
+                parent_variant_id: Some("parent-1".to_string()),
+                version: "v2.0".to_string(),
+                context_tags: vec!["frontend".to_string()],
+                use_count: 0,
+                success_count: 0,
+                failure_count: 0,
+                status: "active".to_string(),
+                last_used_at: None,
+                created_at: 0,
+                updated_at: 0,
+            }),
+        )
+        .expect("selected variant should resolve");
+        assert_eq!(resolved, frontend);
 
         let _ = fs::remove_dir_all(&root);
     }

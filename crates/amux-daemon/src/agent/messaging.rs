@@ -93,7 +93,11 @@ impl AgentEngine {
     }
 
     /// Get or create a thread, returning the thread ID and whether it was newly created.
-    pub(super) async fn get_or_create_thread(&self, thread_id: Option<&str>, content: &str) -> (String, bool) {
+    pub(super) async fn get_or_create_thread(
+        &self,
+        thread_id: Option<&str>,
+        content: &str,
+    ) -> (String, bool) {
         let given_id = thread_id.map(|s| s.to_string());
         let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
         let title = content.chars().take(50).collect::<String>();

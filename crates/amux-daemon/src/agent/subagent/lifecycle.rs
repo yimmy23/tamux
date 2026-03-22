@@ -99,10 +99,7 @@ impl SubagentLifecycle {
     ) -> Result<(), String> {
         let valid = self.state.valid_targets();
         if !valid.contains(&to) {
-            return Err(format!(
-                "invalid transition: {:?} -> {:?}",
-                self.state, to
-            ));
+            return Err(format!("invalid transition: {:?} -> {:?}", self.state, to));
         }
 
         let from = self.state;

@@ -13,7 +13,8 @@ impl TuiModel {
             self.modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
         }
-        self.settings.reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+        self.settings
+            .reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
         self.settings.start_editing("custom_model_entry", &current);
         self.status_line = "Enter custom model as `Name | ID` or just `ID`".to_string();
     }
@@ -59,11 +60,12 @@ impl TuiModel {
                             "assistant_id" => self.config.assistant_id = value,
                             "custom_model_entry" => {
                                 let trimmed = value.trim();
-                                let (name, model_id) = if let Some((lhs, rhs)) = trimmed.split_once('|') {
-                                    (lhs.trim(), rhs.trim())
-                                } else {
-                                    ("", trimmed)
-                                };
+                                let (name, model_id) =
+                                    if let Some((lhs, rhs)) = trimmed.split_once('|') {
+                                        (lhs.trim(), rhs.trim())
+                                    } else {
+                                        ("", trimmed)
+                                    };
                                 if !model_id.is_empty() {
                                     self.config.model = model_id.to_string();
                                     self.config.custom_model_name = if name.is_empty() {
@@ -220,7 +222,7 @@ impl TuiModel {
                 return false;
             }
 
-                    match self.settings.active_tab() {
+            match self.settings.active_tab() {
                 SettingsTab::Auth => {
                     if self.handle_auth_settings_key(code) {
                         return false;
@@ -434,10 +436,10 @@ impl TuiModel {
                     None
                 } else {
                     self.filtered_goal_runs().get(cursor - 1).map(|run| {
-                    sidebar::SidebarItemTarget::GoalRun {
-                        goal_run_id: run.id.clone(),
-                        step_id: None,
-                    }
+                        sidebar::SidebarItemTarget::GoalRun {
+                            goal_run_id: run.id.clone(),
+                            step_id: None,
+                        }
                     })
                 };
                 self.modal.reduce(modal::ModalAction::Pop);
@@ -453,7 +455,10 @@ impl TuiModel {
             modal::ModalKind::ProviderPicker => {
                 let cursor = self.modal.picker_cursor();
                 if let Some(def) = providers::PROVIDERS.get(cursor) {
-                    match self.settings_picker_target.unwrap_or(SettingsPickerTarget::Provider) {
+                    match self
+                        .settings_picker_target
+                        .unwrap_or(SettingsPickerTarget::Provider)
+                    {
                         SettingsPickerTarget::Provider => self.apply_provider_selection(def.id),
                         SettingsPickerTarget::SubAgentProvider => {
                             if let Some(editor) = self.subagents.editor.as_mut() {
@@ -503,21 +508,25 @@ impl TuiModel {
                     if let Some(model) = models.get(cursor) {
                         let model_id = model.id.clone();
                         let model_context_window = model.context_window;
-                        match self.settings_picker_target.unwrap_or(SettingsPickerTarget::Model) {
+                        match self
+                            .settings_picker_target
+                            .unwrap_or(SettingsPickerTarget::Model)
+                        {
                             SettingsPickerTarget::Model => {
                                 self.config
                                     .reduce(config::ConfigAction::SetModel(model_id.clone()));
-                                self.config.custom_model_name = if providers::known_models_for_provider_auth(
-                                    &self.config.provider,
-                                    &self.config.auth_source,
-                                )
-                                .iter()
-                                .any(|entry| entry.id == model_id)
-                                {
-                                    String::new()
-                                } else {
-                                    model.name.clone().unwrap_or_else(|| model_id.clone())
-                                };
+                                self.config.custom_model_name =
+                                    if providers::known_models_for_provider_auth(
+                                        &self.config.provider,
+                                        &self.config.auth_source,
+                                    )
+                                    .iter()
+                                    .any(|entry| entry.id == model_id)
+                                    {
+                                        String::new()
+                                    } else {
+                                        model.name.clone().unwrap_or_else(|| model_id.clone())
+                                    };
                                 if self.config.provider != "custom" {
                                     self.config.context_window_tokens =
                                         model_context_window.unwrap_or(128_000);

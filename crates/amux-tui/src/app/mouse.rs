@@ -24,8 +24,7 @@ impl TuiModel {
         let body_start_row: u16 = 3;
         let actual_input_height = self.input_height();
         let concierge_height = self.concierge_banner_height();
-        let input_start_row: u16 =
-            self.height.saturating_sub(actual_input_height + 1);
+        let input_start_row: u16 = self.height.saturating_sub(actual_input_height + 1);
         let concierge_start_row = input_start_row.saturating_sub(concierge_height);
         let show_sidebar = self.sidebar_visible();
         let sidebar_pct: u16 = if self.width >= 120 { 33 } else { 28 };
@@ -175,7 +174,8 @@ impl TuiModel {
                             self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
                         }
                         Some(widgets::sidebar::SidebarHitTarget::File(path)) => {
-                            if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string)
+                            if let Some(thread_id) =
+                                self.chat.active_thread_id().map(str::to_string)
                             {
                                 let index = self
                                     .tasks
@@ -516,14 +516,19 @@ impl TuiModel {
                             if self.settings.is_editing() {
                                 return;
                             }
-                            self.auth.selected = index.min(self.auth.entries.len().saturating_sub(1));
+                            self.auth.selected =
+                                index.min(self.auth.entries.len().saturating_sub(1));
                             self.auth.actions_focused = false;
                         }
-                        Some(widgets::settings::SettingsHitTarget::AuthAction { index, action }) => {
+                        Some(widgets::settings::SettingsHitTarget::AuthAction {
+                            index,
+                            action,
+                        }) => {
                             if self.settings.is_editing() {
                                 return;
                             }
-                            self.auth.selected = index.min(self.auth.entries.len().saturating_sub(1));
+                            self.auth.selected =
+                                index.min(self.auth.entries.len().saturating_sub(1));
                             self.auth.actions_focused = true;
                             self.auth.action_cursor = match action {
                                 widgets::settings::AuthTabAction::Primary => 0,

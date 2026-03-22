@@ -38,6 +38,74 @@ pub struct ExecutionTrace {
     pub created_at: u64,
 }
 
+/// Decision-classified causal trace for explaining why the agent chose an action.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CausalTrace {
+    pub trace_id: String,
+    pub thread_id: Option<String>,
+    pub goal_run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub decision_type: DecisionType,
+    pub selected: DecisionOption,
+    pub rejected_options: Vec<DecisionOption>,
+    pub context_hash: String,
+    pub causal_factors: Vec<CausalFactor>,
+    pub outcome: CausalTraceOutcome,
+    pub model_used: Option<String>,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionType {
+    ToolSelection,
+    PlanSelection,
+    ReplanSelection,
+    Recovery,
+    ContextCompression,
+    SkillSelection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionOption {
+    pub option_type: String,
+    pub reasoning: String,
+    pub rejection_reason: Option<String>,
+    pub estimated_success_prob: Option<f64>,
+    pub arguments_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CausalFactor {
+    pub factor_type: FactorType,
+    pub description: String,
+    pub weight: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FactorType {
+    PastSuccess,
+    PastFailure,
+    ResourceConstraint,
+    OperatorPreference,
+    PatternMatch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum CausalTraceOutcome {
+    Success,
+    Failure {
+        reason: String,
+    },
+    NearMiss {
+        what_went_wrong: String,
+        how_recovered: String,
+    },
+    Unresolved,
+}
+
 /// Outcome of a traced execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TraceOutcome {
@@ -134,6 +202,22 @@ impl TraceCollector {
         let ok = self.current_steps.iter().filter(|s| s.succeeded).count() as f64;
         ok / self.current_steps.len() as f64
     }
+
+    /// Successful prior uses of `tool_name` within the active trace.
+    pub fn success_count_for_tool(&self, tool_name: &str) -> usize {
+        self.current_steps
+            .iter()
+            .filter(|step| step.tool_name == tool_name && step.succeeded)
+            .count()
+    }
+
+    /// Failed prior uses of `tool_name` within the active trace.
+    pub fn failure_count_for_tool(&self, tool_name: &str) -> usize {
+        self.current_steps
+            .iter()
+            .filter(|step| step.tool_name == tool_name && !step.succeeded)
+            .count()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +234,11 @@ pub fn hash_arguments(args: &str) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect::<String>()
+}
+
+/// Return the first 16 hex characters of the SHA-256 digest of a context blob.
+pub fn hash_context_blob(blob: &str) -> String {
+    hash_arguments(blob)
 }
 
 /// Extract the ordered list of tool names from a trace.
@@ -254,10 +343,7 @@ mod tests {
         c.record_step("edit", "h", true, 10, 10, None, 2);
         c.record_step("test", "h", true, 10, 10, None, 3);
         let trace = c.finalize(TraceOutcome::Success, None, None, None, 10);
-        assert_eq!(
-            extract_tool_sequence(&trace),
-            vec!["read", "edit", "test"]
-        );
+        assert_eq!(extract_tool_sequence(&trace), vec!["read", "edit", "test"]);
     }
 
     #[test]
@@ -280,7 +366,13 @@ mod tests {
         c.record_step("b", "h", false, 10, 10, Some("err".into()), 2);
         c.record_step("c", "h", true, 10, 10, None, 3);
         c.record_step("d", "h", false, 10, 10, Some("err".into()), 4);
-        let trace = c.finalize(TraceOutcome::Partial { completed_pct: 0.5 }, None, None, None, 10);
+        let trace = c.finalize(
+            TraceOutcome::Partial { completed_pct: 0.5 },
+            None,
+            None,
+            None,
+            10,
+        );
         let score = compute_quality_score(&trace);
         // success_rate = 0.5 → 0.35; efficiency: (4-3)/17 ≈ 0.059 → (1-0.059)*0.3 ≈ 0.282
         // total ≈ 0.632

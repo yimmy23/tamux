@@ -125,13 +125,17 @@ pub(super) fn append_sub_agent_registry(prompt: &mut String, sub_agents: &[SubAg
     }
 
     prompt.push_str("\n\n## Available Sub-Agents\n");
-    prompt.push_str("You can delegate work to these specialist sub-agents via `spawn_subagent`:\n\n");
+    prompt
+        .push_str("You can delegate work to these specialist sub-agents via `spawn_subagent`:\n\n");
     for sa in &enabled {
         prompt.push_str(&format!("- **{}**", sa.name));
         if let Some(ref role) = sa.role {
             prompt.push_str(&format!(" (role: {role})"));
         }
-        prompt.push_str(&format!(" — provider: {}, model: {}", sa.provider, sa.model));
+        prompt.push_str(&format!(
+            " — provider: {}, model: {}",
+            sa.provider, sa.model
+        ));
         if let Some(ref sp) = sa.system_prompt {
             let snippet: String = sp.chars().take(80).collect();
             prompt.push_str(&format!(" — \"{snippet}...\""));
@@ -307,7 +311,10 @@ pub(super) fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
-pub(super) async fn persist_json<T: serde::Serialize>(path: &std::path::Path, data: &T) -> anyhow::Result<()> {
+pub(super) async fn persist_json<T: serde::Serialize>(
+    path: &std::path::Path,
+    data: &T,
+) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }

@@ -327,19 +327,13 @@ pub enum ClientMessage {
     AgentUnsubscribe,
 
     /// Get sub-agent health metrics for a specific task.
-    AgentGetSubagentMetrics {
-        task_id: String,
-    },
+    AgentGetSubagentMetrics { task_id: String },
 
     /// List checkpoints for a goal run.
-    AgentListCheckpoints {
-        goal_run_id: String,
-    },
+    AgentListCheckpoints { goal_run_id: String },
 
     /// Restore a goal run from a checkpoint.
-    AgentRestoreCheckpoint {
-        checkpoint_id: String,
-    },
+    AgentRestoreCheckpoint { checkpoint_id: String },
 
     /// Get health status for the agent system.
     AgentGetHealthStatus,
@@ -349,6 +343,80 @@ pub enum ClientMessage {
         #[serde(default)]
         limit: Option<u32>,
     },
+
+    /// Get the current aggregate operator model.
+    AgentGetOperatorModel,
+
+    /// Reset the current operator model back to an empty aggregate state.
+    AgentResetOperatorModel,
+
+    /// Record the operator's current UI attention surface and optional target.
+    AgentRecordAttention {
+        surface: String,
+        #[serde(default)]
+        thread_id: Option<String>,
+        #[serde(default)]
+        goal_run_id: Option<String>,
+    },
+
+    /// Summarize causal trace outcomes for a specific tool or option type.
+    AgentGetCausalTraceReport {
+        option_type: String,
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+
+    /// Summarize likely outcome for a candidate command/tool family from recent causal history.
+    AgentGetCounterfactualReport {
+        option_type: String,
+        command_family: String,
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+
+    /// Inspect durable memory provenance with recency-based confidence and status.
+    AgentGetMemoryProvenanceReport {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+
+    /// Inspect trusted execution provenance events and attestation validity.
+    AgentGetProvenanceReport {
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+
+    /// Generate a SOC2-style audit artifact from recent provenance events.
+    AgentGenerateSoc2Artifact {
+        #[serde(default)]
+        period_days: Option<u32>,
+    },
+
+    /// Inspect active collaboration sessions and disagreements.
+    AgentGetCollaborationSessions {
+        #[serde(default)]
+        parent_task_id: Option<String>,
+    },
+
+    /// List runtime-generated tools registered in the local daemon.
+    AgentListGeneratedTools,
+
+    /// Generate a guarded runtime tool from CLI or OpenAPI metadata.
+    AgentSynthesizeTool { request_json: String },
+
+    /// Execute a generated runtime tool by name.
+    AgentRunGeneratedTool {
+        tool_name: String,
+        args_json: String,
+    },
+
+    /// Promote a generated runtime tool into the generated skills library.
+    AgentPromoteGeneratedTool { tool_name: String },
+
+    /// Activate a generated runtime tool after review.
+    AgentActivateGeneratedTool { tool_name: String },
 
     /// Validate provider credentials by testing connectivity.
     AgentValidateProvider {
@@ -370,9 +438,7 @@ pub enum ClientMessage {
     },
 
     /// Clear a provider's API key.
-    AgentLogoutProvider {
-        provider_id: String,
-    },
+    AgentLogoutProvider { provider_id: String },
 
     /// Create or update a sub-agent definition.
     AgentSetSubAgent { sub_agent_json: String },
@@ -677,6 +743,40 @@ pub enum DaemonMessage {
 
     /// Response to AgentListHealthLog.
     AgentHealthLog { entries_json: String },
+
+    /// Response to AgentGetOperatorModel.
+    AgentOperatorModel { model_json: String },
+
+    /// Response to AgentResetOperatorModel.
+    AgentOperatorModelReset { ok: bool },
+
+    /// Response to AgentGetCausalTraceReport.
+    AgentCausalTraceReport { report_json: String },
+
+    /// Response to AgentGetCounterfactualReport.
+    AgentCounterfactualReport { report_json: String },
+
+    /// Response to AgentGetMemoryProvenanceReport.
+    AgentMemoryProvenanceReport { report_json: String },
+
+    /// Response to AgentGetProvenanceReport.
+    AgentProvenanceReport { report_json: String },
+
+    /// Response to AgentGenerateSoc2Artifact.
+    AgentSoc2Artifact { artifact_path: String },
+
+    /// Response to AgentGetCollaborationSessions.
+    AgentCollaborationSessions { sessions_json: String },
+
+    /// Response to AgentListGeneratedTools.
+    AgentGeneratedTools { tools_json: String },
+
+    /// Response to AgentSynthesizeTool / AgentRunGeneratedTool / AgentPromoteGeneratedTool.
+    AgentGeneratedToolResult {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        result_json: String,
+    },
 
     /// Response to AgentValidateProvider.
     AgentProviderValidation {

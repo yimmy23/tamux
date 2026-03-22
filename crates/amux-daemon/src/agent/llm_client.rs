@@ -2234,7 +2234,9 @@ pub async fn validate_provider_connection(
     }
 
     if def.supports_model_fetch {
-        return fetch_models(provider_id, &resolved_base_url, api_key).await.map(Some);
+        return fetch_models(provider_id, &resolved_base_url, api_key)
+            .await
+            .map(Some);
     }
 
     let client = reqwest::Client::new();

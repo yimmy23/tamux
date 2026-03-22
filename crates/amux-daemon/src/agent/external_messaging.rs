@@ -16,11 +16,18 @@ impl AgentEngine {
         {
             let mut threads = self.threads.write().await;
             if let Some(thread) = threads.get_mut(&tid) {
-                thread.messages.push(AgentMessage::user(content, now_millis()));
+                thread
+                    .messages
+                    .push(AgentMessage::user(content, now_millis()));
                 thread.updated_at = now_millis();
             }
         }
         self.persist_thread_by_id(&tid).await;
+        self.record_operator_message(&tid, content, is_new_thread)
+            .await?;
+        if let Err(error) = self.maybe_sync_thread_to_honcho(&tid).await {
+            tracing::warn!(thread_id = %tid, error = %error, "failed to sync thread to Honcho");
+        }
 
         let onecontext_bootstrap = if is_new_thread {
             self.onecontext_bootstrap_for_new_thread(content).await
@@ -54,7 +61,18 @@ impl AgentEngine {
         let mut enriched_prompt = if is_first_message {
             let memory = self.memory.read().await;
             let memory_dir = active_memory_dir(&self.data_dir);
-            build_external_agent_prompt(config, &memory, content, &memory_dir)
+            let operator_model_summary = self.build_operator_model_prompt_summary().await;
+            let operational_context = self.build_operational_context_summary().await;
+            let causal_guidance = self.build_causal_guidance_summary();
+            build_external_agent_prompt(
+                config,
+                &memory,
+                content,
+                &memory_dir,
+                operator_model_summary.as_deref(),
+                operational_context.as_deref(),
+                causal_guidance.as_deref(),
+            )
         } else {
             content.to_string()
         };
@@ -71,6 +89,16 @@ impl AgentEngine {
         if let Some(recall) = onecontext_bootstrap {
             enriched_prompt.push_str("\n\n[ONECONTEXT RECALL]\n");
             enriched_prompt.push_str(&recall);
+        }
+        match self.maybe_build_honcho_context(&tid, content).await {
+            Ok(Some(honcho_context)) => {
+                enriched_prompt.push_str("\n\n[CROSS-SESSION MEMORY]\n");
+                enriched_prompt.push_str(&honcho_context);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(thread_id = %tid, error = %error, "failed to build Honcho context");
+            }
         }
 
         // Run through external agent

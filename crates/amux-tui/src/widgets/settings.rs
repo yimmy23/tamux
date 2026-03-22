@@ -5,8 +5,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
-use crate::state::subagents::SubAgentsState;
 use crate::state::settings::{SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::message::wrap_text;
 
@@ -15,11 +15,20 @@ pub enum SettingsHitTarget {
     Tab(SettingsTab),
     Field(usize),
     AuthProviderItem(usize),
-    AuthAction { index: usize, action: AuthTabAction },
+    AuthAction {
+        index: usize,
+        action: AuthTabAction,
+    },
     SubAgentListItem(usize),
     SubAgentAction(SubAgentTabAction),
-    SubAgentRowAction { index: usize, action: SubAgentTabAction },
-    EditCursor { line: usize, col: usize },
+    SubAgentRowAction {
+        index: usize,
+        action: SubAgentTabAction,
+    },
+    EditCursor {
+        line: usize,
+        col: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +45,9 @@ pub enum SubAgentTabAction {
     Toggle,
 }
 
-const TAB_LABELS: [&str; 10] = ["Prov", "Tools", "Search", "Chat", "GW", "Auth", "Agent", "Sub", "Con", "Adv"];
+const TAB_LABELS: [&str; 10] = [
+    "Prov", "Tools", "Search", "Chat", "GW", "Auth", "Agent", "Sub", "Con", "Adv",
+];
 const TAB_DIVIDER: &str = " | ";
 
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +88,9 @@ fn clip_inline_text(text: &str, max_chars: usize) -> String {
     if chars.len() <= max_chars {
         return text.to_string();
     }
-    let tail: String = chars[chars.len().saturating_sub(max_chars)..].iter().collect();
+    let tail: String = chars[chars.len().saturating_sub(max_chars)..]
+        .iter()
+        .collect();
     format!("…{}", tail)
 }
 
@@ -239,7 +252,9 @@ pub fn hit_test(
 
     let row = mouse.y.saturating_sub(chunks[2].y) as usize;
     match settings_row_hit(settings, subagents, row) {
-        Some((_, Some(subagent_index))) => Some(SettingsHitTarget::SubAgentListItem(subagent_index)),
+        Some((_, Some(subagent_index))) => {
+            Some(SettingsHitTarget::SubAgentListItem(subagent_index))
+        }
         Some((field, None)) => Some(SettingsHitTarget::Field(field)),
         None => None,
     }
@@ -343,7 +358,10 @@ fn render_tabs_line(
             spans.push(Span::styled(TAB_DIVIDER, theme.fg_dim));
         }
     }
-    if tabs.last().is_some_and(|tab| tab.index + 1 < TAB_LABELS.len()) {
+    if tabs
+        .last()
+        .is_some_and(|tab| tab.index + 1 < TAB_LABELS.len())
+    {
         spans.push(Span::styled(" »", theme.fg_dim));
     }
     Line::from(spans)
@@ -537,7 +555,8 @@ fn auth_row_action_offsets(
         "[Login]"
     };
     let test_label = "[Test]";
-    let actions_width = primary_label.chars().count() as u16 + 1 + test_label.chars().count() as u16;
+    let actions_width =
+        primary_label.chars().count() as u16 + 1 + test_label.chars().count() as u16;
     let primary_start = content_area
         .x
         .saturating_add(content_area.width.saturating_sub(actions_width));
@@ -576,7 +595,11 @@ fn subagent_row_action_offsets(
 ) -> (u16, u16, u16, u16, u16) {
     let edit_label = "[Edit]";
     let delete_label = "[Delete]";
-    let toggle_label = if entry.enabled { "[Disable]" } else { "[Enable]" };
+    let toggle_label = if entry.enabled {
+        "[Disable]"
+    } else {
+        "[Enable]"
+    };
     let actions_width = edit_label.chars().count() as u16
         + 1
         + delete_label.chars().count() as u16
@@ -1230,31 +1253,72 @@ fn render_subagents_tab<'a>(
             });
         let field_line = |selected: bool, label: &str, value: String| {
             Line::from(vec![
-                Span::styled(if selected { "> " } else { "  " }, if selected { theme.fg_active } else { theme.fg_dim }),
+                Span::styled(
+                    if selected { "> " } else { "  " },
+                    if selected {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
                 Span::styled(format!("{label:<14}"), theme.fg_dim),
-                Span::styled(value, if selected { theme.fg_active } else { Style::default().fg(Color::White) }),
+                Span::styled(
+                    value,
+                    if selected {
+                        theme.fg_active
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ),
             ])
         };
 
         lines.push(field_line(
-            matches!(editor.field, crate::state::subagents::SubAgentEditorField::Name),
+            matches!(
+                editor.field,
+                crate::state::subagents::SubAgentEditorField::Name
+            ),
             "Name",
             editor.name.clone(),
         ));
         lines.push(field_line(
-            matches!(editor.field, crate::state::subagents::SubAgentEditorField::Provider),
+            matches!(
+                editor.field,
+                crate::state::subagents::SubAgentEditorField::Provider
+            ),
             "Provider",
-            if editor.provider.is_empty() { "Select provider".to_string() } else { editor.provider.clone() },
+            if editor.provider.is_empty() {
+                "Select provider".to_string()
+            } else {
+                editor.provider.clone()
+            },
         ));
         lines.push(field_line(
-            matches!(editor.field, crate::state::subagents::SubAgentEditorField::Model),
+            matches!(
+                editor.field,
+                crate::state::subagents::SubAgentEditorField::Model
+            ),
             "Model",
-            if editor.model.is_empty() { "Select model".to_string() } else { editor.model.clone() },
+            if editor.model.is_empty() {
+                "Select model".to_string()
+            } else {
+                editor.model.clone()
+            },
         ));
         lines.push(field_line(
-            matches!(editor.field, crate::state::subagents::SubAgentEditorField::Role),
+            matches!(
+                editor.field,
+                crate::state::subagents::SubAgentEditorField::Role
+            ),
             "Role",
-            format!("{role_label} ({})", if editor.role.is_empty() { "none" } else { &editor.role }),
+            format!(
+                "{role_label} ({})",
+                if editor.role.is_empty() {
+                    "none"
+                } else {
+                    &editor.role
+                }
+            ),
         ));
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
@@ -1298,18 +1362,34 @@ fn render_subagents_tab<'a>(
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
             Span::styled(
-                if matches!(editor.field, crate::state::subagents::SubAgentEditorField::Save) {
+                if matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::Save
+                ) {
                     "> "
                 } else {
                     "  "
                 },
-                if matches!(editor.field, crate::state::subagents::SubAgentEditorField::Save) {
+                if matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::Save
+                ) {
                     theme.fg_active
                 } else {
                     theme.fg_dim
                 },
             ),
-            Span::styled("[Save]", if matches!(editor.field, crate::state::subagents::SubAgentEditorField::Save) { theme.fg_active } else { theme.fg_dim }),
+            Span::styled(
+                "[Save]",
+                if matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::Save
+                ) {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
             Span::raw("  "),
             Span::styled(
                 "[Cancel]",
@@ -1355,14 +1435,24 @@ fn render_subagents_tab<'a>(
             } else {
                 theme.fg_dim
             };
-            let role_str = entry.role.as_deref().map(|r| format!(" [{}]", r)).unwrap_or_default();
+            let role_str = entry
+                .role
+                .as_deref()
+                .map(|r| format!(" [{}]", r))
+                .unwrap_or_default();
             let edit_label = "[Edit]";
             let delete_label = "[Delete]";
-            let toggle_label = if entry.enabled { "[Disable]" } else { "[Enable]" };
+            let toggle_label = if entry.enabled {
+                "[Disable]"
+            } else {
+                "[Enable]"
+            };
             let left_width = marker.chars().count()
                 + dot.chars().count()
                 + entry.name.chars().count()
-                + format!(" ({}/{})", entry.provider, entry.model).chars().count()
+                + format!(" ({}/{})", entry.provider, entry.model)
+                    .chars()
+                    .count()
                 + role_str.chars().count();
             let actions_width = edit_label.chars().count()
                 + 1
@@ -1376,11 +1466,22 @@ fn render_subagents_tab<'a>(
             );
 
             let line = Line::from(vec![
-                Span::styled(marker, if is_selected { theme.fg_active } else { theme.fg_dim }),
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
                 Span::styled(dot, dot_style),
                 Span::styled(
                     entry.name.clone(),
-                    if is_selected { theme.fg_active } else { Style::default().fg(Color::White) },
+                    if is_selected {
+                        theme.fg_active
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
                 ),
                 Span::styled(
                     format!(" ({}/{})", entry.provider, entry.model),
@@ -1427,7 +1528,11 @@ fn render_subagents_tab<'a>(
         let marker = if is_selected { "> " } else { "  " };
         lines.push(Line::from(Span::styled(
             format!("{}[Add Sub-Agent]", marker),
-            if is_selected { theme.fg_active } else { theme.fg_dim },
+            if is_selected {
+                theme.fg_active
+            } else {
+                theme.fg_dim
+            },
         )));
     }
     lines.push(Line::from(vec![
@@ -1467,10 +1572,31 @@ fn render_concierge_tab<'a>(
         let marker = if is_selected { "> " } else { "  " };
         let check = if concierge.enabled { "[x]" } else { "[ ]" };
         lines.push(Line::from(vec![
-            Span::styled(marker, if is_selected { theme.fg_active } else { theme.fg_dim }),
-            Span::styled(check, if concierge.enabled { theme.accent_success } else { theme.fg_dim }),
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled(
+                check,
+                if concierge.enabled {
+                    theme.accent_success
+                } else {
+                    theme.fg_dim
+                },
+            ),
             Span::raw(" "),
-            Span::styled("Enabled", if is_selected { theme.fg_active } else { theme.fg_dim }),
+            Span::styled(
+                "Enabled",
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
         ]));
     }
 
@@ -1479,11 +1605,22 @@ fn render_concierge_tab<'a>(
         let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
         lines.push(Line::from(vec![
-            Span::styled(marker, if is_selected { theme.fg_active } else { theme.fg_dim }),
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
             Span::styled("Detail Level: ", theme.fg_dim),
             Span::styled(
                 concierge.detail_level.clone(),
-                if is_selected { theme.fg_active } else { theme.fg_dim },
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
             ),
         ]));
     }
@@ -1493,11 +1630,25 @@ fn render_concierge_tab<'a>(
         let is_selected = settings.field_cursor() == 2;
         let marker = if is_selected { "> " } else { "  " };
         lines.push(Line::from(vec![
-            Span::styled(marker, if is_selected { theme.fg_active } else { theme.fg_dim }),
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
             Span::styled("Provider:     ", theme.fg_dim),
             Span::styled(
-                concierge.provider.clone().unwrap_or_else(|| "(default)".to_string()),
-                if is_selected { theme.fg_active } else { theme.fg_dim },
+                concierge
+                    .provider
+                    .clone()
+                    .unwrap_or_else(|| "(default)".to_string()),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
             ),
         ]));
     }
@@ -1507,11 +1658,25 @@ fn render_concierge_tab<'a>(
         let is_selected = settings.field_cursor() == 3;
         let marker = if is_selected { "> " } else { "  " };
         lines.push(Line::from(vec![
-            Span::styled(marker, if is_selected { theme.fg_active } else { theme.fg_dim }),
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
             Span::styled("Model:        ", theme.fg_dim),
             Span::styled(
-                concierge.model.clone().unwrap_or_else(|| "(default)".to_string()),
-                if is_selected { theme.fg_active } else { theme.fg_dim },
+                concierge
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "(default)".to_string()),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
             ),
         ]));
     }
@@ -2034,16 +2199,27 @@ fn render_auth_tab<'a>(
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  Authentication", theme.fg_active)));
+    lines.push(Line::from(Span::styled(
+        "  Authentication",
+        theme.fg_active,
+    )));
     lines.push(Line::from(Span::styled(
         "  Provider authentication status",
         theme.fg_dim,
     )));
     lines.push(Line::raw(""));
 
-    if auth.entries.is_empty() {
+    if !auth.loaded {
         lines.push(Line::from(Span::styled(
             "  No providers loaded. Connect to daemon to see status.",
+            theme.fg_dim,
+        )));
+        return lines;
+    }
+
+    if auth.entries.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No providers are configured yet. Use the Provider tab to add one.",
             theme.fg_dim,
         )));
         return lines;
@@ -2074,16 +2250,26 @@ fn render_auth_tab<'a>(
             + entry.provider_name.chars().count()
             + model_info.chars().count();
         let actions_width = primary_label.chars().count() + 1 + test_label.chars().count();
-        let spacer = " ".repeat(
-            (content_width as usize).saturating_sub(left_width + actions_width + 1),
-        );
+        let spacer =
+            " ".repeat((content_width as usize).saturating_sub(left_width + actions_width + 1));
 
         let line = Line::from(vec![
-            Span::styled(marker, if is_selected { theme.fg_active } else { theme.fg_dim }),
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
             Span::styled(dot, dot_style),
             Span::styled(
                 entry.provider_name.clone(),
-                if is_selected { theme.fg_active } else { Style::default().fg(Color::White) },
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    Style::default().fg(Color::White)
+                },
             ),
             Span::styled(model_info, theme.fg_dim),
             Span::raw(spacer),

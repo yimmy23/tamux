@@ -106,7 +106,8 @@ impl ResourcePool {
 
     /// Number of slots that are currently free.
     pub fn available_slots(&self) -> usize {
-        self.max_concurrent_subagents.saturating_sub(self.active_slots.len())
+        self.max_concurrent_subagents
+            .saturating_sub(self.active_slots.len())
     }
 
     /// Try to allocate a slot for the given request.
@@ -123,7 +124,9 @@ impl ResourcePool {
         let desired = request
             .requested_tokens
             .unwrap_or_else(|| Self::context_for_complexity(request.estimated_complexity));
-        let remaining = self.total_context_budget_tokens.saturating_sub(self.allocated_tokens);
+        let remaining = self
+            .total_context_budget_tokens
+            .saturating_sub(self.allocated_tokens);
 
         // ---- Slot availability ------------------------------------------
         if self.available_slots() == 0 {
@@ -196,7 +199,9 @@ impl ResourcePool {
         desired: u32,
         now: u64,
     ) -> AllocationResult {
-        let remaining = self.total_context_budget_tokens.saturating_sub(self.allocated_tokens);
+        let remaining = self
+            .total_context_budget_tokens
+            .saturating_sub(self.allocated_tokens);
         let budget = desired.min(remaining);
 
         self.active_slots.push(SlotAllocation {
@@ -358,7 +363,10 @@ mod tests {
     // 8. Context allocation is proportional to complexity.
     #[test]
     fn context_proportional_to_complexity() {
-        assert_eq!(ResourcePool::context_for_complexity(TaskComplexity::Simple), 5_000);
+        assert_eq!(
+            ResourcePool::context_for_complexity(TaskComplexity::Simple),
+            5_000
+        );
         assert_eq!(
             ResourcePool::context_for_complexity(TaskComplexity::Moderate),
             15_000

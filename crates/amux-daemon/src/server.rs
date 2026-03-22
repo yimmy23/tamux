@@ -50,6 +50,7 @@ fn should_forward_agent_event(
             event,
             crate::agent::types::AgentEvent::HeartbeatResult { .. }
                 | crate::agent::types::AgentEvent::Notification { .. }
+                | crate::agent::types::AgentEvent::AnticipatoryUpdate { .. }
                 | crate::agent::types::AgentEvent::ConciergeWelcome { .. }
         ),
     }
@@ -454,6 +455,44 @@ where
                 ClientMessage::ExecuteManagedCommand { id, request } => {
                     match manager.execute_managed_command(id, request).await {
                         Ok(message) => {
+                            if let DaemonMessage::ApprovalRequired { approval, .. } = &message {
+                                let pending = crate::agent::types::ToolPendingApproval {
+                                    approval_id: approval.approval_id.clone(),
+                                    execution_id: approval.execution_id.clone(),
+                                    command: approval.command.clone(),
+                                    rationale: approval.rationale.clone(),
+                                    risk_level: approval.risk_level.clone(),
+                                    blast_radius: approval.blast_radius.clone(),
+                                    reasons: approval.reasons.clone(),
+                                    session_id: Some(id.to_string()),
+                                };
+                                if let Err(error) =
+                                    agent.record_operator_approval_requested(&pending).await
+                                {
+                                    tracing::warn!(
+                                        approval_id = %approval.approval_id,
+                                        "failed to record operator approval request: {error}"
+                                    );
+                                }
+                                agent
+                                    .record_provenance_event(
+                                        "approval_requested",
+                                        "managed command requested approval",
+                                        serde_json::json!({
+                                            "approval_id": approval.approval_id,
+                                            "session_id": id.to_string(),
+                                            "command": approval.command,
+                                            "risk_level": approval.risk_level,
+                                            "blast_radius": approval.blast_radius,
+                                        }),
+                                        None,
+                                        None,
+                                        None,
+                                        Some(approval.approval_id.as_str()),
+                                        None,
+                                    )
+                                    .await;
+                            }
                             framed.send(message).await?;
                         }
                         Err(e) => {
@@ -473,7 +512,32 @@ where
                 } => match manager.resolve_approval(id, &approval_id, decision).await {
                     Ok(messages) => {
                         let _ = agent
+                            .record_operator_approval_resolution(&approval_id, decision)
+                            .await;
+                        let _ = agent
                             .handle_task_approval_resolution(&approval_id, decision)
+                            .await;
+                        agent
+                            .record_provenance_event(
+                                match decision {
+                                    amux_protocol::ApprovalDecision::ApproveOnce
+                                    | amux_protocol::ApprovalDecision::ApproveSession => {
+                                        "approval_granted"
+                                    }
+                                    amux_protocol::ApprovalDecision::Deny => "approval_denied",
+                                },
+                                "operator resolved approval request",
+                                serde_json::json!({
+                                    "approval_id": approval_id,
+                                    "session_id": id.to_string(),
+                                    "decision": format!("{decision:?}").to_lowercase(),
+                                }),
+                                None,
+                                None,
+                                None,
+                                Some(approval_id.as_str()),
+                                None,
+                            )
                             .await;
                         for message in messages {
                             framed.send(message).await?;
@@ -1067,6 +1131,7 @@ where
                     session_id,
                     context_messages_json,
                 } => {
+                    agent.mark_operator_present("send_message").await;
                     let effective_thread_id =
                         thread_id.or_else(|| Some(format!("thread_{}", uuid::Uuid::new_v4())));
                     if let Some(thread_id) = effective_thread_id.as_ref() {
@@ -1115,6 +1180,28 @@ where
                 ClientMessage::AgentStopStream { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
                     let _ = agent.stop_stream(&thread_id).await;
+                }
+
+                ClientMessage::AgentRecordAttention {
+                    surface,
+                    thread_id,
+                    goal_run_id,
+                } => {
+                    if let Err(e) = agent
+                        .record_operator_attention(
+                            &surface,
+                            thread_id.as_deref(),
+                            goal_run_id.as_deref(),
+                        )
+                        .await
+                    {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to record attention surface: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
                 }
 
                 ClientMessage::AgentListThreads => {
@@ -1372,6 +1459,9 @@ where
                         _ => amux_protocol::ApprovalDecision::ApproveOnce,
                     };
                     tracing::info!(%approval_id, ?decision, "resolving task approval");
+                    let _ = agent
+                        .record_operator_approval_resolution(&approval_id, decision)
+                        .await;
                     agent
                         .handle_task_approval_resolution(&approval_id, decision)
                         .await;
@@ -1380,11 +1470,17 @@ where
                 ClientMessage::AgentSubscribe => {
                     agent_event_rx = Some(agent.subscribe());
                     tracing::info!("client subscribed to agent events");
+                    agent.mark_operator_present("client_subscribe").await;
+                    agent.run_anticipatory_tick().await;
+                    agent.emit_anticipatory_snapshot().await;
 
                     // Trigger concierge welcome for the newly connected client.
                     let agent_ref = agent.clone();
                     tokio::spawn(async move {
-                        agent_ref.concierge.on_client_connected(&agent_ref.threads, &agent_ref.tasks).await;
+                        agent_ref
+                            .concierge
+                            .on_client_connected(&agent_ref.threads, &agent_ref.tasks)
+                            .await;
                     });
                 }
 
@@ -1395,25 +1491,23 @@ where
 
                 ClientMessage::AgentGetSubagentMetrics { task_id } => {
                     let metrics_json = match agent.history.get_subagent_metrics(&task_id) {
-                        Ok(Some(metrics)) => {
-                            serde_json::to_string(&serde_json::json!({
-                                "task_id": metrics.task_id,
-                                "parent_task_id": metrics.parent_task_id,
-                                "thread_id": metrics.thread_id,
-                                "tool_calls_total": metrics.tool_calls_total,
-                                "tool_calls_succeeded": metrics.tool_calls_succeeded,
-                                "tool_calls_failed": metrics.tool_calls_failed,
-                                "tokens_consumed": metrics.tokens_consumed,
-                                "context_budget_tokens": metrics.context_budget_tokens,
-                                "progress_rate": metrics.progress_rate,
-                                "last_progress_at": metrics.last_progress_at,
-                                "stuck_score": metrics.stuck_score,
-                                "health_state": metrics.health_state,
-                                "created_at": metrics.created_at,
-                                "updated_at": metrics.updated_at,
-                            }))
-                            .unwrap_or_else(|_| "null".to_string())
-                        }
+                        Ok(Some(metrics)) => serde_json::to_string(&serde_json::json!({
+                            "task_id": metrics.task_id,
+                            "parent_task_id": metrics.parent_task_id,
+                            "thread_id": metrics.thread_id,
+                            "tool_calls_total": metrics.tool_calls_total,
+                            "tool_calls_succeeded": metrics.tool_calls_succeeded,
+                            "tool_calls_failed": metrics.tool_calls_failed,
+                            "tokens_consumed": metrics.tokens_consumed,
+                            "context_budget_tokens": metrics.context_budget_tokens,
+                            "progress_rate": metrics.progress_rate,
+                            "last_progress_at": metrics.last_progress_at,
+                            "stuck_score": metrics.stuck_score,
+                            "health_state": metrics.health_state,
+                            "created_at": metrics.created_at,
+                            "updated_at": metrics.updated_at,
+                        }))
+                        .unwrap_or_else(|_| "null".to_string()),
                         Ok(None) => "null".to_string(),
                         Err(e) => {
                             framed
@@ -1432,21 +1526,23 @@ where
                 }
 
                 ClientMessage::AgentListCheckpoints { goal_run_id } => {
-                    let checkpoints_json = match agent.history.list_checkpoints_for_goal_run(&goal_run_id) {
-                        Ok(jsons) => {
-                            let summaries = crate::agent::liveness::checkpoint::checkpoint_list(&jsons);
-                            serde_json::to_string(&summaries).unwrap_or_else(|_| "[]".into())
-                        }
-                        Err(e) => {
-                            framed
-                                .send(DaemonMessage::AgentError {
-                                    message: format!("failed to list checkpoints: {e}"),
-                                })
-                                .await
-                                .ok();
-                            continue;
-                        }
-                    };
+                    let checkpoints_json =
+                        match agent.history.list_checkpoints_for_goal_run(&goal_run_id) {
+                            Ok(jsons) => {
+                                let summaries =
+                                    crate::agent::liveness::checkpoint::checkpoint_list(&jsons);
+                                serde_json::to_string(&summaries).unwrap_or_else(|_| "[]".into())
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::AgentError {
+                                        message: format!("failed to list checkpoints: {e}"),
+                                    })
+                                    .await
+                                    .ok();
+                                continue;
+                            }
+                        };
                     framed
                         .send(DaemonMessage::AgentCheckpointList { checkpoints_json })
                         .await
@@ -1454,43 +1550,14 @@ where
                 }
 
                 ClientMessage::AgentRestoreCheckpoint { checkpoint_id } => {
-                    // Checkpoint restoration requires agent engine integration
-                    // which will be wired in a future phase. For now, return the
-                    // checkpoint data so the caller knows it exists.
-                    let outcome_json = match agent.history.get_checkpoint(&checkpoint_id) {
-                        Ok(Some(json)) => {
-                            match crate::agent::liveness::checkpoint::checkpoint_load(&json) {
-                                Ok(cp) => serde_json::to_string(&serde_json::json!({
-                                    "checkpoint_id": cp.id,
-                                    "goal_run_id": cp.goal_run_id,
-                                    "step_index": cp.goal_run.current_step_index,
-                                    "status": "loaded",
-                                }))
-                                .unwrap_or_else(|_| "null".into()),
-                                Err(e) => {
-                                    framed
-                                        .send(DaemonMessage::AgentError {
-                                            message: format!("failed to load checkpoint: {e}"),
-                                        })
-                                        .await
-                                        .ok();
-                                    continue;
-                                }
-                            }
-                        }
-                        Ok(None) => {
-                            framed
-                                .send(DaemonMessage::AgentError {
-                                    message: "checkpoint not found".into(),
-                                })
-                                .await
-                                .ok();
-                            continue;
+                    let outcome_json = match agent.restore_checkpoint(&checkpoint_id).await {
+                        Ok(outcome) => {
+                            serde_json::to_string(&outcome).unwrap_or_else(|_| "null".into())
                         }
                         Err(e) => {
                             framed
                                 .send(DaemonMessage::AgentError {
-                                    message: format!("failed to get checkpoint: {e}"),
+                                    message: format!("failed to restore checkpoint: {e}"),
                                 })
                                 .await
                                 .ok();
@@ -1504,30 +1571,326 @@ where
                 }
 
                 ClientMessage::AgentGetHealthStatus => {
-                    // Health monitoring is available but not yet wired to a
-                    // persistent health monitor instance. Return basic status.
-                    let status_json = serde_json::json!({
-                        "state": "healthy",
-                        "uptime_secs": 0,
-                        "active_goal_runs": 0,
-                        "active_tasks": 0,
-                    })
-                    .to_string();
+                    let status_json = agent.health_status_snapshot().await.to_string();
                     framed
                         .send(DaemonMessage::AgentHealthStatus { status_json })
                         .await
                         .ok();
                 }
 
-                ClientMessage::AgentListHealthLog { limit: _ } => {
-                    // Health log entries will be persisted once the health
-                    // monitor is integrated into the heartbeat loop.
+                ClientMessage::AgentListHealthLog { limit } => {
+                    let entries_json = match agent.health_log_entries(limit.unwrap_or(50).max(1)) {
+                        Ok(entries) => {
+                            serde_json::to_string(&entries).unwrap_or_else(|_| "[]".into())
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to list health log: {e}"),
+                                })
+                                .await
+                                .ok();
+                            continue;
+                        }
+                    };
                     framed
-                        .send(DaemonMessage::AgentHealthLog {
-                            entries_json: "[]".into(),
-                        })
+                        .send(DaemonMessage::AgentHealthLog { entries_json })
                         .await
                         .ok();
+                }
+
+                ClientMessage::AgentGetOperatorModel => match agent.operator_model_json().await {
+                    Ok(model_json) => {
+                        framed
+                            .send(DaemonMessage::AgentOperatorModel { model_json })
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to load operator model: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentResetOperatorModel => {
+                    match agent.reset_operator_model().await {
+                        Ok(()) => {
+                            framed
+                                .send(DaemonMessage::AgentOperatorModelReset { ok: true })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to reset operator model: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetCausalTraceReport { option_type, limit } => {
+                    match agent
+                        .causal_trace_report(&option_type, limit.unwrap_or(20))
+                        .await
+                    {
+                        Ok(report) => {
+                            let report_json =
+                                serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+                            framed
+                                .send(DaemonMessage::AgentCausalTraceReport { report_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to build causal trace report: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetCounterfactualReport {
+                    option_type,
+                    command_family,
+                    limit,
+                } => match agent.counterfactual_report(
+                    &option_type,
+                    &command_family,
+                    limit.unwrap_or(20),
+                ) {
+                    Ok(report) => {
+                        let report_json =
+                            serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+                        framed
+                            .send(DaemonMessage::AgentCounterfactualReport { report_json })
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to build counterfactual report: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentGetMemoryProvenanceReport { target, limit } => {
+                    match agent
+                        .history
+                        .memory_provenance_report(target.as_deref(), limit.unwrap_or(25) as usize)
+                    {
+                        Ok(report) => {
+                            let report_json =
+                                serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+                            framed
+                                .send(DaemonMessage::AgentMemoryProvenanceReport { report_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to build memory provenance report: {e}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetProvenanceReport { limit } => {
+                    match agent
+                        .provenance_report_json(limit.unwrap_or(50) as usize)
+                        .await
+                    {
+                        Ok(report_json) => {
+                            framed
+                                .send(DaemonMessage::AgentProvenanceReport { report_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to build provenance report: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGenerateSoc2Artifact { period_days } => {
+                    match agent
+                        .generate_soc2_artifact(period_days.unwrap_or(30))
+                        .await
+                    {
+                        Ok(artifact_path) => {
+                            framed
+                                .send(DaemonMessage::AgentSoc2Artifact { artifact_path })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to generate SOC2 artifact: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetCollaborationSessions { parent_task_id } => {
+                    match agent
+                        .collaboration_sessions_json(parent_task_id.as_deref())
+                        .await
+                    {
+                        Ok(sessions) => {
+                            framed
+                                .send(DaemonMessage::AgentCollaborationSessions {
+                                    sessions_json: sessions.to_string(),
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to read collaboration sessions: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentListGeneratedTools => {
+                    match agent.list_generated_tools_json().await {
+                        Ok(tools_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedTools { tools_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to list generated tools: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSynthesizeTool { request_json } => {
+                    match agent.synthesize_tool_json(&request_json).await {
+                        Ok(result_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedToolResult {
+                                    tool_name: None,
+                                    result_json,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to synthesize generated tool: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentRunGeneratedTool {
+                    tool_name,
+                    args_json,
+                } => match agent
+                    .run_generated_tool_json(&tool_name, &args_json, None)
+                    .await
+                {
+                    Ok(result_json) => {
+                        framed
+                            .send(DaemonMessage::AgentGeneratedToolResult {
+                                tool_name: Some(tool_name),
+                                result_json,
+                            })
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to run generated tool: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentPromoteGeneratedTool { tool_name } => {
+                    match agent.promote_generated_tool_json(&tool_name).await {
+                        Ok(result_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedToolResult {
+                                    tool_name: Some(tool_name),
+                                    result_json,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to promote generated tool: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentActivateGeneratedTool { tool_name } => {
+                    match agent.activate_generated_tool_json(&tool_name).await {
+                        Ok(result_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedToolResult {
+                                    tool_name: Some(tool_name),
+                                    result_json,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to activate generated tool: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
                 }
 
                 ClientMessage::AgentGetProviderAuthStates => {
@@ -1545,24 +1908,31 @@ where
                 } => {
                     // Surgical update: modify only the target provider's key.
                     let mut config = agent.get_config().await;
-                    let entry = config.providers.entry(provider_id.clone()).or_insert_with(|| {
-                        let def = crate::agent::types::get_provider_definition(&provider_id);
-                        crate::agent::types::ProviderConfig {
-                            base_url: if base_url.is_empty() {
-                                def.map(|d| d.default_base_url.to_string()).unwrap_or_default()
-                            } else {
-                                base_url.clone()
-                            },
-                            model: def.map(|d| d.default_model.to_string()).unwrap_or_default(),
-                            api_key: String::new(),
-                            assistant_id: String::new(),
-                            auth_source: crate::agent::types::AuthSource::ApiKey,
-                            api_transport: crate::agent::types::default_api_transport_for_provider(&provider_id),
-                            reasoning_effort: "high".into(),
-                            context_window_tokens: 128_000,
-                            response_schema: None,
-                        }
-                    });
+                    let entry = config
+                        .providers
+                        .entry(provider_id.clone())
+                        .or_insert_with(|| {
+                            let def = crate::agent::types::get_provider_definition(&provider_id);
+                            crate::agent::types::ProviderConfig {
+                                base_url: if base_url.is_empty() {
+                                    def.map(|d| d.default_base_url.to_string())
+                                        .unwrap_or_default()
+                                } else {
+                                    base_url.clone()
+                                },
+                                model: def.map(|d| d.default_model.to_string()).unwrap_or_default(),
+                                api_key: String::new(),
+                                assistant_id: String::new(),
+                                auth_source: crate::agent::types::AuthSource::ApiKey,
+                                api_transport:
+                                    crate::agent::types::default_api_transport_for_provider(
+                                        &provider_id,
+                                    ),
+                                reasoning_effort: "high".into(),
+                                context_window_tokens: 128_000,
+                                response_schema: None,
+                            }
+                        });
                     entry.api_key = api_key;
                     if !base_url.is_empty() {
                         entry.base_url = base_url;
@@ -1708,7 +2078,9 @@ where
                     let list = agent.list_sub_agents().await;
                     let json = serde_json::to_string(&list).unwrap_or_default();
                     framed
-                        .send(DaemonMessage::AgentSubAgentList { sub_agents_json: json })
+                        .send(DaemonMessage::AgentSubAgentList {
+                            sub_agents_json: json,
+                        })
                         .await?;
                 }
 
@@ -1721,7 +2093,8 @@ where
                 }
 
                 ClientMessage::AgentSetConciergeConfig { config_json } => {
-                    match serde_json::from_str::<crate::agent::types::ConciergeConfig>(&config_json) {
+                    match serde_json::from_str::<crate::agent::types::ConciergeConfig>(&config_json)
+                    {
                         Ok(concierge_config) => {
                             agent.set_concierge_config(concierge_config).await;
                         }
@@ -1741,7 +2114,10 @@ where
                     // We send the result directly as a DaemonMessage rather than going
                     // through the broadcast event channel, because the connection handler's
                     // try_recv loop won't drain until the next client message arrives.
-                    let welcome = agent.concierge.generate_welcome(&agent.threads, &agent.tasks).await;
+                    let welcome = agent
+                        .concierge
+                        .generate_welcome(&agent.threads, &agent.tasks)
+                        .await;
                     if let Some((content, detail_level, actions)) = welcome {
                         let event = crate::agent::types::AgentEvent::ConciergeWelcome {
                             thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),

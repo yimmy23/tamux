@@ -67,11 +67,7 @@ impl ContextItem {
     ///
     /// - `now`: current timestamp in milliseconds
     /// - `max_age_ms`: age after which recency weight is 0 (default: 30 min)
-    pub fn compute_relevance(
-        &self,
-        now: u64,
-        max_age_ms: u64,
-    ) -> f64 {
+    pub fn compute_relevance(&self, now: u64, max_age_ms: u64) -> f64 {
         let age_ms = now.saturating_sub(self.timestamp);
         let recency_weight = if max_age_ms == 0 {
             0.0
@@ -95,11 +91,7 @@ impl ContextItem {
     }
 
     /// Categorize this item based on its relevance score and age.
-    pub fn categorize(
-        &self,
-        now: u64,
-        recent_threshold_ms: u64,
-    ) -> RelevanceCategory {
+    pub fn categorize(&self, now: u64, recent_threshold_ms: u64) -> RelevanceCategory {
         let age_ms = now.saturating_sub(self.timestamp);
         let is_recent = age_ms < recent_threshold_ms;
 
@@ -140,7 +132,12 @@ pub struct ContextAuditReport {
 mod tests {
     use super::*;
 
-    fn make_item(id: &str, item_type: ContextType, timestamp: u64, access_count: u32) -> ContextItem {
+    fn make_item(
+        id: &str,
+        item_type: ContextType,
+        timestamp: u64,
+        access_count: u32,
+    ) -> ContextItem {
         let content = format!("Content for {id}");
         ContextItem {
             id: id.into(),
@@ -196,7 +193,10 @@ mod tests {
     #[test]
     fn categorize_system_prompt_always_critical() {
         let item = make_item("e", ContextType::SystemPrompt, 0, 0);
-        assert_eq!(item.categorize(999_999, 60_000), RelevanceCategory::Critical);
+        assert_eq!(
+            item.categorize(999_999, 60_000),
+            RelevanceCategory::Critical
+        );
     }
 
     #[test]
@@ -210,6 +210,9 @@ mod tests {
     fn categorize_old_never_accessed_as_archivable() {
         let mut item = make_item("g", ContextType::FileContent, 0, 0);
         item.relevance_score = 0.1;
-        assert_eq!(item.categorize(999_999, 60_000), RelevanceCategory::Archivable);
+        assert_eq!(
+            item.categorize(999_999, 60_000),
+            RelevanceCategory::Archivable
+        );
     }
 }

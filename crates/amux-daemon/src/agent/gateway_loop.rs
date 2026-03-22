@@ -234,8 +234,9 @@ impl AgentEngine {
         let mut gateway_tick = tokio::time::interval(gateway_poll_interval);
         let mut watcher_tick =
             tokio::time::interval(std::time::Duration::from_millis(FILE_WATCH_TICK_MS));
-        let mut supervisor_tick =
-            tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut supervisor_tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut anticipatory_tick =
+            tokio::time::interval(std::time::Duration::from_secs(ANTICIPATORY_TICK_SECS));
         let mut pending_watcher_refreshes: HashMap<String, Instant> = HashMap::new();
 
         tracing::info!(
@@ -256,6 +257,9 @@ impl AgentEngine {
                     if let Err(e) = self.run_heartbeat().await {
                         tracing::error!("agent heartbeat error: {e}");
                     }
+                }
+                _ = anticipatory_tick.tick() => {
+                    self.run_anticipatory_tick().await;
                 }
                 _ = gateway_tick.tick() => {
                     // Skip built-in gateway polling when using an external agent
@@ -300,46 +304,94 @@ impl AgentEngine {
                     }
                 }
                 _ = supervisor_tick.tick() => {
-                    // Clone minimal task data under lock, then release before processing
                     let supervised: Vec<_> = {
                         let tasks = self.tasks.lock().await;
                         tasks.iter()
                             .filter(|t| t.status == TaskStatus::InProgress && t.supervisor_config.is_some())
-                            .map(|t| (
-                                t.id.clone(),
-                                t.started_at.unwrap_or(t.created_at),
-                                t.max_duration_secs,
-                                t.supervisor_config.clone().unwrap(),
-                            ))
+                            .cloned()
                             .collect()
-                    }; // lock released
+                    };
 
                     let now_secs = now_millis() / 1000;
-                    for (task_id, started_at, max_dur, cfg) in supervised {
-                        let snapshot = crate::agent::subagent::supervisor::SubagentSnapshot {
-                            task_id: task_id.clone(),
-                            last_tool_call_at: None,
-                            tool_calls_total: 0,
-                            tool_calls_failed: 0,
-                            consecutive_errors: 0,
-                            recent_tool_names: Vec::new(),
-                            context_utilization_pct: 0,
-                            started_at,
-                            max_duration_secs: max_dur,
+                    for task in supervised {
+                        self.ensure_subagent_runtime(&task, task.thread_id.as_deref()).await;
+                        let Some(snapshot) = self.subagent_snapshot(&task).await else {
+                            continue;
                         };
-                        if let Some(action) = crate::agent::subagent::supervisor::check_health(
+                        let action = crate::agent::subagent::supervisor::check_health(
                             &snapshot,
-                            &cfg,
+                            task.supervisor_config
+                                .as_ref()
+                                .expect("supervised task must have config"),
                             now_secs,
-                        ) {
+                        );
+                        let new_state = action
+                            .as_ref()
+                            .map(|value| value.health_state)
+                            .unwrap_or(SubagentHealthState::Healthy);
+                        let previous_state = {
+                            let runtime = self.subagent_runtime.read().await;
+                            runtime
+                                .get(&task.id)
+                                .map(|entry| entry.health_state)
+                                .unwrap_or(SubagentHealthState::Healthy)
+                        };
+
+                        if previous_state != new_state {
+                            self.update_subagent_health(&task.id, new_state).await;
+                            let runtime = {
+                                let runtime = self.subagent_runtime.read().await;
+                                runtime.get(&task.id).cloned()
+                            };
+                            let indicators_json = runtime.as_ref().map(|entry| {
+                                serde_json::json!({
+                                    "last_progress_at": entry.last_progress_at,
+                                    "tool_call_frequency": if now_secs > entry.started_at / 1000 {
+                                        entry.tool_calls_total as f64 / ((now_secs - entry.started_at / 1000) as f64 / 60.0).max(1.0)
+                                    } else {
+                                        0.0
+                                    },
+                                    "error_rate": if entry.tool_calls_total == 0 {
+                                        0.0
+                                    } else {
+                                        entry.tool_calls_failed as f64 / entry.tool_calls_total as f64
+                                    },
+                                    "context_growth_rate": 0.0,
+                                    "context_utilization_pct": entry.context_utilization_pct,
+                                    "consecutive_errors": entry.consecutive_errors,
+                                    "total_tool_calls": entry.tool_calls_total,
+                                    "successful_tool_calls": entry.tool_calls_succeeded,
+                                })
+                                .to_string()
+                            });
+                            if let Err(e) = self.history.insert_health_log(
+                                &format!("health_{}", Uuid::new_v4()),
+                                "task",
+                                &task.id,
+                                match new_state {
+                                    SubagentHealthState::Healthy => "healthy",
+                                    SubagentHealthState::Degraded => "degraded",
+                                    SubagentHealthState::Stuck => "stuck",
+                                    SubagentHealthState::Crashed => "crashed",
+                                },
+                                indicators_json.as_deref(),
+                                action
+                                    .as_ref()
+                                    .map(|value| format!("{:?}", value.action))
+                                    .as_deref(),
+                                now_millis(),
+                            ) {
+                                tracing::warn!(task_id = %task.id, "failed to persist health log: {e}");
+                            }
                             let _ = self.event_tx.send(AgentEvent::SubagentHealthChange {
-                                task_id,
-                                previous_state: SubagentHealthState::Healthy,
-                                new_state: action.health_state,
-                                reason: action.reason,
-                                intervention: Some(action.action),
+                                task_id: task.id.clone(),
+                                previous_state,
+                                new_state,
+                                reason: action.as_ref().and_then(|value| value.reason),
+                                intervention: action.as_ref().map(|value| value.action),
                             });
                         }
+                        self.persist_subagent_runtime_metrics(&task.id).await;
                     }
                 }
                 _ = shutdown.changed() => {
@@ -403,18 +455,51 @@ impl AgentEngine {
 
         // Route each message to the agent
         for msg in incoming {
+            // --- Deduplication: skip messages we've already processed ---
+            if let Some(ref mid) = msg.message_id {
+                let mut seen = self.gateway_seen_ids.lock().await;
+                if seen.contains(mid) {
+                    tracing::debug!(
+                        message_id = %mid,
+                        platform = %msg.platform,
+                        "gateway: skipping duplicate message"
+                    );
+                    continue;
+                }
+                seen.push(mid.clone());
+                // Cap at 200 entries to prevent unbounded growth
+                if seen.len() > 200 {
+                    let excess = seen.len() - 200;
+                    seen.drain(..excess);
+                }
+            }
+
+            // --- Per-channel lock: prevent concurrent processing of same channel ---
+            let channel_key = format!("{}:{}", msg.platform, msg.channel);
+            {
+                let mut inflight = self.gateway_inflight_channels.lock().await;
+                if inflight.contains(&channel_key) {
+                    tracing::warn!(
+                        channel_key = %channel_key,
+                        "gateway: channel already being processed, skipping"
+                    );
+                    continue;
+                }
+                inflight.insert(channel_key.clone());
+            }
+
             tracing::info!(
                 platform = %msg.platform,
                 sender = %msg.sender,
                 channel = %msg.channel,
                 content = %msg.content,
+                message_id = ?msg.message_id,
                 "gateway: incoming message"
             );
 
             // Handle control commands (reset/new conversation)
             let trimmed = msg.content.trim().to_lowercase();
             if trimmed == "!reset" || trimmed == "!new" || trimmed == "reset" || trimmed == "new" {
-                let channel_key = format!("{}:{}", msg.platform, msg.channel);
                 self.gateway_threads.write().await.remove(&channel_key);
                 tracing::info!(channel_key = %channel_key, "gateway: conversation reset");
 
@@ -435,6 +520,7 @@ impl AgentEngine {
                 if let Err(e) = self.send_message(None, &prompt).await {
                     tracing::error!(error = %e, "gateway: failed to send reset confirmation");
                 }
+                self.gateway_inflight_channels.lock().await.remove(&channel_key);
                 continue;
             }
 
@@ -484,7 +570,6 @@ impl AgentEngine {
             });
 
             // Use persistent thread per channel for conversation continuity
-            let channel_key = format!("{}:{}", msg.platform, msg.channel);
             let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
 
             match self.send_message(existing_thread.as_deref(), &prompt).await {
@@ -493,7 +578,7 @@ impl AgentEngine {
                     self.gateway_threads
                         .write()
                         .await
-                        .insert(channel_key, thread_id.clone());
+                        .insert(channel_key.clone(), thread_id.clone());
 
                     // Safety net: if the agent didn't call the gateway send tool,
                     // auto-send the last assistant message to the platform
@@ -572,6 +657,9 @@ impl AgentEngine {
                     );
                 }
             }
+
+            // Release per-channel processing lock
+            self.gateway_inflight_channels.lock().await.remove(&channel_key);
         }
     }
 }

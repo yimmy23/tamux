@@ -7,9 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent::types::{
-    AgentTask, GoalRun, GoalRunStatus, ThreadWorkContext, TodoItem,
-};
+use crate::agent::types::{AgentTask, GoalRun, GoalRunStatus, ThreadWorkContext, TodoItem};
 
 /// Schema version for forward-compatible checkpoint deserialization.
 pub const CHECKPOINT_SCHEMA_VERSION: u32 = 1;
@@ -272,7 +270,10 @@ mod tests {
         );
         cp.context_summary = Some("short context".into());
         let summary = cp.to_summary();
-        assert_eq!(summary.context_summary_preview.as_deref(), Some("short context"));
+        assert_eq!(
+            summary.context_summary_preview.as_deref(),
+            Some("short context")
+        );
     }
 
     #[test]

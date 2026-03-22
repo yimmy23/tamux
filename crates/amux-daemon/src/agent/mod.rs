@@ -14,8 +14,12 @@ pub mod tool_executor;
 pub mod types;
 
 mod agent_loop;
+mod anticipatory;
+mod behavioral_events;
+mod causal_traces;
 #[allow(dead_code)]
 mod circuit_breaker;
+mod collaboration;
 mod compaction;
 mod config;
 mod dispatcher;
@@ -27,15 +31,25 @@ mod goal_llm;
 mod goal_parsing;
 mod goal_planner;
 mod heartbeat;
+mod honcho;
+mod memory;
+mod memory_flush;
 mod messaging;
 mod metadata;
+mod operational_context;
+mod operator_model;
 mod persistence;
+mod provenance;
 pub mod rate_limiter;
+mod semantic_env;
+mod session_recall;
+mod skill_evolution;
 mod system_prompt;
 mod task_crud;
 mod task_prompt;
 mod task_scheduler;
 mod thread_crud;
+mod tool_synthesis;
 mod work_context;
 
 pub mod concierge;
@@ -47,9 +61,14 @@ pub mod subagent;
 
 // Re-exports from extracted modules — keeps everything accessible across
 // sibling submodules via `use super::*;`.
+use anticipatory::*;
+use behavioral_events::*;
 use compaction::*;
 use goal_parsing::*;
+use honcho::*;
+use memory::*;
 use metadata::*;
+use operator_model::*;
 use system_prompt::*;
 use task_prompt::*;
 use task_scheduler::*;
@@ -71,9 +90,7 @@ use uuid::Uuid;
 use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
 
-use self::llm_client::{
-    send_completion_request, ApiContent, ApiMessage, RetryStrategy,
-};
+use self::llm_client::{send_completion_request, ApiContent, ApiMessage, RetryStrategy};
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 

@@ -3,6 +3,110 @@
 use super::*;
 
 impl AgentEngine {
+    pub async fn restore_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<crate::agent::liveness::state_layers::RestoreOutcome> {
+        let Some(state_json) = self.history.get_checkpoint(checkpoint_id)? else {
+            anyhow::bail!("checkpoint not found");
+        };
+        let checkpoint = crate::agent::liveness::checkpoint::checkpoint_load(&state_json)?;
+        let goal_run_id = checkpoint.goal_run_id.clone();
+        let restored_step_index = checkpoint.goal_run.current_step_index;
+        let tasks_restored = checkpoint.tasks_snapshot.len();
+
+        {
+            let mut goal_runs = self.goal_runs.lock().await;
+            if let Some(existing) = goal_runs
+                .iter_mut()
+                .find(|goal_run| goal_run.id == goal_run_id)
+            {
+                *existing = checkpoint.goal_run.clone();
+            } else {
+                goal_runs.push_back(checkpoint.goal_run.clone());
+            }
+        }
+
+        {
+            let mut tasks = self.tasks.lock().await;
+            let retained = tasks
+                .drain(..)
+                .filter(|task| task.goal_run_id.as_deref() != Some(goal_run_id.as_str()))
+                .collect::<VecDeque<_>>();
+            *tasks = retained;
+            tasks.extend(checkpoint.tasks_snapshot.clone());
+        }
+
+        if let Some(thread_id) = checkpoint.thread_id.clone() {
+            self.thread_todos
+                .write()
+                .await
+                .insert(thread_id.clone(), checkpoint.todos.clone());
+            if let Some(work_context) = checkpoint.work_context.clone() {
+                self.thread_work_contexts
+                    .write()
+                    .await
+                    .insert(thread_id.clone(), work_context);
+            }
+            let mut threads = self.threads.write().await;
+            if let Some(thread) = threads.get_mut(&thread_id) {
+                thread.updated_at = now_millis();
+                thread.messages.push(AgentMessage {
+                    role: MessageRole::System,
+                    content: format!(
+                        "Restored goal run {} from checkpoint {} at step {}.",
+                        goal_run_id, checkpoint.id, restored_step_index
+                    ),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    reasoning: None,
+                    timestamp: now_millis(),
+                });
+            }
+        }
+
+        self.persist_goal_runs().await;
+        self.persist_tasks().await;
+        self.persist_todos().await;
+        self.persist_work_context().await;
+        self.persist_threads().await;
+
+        let outcome = crate::agent::liveness::state_layers::RestoreOutcome {
+            checkpoint_id: checkpoint.id,
+            goal_run_id,
+            restored_step_index,
+            tasks_restored,
+            context_restored: checkpoint.thread_id.is_some(),
+        };
+
+        let indicators_json = serde_json::json!({
+            "restored_step_index": outcome.restored_step_index,
+            "tasks_restored": outcome.tasks_restored,
+            "context_restored": outcome.context_restored,
+        })
+        .to_string();
+        let _ = self.history.insert_health_log(
+            &format!("health_{}", Uuid::new_v4()),
+            "goal_run",
+            &outcome.goal_run_id,
+            "healthy",
+            Some(&indicators_json),
+            Some("restore_checkpoint"),
+            now_millis(),
+        );
+
+        Ok(outcome)
+    }
+
     pub async fn start_goal_run(
         &self,
         goal: String,
@@ -94,6 +198,22 @@ impl AgentEngine {
         self.goal_runs.lock().await.push_back(goal_run.clone());
         self.persist_goal_runs().await;
         self.emit_goal_run_update(&goal_run, Some("Goal queued".into()));
+        self.record_provenance_event(
+            "goal_created",
+            "goal run created",
+            serde_json::json!({
+                "goal_run_id": goal_run.id.clone(),
+                "title": goal_run.title.clone(),
+                "goal": goal_run.goal.clone(),
+                "priority": format!("{:?}", goal_run.priority).to_lowercase(),
+            }),
+            Some(goal_run.id.as_str()),
+            None,
+            goal_run.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
         self.project_goal_run(goal_run).await
     }
 
@@ -288,6 +408,10 @@ impl AgentEngine {
 
         if let Some(goal_run) = changed_goal {
             self.persist_goal_runs().await;
+            if goal_run.status == GoalRunStatus::Cancelled {
+                self.settle_goal_skill_consultations(&goal_run, "cancelled")
+                    .await;
+            }
             self.emit_goal_run_update(&goal_run, Some(goal_run_status_message(&goal_run).into()));
             return true;
         }
@@ -458,6 +582,25 @@ impl AgentEngine {
                     let _ = self.session_manager.write_input(session_id, &[3]).await;
                 }
                 self.emit_task_update(&updated, Some("Cancelled by user".into()));
+                self.settle_task_skill_consultations(&updated, "cancelled")
+                    .await;
+                self.record_collaboration_outcome(&updated, "cancelled")
+                    .await;
+                self.record_provenance_event(
+                    "step_cancelled",
+                    "task cancelled by operator",
+                    serde_json::json!({
+                        "task_id": updated.id,
+                        "title": updated.title,
+                        "source": updated.source,
+                    }),
+                    updated.goal_run_id.as_deref(),
+                    Some(updated.id.as_str()),
+                    updated.thread_id.as_deref(),
+                    None,
+                    None,
+                )
+                .await;
                 return true;
             }
         }
@@ -517,6 +660,32 @@ impl AgentEngine {
 
         self.persist_tasks().await;
         self.emit_task_update(&updated, Some(status_message(&updated).into()));
+        self.record_provenance_event(
+            match decision {
+                amux_protocol::ApprovalDecision::ApproveOnce
+                | amux_protocol::ApprovalDecision::ApproveSession => "approval_granted",
+                amux_protocol::ApprovalDecision::Deny => "approval_denied",
+            },
+            match decision {
+                amux_protocol::ApprovalDecision::ApproveOnce
+                | amux_protocol::ApprovalDecision::ApproveSession => {
+                    "operator approved managed command"
+                }
+                amux_protocol::ApprovalDecision::Deny => "operator denied managed command",
+            },
+            serde_json::json!({
+                "approval_id": approval_id,
+                "task_id": updated.id,
+                "title": updated.title,
+                "decision": format!("{decision:?}").to_lowercase(),
+            }),
+            updated.goal_run_id.as_deref(),
+            Some(updated.id.as_str()),
+            updated.thread_id.as_deref(),
+            Some(approval_id),
+            None,
+        )
+        .await;
         true
     }
 

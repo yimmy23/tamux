@@ -11,6 +11,12 @@ pub(super) struct PreparedLlmRequest {
     pub upstream_thread_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CompactionCandidate {
+    pub split_at: usize,
+    pub target_tokens: usize,
+}
+
 pub(super) fn message_is_compaction_summary(message: &AgentMessage) -> bool {
     message.content.starts_with("[Compacted earlier context]")
 }
@@ -121,26 +127,16 @@ pub(super) fn compact_messages_for_request(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> Vec<AgentMessage> {
-    if messages.is_empty() || !config.auto_compact_context {
+    let Some(candidate) = compaction_candidate(messages, config, provider_config) else {
         return messages.to_vec();
-    }
-
+    };
     let max_messages = config.max_context_messages.max(1) as usize;
-    let target_tokens = effective_context_target_tokens(config, provider_config);
-    if messages.len() <= max_messages && estimate_message_tokens(messages) <= target_tokens {
-        return messages.to_vec();
-    }
-
-    let keep_recent = config
-        .keep_recent_on_compact
-        .max(1)
-        .min(messages.len() as u32) as usize;
-    let split_at = messages.len().saturating_sub(keep_recent);
+    let split_at = candidate.split_at;
     let mut compacted = Vec::new();
     let mut has_summary = false;
 
     if split_at > 0 {
-        let summary = build_compaction_summary(&messages[..split_at], target_tokens);
+        let summary = build_compaction_summary(&messages[..split_at], candidate.target_tokens);
         if !summary.is_empty() {
             has_summary = true;
             compacted.push(AgentMessage {
@@ -164,8 +160,43 @@ pub(super) fn compact_messages_for_request(
     }
 
     compacted.extend(messages[split_at..].iter().cloned());
-    trim_compacted_messages(&mut compacted, max_messages, target_tokens, has_summary);
+    trim_compacted_messages(
+        &mut compacted,
+        max_messages,
+        candidate.target_tokens,
+        has_summary,
+    );
     compacted
+}
+
+pub(super) fn compaction_candidate(
+    messages: &[AgentMessage],
+    config: &AgentConfig,
+    provider_config: &ProviderConfig,
+) -> Option<CompactionCandidate> {
+    if messages.is_empty() || !config.auto_compact_context {
+        return None;
+    }
+
+    let max_messages = config.max_context_messages.max(1) as usize;
+    let target_tokens = effective_context_target_tokens(config, provider_config);
+    if messages.len() <= max_messages && estimate_message_tokens(messages) <= target_tokens {
+        return None;
+    }
+
+    let keep_recent = config
+        .keep_recent_on_compact
+        .max(1)
+        .min(messages.len() as u32) as usize;
+    let split_at = messages.len().saturating_sub(keep_recent);
+    if split_at == 0 {
+        return None;
+    }
+
+    Some(CompactionCandidate {
+        split_at,
+        target_tokens,
+    })
 }
 
 fn trim_compacted_messages(
@@ -242,7 +273,7 @@ pub(super) fn estimate_single_message_tokens(message: &AgentMessage) -> usize {
     chars.div_ceil(APPROX_CHARS_PER_TOKEN) + 12
 }
 
-fn build_compaction_summary(messages: &[AgentMessage], target_tokens: usize) -> String {
+pub(super) fn build_compaction_summary(messages: &[AgentMessage], target_tokens: usize) -> String {
     if messages.is_empty() {
         return String::new();
     }
@@ -267,6 +298,58 @@ fn build_compaction_summary(messages: &[AgentMessage], target_tokens: usize) -> 
     }
 
     summary
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_provider_config() -> ProviderConfig {
+        ProviderConfig {
+            base_url: "https://example.invalid".to_string(),
+            model: "test-model".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: "low".to_string(),
+            context_window_tokens: 128_000,
+            response_schema: None,
+        }
+    }
+
+    fn sample_message(content: &str) -> AgentMessage {
+        AgentMessage::user(content, 1)
+    }
+
+    #[test]
+    fn compaction_candidate_is_none_when_request_is_within_budget() {
+        let config = AgentConfig::default();
+        let provider = sample_provider_config();
+        let messages = vec![sample_message("short message")];
+
+        assert_eq!(compaction_candidate(&messages, &config, &provider), None);
+    }
+
+    #[test]
+    fn compaction_candidate_exposes_the_older_slice_boundary() {
+        let mut config = AgentConfig::default();
+        config.max_context_messages = 3;
+        config.keep_recent_on_compact = 2;
+        let provider = sample_provider_config();
+        let messages = vec![
+            sample_message("one"),
+            sample_message("two"),
+            sample_message("three"),
+            sample_message("four"),
+        ];
+
+        let candidate =
+            compaction_candidate(&messages, &config, &provider).expect("candidate should exist");
+
+        assert_eq!(candidate.split_at, 2);
+        assert!(candidate.target_tokens >= MIN_CONTEXT_TARGET_TOKENS);
+    }
 }
 
 fn summarize_compacted_message(message: &AgentMessage) -> String {

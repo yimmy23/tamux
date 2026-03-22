@@ -192,11 +192,7 @@ fn compute_relevance(entry: &ArchiveEntry, query: Option<&str>) -> f64 {
             }
 
             let content_lower = entry.compressed_content.to_lowercase();
-            let summary_lower = entry
-                .summary
-                .as_deref()
-                .unwrap_or_default()
-                .to_lowercase();
+            let summary_lower = entry.summary.as_deref().unwrap_or_default().to_lowercase();
             let tags = extract_tags(entry.metadata.as_ref());
             let tags_lower: Vec<String> = tags.iter().map(|t| t.to_lowercase()).collect();
 
@@ -268,8 +264,10 @@ mod tests {
         tags: &[&str],
     ) -> ArchiveEntry {
         let mut e = make_entry(id, content, tokens, archived_at);
-        let tag_values: Vec<serde_json::Value> =
-            tags.iter().map(|t| serde_json::Value::String((*t).into())).collect();
+        let tag_values: Vec<serde_json::Value> = tags
+            .iter()
+            .map(|t| serde_json::Value::String((*t).into()))
+            .collect();
         e.metadata = Some(json!({ "tags": tag_values }));
         e
     }
@@ -469,10 +467,7 @@ mod tests {
                 tokens: 200,
                 ..item.clone()
             },
-            RestoredItem {
-                tokens: 50,
-                ..item
-            },
+            RestoredItem { tokens: 50, ..item },
         ];
         let total: u32 = items.iter().map(|i| i.tokens).sum();
         assert_eq!(total, 350);

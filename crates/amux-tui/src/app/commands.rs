@@ -159,6 +159,9 @@ impl TuiModel {
     pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
         if let sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. } = &target {
             self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
+            self.send_daemon_command(DaemonCommand::RequestGoalRunCheckpoints(
+                goal_run_id.clone(),
+            ));
         }
         self.request_task_view_context(&target);
         self.main_pane_view = MainPaneView::Task(target);
@@ -266,11 +269,7 @@ impl TuiModel {
                 self.main_pane_view = MainPaneView::Conversation;
             }
             "settings" => {
-                self.modal
-                    .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
-                self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
-                self.send_daemon_command(DaemonCommand::ListSubAgents);
-                self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                self.open_settings_tab(SettingsTab::Provider);
             }
             "view" => {
                 let next = match self.chat.transcript_mode() {
@@ -439,7 +438,11 @@ impl TuiModel {
             return;
         };
         let mut text = String::new();
-        if let Some(reasoning) = message.reasoning.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(reasoning) = message
+            .reasoning
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
             text.push_str(reasoning);
             if !message.content.is_empty() {
                 text.push_str("\n\n");

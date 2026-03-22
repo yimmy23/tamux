@@ -194,8 +194,7 @@ impl AmuxConfig {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(std::io::Error::other)?;
+        let data = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(&path, data)
     }
 

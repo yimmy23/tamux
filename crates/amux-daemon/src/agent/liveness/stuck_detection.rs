@@ -469,7 +469,10 @@ mod tests {
         snap.total_errors = 2;
 
         let result = detector.analyze(&snap, 1010);
-        assert!(result.is_none(), "2 consecutive errors should not trigger detection");
+        assert!(
+            result.is_none(),
+            "2 consecutive errors should not trigger detection"
+        );
     }
 
     // ----- 6. ToolCallLoop with A-B-A-B pattern ---------------------------
@@ -478,12 +481,7 @@ mod tests {
     fn tool_loop_detected_with_abab_pattern() {
         let detector = StuckDetector::default();
         let mut snap = healthy_snapshot();
-        snap.recent_tool_names = vec![
-            "read".into(),
-            "write".into(),
-            "read".into(),
-            "write".into(),
-        ];
+        snap.recent_tool_names = vec!["read".into(), "write".into(), "read".into(), "write".into()];
 
         let analysis = detector.analyze(&snap, 1010).unwrap();
         assert_eq!(analysis.reason, StuckReason::ToolCallLoop);
@@ -498,12 +496,7 @@ mod tests {
     fn tool_loop_detected_with_aaaa_pattern() {
         let detector = StuckDetector::default();
         let mut snap = healthy_snapshot();
-        snap.recent_tool_names = vec![
-            "read".into(),
-            "read".into(),
-            "read".into(),
-            "read".into(),
-        ];
+        snap.recent_tool_names = vec!["read".into(), "read".into(), "read".into(), "read".into()];
 
         let analysis = detector.analyze(&snap, 1010).unwrap();
         assert_eq!(analysis.reason, StuckReason::ToolCallLoop);
@@ -532,7 +525,10 @@ mod tests {
         snap.context_utilization_pct = 89;
 
         let result = detector.analyze(&snap, 1010);
-        assert!(result.is_none(), "89% should not trigger resource exhaustion");
+        assert!(
+            result.is_none(),
+            "89% should not trigger resource exhaustion"
+        );
     }
 
     // ----- 10. Multiple issues: highest confidence wins -------------------
@@ -729,12 +725,7 @@ mod tests {
 
         // Tool loop evidence should mention the tools in the loop.
         let mut snap4 = healthy_snapshot();
-        snap4.recent_tool_names = vec![
-            "bash".into(),
-            "grep".into(),
-            "bash".into(),
-            "grep".into(),
-        ];
+        snap4.recent_tool_names = vec!["bash".into(), "grep".into(), "bash".into(), "grep".into()];
         snap4.consecutive_errors = 0;
         snap4.context_utilization_pct = 20;
         let analysis4 = detector.analyze(&snap4, 1010).unwrap();
@@ -753,8 +744,7 @@ mod tests {
         snap5.recent_tool_names = vec!["a".into(), "b".into(), "c".into()];
         let analysis5 = detector.analyze(&snap5, 500).unwrap();
         assert!(
-            analysis5.evidence.contains("no progress")
-                && analysis5.evidence.contains("threshold"),
+            analysis5.evidence.contains("no progress") && analysis5.evidence.contains("threshold"),
             "no progress evidence should mention idle time and threshold: {}",
             analysis5.evidence
         );
@@ -789,7 +779,10 @@ mod tests {
             context_utilization_pct: 20,
         };
         let result = detect_timeout(&snap, 999_999);
-        assert!(result.is_none(), "no max_duration_secs should mean no timeout");
+        assert!(
+            result.is_none(),
+            "no max_duration_secs should mean no timeout"
+        );
     }
 
     // ----- 18. Confidence values are in valid range -----------------------

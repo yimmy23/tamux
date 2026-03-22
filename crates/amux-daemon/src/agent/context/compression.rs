@@ -185,13 +185,7 @@ fn compress_summarize(items: &[ContextItem]) -> String {
     let mut seen_findings: HashSet<String> = HashSet::new();
     for item in items {
         if item.item_type == ContextType::ToolResult {
-            let first_line = item
-                .content
-                .lines()
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string();
+            let first_line = item.content.lines().next().unwrap_or("").trim().to_string();
             if !first_line.is_empty() && seen_findings.insert(first_line.clone()) {
                 findings.push(first_line);
             }
@@ -258,9 +252,7 @@ fn compress_semantic(items: &[ContextItem]) -> String {
         // recent (highest timestamp).
         let mut seen_content: BTreeMap<&str, &ContextItem> = BTreeMap::new();
         for item in group_items {
-            let entry = seen_content
-                .entry(item.content.as_str())
-                .or_insert(item);
+            let entry = seen_content.entry(item.content.as_str()).or_insert(item);
             if item.timestamp > entry.timestamp {
                 *entry = item;
             }
@@ -313,9 +305,27 @@ mod tests {
     #[test]
     fn summarize_produces_tool_call_summary() {
         let items = vec![
-            make_item("t1", ContextType::ToolResult, "File created", "tool:bash_command", 1),
-            make_item("t2", ContextType::ToolResult, "Listing dirs", "tool:bash_command", 2),
-            make_item("t3", ContextType::ToolResult, "Search result", "tool:grep", 3),
+            make_item(
+                "t1",
+                ContextType::ToolResult,
+                "File created",
+                "tool:bash_command",
+                1,
+            ),
+            make_item(
+                "t2",
+                ContextType::ToolResult,
+                "Listing dirs",
+                "tool:bash_command",
+                2,
+            ),
+            make_item(
+                "t3",
+                ContextType::ToolResult,
+                "Search result",
+                "tool:grep",
+                3,
+            ),
         ];
 
         let result = compress(&items, CompressionStrategy::Summarize, 1000);
@@ -333,8 +343,20 @@ mod tests {
     fn extract_key_points_filters_for_key_terms() {
         let items = vec![
             make_item("a", ContextType::Conversation, "Hello world", "user", 1),
-            make_item("b", ContextType::ToolResult, "error: file not found", "tool:read", 2),
-            make_item("c", ContextType::Conversation, "I decided to try again", "user", 3),
+            make_item(
+                "b",
+                ContextType::ToolResult,
+                "error: file not found",
+                "tool:read",
+                2,
+            ),
+            make_item(
+                "c",
+                ContextType::Conversation,
+                "I decided to try again",
+                "user",
+                3,
+            ),
             make_item("d", ContextType::Conversation, "How are you?", "user", 4),
         ];
 
@@ -356,16 +378,19 @@ mod tests {
         let items = vec![
             make_item("a", ContextType::ToolResult, "same content", "tool:bash", 1),
             make_item("b", ContextType::ToolResult, "same content", "tool:bash", 5),
-            make_item("c", ContextType::ToolResult, "different content", "tool:bash", 3),
+            make_item(
+                "c",
+                ContextType::ToolResult,
+                "different content",
+                "tool:bash",
+                3,
+            ),
         ];
 
         let result = compress(&items, CompressionStrategy::SemanticCompress, 1000);
 
         // "same content" should appear exactly once (the newer one kept)
-        assert_eq!(
-            result.compressed_content.matches("same content").count(),
-            1
-        );
+        assert_eq!(result.compressed_content.matches("same content").count(), 1);
         assert!(result.compressed_content.contains("different content"));
     }
 
@@ -375,8 +400,20 @@ mod tests {
     #[test]
     fn compression_result_tracks_token_counts() {
         let items = vec![
-            make_item("a", ContextType::Conversation, "Hello world, this is a long message to test token counting", "user", 1),
-            make_item("b", ContextType::Conversation, "Another message here", "assistant", 2),
+            make_item(
+                "a",
+                ContextType::Conversation,
+                "Hello world, this is a long message to test token counting",
+                "user",
+                1,
+            ),
+            make_item(
+                "b",
+                ContextType::Conversation,
+                "Another message here",
+                "assistant",
+                2,
+            ),
         ];
 
         let original_total: u32 = items.iter().map(|i| i.estimated_tokens).sum();
@@ -434,7 +471,13 @@ mod tests {
             make_item("b", ContextType::ToolResult, &long_content, "tool:bash", 2),
             make_item("c", ContextType::ToolResult, &long_content, "tool:grep", 3),
             make_item("d", ContextType::Conversation, &long_content, "user", 4),
-            make_item("e", ContextType::Conversation, &long_content, "assistant", 5),
+            make_item(
+                "e",
+                ContextType::Conversation,
+                &long_content,
+                "assistant",
+                5,
+            ),
         ];
 
         let original_total: u32 = items.iter().map(|i| i.estimated_tokens).sum();
@@ -463,7 +506,13 @@ mod tests {
     fn max_output_tokens_respected() {
         let items = vec![
             make_item("a", ContextType::Conversation, &"x".repeat(400), "user", 1),
-            make_item("b", ContextType::Conversation, &"y".repeat(400), "assistant", 2),
+            make_item(
+                "b",
+                ContextType::Conversation,
+                &"y".repeat(400),
+                "assistant",
+                2,
+            ),
         ];
 
         // Very tight budget
@@ -482,10 +531,28 @@ mod tests {
     #[test]
     fn different_item_types_are_handled() {
         let items = vec![
-            make_item("a", ContextType::SystemPrompt, "You are a helpful assistant", "system", 1),
-            make_item("b", ContextType::AgentThought, "I should search for the file", "agent", 2),
+            make_item(
+                "a",
+                ContextType::SystemPrompt,
+                "You are a helpful assistant",
+                "system",
+                1,
+            ),
+            make_item(
+                "b",
+                ContextType::AgentThought,
+                "I should search for the file",
+                "agent",
+                2,
+            ),
             make_item("c", ContextType::Artifact, "fn main() {}", "artifact", 3),
-            make_item("d", ContextType::FileContent, "line 1\nline 2", "file:/tmp/x.rs", 4),
+            make_item(
+                "d",
+                ContextType::FileContent,
+                "line 1\nline 2",
+                "file:/tmp/x.rs",
+                4,
+            ),
             make_item("e", ContextType::Conversation, "Hello", "user", 5),
             make_item("f", ContextType::ToolResult, "OK", "tool:bash", 6),
         ];
@@ -538,10 +605,7 @@ mod tests {
         );
 
         // target_tokens == 0 -> Summarize (avoid divide by zero)
-        assert_eq!(
-            select_strategy(5000, 0, 10),
-            CompressionStrategy::Summarize,
-        );
+        assert_eq!(select_strategy(5000, 0, 10), CompressionStrategy::Summarize,);
 
         // 1:1 ratio -> SemanticCompress
         assert_eq!(
@@ -556,7 +620,13 @@ mod tests {
     #[test]
     fn extract_key_points_includes_agent_thoughts() {
         let items = vec![
-            make_item("a", ContextType::AgentThought, "Planning next steps", "agent", 1),
+            make_item(
+                "a",
+                ContextType::AgentThought,
+                "Planning next steps",
+                "agent",
+                1,
+            ),
             make_item("b", ContextType::Conversation, "Ordinary chat", "user", 2),
         ];
 

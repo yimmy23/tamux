@@ -1,8 +1,18 @@
 //! System prompt construction and external agent prompt building.
 
+use super::memory_curation_guidance;
 use super::types::*;
 
-pub(super) fn build_system_prompt(base: &str, memory: &AgentMemory, data_dir: &std::path::Path, sub_agents: &[SubAgentDefinition]) -> String {
+pub(super) fn build_system_prompt(
+    config: &AgentConfig,
+    base: &str,
+    memory: &AgentMemory,
+    data_dir: &std::path::Path,
+    sub_agents: &[SubAgentDefinition],
+    operator_model_summary: Option<&str>,
+    operational_context: Option<&str>,
+    causal_guidance: Option<&str>,
+) -> String {
     let mut prompt = String::new();
     let memory_path = data_dir.join("MEMORY.md");
     let soul_path = data_dir.join("SOUL.md");
@@ -55,13 +65,51 @@ pub(super) fn build_system_prompt(base: &str, memory: &AgentMemory, data_dir: &s
             skills_root.display(),
         ),
     );
+    if let Some(skill_index) = render_skill_index(&skills_root) {
+        prompt
+            .push_str("\nSkill index (load full content with `read_skill` only when relevant):\n");
+        prompt.push_str(&skill_index);
+        prompt.push('\n');
+    }
 
     prompt.push_str(
         "\n\n## Recall and Memory Maintenance\n\
-         - Use `onecontext_search` when the user asks about prior decisions, existing implementations, or historical debugging context.\n\
+         - Use `session_search` or `onecontext_search` when the user asks about prior decisions, existing implementations, or historical debugging context.\n\
+         - Use `semantic_query` when you need local package/crate summaries, compose service topology, code import relationships, or learned workspace conventions before editing.\n\
          - For any non-trivial or multi-step task, call `update_todo` early to enter plan mode, then keep that todo list current as work progresses.\n\
-         - When you learn durable operator preferences or stable project facts, call `update_memory` with a concise update so future sessions start with that context.\n",
+         - When you learn durable operator preferences or stable project facts, call `update_memory` with a concise update so future sessions start with that context.\n\
+         - Memory files have hard limits: SOUL.md 1500 chars, MEMORY.md 2200 chars, USER.md 1375 chars.\n",
     );
+    if config.enable_honcho_memory && !config.honcho_api_key.trim().is_empty() {
+        prompt.push_str(
+            "         - Use `agent_query_memory` when local session recall is insufficient and you need broader cross-session Honcho memory.\n",
+        );
+    }
+    if config.tool_synthesis.enabled {
+        prompt.push_str(
+            "         - If the work depends on a missing but conservative CLI/API capability, use `synthesize_tool` to register a guarded generated tool, activate it with `activate_generated_tool`, and promote it later if it proves useful.\n",
+        );
+    }
+    prompt.push_str("\nMemory curation guidance:\n");
+    prompt.push_str(memory_curation_guidance());
+
+    if let Some(operator_model_summary) =
+        operator_model_summary.filter(|value| !value.trim().is_empty())
+    {
+        prompt.push_str("\n\n");
+        prompt.push_str(operator_model_summary);
+    }
+
+    if let Some(operational_context) = operational_context.filter(|value| !value.trim().is_empty())
+    {
+        prompt.push_str("\n\n");
+        prompt.push_str(operational_context);
+    }
+
+    if let Some(causal_guidance) = causal_guidance.filter(|value| !value.trim().is_empty()) {
+        prompt.push_str("\n\n");
+        prompt.push_str(causal_guidance);
+    }
 
     prompt.push_str(
         "\n\n## Terminal Session Discipline\n\
@@ -76,8 +124,15 @@ pub(super) fn build_system_prompt(base: &str, memory: &AgentMemory, data_dir: &s
         "\n\n## Subagent Supervision\n\
          - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
          - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
-         - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
-         - tamux caps active subagents per parent, so queue additional children only when they materially advance the task.\n",
+         - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n",
+    );
+    if config.collaboration.enabled {
+        prompt.push_str(
+            "         - When subagents need to coordinate, use `broadcast_contribution`, `read_peer_memory`, and `vote_on_disagreement` so disagreements are explicit instead of implicit.\n",
+        );
+    }
+    prompt.push_str(
+        "         - tamux caps active subagents per parent, so queue additional children only when they materially advance the task.\n",
     );
 
     super::task_prompt::append_sub_agent_registry(&mut prompt, sub_agents);
@@ -90,6 +145,9 @@ pub(super) fn build_external_agent_prompt(
     memory: &AgentMemory,
     user_message: &str,
     memory_dir: &std::path::Path,
+    operator_model_summary: Option<&str>,
+    operational_context: Option<&str>,
+    causal_guidance: Option<&str>,
 ) -> String {
     let mut context_parts = Vec::new();
     let memory_root = memory_dir;
@@ -159,6 +217,14 @@ pub(super) fn build_external_agent_prompt(
     if !memory.user_profile.is_empty() {
         context_parts.push(format!("Operator profile:\n{}\n", memory.user_profile));
     }
+    if let Some(operator_model_summary) =
+        operator_model_summary.filter(|value| !value.trim().is_empty())
+    {
+        context_parts.push(format!(
+            "Learned operator model:\n{}\n",
+            operator_model_summary
+        ));
+    }
 
     context_parts.push(format!(
         "tamux persistent memory files on this machine:\n- MEMORY.md: {}\n- SOUL.md: {}\n- USER.md: {}\n",
@@ -172,6 +238,13 @@ pub(super) fn build_external_agent_prompt(
         skills_root.display(),
         generated_skills_root.display(),
     ));
+    if let Some(operational_context) = operational_context.filter(|value| !value.trim().is_empty())
+    {
+        context_parts.push(format!("Operational context:\n{}\n", operational_context));
+    }
+    if let Some(causal_guidance) = causal_guidance.filter(|value| !value.trim().is_empty()) {
+        context_parts.push(format!("Recent causal guidance:\n{}\n", causal_guidance));
+    }
 
     if context_parts.is_empty() {
         return user_message.to_string();
@@ -182,4 +255,52 @@ pub(super) fn build_external_agent_prompt(
         context_parts.join(""),
         user_message
     )
+}
+
+fn render_skill_index(skills_root: &std::path::Path) -> Option<String> {
+    let mut skills = Vec::new();
+    collect_skill_stems(skills_root, skills_root, &mut skills);
+    skills.sort();
+    skills.dedup();
+    skills.truncate(6);
+    if skills.is_empty() {
+        return None;
+    }
+
+    Some(
+        skills
+            .into_iter()
+            .map(|skill| format!("- {skill}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+fn collect_skill_stems(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_skill_stems(root, &path, out);
+            continue;
+        }
+        if path.extension().and_then(|value| value.to_str()) != Some("md") {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        if relative.starts_with("builtin/") {
+            continue;
+        }
+        out.push(
+            path.file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("skill")
+                .to_string(),
+        );
+    }
 }

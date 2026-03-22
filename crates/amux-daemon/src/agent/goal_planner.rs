@@ -28,6 +28,8 @@ impl AgentEngine {
         self.emit_goal_run_update(&queued, Some("Planning goal".into()));
 
         let plan = self.request_goal_plan(&goal_run).await?;
+        self.persist_goal_plan_causal_trace(&goal_run, &plan, None)
+            .await;
         let now = now_millis();
         let updated = {
             let mut goal_runs = self.goal_runs.lock().await;
@@ -81,6 +83,21 @@ impl AgentEngine {
         };
         self.persist_goal_runs().await;
         self.emit_goal_run_update(&updated, Some("Goal plan ready".into()));
+        self.record_provenance_event(
+            "plan_generated",
+            "goal plan generated",
+            serde_json::json!({
+                "goal_run_id": updated.id,
+                "step_count": updated.steps.len(),
+                "summary": updated.plan_summary,
+            }),
+            Some(updated.id.as_str()),
+            None,
+            updated.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
         Ok(())
     }
 
@@ -97,10 +114,7 @@ impl AgentEngine {
         {
             let goal_run = {
                 let goal_runs = self.goal_runs.lock().await;
-                goal_runs
-                    .iter()
-                    .find(|gr| gr.id == goal_run_id)
-                    .cloned()
+                goal_runs.iter().find(|gr| gr.id == goal_run_id).cloned()
             };
             if let Some(goal_run) = goal_run {
                 self.auto_checkpoint(
@@ -170,6 +184,22 @@ impl AgentEngine {
         self.persist_tasks().await;
         self.persist_goal_runs().await;
         self.emit_goal_run_update(&updated, Some(format!("Queued step: {}", step.title)));
+        self.record_provenance_event(
+            "step_started",
+            "goal step queued for execution",
+            serde_json::json!({
+                "goal_run_id": updated.id,
+                "step_index": updated.current_step_index,
+                "step_title": step.title,
+                "task_id": task.id,
+            }),
+            Some(updated.id.as_str()),
+            Some(task.id.as_str()),
+            updated.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
         Ok(())
     }
 
@@ -263,6 +293,22 @@ impl AgentEngine {
 
         self.persist_goal_runs().await;
         self.emit_goal_run_update(&updated, Some("Goal step completed".into()));
+        self.record_provenance_event(
+            "step_completed",
+            "goal step completed",
+            serde_json::json!({
+                "goal_run_id": updated.id,
+                "completed_step_index": updated.current_step_index.saturating_sub(1),
+                "task_id": task.id,
+                "summary": thread_summary,
+            }),
+            Some(updated.id.as_str()),
+            Some(task.id.as_str()),
+            updated.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
 
         // Auto-checkpoint after step completion (PostStep)
         self.auto_checkpoint(
@@ -299,6 +345,10 @@ impl AgentEngine {
             && snapshot.current_step_index < snapshot.steps.len()
         {
             let revised = self.request_goal_replan(&snapshot, &failure).await?;
+            self.persist_goal_plan_causal_trace(&snapshot, &revised, Some(&failure))
+                .await;
+            self.persist_recovery_near_miss_trace(&snapshot, task, &failure, &revised)
+                .await;
             let updated = {
                 let mut goal_runs = self.goal_runs.lock().await;
                 let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id)
@@ -354,9 +404,56 @@ impl AgentEngine {
             };
             self.persist_goal_runs().await;
             self.emit_goal_run_update(&updated, Some("Goal replanned after failure".into()));
+            self.record_provenance_event(
+                "replan_triggered",
+                "goal replan triggered after failed step",
+                serde_json::json!({
+                    "goal_run_id": updated.id,
+                    "task_id": task.id,
+                    "failure": failure,
+                    "replan_count": updated.replan_count,
+                }),
+                Some(updated.id.as_str()),
+                Some(task.id.as_str()),
+                updated.thread_id.as_deref(),
+                None,
+                None,
+            )
+            .await;
+            self.record_provenance_event(
+                "recovery_triggered",
+                "goal recovery path recorded",
+                serde_json::json!({
+                    "goal_run_id": updated.id,
+                    "task_id": task.id,
+                    "failure": failure,
+                    "mode": "replan_after_failure",
+                }),
+                Some(updated.id.as_str()),
+                Some(task.id.as_str()),
+                updated.thread_id.as_deref(),
+                None,
+                None,
+            )
+            .await;
             return Ok(());
         }
 
+        self.record_provenance_event(
+            "step_failed",
+            "goal step failed",
+            serde_json::json!({
+                "goal_run_id": snapshot.id,
+                "task_id": task.id,
+                "failure": failure,
+            }),
+            Some(snapshot.id.as_str()),
+            Some(task.id.as_str()),
+            snapshot.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
         self.fail_goal_run(goal_run_id, &failure, "execution").await;
         Ok(())
     }
@@ -370,8 +467,14 @@ impl AgentEngine {
             anyhow::bail!("goal run still has active child work");
         }
         let reflection = self.request_goal_reflection(&snapshot).await?;
+        let mut applied_memory_update = None;
         if let Some(update) = reflection.stable_memory_update.clone() {
-            self.append_goal_memory_update(&update).await?;
+            match self.append_goal_memory_update(goal_run_id, &update).await {
+                Ok(()) => applied_memory_update = Some(update),
+                Err(error) => {
+                    tracing::warn!(goal_run_id, error = %error, "failed to persist reflected memory update");
+                }
+            }
         }
         let generated_skill_path = if reflection.generate_skill {
             let skill_title = reflection
@@ -400,7 +503,7 @@ impl AgentEngine {
             goal_run.current_step_kind = None;
             goal_run.awaiting_approval_id = None;
             goal_run.active_task_id = None;
-            if let Some(update) = reflection.stable_memory_update {
+            if let Some(update) = applied_memory_update {
                 goal_run.memory_updates.push(update);
             }
             if let Some(path) = generated_skill_path {
@@ -416,7 +519,25 @@ impl AgentEngine {
 
         self.persist_goal_runs().await;
         self.record_generated_skill_work_context(&updated).await;
+        self.settle_goal_skill_consultations(&updated, "success")
+            .await;
         self.emit_goal_run_update(&updated, Some("Goal completed".into()));
+        self.record_provenance_event(
+            "goal_completed",
+            "goal run completed",
+            serde_json::json!({
+                "goal_run_id": updated.id,
+                "reflection_summary": updated.reflection_summary,
+                "generated_skill_path": updated.generated_skill_path,
+                "memory_updates": updated.memory_updates,
+            }),
+            Some(updated.id.as_str()),
+            None,
+            updated.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
         Ok(())
     }
 
@@ -442,7 +563,24 @@ impl AgentEngine {
         }
         if let Some(updated) = maybe_updated {
             self.persist_goal_runs().await;
+            self.settle_goal_skill_consultations(&updated, "failure")
+                .await;
             self.emit_goal_run_update(&updated, Some(format!("Goal failed: {error}")));
+            self.record_provenance_event(
+                "goal_failed",
+                "goal run failed",
+                serde_json::json!({
+                    "goal_run_id": updated.id,
+                    "phase": phase,
+                    "error": error,
+                }),
+                Some(updated.id.as_str()),
+                None,
+                updated.thread_id.as_deref(),
+                None,
+                None,
+            )
+            .await;
         }
     }
 
@@ -509,7 +647,9 @@ impl AgentEngine {
             &todos,
             now,
         );
-        if let Err(e) = crate::agent::liveness::checkpoint::checkpoint_store(&self.history, &checkpoint) {
+        if let Err(e) =
+            crate::agent::liveness::checkpoint::checkpoint_store(&self.history, &checkpoint)
+        {
             tracing::warn!(goal_run_id, "failed to store checkpoint: {e}");
         }
         let _ = self.event_tx.send(AgentEvent::CheckpointCreated {

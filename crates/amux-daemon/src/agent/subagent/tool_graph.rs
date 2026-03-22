@@ -524,26 +524,11 @@ mod tests {
         let mut graph = ToolGraph::default();
 
         // Entry with 2 uses, 100% success => score = 2.0
-        graph.cache_composition(
-            vec!["read".into(), "write".into()],
-            "edit_file",
-            true,
-            1,
-        );
-        graph.cache_composition(
-            vec!["read".into(), "write".into()],
-            "edit_file",
-            true,
-            2,
-        );
+        graph.cache_composition(vec!["read".into(), "write".into()], "edit_file", true, 1);
+        graph.cache_composition(vec!["read".into(), "write".into()], "edit_file", true, 2);
 
         // Entry with 1 use, 100% success => score = 1.0
-        graph.cache_composition(
-            vec!["search".into(), "read".into()],
-            "edit_file",
-            true,
-            3,
-        );
+        graph.cache_composition(vec!["search".into(), "read".into()], "edit_file", true, 3);
 
         let best = graph.suggest_composition("edit_file").unwrap();
         assert_eq!(best.sequence, vec!["read", "write"]);

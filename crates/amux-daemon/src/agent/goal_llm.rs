@@ -119,7 +119,10 @@ impl AgentEngine {
         Ok(plan)
     }
 
-    pub(super) async fn request_goal_reflection(&self, goal_run: &GoalRun) -> Result<GoalReflectionResponse> {
+    pub(super) async fn request_goal_reflection(
+        &self,
+        goal_run: &GoalRun,
+    ) -> Result<GoalReflectionResponse> {
         let step_summaries = goal_run
             .steps
             .iter()
@@ -156,7 +159,10 @@ impl AgentEngine {
 
     /// Run a structured goal LLM call with cascade:
     /// 1. JSON -> 2. retry JSON -> 3. YAML -> 4. retry YAML -> 5. markdown parse
-    pub(super) async fn run_goal_structured<T: serde::de::DeserializeOwned>(&self, prompt: &str) -> Result<T> {
+    pub(super) async fn run_goal_structured<T: serde::de::DeserializeOwned>(
+        &self,
+        prompt: &str,
+    ) -> Result<T> {
         // 1. Try JSON
         let raw1 = self.run_goal_llm_json(prompt).await?;
         if let Ok(parsed) = parse_json_block::<T>(&raw1) {
@@ -389,30 +395,12 @@ impl AgentEngine {
         anyhow::bail!("goal planning returned empty output")
     }
 
-    pub(super) async fn append_goal_memory_update(&self, update: &str) -> Result<()> {
-        let trimmed = update.trim();
-        if trimmed.is_empty() {
-            return Ok(());
-        }
-        let memory_dir = active_memory_dir(&self.data_dir);
-        let memory_path = memory_dir.join("MEMORY.md");
-        tokio::fs::create_dir_all(&memory_dir).await?;
-        let existing = tokio::fs::read_to_string(&memory_path)
-            .await
-            .unwrap_or_default();
-        if existing.contains(trimmed) {
-            return Ok(());
-        }
-
-        let mut next = existing.trim_end().to_string();
-        if !next.is_empty() {
-            next.push_str("\n\n");
-        }
-        next.push_str("## Learned During Goal Runs\n");
-        next.push_str("- ");
-        next.push_str(trimmed);
-        next.push('\n');
-        tokio::fs::write(&memory_path, next).await?;
+    pub(super) async fn append_goal_memory_update(
+        &self,
+        goal_run_id: &str,
+        update: &str,
+    ) -> Result<()> {
+        append_goal_memory_note(&self.data_dir, &self.history, update, Some(goal_run_id)).await?;
         self.refresh_memory_cache().await;
         Ok(())
     }

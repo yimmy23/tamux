@@ -170,7 +170,10 @@ fn action_hit_target(
     content_col: usize,
 ) -> Option<ChatHitTarget> {
     let mut col = 0usize;
-    for (idx, (label, target)) in message_action_targets(msg_index, msg).into_iter().enumerate() {
+    for (idx, (label, target)) in message_action_targets(msg_index, msg)
+        .into_iter()
+        .enumerate()
+    {
         let width = UnicodeWidthStr::width(label);
         if content_col >= col && content_col < col.saturating_add(width) {
             return Some(target);

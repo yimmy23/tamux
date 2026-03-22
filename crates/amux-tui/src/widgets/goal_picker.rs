@@ -95,7 +95,8 @@ pub fn render(
                     Span::styled("+ New goal run", theme.accent_primary),
                 ]);
                 return if is_selected {
-                    ListItem::new(line).style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
+                    ListItem::new(line)
+                        .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                 } else {
                     ListItem::new(line)
                 };

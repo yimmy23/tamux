@@ -2,7 +2,6 @@
 
 use super::*;
 
-
 impl AgentEngine {
     pub(super) async fn send_message_inner(
         &self,
@@ -42,11 +41,18 @@ impl AgentEngine {
         {
             let mut threads = self.threads.write().await;
             if let Some(thread) = threads.get_mut(&tid) {
-                thread.messages.push(AgentMessage::user(content, now_millis()));
+                thread
+                    .messages
+                    .push(AgentMessage::user(content, now_millis()));
                 thread.updated_at = now_millis();
             }
         }
         self.persist_thread_by_id(&tid).await;
+        self.record_operator_message(&tid, content, is_new_thread)
+            .await?;
+        if let Err(error) = self.maybe_sync_thread_to_honcho(&tid).await {
+            tracing::warn!(thread_id = %tid, error = %error, "failed to sync thread to Honcho");
+        }
 
         // Resolve provider config after the user message is attached so
         // startup/config failures still persist a complete thread history.
@@ -55,40 +61,47 @@ impl AgentEngine {
             let tasks = self.tasks.lock().await;
             task_id.and_then(|tid| {
                 tasks.iter().find(|t| t.id == tid).and_then(|t| {
-                    t.override_provider.as_ref().map(|p| (p.clone(), t.override_model.clone(), t.override_system_prompt.clone()))
+                    t.override_provider.as_ref().map(|p| {
+                        (
+                            p.clone(),
+                            t.override_model.clone(),
+                            t.override_system_prompt.clone(),
+                        )
+                    })
                 })
             })
         };
-        let provider_config = match if let Some((ref sub_provider, ref sub_model, _)) = task_provider_override {
-            let mut pc = self.resolve_sub_agent_provider_config(&config, sub_provider)?;
-            if let Some(model) = sub_model {
-                pc.model = model.clone();
-            }
-            Ok(pc)
-        } else {
-            self.resolve_provider_config(&config)
-        } {
-            Ok(provider_config) => provider_config,
-            Err(error) => {
-                let error_text = error.to_string();
-                self.add_assistant_message(
-                    &tid,
-                    &format!("Error: {error_text}"),
-                    0,
-                    0,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                .await;
-                self.persist_threads().await;
-                self.emit_turn_error_completion(&tid, &error_text, None, None)
+        let provider_config =
+            match if let Some((ref sub_provider, ref sub_model, _)) = task_provider_override {
+                let mut pc = self.resolve_sub_agent_provider_config(&config, sub_provider)?;
+                if let Some(model) = sub_model {
+                    pc.model = model.clone();
+                }
+                Ok(pc)
+            } else {
+                self.resolve_provider_config(&config)
+            } {
+                Ok(provider_config) => provider_config,
+                Err(error) => {
+                    let error_text = error.to_string();
+                    self.add_assistant_message(
+                        &tid,
+                        &format!("Error: {error_text}"),
+                        0,
+                        0,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
                     .await;
-                return Err(error);
-            }
-        };
+                    self.persist_threads().await;
+                    self.emit_turn_error_completion(&tid, &error_text, None, None)
+                        .await;
+                    return Err(error);
+                }
+            };
 
         let (stream_generation, stream_cancel_token) = self.begin_stream_cancellation(&tid).await;
 
@@ -107,13 +120,35 @@ impl AgentEngine {
         } else {
             config.system_prompt.clone()
         };
-        let mut system_prompt = build_system_prompt(&base_prompt, &memory, &memory_dir, &config.sub_agents);
+        let operator_model_summary = self.build_operator_model_prompt_summary().await;
+        let operational_context = self.build_operational_context_summary().await;
+        let causal_guidance = self.build_causal_guidance_summary();
+        let mut system_prompt = build_system_prompt(
+            &config,
+            &base_prompt,
+            &memory,
+            &memory_dir,
+            &config.sub_agents,
+            operator_model_summary.as_deref(),
+            operational_context.as_deref(),
+            causal_guidance.as_deref(),
+        );
         drop(memory);
-        if let Some(recall) = onecontext_bootstrap {
+        if let Some(recall) = onecontext_bootstrap.as_deref() {
             system_prompt.push_str("\n\n## OneContext Recall\n");
             system_prompt
                 .push_str("Use this as historical context from prior sessions when relevant:\n");
-            system_prompt.push_str(&recall);
+            system_prompt.push_str(recall);
+        }
+        match self.maybe_build_honcho_context(&tid, content).await {
+            Ok(Some(honcho_context)) => {
+                system_prompt.push_str("\n\n## Cross-Session Memory\n");
+                system_prompt.push_str(&honcho_context);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(thread_id = %tid, error = %error, "failed to build Honcho context");
+            }
         }
         self.emit_workflow_notice(
             &tid,
@@ -127,15 +162,24 @@ impl AgentEngine {
         );
 
         // Get tools, applying per-task tool filters if configured
-        let mut tools = get_available_tools(&config);
-        let (is_durable_goal_task, task_tool_filter, mut task_context_budget, task_termination_eval, task_type_for_trace) = {
+        let mut tools = get_available_tools(&config, &self.data_dir);
+        let (
+            current_task_snapshot,
+            is_durable_goal_task,
+            task_tool_filter,
+            mut task_context_budget,
+            task_termination_eval,
+            task_type_for_trace,
+        ) = {
             let tasks = self.tasks.lock().await;
             let current_task = task_id
-                .and_then(|current_task_id| tasks.iter().find(|task| task.id == current_task_id));
+                .and_then(|current_task_id| tasks.iter().find(|task| task.id == current_task_id))
+                .cloned();
             let is_goal = current_task
+                .as_ref()
                 .and_then(|task| task.goal_run_id.as_ref())
                 .is_some();
-            let filter = current_task.and_then(|task| {
+            let filter = current_task.as_ref().and_then(|task| {
                 if task.tool_whitelist.is_some() || task.tool_blacklist.is_some() {
                     crate::agent::subagent::tool_filter::ToolFilter::new(
                         task.tool_whitelist.clone(),
@@ -146,7 +190,7 @@ impl AgentEngine {
                     None
                 }
             });
-            let budget = current_task.and_then(|task| {
+            let budget = current_task.as_ref().and_then(|task| {
                 task.context_budget_tokens.map(|max_tokens| {
                     crate::agent::subagent::context_budget::ContextBudget::new(
                         max_tokens,
@@ -156,15 +200,29 @@ impl AgentEngine {
                 })
             });
             let termination = current_task
+                .as_ref()
                 .and_then(|task| task.termination_conditions.as_deref())
                 .and_then(|dsl| {
                     crate::agent::subagent::termination::TerminationEvaluator::parse(dsl).ok()
                 });
-            let task_type = current_task.map(|task| classify_task(task).to_string()).unwrap_or_default();
-            (is_goal, filter, budget, termination, task_type)
+            let task_type = current_task
+                .as_ref()
+                .map(|task| classify_task(task).to_string())
+                .unwrap_or_default();
+            (
+                current_task,
+                is_goal,
+                filter,
+                budget,
+                termination,
+                task_type,
+            )
         };
         if let Some(filter) = &task_tool_filter {
             tools = filter.filtered_tools(tools);
+        }
+        if let Some(task) = current_task_snapshot.as_ref() {
+            self.ensure_subagent_runtime(task, Some(&tid)).await;
         }
         let preferred_session_id =
             resolve_preferred_session_id(&self.session_manager, preferred_session_hint).await;
@@ -189,13 +247,14 @@ impl AgentEngine {
         let mut was_cancelled = false;
         let mut interrupted_for_approval = false;
         let mut previous_tool_signature: Option<String> = None;
+        let mut previous_tool_outcome: Option<(String, bool)> = None;
         let mut consecutive_same_tool_calls = 0u32;
+        let mut last_pre_compaction_flush_signature: Option<u64> = None;
+        let mut recorded_compaction_provenance = false;
 
         // Trace collection for learning
-        let mut trace_collector = crate::agent::learning::traces::TraceCollector::new(
-            &task_type_for_trace,
-            now_millis(),
-        );
+        let mut trace_collector =
+            crate::agent::learning::traces::TraceCollector::new(&task_type_for_trace, now_millis());
         // Termination metrics tracked per-loop
         let mut termination_tool_calls: u32 = 0;
         let mut termination_tool_successes: u32 = 0;
@@ -210,6 +269,41 @@ impl AgentEngine {
             }
             loop_count += 1;
 
+            if self
+                .maybe_run_pre_compaction_memory_flush(
+                    &tid,
+                    task_id,
+                    &config,
+                    &provider_config,
+                    &system_prompt,
+                    preferred_session_id,
+                    retry_strategy,
+                    &mut last_pre_compaction_flush_signature,
+                )
+                .await?
+            {
+                let memory = self.memory.read().await;
+                let causal_guidance = self.build_causal_guidance_summary();
+                system_prompt = build_system_prompt(
+                    &config,
+                    &base_prompt,
+                    &memory,
+                    &memory_dir,
+                    &config.sub_agents,
+                    operator_model_summary.as_deref(),
+                    operational_context.as_deref(),
+                    causal_guidance.as_deref(),
+                );
+                drop(memory);
+                if let Some(recall) = onecontext_bootstrap.as_deref() {
+                    system_prompt.push_str("\n\n## OneContext Recall\n");
+                    system_prompt.push_str(
+                        "Use this as historical context from prior sessions when relevant:\n",
+                    );
+                    system_prompt.push_str(recall);
+                }
+            }
+
             // Build request payload from thread history.
             let prepared_request = {
                 let threads = self.threads.read().await;
@@ -222,6 +316,29 @@ impl AgentEngine {
                     }
                 };
                 let prepared = prepare_llm_request(thread, &config, &provider_config);
+                if !recorded_compaction_provenance {
+                    if let Some(candidate) =
+                        compaction_candidate(&thread.messages, &config, &provider_config)
+                    {
+                        self.record_provenance_event(
+                            "context_compressed",
+                            "thread context was compacted for an LLM request",
+                            serde_json::json!({
+                                "thread_id": tid.as_str(),
+                                "split_at": candidate.split_at,
+                                "target_tokens": candidate.target_tokens,
+                                "message_count": thread.messages.len(),
+                            }),
+                            None,
+                            task_id,
+                            Some(tid.as_str()),
+                            None,
+                            None,
+                        )
+                        .await;
+                        recorded_compaction_provenance = true;
+                    }
+                }
                 tracing::info!(
                     thread_id = %tid,
                     thread_messages = thread.messages.len(),
@@ -463,6 +580,13 @@ impl AgentEngine {
                     } else {
                         Some(accumulated_reasoning.clone())
                     });
+                    let decision_reasoning = msg_reasoning
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(ToOwned::to_owned)
+                        .or_else(|| {
+                            (!msg_content.trim().is_empty()).then_some(msg_content.clone())
+                        });
 
                     {
                         let mut threads = self.threads.write().await;
@@ -618,11 +742,17 @@ impl AgentEngine {
                         if task_id.is_some() {
                             trace_collector.record_step(
                                 &tc.function.name,
-                                &crate::agent::learning::traces::hash_arguments(&tc.function.arguments),
+                                &crate::agent::learning::traces::hash_arguments(
+                                    &tc.function.arguments,
+                                ),
                                 !result.is_error,
                                 0, // duration not tracked at this level
                                 0, // tokens tracked at message level
-                                if result.is_error { Some(result.content.clone()) } else { None },
+                                if result.is_error {
+                                    Some(result.content.clone())
+                                } else {
+                                    None
+                                },
                                 now_millis(),
                             );
                         }
@@ -630,6 +760,23 @@ impl AgentEngine {
                         if tc.function.name == "update_memory" && !result.is_error {
                             self.refresh_memory_cache().await;
                         }
+
+                        if let Some((previous_tool_name, previous_was_error)) =
+                            previous_tool_outcome.as_ref()
+                        {
+                            if let Err(error) = self
+                                .record_tool_hesitation(
+                                    previous_tool_name,
+                                    tc.function.name.as_str(),
+                                    *previous_was_error,
+                                    result.is_error,
+                                )
+                                .await
+                            {
+                                tracing::warn!(error = %error, "failed to record implicit tool fallback feedback");
+                            }
+                        }
+                        previous_tool_outcome = Some((tc.function.name.clone(), result.is_error));
 
                         if !result.is_error {
                             self.capture_tool_work_context(
@@ -640,6 +787,38 @@ impl AgentEngine {
                             )
                             .await;
                         }
+
+                        self.persist_tool_selection_causal_trace(
+                            &tid,
+                            current_task_snapshot
+                                .as_ref()
+                                .and_then(|task| task.goal_run_id.as_deref()),
+                            task_id,
+                            tc,
+                            decision_reasoning.as_deref(),
+                            &result,
+                            &trace_collector,
+                            &config,
+                            &provider_config,
+                        )
+                        .await;
+                        self.record_provenance_event(
+                            "tool_call",
+                            "agent executed tool call",
+                            serde_json::json!({
+                                "tool": tc.function.name.as_str(),
+                                "arguments": tc.function.arguments.as_str(),
+                                "is_error": result.is_error,
+                            }),
+                            current_task_snapshot
+                                .as_ref()
+                                .and_then(|task| task.goal_run_id.as_deref()),
+                            task_id,
+                            Some(tid.as_str()),
+                            None,
+                            None,
+                        )
+                        .await;
 
                         let _ = self.event_tx.send(AgentEvent::ToolResult {
                             thread_id: tid.clone(),
@@ -673,8 +852,47 @@ impl AgentEngine {
                                 });
                             }
                         }
+                        let current_tokens = {
+                            let threads = self.threads.read().await;
+                            threads
+                                .get(&tid)
+                                .map(|thread| estimate_message_tokens(&thread.messages))
+                                .unwrap_or(0) as u32
+                        };
+                        if let Some(task) = current_task_snapshot.as_ref() {
+                            self.record_subagent_tool_result(
+                                task,
+                                &tid,
+                                &tc.function.name,
+                                result.is_error,
+                                current_tokens,
+                            )
+                            .await;
+                            self.persist_subagent_runtime_metrics(&task.id).await;
+                        }
 
                         if let Some(pending_approval) = result.pending_approval.as_ref() {
+                            let _ = self
+                                .record_operator_approval_requested(pending_approval)
+                                .await;
+                            self.record_provenance_event(
+                                "approval_requested",
+                                "tool execution requested operator approval",
+                                serde_json::json!({
+                                    "approval_id": pending_approval.approval_id,
+                                    "command": pending_approval.command,
+                                    "risk_level": pending_approval.risk_level,
+                                    "blast_radius": pending_approval.blast_radius,
+                                }),
+                                current_task_snapshot
+                                    .as_ref()
+                                    .and_then(|task| task.goal_run_id.as_deref()),
+                                task_id,
+                                Some(tid.as_str()),
+                                Some(pending_approval.approval_id.as_str()),
+                                None,
+                            )
+                            .await;
                             interrupted_for_approval = true;
                             if let Some(task_id) = task_id {
                                 self.mark_task_awaiting_approval(task_id, &tid, pending_approval)
@@ -713,7 +931,10 @@ impl AgentEngine {
                             self.emit_workflow_notice(
                                 &tid,
                                 "termination-triggered",
-                                &format!("Sub-agent terminated: {}", reason.as_deref().unwrap_or("condition met")),
+                                &format!(
+                                    "Sub-agent terminated: {}",
+                                    reason.as_deref().unwrap_or("condition met")
+                                ),
                                 None,
                             );
                             break 'agent_loop;
@@ -723,16 +944,16 @@ impl AgentEngine {
                     // Check context budget
                     // Check budget every 5 tool calls to avoid full-message scan on each iteration
                     if termination_tool_calls.is_multiple_of(5) {
-                    if let Some(ref mut budget) = task_context_budget {
-                        let current_tokens = {
-                            let threads = self.threads.read().await;
-                            threads
-                                .get(&tid)
-                                .map(|t| estimate_message_tokens(&t.messages))
-                                .unwrap_or(0) as u32
-                        };
-                        budget.set_consumed(current_tokens);
-                        match budget.check() {
+                        if let Some(ref mut budget) = task_context_budget {
+                            let current_tokens = {
+                                let threads = self.threads.read().await;
+                                threads
+                                    .get(&tid)
+                                    .map(|t| estimate_message_tokens(&t.messages))
+                                    .unwrap_or(0) as u32
+                            };
+                            budget.set_consumed(current_tokens);
+                            match budget.check() {
                             crate::agent::subagent::context_budget::BudgetStatus::Exceeded { overflow_action, .. } => {
                                 match overflow_action {
                                     crate::agent::types::ContextOverflowAction::Error => {
@@ -751,7 +972,7 @@ impl AgentEngine {
                             }
                             _ => {}
                         }
-                    }
+                        }
                     } // end budget check every 5 tool calls
 
                     // Loop continues — next iteration will include tool results in context
@@ -785,7 +1006,9 @@ impl AgentEngine {
         // Finalize execution trace and persist (only for task-driven turns)
         if task_id.is_some() {
             let trace_outcome = if interrupted_for_approval {
-                crate::agent::learning::traces::TraceOutcome::Partial { completed_pct: 50.0 }
+                crate::agent::learning::traces::TraceOutcome::Partial {
+                    completed_pct: 50.0,
+                }
             } else if was_cancelled {
                 crate::agent::learning::traces::TraceOutcome::Cancelled
             } else {
@@ -831,6 +1054,10 @@ impl AgentEngine {
                     tracing::warn!(task_id, "failed to persist execution trace: {e}");
                 }
             }
+        }
+
+        if let Some(task) = current_task_snapshot.as_ref() {
+            self.persist_subagent_runtime_metrics(&task.id).await;
         }
 
         self.persist_threads().await;
@@ -963,6 +1190,9 @@ impl AgentEngine {
         }
         drop(threads);
         self.persist_thread_by_id(thread_id).await;
+        if let Err(error) = self.maybe_sync_thread_to_honcho(thread_id).await {
+            tracing::warn!(thread_id = %thread_id, error = %error, "failed to sync assistant message to Honcho");
+        }
     }
 
     pub(super) async fn emit_turn_error_completion(

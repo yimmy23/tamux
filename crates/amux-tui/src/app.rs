@@ -86,6 +86,7 @@ pub struct TuiModel {
     tasks: task::TaskState,
     config: config::ConfigState,
     approval: approval::ApprovalState,
+    anticipatory: AnticipatoryState,
     settings: settings::SettingsState,
     pub auth: AuthState,
     pub subagents: SubAgentsState,
@@ -119,6 +120,7 @@ pub struct TuiModel {
     openai_auth_url: Option<String>,
     openai_auth_status_text: Option<String>,
     settings_picker_target: Option<SettingsPickerTarget>,
+    last_attention_surface: Option<String>,
 
     // Vim motion state
     pending_g: bool,
@@ -171,6 +173,7 @@ impl TuiModel {
             tasks: task::TaskState::new(),
             config: config::ConfigState::new(),
             approval: approval::ApprovalState::new(),
+            anticipatory: AnticipatoryState::new(),
             settings: settings::SettingsState::new(),
             auth: AuthState::new(),
             subagents: SubAgentsState::new(),
@@ -192,6 +195,7 @@ impl TuiModel {
             openai_auth_url: None,
             openai_auth_status_text: None,
             settings_picker_target: None,
+            last_attention_surface: None,
             pending_g: false,
             show_sidebar_override: None,
             main_pane_view: MainPaneView::Conversation,
@@ -258,8 +262,7 @@ impl TuiModel {
 
     fn concierge_banner_visible(&self) -> bool {
         self.concierge.loading
-            || (self.concierge.welcome_visible
-                && self.chat.active_thread_id() == Some("concierge"))
+            || (self.concierge.welcome_visible && self.chat.active_thread_id() == Some("concierge"))
     }
 
     fn concierge_banner_height(&self) -> u16 {
@@ -268,6 +271,43 @@ impl TuiModel {
         } else {
             0
         }
+    }
+
+    fn anticipatory_banner_height(&self) -> u16 {
+        if self.anticipatory.has_items() {
+            8
+        } else {
+            0
+        }
+    }
+
+    fn has_configured_provider(&self) -> bool {
+        self.auth.entries.iter().any(|entry| entry.authenticated)
+    }
+
+    fn should_show_provider_onboarding(&self) -> bool {
+        self.connected
+            && self.auth.loaded
+            && !self.has_configured_provider()
+            && matches!(self.main_pane_view, MainPaneView::Conversation)
+            && self.chat.active_thread().is_none()
+            && self.chat.streaming_content().is_empty()
+    }
+
+    fn open_settings_tab(&mut self, tab: SettingsTab) {
+        if self.modal.top() != Some(modal::ModalKind::Settings) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        }
+        self.settings.reduce(SettingsAction::SwitchTab(tab));
+        self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+        self.send_daemon_command(DaemonCommand::ListSubAgents);
+        self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+    }
+
+    fn open_provider_setup(&mut self) {
+        self.open_settings_tab(SettingsTab::Provider);
+        self.status_line = "Configure provider credentials to start chatting".to_string();
     }
 
     fn execute_concierge_action(&mut self, action_index: usize) {
@@ -279,7 +319,8 @@ impl TuiModel {
             "continue_session" => {
                 if let Some(thread_id) = action.thread_id {
                     self.send_daemon_command(DaemonCommand::DismissConciergeWelcome);
-                    self.chat.reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+                    self.chat
+                        .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
                     self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
                     self.main_pane_view = MainPaneView::Conversation;
                     self.focus = FocusArea::Chat;
@@ -294,7 +335,8 @@ impl TuiModel {
             "search" => {
                 self.main_pane_view = MainPaneView::Conversation;
                 self.focus = FocusArea::Input;
-                self.status_line = "Describe what you want to search in the concierge thread".to_string();
+                self.status_line =
+                    "Describe what you want to search in the concierge thread".to_string();
             }
             "dismiss" => {
                 self.send_daemon_command(DaemonCommand::DismissConciergeWelcome);
@@ -354,5 +396,235 @@ impl TuiModel {
                 .tasks
                 .work_context_for_thread(thread_id)
                 .is_some_and(|context| !context.entries.is_empty())
+    }
+
+    fn current_attention_target(&self) -> (String, Option<String>, Option<String>) {
+        if let Some(modal) = self.modal.top() {
+            let surface = match modal {
+                modal::ModalKind::Settings => {
+                    format!(
+                        "modal:settings:{}",
+                        settings_tab_label(self.settings.active_tab())
+                    )
+                }
+                modal::ModalKind::ApprovalOverlay => "modal:approval".to_string(),
+                modal::ModalKind::CommandPalette => "modal:command_palette".to_string(),
+                modal::ModalKind::ThreadPicker => "modal:thread_picker".to_string(),
+                modal::ModalKind::GoalPicker => "modal:goal_picker".to_string(),
+                modal::ModalKind::ProviderPicker => "modal:provider_picker".to_string(),
+                modal::ModalKind::ModelPicker => "modal:model_picker".to_string(),
+                modal::ModalKind::OpenAIAuth => "modal:openai_auth".to_string(),
+                modal::ModalKind::ErrorViewer => "modal:error_viewer".to_string(),
+                modal::ModalKind::EffortPicker => "modal:effort_picker".to_string(),
+                modal::ModalKind::ToolsPicker => "modal:tools_picker".to_string(),
+                modal::ModalKind::ViewPicker => "modal:view_picker".to_string(),
+                modal::ModalKind::Help => "modal:help".to_string(),
+            };
+            return (
+                surface,
+                self.chat.active_thread_id().map(str::to_string),
+                None,
+            );
+        }
+
+        match &self.main_pane_view {
+            MainPaneView::Conversation => match self.focus {
+                FocusArea::Chat => (
+                    "conversation:chat".to_string(),
+                    self.chat.active_thread_id().map(str::to_string),
+                    None,
+                ),
+                FocusArea::Input => {
+                    if self.should_show_provider_onboarding() {
+                        ("conversation:onboarding".to_string(), None, None)
+                    } else {
+                        (
+                            "conversation:input".to_string(),
+                            self.chat.active_thread_id().map(str::to_string),
+                            None,
+                        )
+                    }
+                }
+                FocusArea::Sidebar => (
+                    format!(
+                        "conversation:sidebar:{}",
+                        sidebar_tab_label(self.sidebar.active_tab())
+                    ),
+                    self.chat.active_thread_id().map(str::to_string),
+                    None,
+                ),
+            },
+            MainPaneView::Task(target) => (
+                "task:detail".to_string(),
+                self.target_thread_id(target),
+                target_goal_run_id(self, target),
+            ),
+            MainPaneView::WorkContext => (
+                "task:work_context".to_string(),
+                self.chat.active_thread_id().map(str::to_string),
+                None,
+            ),
+            MainPaneView::GoalComposer => (
+                "task:goal_composer".to_string(),
+                self.chat.active_thread_id().map(str::to_string),
+                None,
+            ),
+        }
+    }
+
+    fn publish_attention_surface_if_changed(&mut self) {
+        if !self.connected {
+            return;
+        }
+        let (surface, thread_id, goal_run_id) = self.current_attention_target();
+        let signature = format!(
+            "{}|{}|{}",
+            surface,
+            thread_id.as_deref().unwrap_or_default(),
+            goal_run_id.as_deref().unwrap_or_default()
+        );
+        if self.last_attention_surface.as_deref() == Some(signature.as_str()) {
+            return;
+        }
+        self.last_attention_surface = Some(signature);
+        self.send_daemon_command(DaemonCommand::RecordAttention {
+            surface,
+            thread_id,
+            goal_run_id,
+        });
+    }
+}
+
+fn settings_tab_label(tab: SettingsTab) -> &'static str {
+    match tab {
+        SettingsTab::Provider => "provider",
+        SettingsTab::Tools => "tools",
+        SettingsTab::WebSearch => "web_search",
+        SettingsTab::Chat => "chat",
+        SettingsTab::Gateway => "gateway",
+        SettingsTab::Auth => "auth",
+        SettingsTab::Agent => "agent",
+        SettingsTab::SubAgents => "subagents",
+        SettingsTab::Concierge => "concierge",
+        SettingsTab::Advanced => "advanced",
+    }
+}
+
+fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
+    match tab {
+        SidebarTab::Files => "files",
+        SidebarTab::Todos => "todos",
+    }
+}
+
+fn target_goal_run_id(model: &TuiModel, target: &SidebarItemTarget) -> Option<String> {
+    match target {
+        SidebarItemTarget::GoalRun { goal_run_id, .. } => Some(goal_run_id.clone()),
+        SidebarItemTarget::Task { task_id } => model
+            .tasks
+            .task_by_id(task_id)
+            .and_then(|task| task.goal_run_id.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    fn build_model() -> TuiModel {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, _cmd_rx) = unbounded_channel();
+        TuiModel::new(daemon_rx, cmd_tx)
+    }
+
+    fn unauthenticated_entry() -> ProviderAuthEntry {
+        ProviderAuthEntry {
+            provider_id: "openai".to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: false,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        }
+    }
+
+    #[test]
+    fn provider_onboarding_requires_loaded_auth_state() {
+        let mut model = build_model();
+        model.connected = true;
+        model.auth.entries = vec![unauthenticated_entry()];
+
+        assert!(!model.should_show_provider_onboarding());
+    }
+
+    #[test]
+    fn provider_onboarding_shows_when_no_provider_is_configured() {
+        let mut model = build_model();
+        model.connected = true;
+        model.auth.loaded = true;
+        model.auth.entries = vec![unauthenticated_entry()];
+
+        assert!(model.should_show_provider_onboarding());
+    }
+
+    #[test]
+    fn provider_onboarding_hides_when_provider_is_configured() {
+        let mut model = build_model();
+        model.connected = true;
+        model.auth.loaded = true;
+        let mut entry = unauthenticated_entry();
+        entry.authenticated = true;
+        model.auth.entries = vec![entry];
+
+        assert!(!model.should_show_provider_onboarding());
+    }
+
+    #[test]
+    fn attention_surface_uses_settings_tab_when_modal_open() {
+        let mut model = build_model();
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        model
+            .settings
+            .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+
+        let (surface, thread_id, goal_run_id) = model.current_attention_target();
+        assert_eq!(surface, "modal:settings:subagents");
+        assert_eq!(thread_id, None);
+        assert_eq!(goal_run_id, None);
+    }
+
+    #[test]
+    fn attention_surface_uses_sidebar_tab_for_sidebar_focus() {
+        let mut model = build_model();
+        model.connected = true;
+        model.auth.loaded = true;
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread_1".to_string(),
+            title: "Test".to_string(),
+        });
+        model.tasks.reduce(task::TaskAction::ThreadTodosReceived {
+            thread_id: "thread_1".to_string(),
+            items: vec![task::TodoItem {
+                id: "todo_1".to_string(),
+                content: "todo".to_string(),
+                status: Some(task::TodoStatus::Pending),
+                position: 0,
+                step_index: None,
+                created_at: 0,
+                updated_at: 0,
+            }],
+        });
+        model.focus = FocusArea::Sidebar;
+        model
+            .sidebar
+            .reduce(SidebarAction::SwitchTab(SidebarTab::Todos));
+
+        let (surface, thread_id, goal_run_id) = model.current_attention_target();
+        assert_eq!(surface, "conversation:sidebar:todos");
+        assert_eq!(thread_id.as_deref(), Some("thread_1"));
+        assert_eq!(goal_run_id, None);
     }
 }

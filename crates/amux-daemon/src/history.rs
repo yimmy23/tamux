@@ -9,11 +9,13 @@ use amux_protocol::{
 };
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use sysinfo::System;
 
 /// Result of verifying a single WORM ledger file's hash-chain integrity.
@@ -43,6 +45,176 @@ pub struct ManagedHistoryRecord {
     pub exit_code: Option<i32>,
     pub duration_ms: Option<u64>,
     pub snapshot_path: Option<String>,
+}
+
+pub struct MemoryProvenanceRecord<'a> {
+    pub id: &'a str,
+    pub target: &'a str,
+    pub mode: &'a str,
+    pub source_kind: &'a str,
+    pub content: &'a str,
+    pub fact_keys: &'a [String],
+    pub thread_id: Option<&'a str>,
+    pub task_id: Option<&'a str>,
+    pub goal_run_id: Option<&'a str>,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollaborationSessionRow {
+    pub parent_task_id: String,
+    pub session_json: String,
+    pub updated_at: u64,
+}
+
+pub struct ProvenanceEventRecord<'a> {
+    pub event_type: &'a str,
+    pub summary: &'a str,
+    pub details: &'a serde_json::Value,
+    pub agent_id: &'a str,
+    pub goal_run_id: Option<&'a str>,
+    pub task_id: Option<&'a str>,
+    pub thread_id: Option<&'a str>,
+    pub approval_id: Option<&'a str>,
+    pub causal_trace_id: Option<&'a str>,
+    pub compliance_mode: &'a str,
+    pub sign: bool,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillVariantRecord {
+    pub variant_id: String,
+    pub skill_name: String,
+    pub variant_name: String,
+    pub relative_path: String,
+    pub parent_variant_id: Option<String>,
+    pub version: String,
+    pub context_tags: Vec<String>,
+    pub use_count: u32,
+    pub success_count: u32,
+    pub failure_count: u32,
+    pub status: String,
+    pub last_used_at: Option<u64>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+impl SkillVariantRecord {
+    pub fn success_rate(&self) -> f64 {
+        let attempts = self.success_count + self.failure_count;
+        if attempts == 0 {
+            0.5
+        } else {
+            self.success_count as f64 / attempts as f64
+        }
+    }
+
+    pub fn is_canonical(&self) -> bool {
+        self.variant_name == "canonical"
+    }
+}
+
+const SKILL_ARCHIVE_MIN_USES: u32 = 3;
+const SKILL_ARCHIVE_MAX_IDLE_SECS: u64 = 90 * 24 * 60 * 60;
+const SKILL_ARCHIVE_SUCCESS_RATE_THRESHOLD: f64 = 0.30;
+const SKILL_PROMOTION_MIN_USES: u32 = 3;
+const SKILL_PROMOTION_MIN_SUCCESS_COUNT: u32 = 2;
+const SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD: f64 = 0.80;
+const SKILL_PROMOTION_MARGIN: f64 = 0.15;
+const SKILL_MERGE_MIN_USES: u32 = 4;
+const SKILL_MERGE_SUCCESS_RATE_THRESHOLD: f64 = 0.85;
+const SKILL_MERGE_SIMILARITY_THRESHOLD: f64 = 0.40;
+
+pub struct SkillVariantConsultationRecord<'a> {
+    pub usage_id: &'a str,
+    pub variant_id: &'a str,
+    pub thread_id: Option<&'a str>,
+    pub task_id: Option<&'a str>,
+    pub goal_run_id: Option<&'a str>,
+    pub context_tags: &'a [String],
+    pub consulted_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryProvenanceReportEntry {
+    pub id: String,
+    pub target: String,
+    pub mode: String,
+    pub source_kind: String,
+    pub content: String,
+    pub fact_keys: Vec<String>,
+    pub thread_id: Option<String>,
+    pub task_id: Option<String>,
+    pub goal_run_id: Option<String>,
+    pub created_at: u64,
+    pub age_days: f64,
+    pub confidence: f64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryProvenanceReport {
+    pub total_entries: usize,
+    pub target_filter: Option<String>,
+    pub summary_by_target: BTreeMap<String, usize>,
+    pub summary_by_source: BTreeMap<String, usize>,
+    pub summary_by_status: BTreeMap<String, usize>,
+    pub entries: Vec<MemoryProvenanceReportEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProvenanceLogEntry {
+    pub sequence: u64,
+    pub timestamp: u64,
+    pub event_type: String,
+    pub summary: String,
+    pub details: serde_json::Value,
+    pub prev_hash: String,
+    pub entry_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_trace_id: Option<String>,
+    pub compliance_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvenanceReportEntry {
+    pub sequence: u64,
+    pub timestamp: u64,
+    pub event_type: String,
+    pub summary: String,
+    pub agent_id: String,
+    pub goal_run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub approval_id: Option<String>,
+    pub causal_trace_id: Option<String>,
+    pub compliance_mode: String,
+    pub hash_valid: bool,
+    pub signature_valid: bool,
+    pub chain_valid: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvenanceReport {
+    pub total_entries: usize,
+    pub signed_entries: usize,
+    pub valid_hash_entries: usize,
+    pub valid_signature_entries: usize,
+    pub valid_chain_entries: usize,
+    pub summary_by_event: BTreeMap<String, usize>,
+    pub entries: Vec<ProvenanceReportEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +254,28 @@ impl HistoryStore {
         let history_dir = base.join("history");
         let skill_dir = base.join("skills").join("generated");
         let telemetry_dir = base.join("semantic-logs");
+        let worm_dir = telemetry_dir.join("worm");
+
+        std::fs::create_dir_all(&history_dir)?;
+        std::fs::create_dir_all(&skill_dir)?;
+        std::fs::create_dir_all(&telemetry_dir)?;
+        std::fs::create_dir_all(&worm_dir)?;
+
+        let store = Self {
+            db_path: history_dir.join("command-history.db"),
+            skill_dir,
+            telemetry_dir,
+            worm_dir,
+        };
+        store.init_schema()?;
+        Ok(store)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_test_store(root: &Path) -> Result<Self> {
+        let history_dir = root.join("history");
+        let skill_dir = root.join("skills").join("generated");
+        let telemetry_dir = root.join("semantic-logs");
         let worm_dir = telemetry_dir.join("worm");
 
         std::fs::create_dir_all(&history_dir)?;
@@ -231,7 +425,649 @@ impl HistoryStore {
         }
         std::fs::write(&path, body)
             .with_context(|| format!("failed to write {}", path.display()))?;
+        self.register_skill_document(&path)?;
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
+    }
+
+    pub fn register_skill_document(&self, path: &Path) -> Result<SkillVariantRecord> {
+        let skills_root = self.skills_root();
+        let canonical = std::fs::canonicalize(path)
+            .with_context(|| format!("failed to access skill document {}", path.display()))?;
+        if !canonical.starts_with(&skills_root) {
+            anyhow::bail!(
+                "skill document {} must stay inside {}",
+                canonical.display(),
+                skills_root.display()
+            );
+        }
+
+        let relative_path = canonical
+            .strip_prefix(&skills_root)
+            .unwrap_or(canonical.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let content = std::fs::read_to_string(&canonical)
+            .with_context(|| format!("failed to read skill document {}", canonical.display()))?;
+        let metadata = derive_skill_metadata(&relative_path, &content);
+        let now = now_ts();
+
+        let connection = self.open_connection()?;
+        let existing: Option<SkillVariantRecord> = connection
+            .query_row(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE relative_path = ?1",
+                params![relative_path],
+                map_skill_variant_row,
+            )
+            .optional()?;
+
+        let variant_id = existing
+            .as_ref()
+            .map(|record| record.variant_id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let version = existing
+            .as_ref()
+            .map(|record| record.version.clone())
+            .unwrap_or_else(|| {
+                let version_num: i64 = connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM skill_variants WHERE skill_name = ?1",
+                        params![metadata.skill_name.as_str()],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                format!("v{}.0", version_num + 1)
+            });
+        let parent_variant_id: Option<String> = if metadata.variant_name == "canonical" {
+            None
+        } else {
+            connection
+                .query_row(
+                    "SELECT variant_id FROM skill_variants WHERE skill_name = ?1 AND variant_name = 'canonical' LIMIT 1",
+                    params![metadata.skill_name.as_str()],
+                    |row| row.get(0),
+                )
+                .optional()?
+        };
+        let created_at = existing
+            .as_ref()
+            .map(|record| record.created_at)
+            .unwrap_or(now);
+        let last_used_at = existing.as_ref().and_then(|record| record.last_used_at);
+        let use_count = existing
+            .as_ref()
+            .map(|record| record.use_count)
+            .unwrap_or(0);
+        let success_count = existing
+            .as_ref()
+            .map(|record| record.success_count)
+            .unwrap_or(0);
+        let failure_count = existing
+            .as_ref()
+            .map(|record| record.failure_count)
+            .unwrap_or(0);
+        let status = existing
+            .as_ref()
+            .map(|record| record.status.clone())
+            .unwrap_or_else(|| "active".to_string());
+        let context_tags_json = serde_json::to_string(&metadata.context_tags)?;
+
+        connection.execute(
+            "INSERT OR REPLACE INTO skill_variants \
+             (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                variant_id,
+                metadata.skill_name,
+                metadata.variant_name,
+                relative_path,
+                parent_variant_id,
+                version,
+                context_tags_json,
+                use_count as i64,
+                success_count as i64,
+                failure_count as i64,
+                status,
+                last_used_at.map(|value| value as i64),
+                created_at as i64,
+                now as i64,
+            ],
+        )?;
+
+        connection
+            .query_row(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE variant_id = ?1",
+                params![variant_id.clone()],
+                map_skill_variant_row,
+            )
+            .context("failed to load registered skill variant")?;
+        self.rebalance_skill_variants(&metadata.skill_name)?;
+        self.open_connection()?
+            .query_row(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE variant_id = ?1",
+                params![variant_id],
+                map_skill_variant_row,
+            )
+            .context("failed to load rebalanced skill variant")
+    }
+
+    pub fn list_skill_variants(
+        &self,
+        query: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SkillVariantRecord>> {
+        let connection = self.open_connection()?;
+        let normalized_query = query
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase());
+        let limit = limit.clamp(1, 200) as i64;
+
+        let mut variants = if let Some(query) = normalized_query.as_deref() {
+            let like = format!("%{query}%");
+            let mut stmt = connection.prepare(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants \
+                 WHERE lower(skill_name) LIKE ?1 OR lower(variant_name) LIKE ?1 OR lower(relative_path) LIKE ?1 OR lower(context_tags_json) LIKE ?1 \
+                 ORDER BY updated_at DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![like, limit], map_skill_variant_row)?;
+            rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
+        } else {
+            let mut stmt = connection.prepare(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants \
+                 ORDER BY updated_at DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
+            rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
+        };
+
+        variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+        Ok(variants)
+    }
+
+    pub fn resolve_skill_variant(
+        &self,
+        skill: &str,
+        context_tags: &[String],
+    ) -> Result<Option<SkillVariantRecord>> {
+        let connection = self.open_connection()?;
+        let normalized = normalize_skill_lookup(skill);
+        if normalized.is_empty() {
+            return Ok(None);
+        }
+
+        let mut stmt = connection.prepare(
+            "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+             FROM skill_variants",
+        )?;
+        let rows = stmt.query_map([], map_skill_variant_row)?;
+        let mut candidates = rows
+            .filter_map(|row| row.ok())
+            .filter(|record| skill_variant_matches(record, &normalized))
+            .filter(|record| record.status != "archived" && record.status != "merged")
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        candidates.sort_by(|left, right| compare_skill_variants(left, right, context_tags));
+        Ok(candidates.into_iter().next())
+    }
+
+    pub fn record_skill_variant_use(&self, variant_id: &str, outcome: Option<bool>) -> Result<()> {
+        let connection = self.open_connection()?;
+        let now = now_ts() as i64;
+        match outcome {
+            Some(true) => {
+                connection.execute(
+                    "UPDATE skill_variants \
+                     SET use_count = use_count + 1, success_count = success_count + 1, last_used_at = ?2, updated_at = ?2 \
+                     WHERE variant_id = ?1",
+                    params![variant_id, now],
+                )?;
+            }
+            Some(false) => {
+                connection.execute(
+                    "UPDATE skill_variants \
+                     SET use_count = use_count + 1, failure_count = failure_count + 1, last_used_at = ?2, updated_at = ?2 \
+                     WHERE variant_id = ?1",
+                    params![variant_id, now],
+                )?;
+            }
+            None => {
+                connection.execute(
+                    "UPDATE skill_variants \
+                     SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
+                     WHERE variant_id = ?1",
+                    params![variant_id, now],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn record_skill_variant_consultation(
+        &self,
+        record: &SkillVariantConsultationRecord<'_>,
+    ) -> Result<()> {
+        let connection = self.open_connection()?;
+        let now = record.consulted_at as i64;
+        let context_tags_json = serde_json::to_string(record.context_tags)?;
+        connection.execute(
+            "INSERT OR REPLACE INTO skill_variant_usage \
+             (usage_id, variant_id, thread_id, task_id, goal_run_id, context_tags_json, consulted_at, resolved_at, outcome) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)",
+            params![
+                record.usage_id,
+                record.variant_id,
+                record.thread_id,
+                record.task_id,
+                record.goal_run_id,
+                context_tags_json,
+                now,
+            ],
+        )?;
+        connection.execute(
+            "UPDATE skill_variants \
+             SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
+             WHERE variant_id = ?1",
+            params![record.variant_id, now],
+        )?;
+        self.append_telemetry(
+            "cognitive",
+            json!({
+                "timestamp": now,
+                "kind": "skill_variant_consulted",
+                "variant_id": record.variant_id,
+                "thread_id": record.thread_id,
+                "task_id": record.task_id,
+                "goal_run_id": record.goal_run_id,
+                "context_tags": record.context_tags,
+            }),
+        )?;
+        Ok(())
+    }
+
+    pub fn settle_skill_variant_usage(
+        &self,
+        thread_id: Option<&str>,
+        task_id: Option<&str>,
+        goal_run_id: Option<&str>,
+        outcome: &str,
+    ) -> Result<usize> {
+        let normalized_outcome = outcome.trim().to_ascii_lowercase();
+        if !matches!(
+            normalized_outcome.as_str(),
+            "success" | "failure" | "cancelled"
+        ) {
+            anyhow::bail!("invalid skill usage outcome '{outcome}'");
+        }
+
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT usage_id, variant_id FROM skill_variant_usage \
+             WHERE resolved_at IS NULL AND ( \
+                (?1 IS NOT NULL AND task_id = ?1) OR \
+                (?2 IS NOT NULL AND goal_run_id = ?2) OR \
+                (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
+             )",
+        )?;
+        let rows = stmt.query_map(params![task_id, goal_run_id, thread_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let pending = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+        if pending.is_empty() {
+            return Ok(0);
+        }
+
+        let resolved_at = now_ts() as i64;
+        let variant_ids = pending
+            .iter()
+            .map(|(_, variant_id)| variant_id.clone())
+            .collect::<BTreeSet<_>>();
+        let mut success_counts = BTreeMap::<String, usize>::new();
+        let mut failure_counts = BTreeMap::<String, usize>::new();
+        for (usage_id, variant_id) in &pending {
+            connection.execute(
+                "UPDATE skill_variant_usage SET resolved_at = ?2, outcome = ?3 WHERE usage_id = ?1",
+                params![usage_id, resolved_at, normalized_outcome.as_str()],
+            )?;
+            if normalized_outcome == "success" {
+                *success_counts.entry(variant_id.clone()).or_default() += 1;
+            } else {
+                *failure_counts.entry(variant_id.clone()).or_default() += 1;
+            }
+        }
+
+        for (variant_id, count) in success_counts {
+            connection.execute(
+                "UPDATE skill_variants \
+                 SET success_count = success_count + ?2, updated_at = ?3 \
+                 WHERE variant_id = ?1",
+                params![variant_id, count as i64, resolved_at],
+            )?;
+        }
+        for (variant_id, count) in failure_counts {
+            connection.execute(
+                "UPDATE skill_variants \
+                 SET failure_count = failure_count + ?2, updated_at = ?3 \
+                 WHERE variant_id = ?1",
+                params![variant_id, count as i64, resolved_at],
+            )?;
+        }
+
+        self.append_telemetry(
+            "cognitive",
+            json!({
+                "timestamp": resolved_at,
+                "kind": "skill_variant_settled",
+                "thread_id": thread_id,
+                "task_id": task_id,
+                "goal_run_id": goal_run_id,
+                "outcome": normalized_outcome,
+                "count": pending.len(),
+            }),
+        )?;
+        let skill_names = variant_ids
+            .into_iter()
+            .filter_map(|variant_id| {
+                connection
+                    .query_row(
+                        "SELECT skill_name FROM skill_variants WHERE variant_id = ?1",
+                        params![variant_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .ok()
+                    .flatten()
+            })
+            .collect::<BTreeSet<_>>();
+        for skill_name in skill_names {
+            let _ = self.rebalance_skill_variants(&skill_name);
+            if normalized_outcome == "success" {
+                let _ = self.maybe_branch_skill_variants(&skill_name);
+                let _ = self.maybe_merge_skill_variants(&skill_name);
+            }
+        }
+        Ok(pending.len())
+    }
+
+    pub fn rebalance_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+             FROM skill_variants WHERE skill_name = ?1",
+        )?;
+        let rows = stmt.query_map(params![skill_name], map_skill_variant_row)?;
+        let mut variants = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+        if variants.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let now = now_ts();
+        let canonical = variants
+            .iter()
+            .find(|variant| variant.is_canonical())
+            .cloned();
+        let canonical_success_rate = canonical
+            .as_ref()
+            .map(SkillVariantRecord::success_rate)
+            .unwrap_or(0.0);
+        let promoted_variant_id = variants
+            .iter()
+            .filter(|variant| !variant.is_canonical())
+            .filter(|variant| {
+                variant.use_count >= SKILL_PROMOTION_MIN_USES
+                    && variant.success_count >= SKILL_PROMOTION_MIN_SUCCESS_COUNT
+                    && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
+                    && variant.success_rate() > canonical_success_rate + SKILL_PROMOTION_MARGIN
+            })
+            .max_by(|left, right| compare_skill_variants(left, right, &[]))
+            .map(|variant| variant.variant_id.clone());
+
+        for variant in &mut variants {
+            let next_status =
+                rebalance_skill_variant_status(variant, promoted_variant_id.as_deref(), now);
+            if next_status != variant.status {
+                connection.execute(
+                    "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
+                    params![variant.variant_id, next_status, now as i64],
+                )?;
+                variant.status = next_status.to_string();
+                variant.updated_at = now;
+            }
+        }
+
+        variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+        Ok(variants)
+    }
+
+    pub fn maybe_branch_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT skill_variants.variant_id, skill_variants.relative_path, skill_variants.context_tags_json, skill_variant_usage.context_tags_json \
+             FROM skill_variant_usage \
+             JOIN skill_variants ON skill_variants.variant_id = skill_variant_usage.variant_id \
+             WHERE skill_variants.skill_name = ?1 AND skill_variant_usage.outcome = 'success'",
+        )?;
+        let rows = stmt.query_map(params![skill_name], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+
+        let mut candidates = BTreeMap::<(String, String), BranchCandidate>::new();
+        for row in rows.filter_map(|row| row.ok()) {
+            let (variant_id, relative_path, variant_tags_json, usage_tags_json) = row;
+            let variant_tags =
+                serde_json::from_str::<Vec<String>>(&variant_tags_json).unwrap_or_default();
+            let usage_tags =
+                serde_json::from_str::<Vec<String>>(&usage_tags_json).unwrap_or_default();
+            let mismatch = usage_tags
+                .into_iter()
+                .map(|value| value.to_ascii_lowercase())
+                .filter(|tag| {
+                    !variant_tags
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(tag))
+                })
+                .collect::<BTreeSet<_>>();
+            if mismatch.len() < 2 {
+                continue;
+            }
+            let branch_tags = mismatch.into_iter().take(3).collect::<Vec<_>>();
+            let branch_key = branch_tags.join("-");
+            let entry = candidates
+                .entry((variant_id.clone(), branch_key.clone()))
+                .or_insert_with(|| BranchCandidate {
+                    source_variant_id: variant_id.clone(),
+                    source_relative_path: relative_path.clone(),
+                    branch_tags: branch_tags.clone(),
+                    success_count: 0,
+                });
+            entry.success_count += 1;
+        }
+
+        let existing = self.list_skill_variants(Some(skill_name), 200)?;
+        let mut created = Vec::new();
+        for candidate in candidates.into_values() {
+            if candidate.success_count < 3 {
+                continue;
+            }
+            if existing.iter().any(|variant| {
+                variant.status != "archived"
+                    && skill_variant_covers_branch_tags(variant, &candidate.branch_tags)
+            }) {
+                continue;
+            }
+            if let Some(record) = self.create_branched_skill_variant(skill_name, &candidate)? {
+                created.push(record);
+            }
+        }
+
+        if !created.is_empty() {
+            let _ = self.rebalance_skill_variants(skill_name);
+        }
+        Ok(created)
+    }
+
+    pub fn maybe_merge_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+             FROM skill_variants WHERE skill_name = ?1",
+        )?;
+        let rows = stmt.query_map(params![skill_name], map_skill_variant_row)?;
+        let variants = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+        if variants.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let Some(canonical) = variants
+            .iter()
+            .find(|variant| variant.is_canonical())
+            .cloned()
+        else {
+            return Ok(Vec::new());
+        };
+        let canonical_path = self.skills_root().join(&canonical.relative_path);
+        if !canonical_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let canonical_content = std::fs::read_to_string(&canonical_path).with_context(|| {
+            format!(
+                "failed to read canonical skill {}",
+                canonical_path.display()
+            )
+        })?;
+        let canonical_merge_body = extract_mergeable_variant_body(&canonical_content);
+        let now = now_ts();
+        let mut merged_ids = Vec::new();
+        let mut merged_notes = Vec::new();
+        let mut merged_sections = Vec::new();
+        for variant in variants.iter().filter(|variant| {
+            !variant.is_canonical()
+                && variant.status != "archived"
+                && variant.status != "merged"
+                && variant.use_count >= SKILL_MERGE_MIN_USES
+                && variant.success_rate() >= SKILL_MERGE_SUCCESS_RATE_THRESHOLD
+                && variant.parent_variant_id.as_deref() == Some(canonical.variant_id.as_str())
+        }) {
+            let variant_path = self.skills_root().join(&variant.relative_path);
+            if !variant_path.exists() {
+                continue;
+            }
+            let variant_content = std::fs::read_to_string(&variant_path).with_context(|| {
+                format!("failed to read skill variant {}", variant_path.display())
+            })?;
+            let variant_merge_body = extract_mergeable_variant_body(&variant_content);
+            let similarity = skill_content_similarity(&canonical_merge_body, &variant_merge_body);
+            if similarity < SKILL_MERGE_SIMILARITY_THRESHOLD {
+                continue;
+            }
+            merged_ids.push(variant.variant_id.clone());
+            merged_notes.push(skill_merge_note(variant, similarity));
+            merged_sections.push(skill_merge_section(variant, &variant_content, similarity));
+        }
+
+        if merged_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let merged_content = append_skill_merge_sections(
+            &append_skill_merge_notes(&canonical_content, &merged_notes),
+            &merged_sections,
+        );
+        if merged_content != canonical_content {
+            std::fs::write(&canonical_path, merged_content).with_context(|| {
+                format!(
+                    "failed to update canonical skill with merged contexts {}",
+                    canonical_path.display()
+                )
+            })?;
+            let _ = self.register_skill_document(&canonical_path)?;
+        }
+
+        for variant_id in &merged_ids {
+            connection.execute(
+                "UPDATE skill_variants SET status = 'merged', updated_at = ?2 WHERE variant_id = ?1",
+                params![variant_id, now as i64],
+            )?;
+        }
+
+        self.append_telemetry(
+            "cognitive",
+            json!({
+                "timestamp": now,
+                "kind": "skill_variant_merged",
+                "skill_name": skill_name,
+                "variant_ids": merged_ids,
+                "merged_count": merged_notes.len(),
+            }),
+        )?;
+
+        self.list_skill_variants(Some(skill_name), 200)
+    }
+
+    fn create_branched_skill_variant(
+        &self,
+        skill_name: &str,
+        candidate: &BranchCandidate,
+    ) -> Result<Option<SkillVariantRecord>> {
+        let source_path = self.skills_root().join(&candidate.source_relative_path);
+        if !source_path.exists() {
+            return Ok(None);
+        }
+
+        let source_content = std::fs::read_to_string(&source_path)
+            .with_context(|| format!("failed to read source skill {}", source_path.display()))?;
+        let title = extract_markdown_title(&source_content).unwrap_or_else(|| {
+            skill_name
+                .split('-')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        let branch_slug = candidate.branch_tags.join("-");
+        let branch_path = self
+            .skills_root()
+            .join("generated")
+            .join(format!("{skill_name}--{branch_slug}.md"));
+        if branch_path.exists() {
+            return self.register_skill_document(&branch_path).map(Some);
+        }
+
+        let mut body = format!(
+            "# {} ({})\n\n> Auto-branched from `{}` (variant `{}`) after {} successful consultations in contexts: {}.\n\n## When To Use\nUse this variant when the workspace context includes: {}.\n\n",
+            title,
+            candidate.branch_tags.join(", "),
+            candidate.source_relative_path,
+            candidate.source_variant_id,
+            candidate.success_count,
+            candidate.branch_tags.join(", "),
+            candidate.branch_tags.join(", "),
+        );
+        body.push_str(&source_content);
+
+        if let Some(parent) = branch_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&branch_path, body)
+            .with_context(|| format!("failed to write branched skill {}", branch_path.display()))?;
+        self.register_skill_document(&branch_path).map(Some)
     }
 
     pub fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
@@ -1096,6 +1932,36 @@ impl HistoryStore {
             .find(|goal_run| goal_run.id == goal_run_id))
     }
 
+    pub fn upsert_collaboration_session(
+        &self,
+        parent_task_id: &str,
+        session_json: &str,
+        updated_at: u64,
+    ) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO collaboration_sessions (parent_task_id, session_json, updated_at) VALUES (?1, ?2, ?3)",
+            params![parent_task_id, session_json, updated_at as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_collaboration_sessions(&self) -> Result<Vec<CollaborationSessionRow>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT parent_task_id, session_json, updated_at FROM collaboration_sessions ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(CollaborationSessionRow {
+                parent_task_id: row.get(0)?,
+                session_json: row.get(1)?,
+                updated_at: row.get::<_, i64>(2)? as u64,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     fn init_schema(&self) -> Result<()> {
         let connection = self.open_connection()?;
         connection.execute_batch(
@@ -1375,6 +2241,78 @@ impl HistoryStore {
             );
             CREATE INDEX IF NOT EXISTS idx_execution_traces_task_type ON execution_traces(task_type, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_execution_traces_goal_run ON execution_traces(goal_run_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS causal_traces (
+                id                    TEXT PRIMARY KEY,
+                thread_id             TEXT,
+                goal_run_id           TEXT,
+                task_id               TEXT,
+                decision_type         TEXT NOT NULL,
+                selected_json         TEXT NOT NULL,
+                rejected_options_json TEXT,
+                context_hash          TEXT,
+                causal_factors_json   TEXT,
+                outcome_json          TEXT NOT NULL,
+                model_used            TEXT,
+                created_at            INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_causal_traces_decision_type ON causal_traces(decision_type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_causal_traces_task_id ON causal_traces(task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_provenance (
+                id            TEXT PRIMARY KEY,
+                target        TEXT NOT NULL,
+                mode          TEXT NOT NULL,
+                source_kind   TEXT NOT NULL,
+                content       TEXT NOT NULL,
+                fact_keys_json TEXT NOT NULL DEFAULT '[]',
+                thread_id     TEXT,
+                task_id       TEXT,
+                goal_run_id   TEXT,
+                created_at    INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_provenance_target_ts ON memory_provenance(target, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_provenance_goal_run ON memory_provenance(goal_run_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS skill_variants (
+                variant_id         TEXT PRIMARY KEY,
+                skill_name         TEXT NOT NULL,
+                variant_name       TEXT NOT NULL,
+                relative_path      TEXT NOT NULL UNIQUE,
+                parent_variant_id  TEXT,
+                version            TEXT NOT NULL,
+                context_tags_json  TEXT NOT NULL DEFAULT '[]',
+                use_count          INTEGER NOT NULL DEFAULT 0,
+                success_count      INTEGER NOT NULL DEFAULT 0,
+                failure_count      INTEGER NOT NULL DEFAULT 0,
+                status             TEXT NOT NULL DEFAULT 'active',
+                last_used_at       INTEGER,
+                created_at         INTEGER NOT NULL,
+                updated_at         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_skill_variants_name ON skill_variants(skill_name, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_skill_variants_path ON skill_variants(relative_path);
+
+            CREATE TABLE IF NOT EXISTS skill_variant_usage (
+                usage_id           TEXT PRIMARY KEY,
+                variant_id         TEXT NOT NULL,
+                thread_id          TEXT,
+                task_id            TEXT,
+                goal_run_id        TEXT,
+                context_tags_json  TEXT NOT NULL DEFAULT '[]',
+                consulted_at       INTEGER NOT NULL,
+                resolved_at        INTEGER,
+                outcome            TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_skill_variant_usage_variant ON skill_variant_usage(variant_id, consulted_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_skill_variant_usage_resolution ON skill_variant_usage(task_id, goal_run_id, thread_id, resolved_at);
+
+            CREATE TABLE IF NOT EXISTS collaboration_sessions (
+                parent_task_id TEXT PRIMARY KEY,
+                session_json   TEXT NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_collaboration_sessions_updated ON collaboration_sessions(updated_at DESC);
             ",
         )?;
         // FTS5 virtual table for context archive full-text search.
@@ -1492,7 +2430,7 @@ impl HistoryStore {
 
     /// Verify the hash-chain integrity of all WORM telemetry ledger files.
     pub fn verify_worm_integrity(&self) -> Result<Vec<WormIntegrityResult>> {
-        let ledger_kinds = ["operational", "cognitive", "contextual"];
+        let ledger_kinds = ["operational", "cognitive", "contextual", "provenance"];
         let mut results = Vec::with_capacity(ledger_kinds.len());
 
         for kind in &ledger_kinds {
@@ -1503,10 +2441,35 @@ impl HistoryStore {
         Ok(results)
     }
 
+    fn skills_root(&self) -> PathBuf {
+        self.skill_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.skill_dir.clone())
+    }
+
     fn open_connection(&self) -> Result<Connection> {
         let connection = Connection::open(&self.db_path)?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
         Ok(connection)
+    }
+
+    fn provenance_signing_key(&self) -> Result<String> {
+        let path = self
+            .telemetry_dir
+            .parent()
+            .unwrap_or(&self.telemetry_dir)
+            .join("provenance-signing.key");
+        if path.exists() {
+            return Ok(std::fs::read_to_string(&path)?.trim().to_string());
+        }
+        let key = format!(
+            "tamux-prov-{}-{}",
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4()
+        );
+        std::fs::write(&path, &key)?;
+        Ok(key)
     }
 
     fn refresh_thread_stats(&self, connection: &Connection, thread_id: &str) -> Result<()> {
@@ -1568,6 +2531,290 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn record_memory_provenance(&self, record: &MemoryProvenanceRecord<'_>) -> Result<()> {
+        let connection = self.open_connection()?;
+        let fact_keys_json = serde_json::to_string(record.fact_keys)?;
+        connection.execute(
+            "INSERT OR REPLACE INTO memory_provenance \
+             (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                record.id,
+                record.target,
+                record.mode,
+                record.source_kind,
+                record.content,
+                fact_keys_json,
+                record.thread_id,
+                record.task_id,
+                record.goal_run_id,
+                record.created_at as i64,
+            ],
+        )?;
+        self.append_telemetry(
+            "cognitive",
+            json!({
+                "timestamp": record.created_at as i64,
+                "kind": "memory_write",
+                "target": record.target,
+                "mode": record.mode,
+                "source_kind": record.source_kind,
+                "thread_id": record.thread_id,
+                "task_id": record.task_id,
+                "goal_run_id": record.goal_run_id,
+                "fact_keys": record.fact_keys,
+            }),
+        )?;
+        Ok(())
+    }
+
+    pub fn memory_provenance_report(
+        &self,
+        target: Option<&str>,
+        limit: usize,
+    ) -> Result<MemoryProvenanceReport> {
+        let connection = self.open_connection()?;
+        let limit = limit.clamp(1, 200);
+        let normalized_target = target
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        let mut entries = Vec::new();
+        let mut summary_by_target = BTreeMap::new();
+        let mut summary_by_source = BTreeMap::new();
+        let mut summary_by_status = BTreeMap::new();
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        match normalized_target.as_deref() {
+            Some(target) => {
+                let mut stmt = connection.prepare(
+                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at \
+                     FROM memory_provenance WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![target, limit as i64], |row| {
+                    Ok(memory_provenance_entry_from_row(row, now_ms))
+                })?;
+                for row in rows {
+                    let entry = row?;
+                    *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
+                    *summary_by_source
+                        .entry(entry.source_kind.clone())
+                        .or_insert(0) += 1;
+                    *summary_by_status.entry(entry.status.clone()).or_insert(0) += 1;
+                    entries.push(entry);
+                }
+            }
+            None => {
+                let mut stmt = connection.prepare(
+                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at \
+                     FROM memory_provenance ORDER BY created_at DESC LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit as i64], |row| {
+                    Ok(memory_provenance_entry_from_row(row, now_ms))
+                })?;
+                for row in rows {
+                    let entry = row?;
+                    *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
+                    *summary_by_source
+                        .entry(entry.source_kind.clone())
+                        .or_insert(0) += 1;
+                    *summary_by_status.entry(entry.status.clone()).or_insert(0) += 1;
+                    entries.push(entry);
+                }
+            }
+        }
+
+        Ok(MemoryProvenanceReport {
+            total_entries: entries.len(),
+            target_filter: normalized_target,
+            summary_by_target,
+            summary_by_source,
+            summary_by_status,
+            entries,
+        })
+    }
+
+    pub fn record_provenance_event(&self, record: &ProvenanceEventRecord<'_>) -> Result<()> {
+        let telemetry_path = self.telemetry_dir.join("provenance.jsonl");
+        let previous_entry = read_last_provenance_entry(&telemetry_path);
+        let sequence = previous_entry
+            .as_ref()
+            .map(|entry| entry.sequence.saturating_add(1))
+            .unwrap_or(0);
+        let prev_hash = previous_entry
+            .as_ref()
+            .map(|entry| entry.entry_hash.clone())
+            .unwrap_or_else(|| "genesis".to_string());
+        let entry_hash = compute_provenance_hash(
+            sequence,
+            record.created_at,
+            record.event_type,
+            record.summary,
+            record.details,
+            &prev_hash,
+            record.agent_id,
+            record.goal_run_id,
+            record.task_id,
+            record.thread_id,
+            record.approval_id,
+            record.causal_trace_id,
+            record.compliance_mode,
+        );
+        let signature = if record.sign {
+            Some(sign_provenance_hash(
+                &self.provenance_signing_key()?,
+                &entry_hash,
+            ))
+        } else {
+            None
+        };
+        let entry = ProvenanceLogEntry {
+            sequence,
+            timestamp: record.created_at,
+            event_type: record.event_type.to_string(),
+            summary: record.summary.to_string(),
+            details: record.details.clone(),
+            prev_hash,
+            entry_hash,
+            signature,
+            agent_id: record.agent_id.to_string(),
+            goal_run_id: record.goal_run_id.map(str::to_string),
+            task_id: record.task_id.map(str::to_string),
+            thread_id: record.thread_id.map(str::to_string),
+            approval_id: record.approval_id.map(str::to_string),
+            causal_trace_id: record.causal_trace_id.map(str::to_string),
+            compliance_mode: record.compliance_mode.to_string(),
+        };
+
+        self.append_telemetry("provenance", serde_json::to_value(entry)?)?;
+        Ok(())
+    }
+
+    pub fn provenance_report(&self, limit: usize) -> Result<ProvenanceReport> {
+        let entries = read_provenance_entries(&self.telemetry_dir.join("provenance.jsonl"))?;
+        let signing_key = self.provenance_signing_key().ok();
+        let mut summary_by_event = BTreeMap::new();
+        let mut valid_hash_entries = 0usize;
+        let mut valid_signature_entries = 0usize;
+        let mut valid_chain_entries = 0usize;
+        let mut signed_entries = 0usize;
+        let mut previous_hash = "genesis".to_string();
+        let mut report_entries = Vec::new();
+
+        for entry in entries.iter() {
+            let expected_hash = compute_provenance_hash(
+                entry.sequence,
+                entry.timestamp,
+                &entry.event_type,
+                &entry.summary,
+                &entry.details,
+                &entry.prev_hash,
+                &entry.agent_id,
+                entry.goal_run_id.as_deref(),
+                entry.task_id.as_deref(),
+                entry.thread_id.as_deref(),
+                entry.approval_id.as_deref(),
+                entry.causal_trace_id.as_deref(),
+                &entry.compliance_mode,
+            );
+            let hash_valid = entry.entry_hash == expected_hash;
+            let chain_valid = entry.prev_hash == previous_hash;
+            let signature_valid = match (&entry.signature, signing_key.as_deref()) {
+                (Some(signature), Some(key)) => {
+                    signed_entries += 1;
+                    *signature == sign_provenance_hash(key, &entry.entry_hash)
+                }
+                (Some(_), None) => {
+                    signed_entries += 1;
+                    false
+                }
+                (None, _) => true,
+            };
+            if hash_valid {
+                valid_hash_entries += 1;
+            }
+            if chain_valid {
+                valid_chain_entries += 1;
+            }
+            if signature_valid {
+                valid_signature_entries += 1;
+            }
+            *summary_by_event
+                .entry(entry.event_type.clone())
+                .or_insert(0) += 1;
+            report_entries.push(ProvenanceReportEntry {
+                sequence: entry.sequence,
+                timestamp: entry.timestamp,
+                event_type: entry.event_type.clone(),
+                summary: entry.summary.clone(),
+                agent_id: entry.agent_id.clone(),
+                goal_run_id: entry.goal_run_id.clone(),
+                task_id: entry.task_id.clone(),
+                thread_id: entry.thread_id.clone(),
+                approval_id: entry.approval_id.clone(),
+                causal_trace_id: entry.causal_trace_id.clone(),
+                compliance_mode: entry.compliance_mode.clone(),
+                hash_valid,
+                signature_valid,
+                chain_valid,
+            });
+            previous_hash = entry.entry_hash.clone();
+        }
+
+        report_entries.reverse();
+        report_entries.truncate(limit.clamp(1, 500));
+
+        Ok(ProvenanceReport {
+            total_entries: entries.len(),
+            signed_entries,
+            valid_hash_entries,
+            valid_signature_entries,
+            valid_chain_entries,
+            summary_by_event,
+            entries: report_entries,
+        })
+    }
+
+    pub fn generate_soc2_artifact(&self, period_days: u32) -> Result<PathBuf> {
+        let entries = read_provenance_entries(&self.telemetry_dir.join("provenance.jsonl"))?;
+        let cutoff = now_ts()
+            .saturating_sub((period_days as u64).saturating_mul(86_400))
+            .saturating_mul(1000);
+        let recent = entries
+            .into_iter()
+            .filter(|entry| entry.timestamp >= cutoff)
+            .collect::<Vec<_>>();
+        let integrity = self.verify_worm_integrity()?;
+        let artifact = json!({
+            "generated_at": now_ts() * 1000,
+            "period_days": period_days,
+            "change_management": recent.iter().filter(|entry| matches!(entry.event_type.as_str(), "goal_created" | "plan_generated" | "step_started" | "step_completed" | "step_failed" | "replan_triggered" | "recovery_triggered" | "tool_call")).collect::<Vec<_>>(),
+            "system_access": recent.iter().filter(|entry| matches!(entry.event_type.as_str(), "approval_requested" | "approval_granted" | "approval_denied" | "escalation_triggered")).collect::<Vec<_>>(),
+            "data_integrity": integrity.iter().map(|item| json!({
+                "kind": item.kind,
+                "valid": item.valid,
+                "total_entries": item.total_entries,
+                "message": item.message,
+            })).collect::<Vec<_>>(),
+            "incident_log": recent.iter().filter(|entry| matches!(entry.event_type.as_str(), "step_failed" | "recovery_triggered" | "escalation_triggered")).collect::<Vec<_>>(),
+        });
+
+        let audit_dir = self
+            .telemetry_dir
+            .parent()
+            .unwrap_or(&self.telemetry_dir)
+            .join("audit")
+            .join("soc2");
+        std::fs::create_dir_all(&audit_dir)?;
+        let path = audit_dir.join(format!("soc2-artifact-{}.json", now_ts()));
+        std::fs::write(&path, serde_json::to_string_pretty(&artifact)?)?;
+        Ok(path)
     }
 
     pub fn get_subagent_metrics(&self, task_id: &str) -> Result<Option<SubagentMetrics>> {
@@ -1676,8 +2923,10 @@ impl HistoryStore {
             "DELETE FROM agent_checkpoints WHERE id IN ({})",
             placeholders.join(", ")
         );
-        let params: Vec<&dyn rusqlite::types::ToSql> =
-            ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let params: Vec<&dyn rusqlite::types::ToSql> = ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
         let deleted = connection.execute(&sql, params.as_slice())?;
         Ok(deleted)
     }
@@ -1702,7 +2951,20 @@ impl HistoryStore {
         Ok(())
     }
 
-    pub fn list_health_log(&self, limit: u32) -> Result<Vec<(String, String, String, String, Option<String>, Option<String>, u64)>> {
+    pub fn list_health_log(
+        &self,
+        limit: u32,
+    ) -> Result<
+        Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            u64,
+        )>,
+    > {
         let connection = self.open_connection()?;
         let mut stmt = connection.prepare(
             "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at FROM agent_health_log ORDER BY created_at DESC LIMIT ?1",
@@ -1718,7 +2980,8 @@ impl HistoryStore {
                 row.get::<_, i64>(6)? as u64,
             ))
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     // -- Context archive --
@@ -1744,7 +3007,12 @@ impl HistoryStore {
         Ok(())
     }
 
-    pub fn search_context_archive(&self, thread_id: &str, query: &str, limit: u32) -> Result<Vec<String>> {
+    pub fn search_context_archive(
+        &self,
+        thread_id: &str,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<String>> {
         let connection = self.open_connection()?;
         // Try FTS5 first, fall back to LIKE search
         let fts_result: Result<Vec<String>> = (|| {
@@ -1752,7 +3020,8 @@ impl HistoryStore {
                 "SELECT ca.id FROM context_archive ca JOIN context_archive_fts fts ON ca.rowid = fts.rowid WHERE ca.thread_id = ?1 AND context_archive_fts MATCH ?2 ORDER BY rank LIMIT ?3",
             )?;
             let rows = stmt.query_map(params![thread_id, query, limit], |row| row.get(0))?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(Into::into)
         })();
 
         match fts_result {
@@ -1763,8 +3032,10 @@ impl HistoryStore {
                 let mut stmt = connection.prepare(
                     "SELECT id FROM context_archive WHERE thread_id = ?1 AND (compressed_content LIKE ?2 OR summary LIKE ?2) ORDER BY archived_at DESC LIMIT ?3",
                 )?;
-                let rows = stmt.query_map(params![thread_id, like_pattern, limit], |row| row.get(0))?;
-                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+                let rows =
+                    stmt.query_map(params![thread_id, like_pattern, limit], |row| row.get(0))?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             }
         }
     }
@@ -1793,22 +3064,138 @@ impl HistoryStore {
         Ok(())
     }
 
-    pub fn list_execution_traces(&self, task_type: Option<&str>, limit: u32) -> Result<Vec<String>> {
+    pub fn list_execution_traces(
+        &self,
+        task_type: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<String>> {
         let connection = self.open_connection()?;
         if let Some(task_type) = task_type {
             let mut stmt = connection.prepare(
                 "SELECT metrics_json FROM execution_traces WHERE task_type = ?1 ORDER BY created_at DESC LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![task_type, limit], |row| row.get(0))?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(Into::into)
         } else {
             let mut stmt = connection.prepare(
                 "SELECT metrics_json FROM execution_traces ORDER BY created_at DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![limit], |row| row.get(0))?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(Into::into)
         }
     }
+
+    pub fn insert_causal_trace(
+        &self,
+        id: &str,
+        thread_id: Option<&str>,
+        goal_run_id: Option<&str>,
+        task_id: Option<&str>,
+        decision_type: &str,
+        selected_json: &str,
+        rejected_options_json: &str,
+        context_hash: &str,
+        causal_factors_json: &str,
+        outcome_json: &str,
+        model_used: Option<&str>,
+        created_at: u64,
+    ) -> Result<()> {
+        let connection = self.open_connection()?;
+        connection.execute(
+            "INSERT OR REPLACE INTO causal_traces (id, thread_id, goal_run_id, task_id, decision_type, selected_json, rejected_options_json, context_hash, causal_factors_json, outcome_json, model_used, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                id,
+                thread_id,
+                goal_run_id,
+                task_id,
+                decision_type,
+                selected_json,
+                rejected_options_json,
+                context_hash,
+                causal_factors_json,
+                outcome_json,
+                model_used,
+                created_at as i64
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_causal_traces_for_option(
+        &self,
+        option_type: &str,
+        limit: u32,
+    ) -> Result<Vec<String>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT outcome_json
+             FROM causal_traces
+             WHERE json_extract(selected_json, '$.option_type') = ?1
+             ORDER BY created_at DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![option_type, limit], |row| row.get(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn list_recent_causal_trace_records(
+        &self,
+        option_type: &str,
+        limit: u32,
+    ) -> Result<Vec<CausalTraceRecord>> {
+        let connection = self.open_connection()?;
+        let mut stmt = connection.prepare(
+            "SELECT selected_json, causal_factors_json, outcome_json, created_at
+             FROM causal_traces
+             WHERE json_extract(selected_json, '$.option_type') = ?1
+             ORDER BY created_at DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![option_type, limit], |row| {
+            Ok(CausalTraceRecord {
+                selected_json: row.get(0)?,
+                causal_factors_json: row.get(1)?,
+                outcome_json: row.get(2)?,
+                created_at: row.get::<_, i64>(3)? as u64,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub fn settle_skill_selection_causal_traces(
+        &self,
+        thread_id: Option<&str>,
+        task_id: Option<&str>,
+        goal_run_id: Option<&str>,
+        outcome_json: &str,
+    ) -> Result<usize> {
+        let connection = self.open_connection()?;
+        let updated = connection.execute(
+            "UPDATE causal_traces
+             SET outcome_json = ?4
+             WHERE decision_type = 'skill_selection'
+               AND json_extract(outcome_json, '$.type') = 'unresolved'
+               AND (
+                    (?1 IS NOT NULL AND task_id = ?1) OR
+                    (?2 IS NOT NULL AND goal_run_id = ?2) OR
+                    (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3)
+               )",
+            params![task_id, goal_run_id, thread_id, outcome_json],
+        )?;
+        Ok(updated)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CausalTraceRecord {
+    pub selected_json: String,
+    pub causal_factors_json: String,
+    pub outcome_json: String,
+    pub created_at: u64,
 }
 
 fn map_command_log_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<CommandLogEntry> {
@@ -2043,6 +3430,85 @@ fn append_line(path: &PathBuf, line: &str) -> Result<()> {
     Ok(())
 }
 
+fn memory_provenance_entry_from_row(
+    row: &rusqlite::Row<'_>,
+    now_ms: u64,
+) -> MemoryProvenanceReportEntry {
+    let created_at = row.get::<_, i64>(9).unwrap_or_default().max(0) as u64;
+    let fact_keys_json: String = row.get(5).unwrap_or_else(|_| "[]".to_string());
+    let fact_keys = serde_json::from_str::<Vec<String>>(&fact_keys_json).unwrap_or_default();
+    let age_days = now_ms.saturating_sub(created_at) as f64 / 86_400_000.0;
+    let confidence = memory_provenance_confidence(age_days);
+    let mode: String = row.get(2).unwrap_or_default();
+    let status = if mode == "remove" {
+        "retracted"
+    } else if confidence < 0.55 {
+        "uncertain"
+    } else {
+        "active"
+    };
+
+    MemoryProvenanceReportEntry {
+        id: row.get(0).unwrap_or_default(),
+        target: row.get(1).unwrap_or_default(),
+        mode,
+        source_kind: row.get(3).unwrap_or_default(),
+        content: row.get(4).unwrap_or_default(),
+        fact_keys,
+        thread_id: row.get(6).ok(),
+        task_id: row.get(7).ok(),
+        goal_run_id: row.get(8).ok(),
+        created_at,
+        age_days,
+        confidence,
+        status: status.to_string(),
+    }
+}
+
+fn memory_provenance_confidence(age_days: f64) -> f64 {
+    let raw = 1.0 - (age_days * 0.02);
+    raw.clamp(0.15, 1.0)
+}
+
+fn compute_provenance_hash(
+    sequence: u64,
+    timestamp: u64,
+    event_type: &str,
+    summary: &str,
+    details: &serde_json::Value,
+    prev_hash: &str,
+    agent_id: &str,
+    goal_run_id: Option<&str>,
+    task_id: Option<&str>,
+    thread_id: Option<&str>,
+    approval_id: Option<&str>,
+    causal_trace_id: Option<&str>,
+    compliance_mode: &str,
+) -> String {
+    hex_hash(
+        &serde_json::json!({
+            "sequence": sequence,
+            "timestamp": timestamp,
+            "event_type": event_type,
+            "summary": summary,
+            "details": details,
+            "prev_hash": prev_hash,
+            "agent_id": agent_id,
+            "goal_run_id": goal_run_id,
+            "task_id": task_id,
+            "thread_id": thread_id,
+            "approval_id": approval_id,
+            "causal_trace_id": causal_trace_id,
+            "compliance_mode": compliance_mode,
+        })
+        .to_string(),
+    )
+}
+
+fn sign_provenance_hash(key: &str, entry_hash: &str) -> String {
+    hex_hash(&format!("{key}:{entry_hash}"))
+}
+
 fn hex_hash(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
@@ -2088,6 +3554,31 @@ fn read_last_worm_entry(path: &PathBuf) -> (String, usize) {
             }
         }
     }
+}
+
+fn read_last_provenance_entry(path: &PathBuf) -> Option<ProvenanceLogEntry> {
+    read_provenance_entries(path).ok()?.into_iter().last()
+}
+
+fn read_provenance_entries(path: &PathBuf) -> Result<Vec<ProvenanceLogEntry>> {
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let reader = std::io::BufReader::new(file);
+    let mut entries = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<ProvenanceLogEntry>(trimmed) {
+            entries.push(entry);
+        }
+    }
+    Ok(entries)
 }
 
 /// Verify an individual WORM ledger file's hash-chain integrity.
@@ -2258,6 +3749,405 @@ fn now_ts() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[derive(Debug)]
+struct DerivedSkillMetadata {
+    skill_name: String,
+    variant_name: String,
+    context_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct BranchCandidate {
+    source_variant_id: String,
+    source_relative_path: String,
+    branch_tags: Vec<String>,
+    success_count: u32,
+}
+
+fn derive_skill_metadata(relative_path: &str, content: &str) -> DerivedSkillMetadata {
+    let normalized_path = relative_path.replace('\\', "/");
+    let path = Path::new(&normalized_path);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let file_name_is_skill = file_name.eq_ignore_ascii_case("skill.md");
+    let base_skill_name = if file_name_is_skill {
+        path.parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|value| value.to_str())
+            .unwrap_or(stem)
+            .to_string()
+    } else {
+        stem.to_string()
+    };
+    let mut skill_name = base_skill_name.clone();
+    let mut variant_name = "canonical".to_string();
+
+    if let Some((name, variant)) = base_skill_name.split_once("--") {
+        if !name.trim().is_empty() && !variant.trim().is_empty() {
+            skill_name = name.to_string();
+            variant_name = normalize_skill_lookup(variant);
+        }
+    } else if !file_name_is_skill && normalized_path.contains("/generated/") {
+        variant_name = "canonical".to_string();
+    }
+
+    let skill_name = normalize_skill_lookup(&skill_name);
+    let mut tags = BTreeSet::new();
+    infer_skill_tags(&normalized_path, &content.to_ascii_lowercase(), &mut tags);
+
+    DerivedSkillMetadata {
+        skill_name: if skill_name.is_empty() {
+            "skill".to_string()
+        } else {
+            skill_name
+        },
+        variant_name,
+        context_tags: tags.into_iter().collect(),
+    }
+}
+
+fn infer_skill_tags(path: &str, content: &str, out: &mut BTreeSet<String>) {
+    let haystack = format!("{path}\n{}", &content[..content.len().min(4000)]);
+    for (needle, tag) in [
+        ("rust", "rust"),
+        ("cargo", "rust"),
+        ("crate", "rust"),
+        ("tokio", "async"),
+        ("async-std", "async"),
+        ("async ", "async"),
+        ("wasm", "wasm32"),
+        ("wasm32", "wasm32"),
+        ("typescript", "typescript"),
+        ("javascript", "javascript"),
+        ("node", "node"),
+        ("npm", "node"),
+        ("react", "frontend"),
+        ("frontend", "frontend"),
+        ("electron", "desktop"),
+        ("tauri", "desktop"),
+        ("terminal", "terminal"),
+        ("tui", "terminal"),
+        ("docker", "docker"),
+        ("kubernetes", "kubernetes"),
+        ("k8s", "kubernetes"),
+        ("terraform", "terraform"),
+        ("postgres", "database"),
+        ("sqlx", "database"),
+        ("diesel", "database"),
+        ("database", "database"),
+        ("slack", "messaging"),
+        ("discord", "messaging"),
+        ("telegram", "messaging"),
+        ("python", "python"),
+    ] {
+        if haystack.contains(needle) {
+            out.insert(tag.to_string());
+        }
+    }
+}
+
+fn extract_markdown_title(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("# "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn normalize_skill_lookup(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('/')
+        .trim_end_matches(".md")
+        .trim_end_matches("/skill")
+        .trim_end_matches("/SKILL")
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else if matches!(ch, '/' | '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn skill_variant_matches(record: &SkillVariantRecord, normalized: &str) -> bool {
+    let relative = record.relative_path.to_ascii_lowercase();
+    let skill_name = record.skill_name.to_ascii_lowercase();
+    let variant_name = record.variant_name.to_ascii_lowercase();
+    let stem = Path::new(&relative)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    skill_name == normalized
+        || stem == normalized
+        || relative == normalized
+        || relative.ends_with(&format!("/{normalized}.md"))
+        || format!("{skill_name}--{variant_name}") == normalized
+        || relative.contains(normalized)
+}
+
+fn compare_skill_variants(
+    left: &SkillVariantRecord,
+    right: &SkillVariantRecord,
+    context_tags: &[String],
+) -> std::cmp::Ordering {
+    let left_overlap = skill_context_overlap(left, context_tags);
+    let right_overlap = skill_context_overlap(right, context_tags);
+    let left_status_rank = skill_status_rank(&left.status);
+    let right_status_rank = skill_status_rank(&right.status);
+
+    right_overlap
+        .cmp(&left_overlap)
+        .then_with(|| right_status_rank.cmp(&left_status_rank))
+        .then_with(|| {
+            right
+                .success_rate()
+                .partial_cmp(&left.success_rate())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| right.use_count.cmp(&left.use_count))
+        .then_with(|| right.is_canonical().cmp(&left.is_canonical()))
+        .then_with(|| right.updated_at.cmp(&left.updated_at))
+        .then_with(|| left.relative_path.cmp(&right.relative_path))
+}
+
+fn skill_status_rank(status: &str) -> u8 {
+    match status {
+        "promoted-to-canonical" => 4,
+        "active" => 3,
+        "deprecated" => 2,
+        "archived" => 1,
+        "merged" => 0,
+        _ => 0,
+    }
+}
+
+fn skill_variant_covers_branch_tags(variant: &SkillVariantRecord, branch_tags: &[String]) -> bool {
+    branch_tags.iter().all(|tag| {
+        variant
+            .context_tags
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(tag))
+    })
+}
+
+fn rebalance_skill_variant_status<'a>(
+    variant: &'a SkillVariantRecord,
+    promoted_variant_id: Option<&str>,
+    now: u64,
+) -> &'a str {
+    if variant.status == "merged" {
+        return "merged";
+    }
+    if !variant.is_canonical() {
+        let idle_secs = variant
+            .last_used_at
+            .map(|value| now.saturating_sub(value))
+            .unwrap_or_else(|| now.saturating_sub(variant.created_at));
+        let is_stale =
+            variant.use_count >= SKILL_ARCHIVE_MIN_USES && idle_secs >= SKILL_ARCHIVE_MAX_IDLE_SECS;
+        let is_low_value = variant.use_count >= SKILL_ARCHIVE_MIN_USES
+            && variant.success_rate() < SKILL_ARCHIVE_SUCCESS_RATE_THRESHOLD;
+        if is_stale || is_low_value {
+            return "archived";
+        }
+    }
+
+    if Some(variant.variant_id.as_str()) == promoted_variant_id {
+        "promoted-to-canonical"
+    } else if variant.is_canonical() && promoted_variant_id.is_some() {
+        "deprecated"
+    } else {
+        "active"
+    }
+}
+
+fn skill_context_overlap(record: &SkillVariantRecord, context_tags: &[String]) -> usize {
+    if context_tags.is_empty() {
+        return 0;
+    }
+    let tags = record
+        .context_tags
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    context_tags
+        .iter()
+        .filter(|tag| tags.contains(&tag.to_ascii_lowercase()))
+        .count()
+}
+
+fn skill_content_similarity(left: &str, right: &str) -> f64 {
+    let left_tokens = tokenize_skill_similarity(left);
+    let right_tokens = tokenize_skill_similarity(right);
+    if left_tokens.is_empty() || right_tokens.is_empty() {
+        return 0.0;
+    }
+    let overlap = left_tokens.intersection(&right_tokens).count() as f64;
+    let union = left_tokens.union(&right_tokens).count() as f64;
+    if union == 0.0 {
+        0.0
+    } else {
+        overlap / union
+    }
+}
+
+fn tokenize_skill_similarity(content: &str) -> BTreeSet<String> {
+    content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.starts_with("> Auto-branched from")
+                && !trimmed.starts_with("## Learned Variant Contexts")
+                && !trimmed.starts_with("- Merged ")
+        })
+        .flat_map(|line| {
+            line.split(|ch: char| !ch.is_ascii_alphanumeric() && !matches!(ch, '-' | '_'))
+                .map(str::trim)
+                .filter(|token| token.len() >= 3)
+                .map(|token| token.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn skill_merge_note(variant: &SkillVariantRecord, similarity: f64) -> String {
+    format!(
+        "- Merged `{}` back into canonical after {} uses, {:.0}% success, {:.0}% content overlap. Use when context includes: {}.",
+        variant.variant_name,
+        variant.use_count,
+        variant.success_rate() * 100.0,
+        similarity * 100.0,
+        if variant.context_tags.is_empty() {
+            "the learned variant context".to_string()
+        } else {
+            variant.context_tags.join(", ")
+        }
+    )
+}
+
+fn append_skill_merge_notes(canonical_content: &str, notes: &[String]) -> String {
+    if notes.is_empty() {
+        return canonical_content.to_string();
+    }
+    let mut next = canonical_content.trim_end().to_string();
+    if !next.contains("## Learned Variant Contexts") {
+        next.push_str("\n\n## Learned Variant Contexts\n");
+    }
+    for note in notes {
+        if !next.contains(note) {
+            next.push('\n');
+            next.push_str(note);
+        }
+    }
+    next.push('\n');
+    next
+}
+
+fn skill_merge_section(
+    variant: &SkillVariantRecord,
+    variant_content: &str,
+    similarity: f64,
+) -> String {
+    let body = extract_mergeable_variant_body(variant_content);
+    format!(
+        "### Variant `{}`\n\nSuccess rate: {:.0}% across {} uses with {:.0}% overlap to canonical.\n\n{}\n",
+        variant.variant_name,
+        variant.success_rate() * 100.0,
+        variant.use_count,
+        similarity * 100.0,
+        if body.is_empty() {
+            format!(
+                "Use when context includes: {}.",
+                if variant.context_tags.is_empty() {
+                    "the learned variant context".to_string()
+                } else {
+                    variant.context_tags.join(", ")
+                }
+            )
+        } else {
+            body
+        }
+    )
+}
+
+fn extract_mergeable_variant_body(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            !trimmed.starts_with("# ") && !trimmed.starts_with("> Auto-branched from")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn append_skill_merge_sections(canonical_content: &str, sections: &[String]) -> String {
+    if sections.is_empty() {
+        return canonical_content.to_string();
+    }
+    let mut next = canonical_content.trim_end().to_string();
+    if !next.contains("## Merged Variant Playbooks") {
+        next.push_str("\n\n## Merged Variant Playbooks\n");
+    }
+    for section in sections {
+        let marker = section
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !marker.is_empty() && next.contains(&marker) {
+            continue;
+        }
+        next.push('\n');
+        next.push_str(section.trim());
+        next.push('\n');
+    }
+    next
+}
+
+fn map_skill_variant_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SkillVariantRecord> {
+    let context_tags_json: String = row.get(6)?;
+    let context_tags =
+        serde_json::from_str::<Vec<String>>(&context_tags_json).unwrap_or_else(|_| Vec::new());
+    Ok(SkillVariantRecord {
+        variant_id: row.get(0)?,
+        skill_name: row.get(1)?,
+        variant_name: row.get(2)?,
+        relative_path: row.get(3)?,
+        parent_variant_id: row.get(4)?,
+        version: row.get(5)?,
+        context_tags,
+        use_count: row.get::<_, i64>(7)? as u32,
+        success_count: row.get::<_, i64>(8)? as u32,
+        failure_count: row.get::<_, i64>(9)? as u32,
+        status: row.get(10)?,
+        last_used_at: row.get::<_, Option<i64>>(11)?.map(|value| value as u64),
+        created_at: row.get::<_, i64>(12)? as u64,
+        updated_at: row.get::<_, i64>(13)? as u64,
+    })
 }
 
 fn ensure_column(
@@ -2449,6 +4339,431 @@ mod tests {
         assert_eq!(loaded.events[0].step_index, Some(0));
         assert_eq!(loaded.events[0].todo_snapshot.len(), 1);
         assert_eq!(loaded.events[0].todo_snapshot[0].content, "Inspect state");
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn memory_provenance_write_round_trips() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+
+        let fact_keys = vec!["shell".to_string(), "editor".to_string()];
+        store.record_memory_provenance(&MemoryProvenanceRecord {
+            id: "mem-1",
+            target: "USER.md",
+            mode: "append",
+            source_kind: "tool",
+            content: "- shell: bash",
+            fact_keys: &fact_keys,
+            thread_id: Some("thread-1"),
+            task_id: Some("task-1"),
+            goal_run_id: None,
+            created_at: 42,
+        })?;
+
+        let connection = Connection::open(&store.db_path)?;
+        let row: (String, String, String, String, String) = connection.query_row(
+            "SELECT target, mode, source_kind, content, fact_keys_json FROM memory_provenance WHERE id = 'mem-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )?;
+        assert_eq!(row.0, "USER.md");
+        assert_eq!(row.1, "append");
+        assert_eq!(row.2, "tool");
+        assert_eq!(row.3, "- shell: bash");
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&row.4)?,
+            vec!["shell".to_string(), "editor".to_string()]
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn memory_provenance_report_marks_old_entries_uncertain() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let recent_keys = vec!["shell".to_string()];
+        let old_keys = vec!["editor".to_string()];
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        store.record_memory_provenance(&MemoryProvenanceRecord {
+            id: "recent",
+            target: "USER.md",
+            mode: "append",
+            source_kind: "tool",
+            content: "- shell: bash",
+            fact_keys: &recent_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: now_ms,
+        })?;
+        store.record_memory_provenance(&MemoryProvenanceRecord {
+            id: "old",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "goal_reflection",
+            content: "- editor: helix",
+            fact_keys: &old_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: now_ms.saturating_sub(40 * 86_400_000),
+        })?;
+
+        let report = store.memory_provenance_report(None, 10)?;
+        assert_eq!(report.total_entries, 2);
+        assert_eq!(report.summary_by_status.get("active").copied(), Some(1));
+        assert_eq!(report.summary_by_status.get("uncertain").copied(), Some(1));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn collaboration_session_round_trips() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        store.upsert_collaboration_session(
+            "task-parent",
+            r#"{"id":"c1","parent_task_id":"task-parent"}"#,
+            42,
+        )?;
+
+        let rows = store.list_collaboration_sessions()?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].parent_task_id, "task-parent");
+        assert_eq!(rows[0].updated_at, 42);
+        assert!(rows[0].session_json.contains("\"id\":\"c1\""));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn provenance_report_validates_hash_and_signature() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let first = serde_json::json!({"step": 1});
+        let second = serde_json::json!({"step": 2});
+        store.record_provenance_event(&ProvenanceEventRecord {
+            event_type: "goal_created",
+            summary: "goal created",
+            details: &first,
+            agent_id: "test-agent",
+            goal_run_id: Some("goal-1"),
+            task_id: None,
+            thread_id: Some("thread-1"),
+            approval_id: None,
+            causal_trace_id: None,
+            compliance_mode: "soc2",
+            sign: true,
+            created_at: 1_000,
+        })?;
+        store.record_provenance_event(&ProvenanceEventRecord {
+            event_type: "step_completed",
+            summary: "step completed",
+            details: &second,
+            agent_id: "test-agent",
+            goal_run_id: Some("goal-1"),
+            task_id: Some("task-1"),
+            thread_id: Some("thread-1"),
+            approval_id: None,
+            causal_trace_id: None,
+            compliance_mode: "soc2",
+            sign: true,
+            created_at: 2_000,
+        })?;
+
+        let report = store.provenance_report(10)?;
+        assert_eq!(report.total_entries, 2);
+        assert_eq!(report.valid_hash_entries, 2);
+        assert_eq!(report.valid_chain_entries, 2);
+        assert_eq!(report.valid_signature_entries, 2);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn register_skill_document_infers_variant_metadata() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let skill_path = root.join("skills/generated/debug-rust-stack-overflow--async-runtime.md");
+        fs::write(
+            &skill_path,
+            "# Rust async debugging\nUse tokio console for async stack inspection.\n",
+        )?;
+
+        let record = store.register_skill_document(&skill_path)?;
+
+        assert_eq!(record.skill_name, "debug-rust-stack-overflow");
+        assert_eq!(record.variant_name, "async-runtime");
+        assert!(record.context_tags.iter().any(|tag| tag == "rust"));
+        assert!(record.context_tags.iter().any(|tag| tag == "async"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let canonical = root.join("skills/generated/build-pipeline.md");
+        let frontend = root.join("skills/generated/build-pipeline--frontend.md");
+        fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+        fs::write(
+            &frontend,
+            "# Frontend build pipeline\nUse react build checks.\n",
+        )?;
+
+        let canonical_record = store.register_skill_document(&canonical)?;
+        let frontend_record = store.register_skill_document(&frontend)?;
+        let resolved = store
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .expect("variant should resolve");
+        assert_eq!(resolved.variant_id, frontend_record.variant_id);
+
+        store.record_skill_variant_use(&frontend_record.variant_id, Some(true))?;
+        let refreshed = store
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .expect("variant should still resolve");
+        assert_eq!(refreshed.use_count, 1);
+        assert_eq!(refreshed.success_count, 1);
+        assert_eq!(canonical_record.use_count, 0);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn skill_variant_consultation_settlement_updates_outcomes_once() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let frontend = root.join("skills/generated/build-pipeline--frontend.md");
+        fs::write(
+            &frontend,
+            "# Frontend build pipeline\nUse react build checks.\n",
+        )?;
+
+        let frontend_record = store.register_skill_document(&frontend)?;
+        let tags = vec!["frontend".to_string()];
+        store.record_skill_variant_consultation(&SkillVariantConsultationRecord {
+            usage_id: "usage-1",
+            variant_id: &frontend_record.variant_id,
+            thread_id: Some("thread-1"),
+            task_id: Some("task-1"),
+            goal_run_id: Some("goal-1"),
+            context_tags: &tags,
+            consulted_at: 100,
+        })?;
+
+        let pending = store.settle_skill_variant_usage(
+            Some("thread-1"),
+            Some("task-1"),
+            Some("goal-1"),
+            "success",
+        )?;
+        assert_eq!(pending, 1);
+        assert_eq!(
+            store.settle_skill_variant_usage(
+                Some("thread-1"),
+                Some("task-1"),
+                Some("goal-1"),
+                "success",
+            )?,
+            0
+        );
+
+        let refreshed = store
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .expect("variant should resolve");
+        assert_eq!(refreshed.use_count, 1);
+        assert_eq!(refreshed.success_count, 1);
+        assert_eq!(refreshed.failure_count, 0);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rebalance_skill_variants_archives_weak_variant() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let canonical = root.join("skills/generated/build-pipeline.md");
+        let weak = root.join("skills/generated/build-pipeline--legacy.md");
+        fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+        fs::write(&weak, "# Legacy build pipeline\nOld slow workflow.\n")?;
+
+        let canonical_record = store.register_skill_document(&canonical)?;
+        let weak_record = store.register_skill_document(&weak)?;
+        let connection = Connection::open(&store.db_path)?;
+        connection.execute(
+            "UPDATE skill_variants SET use_count = 4, success_count = 0, failure_count = 4, last_used_at = ?2 WHERE variant_id = ?1",
+            params![weak_record.variant_id, now_ts() as i64],
+        )?;
+        connection.execute(
+            "UPDATE skill_variants SET use_count = 4, success_count = 3, failure_count = 1, last_used_at = ?2 WHERE variant_id = ?1",
+            params![canonical_record.variant_id, now_ts() as i64],
+        )?;
+
+        let variants = store.rebalance_skill_variants("build-pipeline")?;
+        let weak_variant = variants
+            .iter()
+            .find(|variant| variant.variant_id == weak_record.variant_id)
+            .expect("weak variant should exist");
+        let resolved = store
+            .resolve_skill_variant("build-pipeline", &["legacy".to_string()])?
+            .expect("canonical should still resolve");
+
+        assert_eq!(weak_variant.status, "archived");
+        assert_eq!(resolved.variant_id, canonical_record.variant_id);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rebalance_skill_variants_promotes_strong_variant() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let canonical = root.join("skills/generated/build-pipeline.md");
+        let frontend = root.join("skills/generated/build-pipeline--frontend.md");
+        fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+        fs::write(
+            &frontend,
+            "# Frontend build pipeline\nUse react build checks.\n",
+        )?;
+
+        let canonical_record = store.register_skill_document(&canonical)?;
+        let frontend_record = store.register_skill_document(&frontend)?;
+        let connection = Connection::open(&store.db_path)?;
+        connection.execute(
+            "UPDATE skill_variants SET use_count = 5, success_count = 2, failure_count = 3, last_used_at = ?2 WHERE variant_id = ?1",
+            params![canonical_record.variant_id, now_ts() as i64],
+        )?;
+        connection.execute(
+            "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, last_used_at = ?2 WHERE variant_id = ?1",
+            params![frontend_record.variant_id, now_ts() as i64],
+        )?;
+
+        let variants = store.rebalance_skill_variants("build-pipeline")?;
+        let promoted = variants
+            .iter()
+            .find(|variant| variant.variant_id == frontend_record.variant_id)
+            .expect("frontend variant should exist");
+        let canonical_variant = variants
+            .iter()
+            .find(|variant| variant.variant_id == canonical_record.variant_id)
+            .expect("canonical variant should exist");
+        let resolved = store
+            .resolve_skill_variant("build-pipeline", &[])?
+            .expect("promoted variant should resolve");
+
+        assert_eq!(promoted.status, "promoted-to-canonical");
+        assert_eq!(canonical_variant.status, "deprecated");
+        assert_eq!(resolved.variant_id, frontend_record.variant_id);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn successful_context_mismatch_branches_new_variant() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let canonical = root.join("skills/generated/build-pipeline.md");
+        fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+
+        let canonical_record = store.register_skill_document(&canonical)?;
+        let branch_tags = vec![
+            "rust".to_string(),
+            "frontend".to_string(),
+            "database".to_string(),
+        ];
+        for index in 0..3 {
+            let usage_id = format!("usage-{index}");
+            let task_id = format!("task-{index}");
+            store.record_skill_variant_consultation(&SkillVariantConsultationRecord {
+                usage_id: &usage_id,
+                variant_id: &canonical_record.variant_id,
+                thread_id: Some("thread-1"),
+                task_id: Some(&task_id),
+                goal_run_id: Some("goal-1"),
+                context_tags: &branch_tags,
+                consulted_at: 100 + index,
+            })?;
+            store.settle_skill_variant_usage(
+                Some("thread-1"),
+                Some(&task_id),
+                Some("goal-1"),
+                "success",
+            )?;
+        }
+
+        let variants = store.list_skill_variants(Some("build-pipeline"), 10)?;
+        let branched = variants
+            .iter()
+            .find(|variant| {
+                variant.variant_name.contains("database")
+                    && variant.variant_name.contains("frontend")
+            })
+            .expect("branched variant should exist");
+        let branched_path = root.join("skills").join(&branched.relative_path);
+
+        assert!(branched_path.exists());
+        assert!(branched.context_tags.iter().any(|tag| tag == "frontend"));
+        assert!(branched.context_tags.iter().any(|tag| tag == "database"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn stable_variant_merges_back_into_canonical() -> Result<()> {
+        let (store, root) = make_test_store()?;
+        store.init_schema()?;
+        let canonical = root.join("skills/generated/build-pipeline.md");
+        let frontend = root.join("skills/generated/build-pipeline--frontend.md");
+        fs::write(
+            &canonical,
+            "# Build pipeline\n\n## When To Use\nUse this for standard builds.\n\n## How\nRun cargo build.\n",
+        )?;
+        fs::write(
+            &frontend,
+            "# Build pipeline (frontend)\n\n> Auto-branched from `generated/build-pipeline.md` (variant `canonical`) after 4 successful consultations in contexts: frontend, rust.\n\n## When To Use\nUse this variant when the workspace context includes: frontend, rust.\n\n## How\nRun cargo build.\n",
+        )?;
+
+        let canonical_record = store.register_skill_document(&canonical)?;
+        let frontend_record = store.register_skill_document(&frontend)?;
+        let connection = Connection::open(&store.db_path)?;
+        connection.execute(
+            "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, parent_variant_id = ?2, last_used_at = ?3 WHERE variant_id = ?1",
+            params![frontend_record.variant_id, canonical_record.variant_id, now_ts() as i64],
+        )?;
+
+        let variants = store.maybe_merge_skill_variants("build-pipeline")?;
+        let merged = variants
+            .iter()
+            .find(|variant| variant.variant_id == frontend_record.variant_id)
+            .expect("frontend variant should still exist after merge");
+        let canonical_content = fs::read_to_string(&canonical)?;
+        let resolved = store
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .expect("canonical should resolve once branch is merged");
+
+        assert_eq!(merged.status, "merged");
+        assert!(canonical_content.contains("## Learned Variant Contexts"));
+        assert!(canonical_content.contains("frontend"));
+        assert_eq!(resolved.variant_id, canonical_record.variant_id);
 
         fs::remove_dir_all(root)?;
         Ok(())

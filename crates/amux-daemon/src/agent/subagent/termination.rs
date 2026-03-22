@@ -99,20 +99,14 @@ impl TerminationEvaluator {
 // Evaluator
 // ---------------------------------------------------------------------------
 
-fn evaluate(
-    cond: &TerminationCondition,
-    m: &TerminationMetrics,
-) -> (bool, Option<String>) {
+fn evaluate(cond: &TerminationCondition, m: &TerminationMetrics) -> (bool, Option<String>) {
     match cond {
         TerminationCondition::Timeout(secs) => {
             let fired = m.elapsed_secs >= *secs;
             if fired {
                 (
                     true,
-                    Some(format!(
-                        "timeout: elapsed {}s >= {secs}s",
-                        m.elapsed_secs
-                    )),
+                    Some(format!("timeout: elapsed {}s >= {secs}s", m.elapsed_secs)),
                 )
             } else {
                 (false, None)
@@ -151,10 +145,7 @@ fn evaluate(
             if fired {
                 (
                     true,
-                    Some(format!(
-                        "tool_call_count: {} >= {n}",
-                        m.tool_calls_total
-                    )),
+                    Some(format!("tool_call_count: {} >= {n}", m.tool_calls_total)),
                 )
             } else {
                 (false, None)
@@ -289,7 +280,10 @@ fn parse_atom(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition
         *pos += 1; // consume (
         let node = parse_or_expr(tokens, pos)?;
         if *pos >= tokens.len() || tokens[*pos] != ")" {
-            bail!("expected ')' but found end of input or '{}'", tokens.get(*pos).unwrap_or(&String::new()));
+            bail!(
+                "expected ')' but found end of input or '{}'",
+                tokens.get(*pos).unwrap_or(&String::new())
+            );
         }
         *pos += 1; // consume )
         return Ok(node);
@@ -491,16 +485,14 @@ mod tests {
 
     #[test]
     fn and_fires_when_both() {
-        let ev =
-            TerminationEvaluator::parse("timeout(60) AND tool_call_count(5)").unwrap();
+        let ev = TerminationEvaluator::parse("timeout(60) AND tool_call_count(5)").unwrap();
         let (stop, _) = ev.should_terminate(&metrics(60, 5, 3, 0, 0));
         assert!(stop);
     }
 
     #[test]
     fn and_does_not_fire_when_only_one() {
-        let ev =
-            TerminationEvaluator::parse("timeout(60) AND tool_call_count(5)").unwrap();
+        let ev = TerminationEvaluator::parse("timeout(60) AND tool_call_count(5)").unwrap();
         let (stop, _) = ev.should_terminate(&metrics(60, 4, 3, 0, 0));
         assert!(!stop);
     }
@@ -531,10 +523,9 @@ mod tests {
     #[test]
     fn nested_and_or() {
         // (timeout(300) AND tool_call_count(50)) OR error_count(3)
-        let ev = TerminationEvaluator::parse(
-            "(timeout(300) AND tool_call_count(50)) OR error_count(3)",
-        )
-        .unwrap();
+        let ev =
+            TerminationEvaluator::parse("(timeout(300) AND tool_call_count(50)) OR error_count(3)")
+                .unwrap();
 
         // error_count alone fires.
         let (stop, _) = ev.should_terminate(&metrics(10, 2, 2, 3, 3));
@@ -668,18 +659,14 @@ mod tests {
     #[test]
     fn large_timeout_value() {
         let ev = TerminationEvaluator::parse("timeout(999999999)").unwrap();
-        assert_eq!(
-            ev.condition(),
-            &TerminationCondition::Timeout(999_999_999)
-        );
+        assert_eq!(ev.condition(), &TerminationCondition::Timeout(999_999_999));
     }
 
     #[test]
     fn chained_or_three_conditions() {
-        let ev = TerminationEvaluator::parse(
-            "timeout(300) OR error_count(5) OR tool_call_count(100)",
-        )
-        .unwrap();
+        let ev =
+            TerminationEvaluator::parse("timeout(300) OR error_count(5) OR tool_call_count(100)")
+                .unwrap();
         // Only third fires.
         let (stop, _) = ev.should_terminate(&metrics(10, 100, 80, 2, 4));
         assert!(stop);
@@ -687,10 +674,9 @@ mod tests {
 
     #[test]
     fn chained_and_three_conditions() {
-        let ev = TerminationEvaluator::parse(
-            "timeout(60) AND error_count(1) AND tool_call_count(10)",
-        )
-        .unwrap();
+        let ev =
+            TerminationEvaluator::parse("timeout(60) AND error_count(1) AND tool_call_count(10)")
+                .unwrap();
         // All three met.
         let (stop, _) = ev.should_terminate(&metrics(60, 10, 5, 1, 1));
         assert!(stop);
@@ -702,8 +688,7 @@ mod tests {
     #[test]
     fn not_with_and() {
         // NOT (timeout(300) AND error_count(3))
-        let ev =
-            TerminationEvaluator::parse("NOT (timeout(300) AND error_count(3))").unwrap();
+        let ev = TerminationEvaluator::parse("NOT (timeout(300) AND error_count(3))").unwrap();
         // Inner is true → NOT yields false.
         let (stop, _) = ev.should_terminate(&metrics(300, 0, 0, 3, 3));
         assert!(!stop);

@@ -874,7 +874,18 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 // Always ensure we have a terminal session (provision if needed)
                 let thread = useAgentStore.getState().threads.find((t) => t.id === threadId);
                 let preferredSessionId = thread?.paneId ? resolvePaneSessionId(thread.paneId) : null;
-                if (!preferredSessionId) {
+                if (!preferredSessionId && thread?.workspaceId) {
+                    // Thread already has a workspace — provision a terminal pane
+                    // inside the existing workspace instead of creating a new one.
+                    const pane = await provisionTerminalPaneInWorkspace({
+                        workspaceId: thread.workspaceId,
+                        paneName: "Coordinator",
+                        cwd: activeWorkspace?.cwd ?? null,
+                        reusePrimaryPane: true,
+                    });
+                    preferredSessionId = pane?.sessionId ?? null;
+                } else if (!preferredSessionId) {
+                    // No workspace at all — first message, create everything.
                     const provision = await provisionAgentWorkspaceTerminals({
                         title: thread?.title || text.slice(0, 50) || "Agent Conversation",
                         cwd: activeWorkspace?.cwd ?? null,

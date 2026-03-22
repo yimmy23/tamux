@@ -174,11 +174,8 @@ mod tests {
 
     #[test]
     fn whitelist_allows_listed_tools() {
-        let filter = ToolFilter::new(
-            Some(vec!["bash_command".into(), "read_file".into()]),
-            None,
-        )
-        .unwrap();
+        let filter =
+            ToolFilter::new(Some(vec!["bash_command".into(), "read_file".into()]), None).unwrap();
         assert!(filter.is_allowed("bash_command"));
         assert!(filter.is_allowed("read_file"));
         assert!(filter.has_restrictions());
@@ -186,8 +183,7 @@ mod tests {
 
     #[test]
     fn whitelist_blocks_unlisted_tools() {
-        let filter =
-            ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
+        let filter = ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
         assert!(!filter.is_allowed("write_file"));
         assert!(!filter.is_allowed("search_files"));
     }
@@ -196,19 +192,15 @@ mod tests {
 
     #[test]
     fn blacklist_blocks_listed_tools() {
-        let filter = ToolFilter::new(
-            None,
-            Some(vec!["bash_command".into(), "write_file".into()]),
-        )
-        .unwrap();
+        let filter =
+            ToolFilter::new(None, Some(vec!["bash_command".into(), "write_file".into()])).unwrap();
         assert!(!filter.is_allowed("bash_command"));
         assert!(!filter.is_allowed("write_file"));
     }
 
     #[test]
     fn blacklist_allows_unlisted_tools() {
-        let filter =
-            ToolFilter::new(None, Some(vec!["bash_command".into()])).unwrap();
+        let filter = ToolFilter::new(None, Some(vec!["bash_command".into()])).unwrap();
         assert!(filter.is_allowed("read_file"));
         assert!(filter.is_allowed("search_files"));
     }
@@ -273,15 +265,13 @@ mod tests {
 
     #[test]
     fn deny_reason_none_for_allowed_tool() {
-        let filter =
-            ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
+        let filter = ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
         assert!(filter.deny_reason("bash_command").is_none());
     }
 
     #[test]
     fn deny_reason_whitelist_explains_missing() {
-        let filter =
-            ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
+        let filter = ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
         let reason = filter.deny_reason("write_file").unwrap();
         assert!(reason.contains("not in the whitelist"));
         assert!(reason.contains("bash_command"));
@@ -289,8 +279,7 @@ mod tests {
 
     #[test]
     fn deny_reason_blacklist_explains_blocked() {
-        let filter =
-            ToolFilter::new(None, Some(vec!["bash_command".into()])).unwrap();
+        let filter = ToolFilter::new(None, Some(vec!["bash_command".into()])).unwrap();
         let reason = filter.deny_reason("bash_command").unwrap();
         assert!(reason.contains("blacklisted"));
     }

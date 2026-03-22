@@ -39,6 +39,8 @@ pub struct IncomingMessage {
     pub sender: String,
     pub content: String,
     pub channel: String,
+    /// Platform-specific unique message ID for deduplication.
+    pub message_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -114,11 +116,17 @@ pub async fn poll_telegram(state: &mut GatewayState) -> Vec<IncomingMessage> {
                     .map(|id| id.to_string())
                     .unwrap_or_default();
 
+                let tg_msg_id = msg
+                    .get("message_id")
+                    .and_then(|v| v.as_i64())
+                    .map(|id| format!("tg:{id}"));
+
                 messages.push(IncomingMessage {
                     platform: "Telegram".into(),
                     sender,
                     content: text.into(),
                     channel: chat_id,
+                    message_id: tg_msg_id,
                 });
             }
         }
@@ -213,6 +221,11 @@ pub async fn poll_slack(state: &mut GatewayState, channels: &[String]) -> Vec<In
                     sender: user.into(),
                     content: text.into(),
                     channel: channel.clone(),
+                    message_id: if ts.is_empty() {
+                        None
+                    } else {
+                        Some(format!("slack:{channel}:{ts}"))
+                    },
                 });
             }
         }
@@ -314,11 +327,17 @@ pub async fn poll_discord(
                 continue;
             }
 
+            let discord_msg_id = msg
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|id| format!("discord:{id}"));
+
             messages.push(IncomingMessage {
                 platform: "Discord".into(),
                 sender: username.into(),
                 content: content.into(),
                 channel: channel_id.clone(),
+                message_id: discord_msg_id,
             });
         }
     }

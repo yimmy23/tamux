@@ -31,7 +31,10 @@ impl TuiModel {
         let Some(entry) = self.subagents.entries.get(self.subagents.selected).cloned() else {
             return;
         };
-        let raw = entry.raw_json.clone().unwrap_or_else(|| serde_json::json!({}));
+        let raw = entry
+            .raw_json
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
         let created_at = raw
             .get("created_at")
             .and_then(|value| value.as_u64())
@@ -100,11 +103,30 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::SetSubAgent(raw.to_string()));
 
         let optimistic = crate::state::SubAgentEntry {
-            id: raw.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-            name: raw.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-            provider: raw.get("provider").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-            model: raw.get("model").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-            role: raw.get("role").and_then(|v| v.as_str()).map(ToString::to_string),
+            id: raw
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            name: raw
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            provider: raw
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            model: raw
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            role: raw
+                .get("role")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
             enabled: raw.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
             raw_json: Some(raw),
         };
@@ -115,7 +137,9 @@ impl TuiModel {
             .any(|entry| entry.id == optimistic.id)
         {
             self.subagents
-                .reduce(crate::state::subagents::SubAgentsAction::Updated(optimistic));
+                .reduce(crate::state::subagents::SubAgentsAction::Updated(
+                    optimistic,
+                ));
             self.status_line = "Updated sub-agent".to_string();
         } else {
             self.subagents
@@ -185,10 +209,11 @@ impl TuiModel {
             self.config
                 .reduce(config::ConfigAction::ModelsFetched(models.clone()));
             if !models.iter().any(|model| model.id == self.config.model) {
-                let fallback =
-                    providers::default_model_for_provider_auth(&self.config.provider, &self.config.auth_source);
-                self.config
-                    .reduce(config::ConfigAction::SetModel(fallback));
+                let fallback = providers::default_model_for_provider_auth(
+                    &self.config.provider,
+                    &self.config.auth_source,
+                );
+                self.config.reduce(config::ConfigAction::SetModel(fallback));
             }
         }
     }
@@ -246,43 +271,44 @@ impl TuiModel {
                         self.config.model = saved_model.to_string();
                     }
                 }
-                if let Some(saved_custom_model_name) =
-                    TuiModel::provider_field_str(provider_config, "customModelName", "custom_model_name")
-                {
+                if let Some(saved_custom_model_name) = TuiModel::provider_field_str(
+                    provider_config,
+                    "customModelName",
+                    "custom_model_name",
+                ) {
                     self.config.custom_model_name = saved_custom_model_name.to_string();
                 }
                 if let Some(saved_transport) =
                     TuiModel::provider_field_str(provider_config, "apiTransport", "api_transport")
                 {
-                    self.config.api_transport = if def.supported_transports.contains(&saved_transport)
-                    {
-                        saved_transport.to_string()
-                    } else {
-                        def.default_transport.to_string()
-                    };
+                    self.config.api_transport =
+                        if def.supported_transports.contains(&saved_transport) {
+                            saved_transport.to_string()
+                        } else {
+                            def.default_transport.to_string()
+                        };
                 }
                 if let Some(saved_auth_source) =
                     TuiModel::provider_field_str(provider_config, "authSource", "auth_source")
                 {
-                    self.config.auth_source = if def.supported_auth_sources.contains(&saved_auth_source)
-                    {
-                        saved_auth_source.to_string()
-                    } else {
-                        def.default_auth_source.to_string()
-                    };
+                    self.config.auth_source =
+                        if def.supported_auth_sources.contains(&saved_auth_source) {
+                            saved_auth_source.to_string()
+                        } else {
+                            def.default_auth_source.to_string()
+                        };
                 }
                 if let Some(saved_assistant_id) =
                     TuiModel::provider_field_str(provider_config, "assistantId", "assistant_id")
                 {
                     self.config.assistant_id = saved_assistant_id.to_string();
                 }
-                self.config.custom_context_window_tokens =
-                    TuiModel::provider_field_u64(
-                        provider_config,
-                        "customContextWindowTokens",
-                        "context_window_tokens",
-                    )
-                    .map(|value| value.max(1000) as u32);
+                self.config.custom_context_window_tokens = TuiModel::provider_field_u64(
+                    provider_config,
+                    "customContextWindowTokens",
+                    "context_window_tokens",
+                )
+                .map(|value| value.max(1000) as u32);
                 self.config.context_window_tokens =
                     TuiModel::effective_context_window_for_provider_value(def.id, provider_config);
             }
@@ -294,12 +320,17 @@ impl TuiModel {
         }
 
         self.refresh_provider_models_for_current_auth();
-        if providers::known_models_for_provider_auth(&self.config.provider, &self.config.auth_source)
-            .iter()
-            .any(|model| model.id == self.config.model)
+        if providers::known_models_for_provider_auth(
+            &self.config.provider,
+            &self.config.auth_source,
+        )
+        .iter()
+        .any(|model| model.id == self.config.model)
         {
             self.config.custom_model_name.clear();
-        } else if self.config.custom_model_name.trim().is_empty() && !self.config.model.trim().is_empty() {
+        } else if self.config.custom_model_name.trim().is_empty()
+            && !self.config.model.trim().is_empty()
+        {
             self.config.custom_model_name = self.config.model.clone();
         }
         self.status_line = format!("Provider: {}", def.name);
@@ -325,8 +356,7 @@ impl TuiModel {
                                 self.status_line = "ChatGPT subscription auth cleared".to_string();
                             }
                             Err(err) => {
-                                self.status_line =
-                                    format!("Failed to clear ChatGPT auth: {err}");
+                                self.status_line = format!("Failed to clear ChatGPT auth: {err}");
                             }
                         }
                     } else {
@@ -363,10 +393,11 @@ impl TuiModel {
                         }
                     }
                 } else {
-                    self.settings.reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
-                    self.settings.start_editing("api_key", &self.config.api_key.clone());
-                    self.status_line =
-                        format!("Enter API key for {}", entry.provider_name);
+                    self.settings
+                        .reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+                    self.settings
+                        .start_editing("api_key", &self.config.api_key.clone());
+                    self.status_line = format!("Enter API key for {}", entry.provider_name);
                 }
             }
             1 => {
@@ -407,7 +438,9 @@ impl TuiModel {
                 if let Some(entry) = self.subagents.entries.get(self.subagents.selected) {
                     self.send_daemon_command(DaemonCommand::RemoveSubAgent(entry.id.clone()));
                     self.subagents
-                        .reduce(crate::state::subagents::SubAgentsAction::Removed(entry.id.clone()));
+                        .reduce(crate::state::subagents::SubAgentsAction::Removed(
+                            entry.id.clone(),
+                        ));
                 }
             }
             3 => {
@@ -520,8 +553,10 @@ impl TuiModel {
                 }
                 KeyCode::Left => {
                     if let Some(editor) = self.subagents.editor.as_ref() {
-                        if matches!(editor.field, crate::state::subagents::SubAgentEditorField::Role)
-                        {
+                        if matches!(
+                            editor.field,
+                            crate::state::subagents::SubAgentEditorField::Role
+                        ) {
                             self.cycle_subagent_role(-1);
                             return true;
                         }
@@ -530,8 +565,10 @@ impl TuiModel {
                 }
                 KeyCode::Right => {
                     if let Some(editor) = self.subagents.editor.as_ref() {
-                        if matches!(editor.field, crate::state::subagents::SubAgentEditorField::Role)
-                        {
+                        if matches!(
+                            editor.field,
+                            crate::state::subagents::SubAgentEditorField::Role
+                        ) {
                             self.cycle_subagent_role(1);
                             return true;
                         }
@@ -539,7 +576,8 @@ impl TuiModel {
                     false
                 }
                 KeyCode::Enter => {
-                    let Some(field) = self.subagents.editor.as_ref().map(|editor| editor.field) else {
+                    let Some(field) = self.subagents.editor.as_ref().map(|editor| editor.field)
+                    else {
                         return true;
                     };
                     match field {
@@ -593,91 +631,93 @@ impl TuiModel {
                 _ => false,
             }
         } else {
-        match code {
-            KeyCode::Up => {
-                self.subagents.selected = self.subagents.selected.saturating_sub(1);
-                true
-            }
-            KeyCode::Down => {
-                if self.subagents.selected + 1 < self.subagents.entries.len() {
-                    self.subagents.selected += 1;
+            match code {
+                KeyCode::Up => {
+                    self.subagents.selected = self.subagents.selected.saturating_sub(1);
+                    true
                 }
-                true
-            }
-            KeyCode::Left => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor =
-                        self.subagents.action_cursor.max(1).saturating_sub(1).max(1);
+                KeyCode::Down => {
+                    if self.subagents.selected + 1 < self.subagents.entries.len() {
+                        self.subagents.selected += 1;
+                    }
+                    true
                 }
-                true
-            }
-            KeyCode::Right => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor = (self.subagents.action_cursor.max(1) + 1).min(3);
+                KeyCode::Left => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            self.subagents.action_cursor.max(1).saturating_sub(1).max(1);
+                    }
+                    true
                 }
-                true
-            }
-            KeyCode::Enter => {
-                if self.subagents.entries.is_empty() {
+                KeyCode::Right => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            (self.subagents.action_cursor.max(1) + 1).min(3);
+                    }
+                    true
+                }
+                KeyCode::Enter => {
+                    if self.subagents.entries.is_empty() {
+                        self.subagents.action_cursor = 0;
+                        self.run_subagent_action();
+                    } else if self.subagents.actions_focused {
+                        self.run_subagent_action();
+                    } else {
+                        self.subagents.action_cursor = 1;
+                        self.subagents.actions_focused = true;
+                        self.run_subagent_action();
+                    }
+                    true
+                }
+                KeyCode::Char(' ') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor = 3;
+                        self.run_subagent_action();
+                    }
+                    true
+                }
+                KeyCode::Char('a') => {
                     self.subagents.action_cursor = 0;
                     self.run_subagent_action();
-                } else if self.subagents.actions_focused {
-                    self.run_subagent_action();
-                } else {
-                    self.subagents.action_cursor = 1;
-                    self.subagents.actions_focused = true;
-                    self.run_subagent_action();
+                    true
                 }
-                true
-            }
-            KeyCode::Char(' ') => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor = 3;
-                    self.run_subagent_action();
+                KeyCode::Char('e') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor = 1;
+                        self.run_subagent_action();
+                    }
+                    true
                 }
-                true
-            }
-            KeyCode::Char('a') => {
-                self.subagents.action_cursor = 0;
-                self.run_subagent_action();
-                true
-            }
-            KeyCode::Char('e') => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor = 1;
-                    self.run_subagent_action();
+                KeyCode::Delete | KeyCode::Backspace | KeyCode::Char('d') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor = 2;
+                        self.run_subagent_action();
+                    }
+                    true
                 }
-                true
-            }
-            KeyCode::Delete | KeyCode::Backspace | KeyCode::Char('d') => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor = 2;
-                    self.run_subagent_action();
+                KeyCode::Char('h') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            self.subagents.action_cursor.max(1).saturating_sub(1).max(1);
+                    }
+                    true
                 }
-                true
-            }
-            KeyCode::Char('h') => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor =
-                        self.subagents.action_cursor.max(1).saturating_sub(1).max(1);
+                KeyCode::Char('l') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            (self.subagents.action_cursor.max(1) + 1).min(3);
+                    }
+                    true
                 }
-                true
+                _ => false,
             }
-            KeyCode::Char('l') => {
-                if !self.subagents.entries.is_empty() {
-                    self.subagents.actions_focused = true;
-                    self.subagents.action_cursor = (self.subagents.action_cursor.max(1) + 1).min(3);
-                }
-                true
-            }
-            _ => false,
-        }
         }
     }
 
@@ -963,8 +1003,7 @@ impl TuiModel {
                     .iter()
                     .position(|level| *level == self.concierge.detail_level)
                     .unwrap_or(0);
-                self.concierge.detail_level =
-                    levels[(current_idx + 1) % levels.len()].to_string();
+                self.concierge.detail_level = levels[(current_idx + 1) % levels.len()].to_string();
                 self.send_concierge_config();
             }
             "concierge_provider" => {

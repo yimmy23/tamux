@@ -13,6 +13,7 @@ pub struct ProviderAuthEntry {
 /// TUI state for the Auth settings tab.
 pub struct AuthState {
     pub entries: Vec<ProviderAuthEntry>,
+    pub loaded: bool,
     pub selected: usize,
     pub validating: Option<String>,
     pub login_buffer: String,
@@ -26,6 +27,7 @@ impl AuthState {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            loaded: false,
             selected: 0,
             validating: None,
             login_buffer: String::new(),
@@ -40,7 +42,11 @@ impl AuthState {
 #[derive(Debug, Clone)]
 pub enum AuthAction {
     Received(Vec<ProviderAuthEntry>),
-    ValidationResult { provider_id: String, valid: bool, error: Option<String> },
+    ValidationResult {
+        provider_id: String,
+        valid: bool,
+        error: Option<String>,
+    },
     Select(usize),
     StartLogin(String),
     CancelLogin,
@@ -54,6 +60,7 @@ impl AuthState {
     pub fn reduce(&mut self, action: AuthAction) {
         match action {
             AuthAction::Received(entries) => {
+                self.loaded = true;
                 self.entries = entries;
                 if self.selected >= self.entries.len() {
                     self.selected = self.entries.len().saturating_sub(1);
@@ -104,5 +111,20 @@ impl AuthState {
                 // Handled externally — the handler sends logout to the daemon.
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn received_marks_auth_state_loaded() {
+        let mut state = AuthState::new();
+        assert!(!state.loaded);
+
+        state.reduce(AuthAction::Received(Vec::new()));
+
+        assert!(state.loaded);
     }
 }

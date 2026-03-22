@@ -1,16 +1,44 @@
 use super::*;
 
 impl TuiModel {
+    fn render_conversation_panel(&self, frame: &mut Frame, area: Rect) {
+        if self.should_show_provider_onboarding() {
+            widgets::onboarding::render(frame, area, &self.config, &self.theme);
+            return;
+        }
+
+        widgets::chat::render(
+            frame,
+            area,
+            &self.chat,
+            &self.theme,
+            self.focus == FocusArea::Chat,
+            self.chat_drag_anchor.and_then(|anchor| {
+                self.chat_drag_current.and_then(|current| {
+                    widgets::chat::selection_points_from_mouse(
+                        area,
+                        &self.chat,
+                        &self.theme,
+                        anchor,
+                        current,
+                    )
+                })
+            }),
+        );
+    }
+
     pub fn render(&self, frame: &mut Frame) {
         let area = frame.area();
         let width = area.width;
         let input_height = self.input_height();
+        let anticipatory_height = self.anticipatory_banner_height();
         let concierge_height = self.concierge_banner_height();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3),
                 Constraint::Min(1),
+                Constraint::Length(anticipatory_height),
                 Constraint::Length(concierge_height),
                 Constraint::Length(input_height),
                 Constraint::Length(1),
@@ -30,24 +58,9 @@ impl TuiModel {
                 ])
                 .split(chunks[1]);
             match &self.main_pane_view {
-                MainPaneView::Conversation => widgets::chat::render(
-                    frame,
-                    body_chunks[0],
-                    &self.chat,
-                    &self.theme,
-                    self.focus == FocusArea::Chat,
-                    self.chat_drag_anchor.and_then(|anchor| {
-                        self.chat_drag_current.and_then(|current| {
-                            widgets::chat::selection_points_from_mouse(
-                                body_chunks[0],
-                                &self.chat,
-                                &self.theme,
-                                anchor,
-                                current,
-                            )
-                        })
-                    }),
-                ),
+                MainPaneView::Conversation => {
+                    self.render_conversation_panel(frame, body_chunks[0]);
+                }
                 MainPaneView::Task(target) => widgets::task_view::render(
                     frame,
                     body_chunks[0],
@@ -100,24 +113,7 @@ impl TuiModel {
             );
         } else {
             match &self.main_pane_view {
-                MainPaneView::Conversation => widgets::chat::render(
-                    frame,
-                    chunks[1],
-                    &self.chat,
-                    &self.theme,
-                    self.focus == FocusArea::Chat,
-                    self.chat_drag_anchor.and_then(|anchor| {
-                        self.chat_drag_current.and_then(|current| {
-                            widgets::chat::selection_points_from_mouse(
-                                chunks[1],
-                                &self.chat,
-                                &self.theme,
-                                anchor,
-                                current,
-                            )
-                        })
-                    }),
-                ),
+                MainPaneView::Conversation => self.render_conversation_panel(frame, chunks[1]),
                 MainPaneView::Task(target) => widgets::task_view::render(
                     frame,
                     chunks[1],
@@ -161,20 +157,23 @@ impl TuiModel {
             }
         }
 
+        if anticipatory_height > 0 {
+            widgets::anticipatory::render(frame, chunks[2], &self.anticipatory, &self.theme);
+        }
+
         if concierge_height > 0 {
             widgets::concierge::render(
                 frame,
-                chunks[2],
+                chunks[3],
                 &self.concierge,
                 &self.theme,
-                self.focus == FocusArea::Chat
-                    && self.chat.active_thread_id() == Some("concierge"),
+                self.focus == FocusArea::Chat && self.chat.active_thread_id() == Some("concierge"),
             );
         }
 
         widgets::footer::render_input(
             frame,
-            chunks[3],
+            chunks[4],
             &self.input,
             &self.theme,
             self.focus == FocusArea::Input,
@@ -186,7 +185,7 @@ impl TuiModel {
         );
         widgets::footer::render_status_bar(
             frame,
-            chunks[4],
+            chunks[5],
             &self.theme,
             self.connected,
             self.last_error.is_some(),

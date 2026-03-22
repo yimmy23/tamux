@@ -100,11 +100,7 @@ impl EscalationState {
     /// * Otherwise the attempt counter is compared against the relevant
     ///   threshold and, when exceeded, escalation to the next level is
     ///   recommended.
-    pub fn evaluate(
-        &self,
-        criteria: &EscalationCriteria,
-        succeeded: bool,
-    ) -> EscalationDecision {
+    pub fn evaluate(&self, criteria: &EscalationCriteria, succeeded: bool) -> EscalationDecision {
         // Success at any level -> no escalation.
         if succeeded {
             return EscalationDecision {
@@ -146,8 +142,7 @@ impl EscalationState {
                             self.attempts_at_level
                         ),
                         message: Some(
-                            "Sub-agent could not resolve the issue; escalating to user."
-                                .into(),
+                            "Sub-agent could not resolve the issue; escalating to user.".into(),
                         ),
                     }
                 } else {

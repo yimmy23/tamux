@@ -253,8 +253,7 @@ mod tests {
             make_item("arch1", ContextType::FileContent, 0, 0),
         ];
 
-        let expected_crit_tokens: u32 =
-            items[0].estimated_tokens + items[1].estimated_tokens;
+        let expected_crit_tokens: u32 = items[0].estimated_tokens + items[1].estimated_tokens;
         let expected_arch_tokens: u32 = items[2].estimated_tokens;
 
         let report = context_audit(&mut items, now, RECENT_THRESHOLD, MAX_AGE);
@@ -352,10 +351,7 @@ mod tests {
         assert!(text.contains("Archivable: 1 items"), "missing archivable");
         assert!(text.contains("Top items:"), "missing top items");
         // Verify the highest-ranked item's id appears first in the list.
-        assert!(
-            text.contains("r1"),
-            "top item id missing from report"
-        );
+        assert!(text.contains("r1"), "top item id missing from report");
     }
 
     // -----------------------------------------------------------------------

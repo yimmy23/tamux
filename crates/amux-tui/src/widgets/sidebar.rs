@@ -98,7 +98,8 @@ fn rows_for_thread(
                 .enumerate()
                 .map(|(idx, entry)| {
                     let label = entry.change_kind.as_deref().unwrap_or_else(|| {
-                        entry.kind
+                        entry
+                            .kind
                             .map(|kind| match kind {
                                 crate::state::task::WorkContextEntryKind::RepoChange => "diff",
                                 crate::state::task::WorkContextEntryKind::Artifact => "file",
@@ -121,7 +122,10 @@ fn rows_for_thread(
                     }
 
                     let line = Line::from(vec![
-                        Span::styled(if idx == selected { "> " } else { "  " }, theme.accent_primary),
+                        Span::styled(
+                            if idx == selected { "> " } else { "  " },
+                            theme.accent_primary,
+                        ),
                         Span::styled(format!("[{}]", label), theme.fg_dim),
                         Span::raw(" "),
                         Span::styled(path, theme.fg_active),
@@ -147,7 +151,8 @@ fn rows_for_thread(
                 }];
             }
 
-            todos.iter()
+            todos
+                .iter()
                 .enumerate()
                 .map(|(idx, todo)| {
                     let marker = match todo.status {
@@ -161,11 +166,16 @@ fn rows_for_thread(
                     if text.chars().count() > max_len {
                         text = format!(
                             "{}…",
-                            text.chars().take(max_len.saturating_sub(1)).collect::<String>()
+                            text.chars()
+                                .take(max_len.saturating_sub(1))
+                                .collect::<String>()
                         );
                     }
                     let line = Line::from(vec![
-                        Span::styled(if idx == selected { "> " } else { "  " }, theme.accent_primary),
+                        Span::styled(
+                            if idx == selected { "> " } else { "  " },
+                            theme.accent_primary,
+                        ),
                         Span::styled(marker, theme.fg_dim),
                         Span::raw(" "),
                         Span::styled(text, theme.fg_active),
@@ -211,16 +221,24 @@ pub fn render(
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
         .split(area);
-    for (tab, cell) in [(SidebarTab::Files, tab_cells(chunks[0])[0]), (SidebarTab::Todos, tab_cells(chunks[0])[1])] {
+    for (tab, cell) in [
+        (SidebarTab::Files, tab_cells(chunks[0])[0]),
+        (SidebarTab::Todos, tab_cells(chunks[0])[1]),
+    ] {
         let style = if sidebar.active_tab() == tab {
             theme.fg_active.bg(Color::Indexed(236))
         } else {
             theme.fg_dim
         };
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(tab_label(tab), style))).alignment(Alignment::Center),
+            Paragraph::new(Line::from(Span::styled(tab_label(tab), style)))
+                .alignment(Alignment::Center),
             cell,
         );
     }
@@ -233,7 +251,11 @@ pub fn render(
     frame.render_widget(paragraph, chunks[2]);
 }
 
-pub fn body_item_count(tasks: &TaskState, sidebar: &SidebarState, thread_id: Option<&str>) -> usize {
+pub fn body_item_count(
+    tasks: &TaskState,
+    sidebar: &SidebarState,
+    thread_id: Option<&str>,
+) -> usize {
     match (sidebar.active_tab(), thread_id) {
         (SidebarTab::Files, Some(thread_id)) => tasks
             .work_context_for_thread(thread_id)
@@ -262,7 +284,11 @@ pub fn hit_test(
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+        ])
         .split(area);
 
     if mouse.y == chunks[0].y {
@@ -272,7 +298,13 @@ pub fn hit_test(
         return None;
     }
 
-    let rows = rows_for_thread(tasks, sidebar, thread_id, &ThemeTokens::default(), chunks[2].width as usize);
+    let rows = rows_for_thread(
+        tasks,
+        sidebar,
+        thread_id,
+        &ThemeTokens::default(),
+        chunks[2].width as usize,
+    );
     let scroll = resolved_scroll(&rows, sidebar, chunks[2].height as usize);
     let row_idx = scroll + mouse.y.saturating_sub(chunks[2].y) as usize;
     let row = rows.get(row_idx)?;
@@ -294,7 +326,10 @@ mod tests {
         let sidebar = SidebarState::new();
         let tasks = TaskState::new();
         let _theme = ThemeTokens::default();
-        assert_eq!(sidebar.active_tab(), crate::state::sidebar::SidebarTab::Files);
+        assert_eq!(
+            sidebar.active_tab(),
+            crate::state::sidebar::SidebarTab::Files
+        );
         assert_eq!(body_item_count(&tasks, &sidebar, None), 1);
     }
 
@@ -305,7 +340,13 @@ mod tests {
         assert_eq!(tab_hit_test(area, cells[0].x + 1), Some(SidebarTab::Files));
         assert_eq!(tab_hit_test(area, cells[1].x + 1), Some(SidebarTab::Todos));
         let boundary = cells[1].x;
-        assert_eq!(tab_hit_test(area, boundary.saturating_sub(1)), Some(SidebarTab::Files));
-        assert_eq!(tab_hit_test(area, boundary.saturating_add(1)), Some(SidebarTab::Todos));
+        assert_eq!(
+            tab_hit_test(area, boundary.saturating_sub(1)),
+            Some(SidebarTab::Files)
+        );
+        assert_eq!(
+            tab_hit_test(area, boundary.saturating_add(1)),
+            Some(SidebarTab::Todos)
+        );
     }
 }

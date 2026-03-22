@@ -221,6 +221,40 @@ pub struct GoalRunEvent {
     pub todo_snapshot: Vec<TodoItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CheckpointSummary {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub goal_run_id: String,
+    #[serde(default)]
+    pub checkpoint_type: String,
+    #[serde(default)]
+    pub step_index: Option<usize>,
+    #[serde(default)]
+    pub goal_status: String,
+    #[serde(default)]
+    pub task_count: usize,
+    #[serde(default)]
+    pub context_summary_preview: Option<String>,
+    #[serde(default)]
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RestoreOutcome {
+    #[serde(default)]
+    pub checkpoint_id: String,
+    #[serde(default)]
+    pub goal_run_id: String,
+    #[serde(default)]
+    pub restored_step_index: usize,
+    #[serde(default)]
+    pub tasks_restored: usize,
+    #[serde(default)]
+    pub context_restored: bool,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TodoStatus {
@@ -288,6 +322,30 @@ pub struct ThreadWorkContext {
     pub thread_id: String,
     #[serde(default)]
     pub entries: Vec<WorkContextEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AnticipatoryItem {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub bullets: Vec<String>,
+    #[serde(default)]
+    pub confidence: f64,
+    #[serde(default)]
+    pub goal_run_id: Option<String>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub updated_at: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -11,10 +11,7 @@ pub enum ConciergeHitTarget {
     Action(usize),
 }
 
-fn action_line_segments(
-    state: &ConciergeState,
-    area: Rect,
-) -> Vec<(usize, u16, u16)> {
+fn action_line_segments(state: &ConciergeState, area: Rect) -> Vec<(usize, u16, u16)> {
     let mut x = area.x.saturating_add(2);
     let mut segments = Vec::new();
     for (idx, action) in state.welcome_actions.iter().enumerate() {
@@ -64,7 +61,10 @@ pub fn render(
     } else if let Some(content) = state.welcome_content.as_deref() {
         let wrapped = wrap_text(content, inner_width.max(24));
         for line in wrapped.into_iter().take(2) {
-            lines.push(Line::from(vec![Span::raw("  "), Span::styled(line, theme.fg_active)]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(line, theme.fg_active),
+            ]));
         }
     }
 

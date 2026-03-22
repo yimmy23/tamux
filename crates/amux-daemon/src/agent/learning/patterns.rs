@@ -90,16 +90,17 @@ impl PatternStore {
         succeeded: bool,
         now: u64,
     ) {
-        if let Some(existing) = self.patterns.iter_mut().find(|p| {
-            p.tool_sequence == tool_sequence && p.task_type == task_type
-        }) {
+        if let Some(existing) = self
+            .patterns
+            .iter_mut()
+            .find(|p| p.tool_sequence == tool_sequence && p.task_type == task_type)
+        {
             // Update existing pattern.
             let total = existing.occurrences as f64 * existing.success_rate;
             existing.occurrences += 1;
             let new_successes = if succeeded { total + 1.0 } else { total };
             existing.success_rate = new_successes / existing.occurrences as f64;
-            existing.confidence =
-                compute_confidence(existing.occurrences, existing.success_rate);
+            existing.confidence = compute_confidence(existing.occurrences, existing.success_rate);
             existing.last_seen_at = now;
 
             // Re-derive pattern type.
@@ -148,11 +149,7 @@ impl PatternStore {
 
     /// Find patterns matching a task type and pattern classification, sorted
     /// by confidence descending.
-    pub fn find_patterns(
-        &self,
-        task_type: &str,
-        pattern_type: PatternType,
-    ) -> Vec<&ToolPattern> {
+    pub fn find_patterns(&self, task_type: &str, pattern_type: PatternType) -> Vec<&ToolPattern> {
         let mut matches: Vec<&ToolPattern> = self
             .patterns
             .iter()
@@ -171,8 +168,7 @@ impl PatternStore {
     /// Returns a deduplicated list of tool names drawn from
     /// `SuccessSequence` patterns, ordered by pattern confidence.
     pub fn suggest_tools(&self, task_type: &str) -> Vec<String> {
-        let success =
-            self.find_patterns(task_type, PatternType::SuccessSequence);
+        let success = self.find_patterns(task_type, PatternType::SuccessSequence);
 
         let mut seen = std::collections::HashSet::new();
         let mut tools = Vec::new();
@@ -195,8 +191,7 @@ impl PatternStore {
     /// confidence scaled down proportionally.
     pub fn decay(&mut self, now: u64) {
         let cutoff = now.saturating_sub(self.decay_days as u64 * SECONDS_PER_DAY);
-        let half_cutoff =
-            now.saturating_sub((self.decay_days as u64 * SECONDS_PER_DAY) / 2);
+        let half_cutoff = now.saturating_sub((self.decay_days as u64 * SECONDS_PER_DAY) / 2);
 
         // Remove expired patterns.
         self.patterns.retain(|p| p.last_seen_at >= cutoff);
@@ -207,11 +202,9 @@ impl PatternStore {
                 let age_secs = now.saturating_sub(pattern.last_seen_at);
                 let window_secs = self.decay_days as u64 * SECONDS_PER_DAY;
                 // Linear decay factor: 1.0 at half-window, 0.0 at full window.
-                let factor =
-                    1.0 - (age_secs as f64 / window_secs as f64).min(1.0);
+                let factor = 1.0 - (age_secs as f64 / window_secs as f64).min(1.0);
                 pattern.confidence =
-                    compute_confidence(pattern.occurrences, pattern.success_rate)
-                        * factor.max(0.0);
+                    compute_confidence(pattern.occurrences, pattern.success_rate) * factor.max(0.0);
             }
         }
     }
@@ -287,8 +280,7 @@ mod tests {
         store.record_sequence(&seq(&["a"]), "coding", true, 1000);
         store.record_sequence(&seq(&["b"]), "review", true, 1000);
 
-        let coding =
-            store.find_patterns("coding", PatternType::SuccessSequence);
+        let coding = store.find_patterns("coding", PatternType::SuccessSequence);
         assert_eq!(coding.len(), 1);
         assert_eq!(coding[0].task_type, "coding");
     }
@@ -299,13 +291,11 @@ mod tests {
         store.record_sequence(&seq(&["a"]), "coding", true, 1000);
         store.record_sequence(&seq(&["b"]), "coding", false, 1000);
 
-        let successes =
-            store.find_patterns("coding", PatternType::SuccessSequence);
+        let successes = store.find_patterns("coding", PatternType::SuccessSequence);
         assert_eq!(successes.len(), 1);
         assert_eq!(successes[0].tool_sequence, seq(&["a"]));
 
-        let failures =
-            store.find_patterns("coding", PatternType::FailureSequence);
+        let failures = store.find_patterns("coding", PatternType::FailureSequence);
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].tool_sequence, seq(&["b"]));
     }
@@ -313,18 +303,8 @@ mod tests {
     #[test]
     fn suggest_tools_returns_from_success_patterns() {
         let mut store = PatternStore::default();
-        store.record_sequence(
-            &seq(&["read_file", "edit_file"]),
-            "coding",
-            true,
-            1000,
-        );
-        store.record_sequence(
-            &seq(&["search", "read_file"]),
-            "coding",
-            true,
-            2000,
-        );
+        store.record_sequence(&seq(&["read_file", "edit_file"]), "coding", true, 1000);
+        store.record_sequence(&seq(&["search", "read_file"]), "coding", true, 2000);
 
         let suggested = store.suggest_tools("coding");
         // Should contain all three unique tools.
@@ -350,12 +330,7 @@ mod tests {
     fn max_patterns_limit_enforced() {
         let mut store = PatternStore::new(3, 30);
         for i in 0..4 {
-            store.record_sequence(
-                &seq(&[&format!("tool_{i}")]),
-                "task",
-                true,
-                i as u64 * 1000,
-            );
+            store.record_sequence(&seq(&[&format!("tool_{i}")]), "task", true, i as u64 * 1000);
         }
         assert_eq!(store.len(), 3);
         // The oldest pattern (tool_0 at time 0) should have been evicted.
