@@ -13,6 +13,7 @@ pub struct AgentConfigSnapshot {
     pub provider: String,
     pub base_url: String,
     pub model: String,
+    pub custom_model_name: String,
     pub api_key: String,
     pub assistant_id: String,
     pub auth_source: String,
@@ -40,6 +41,7 @@ pub struct ConfigState {
     pub provider: String,
     pub base_url: String,
     pub model: String,
+    pub custom_model_name: String,
     pub api_key: String,
     pub assistant_id: String,
     pub auth_source: String,
@@ -118,6 +120,7 @@ impl ConfigState {
             provider: "openai".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-5.4".to_string(),
+            custom_model_name: String::new(),
             api_key: String::new(),
             assistant_id: String::new(),
             auth_source: "api_key".to_string(),
@@ -215,6 +218,7 @@ impl ConfigState {
                 self.provider = snapshot.provider;
                 self.base_url = snapshot.base_url;
                 self.model = snapshot.model;
+                self.custom_model_name.clear();
                 self.api_key = snapshot.api_key;
                 self.assistant_id = snapshot.assistant_id;
                 self.auth_source = snapshot.auth_source;
@@ -272,6 +276,7 @@ mod tests {
         AgentConfigSnapshot {
             provider: provider.into(),
             model: model.into(),
+            custom_model_name: String::new(),
             base_url: "https://api.example.com".into(),
             api_key: "sk-test".into(),
             assistant_id: "asst_test".into(),

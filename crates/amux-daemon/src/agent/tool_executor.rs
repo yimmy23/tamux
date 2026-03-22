@@ -648,14 +648,32 @@ pub async fn execute_tool(
     agent_data_dir: &std::path::Path,
     http_client: &reqwest::Client,
 ) -> ToolResult {
-    let args: serde_json::Value =
-        serde_json::from_str(&tool_call.function.arguments).unwrap_or(serde_json::json!({}));
-
     tracing::info!(
         tool = %tool_call.function.name,
         args = %tool_call.function.arguments,
         "agent tool call"
     );
+
+    let args = match parse_tool_args(
+        tool_call.function.name.as_str(),
+        &tool_call.function.arguments,
+    ) {
+        Ok(args) => args,
+        Err(error) => {
+            tracing::warn!(
+                tool = %tool_call.function.name,
+                error = %error,
+                "agent tool argument parse failed"
+            );
+            return ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content: error,
+                is_error: true,
+                pending_approval: None,
+            };
+        }
+    };
 
     if !thread_id.trim().is_empty()
         && matches!(
@@ -820,6 +838,41 @@ pub async fn execute_tool(
     }
 }
 
+fn parse_tool_args(tool_name: &str, raw_arguments: &str) -> std::result::Result<serde_json::Value, String> {
+    serde_json::from_str(raw_arguments).map_err(|error| {
+        let preview: String = raw_arguments.chars().take(240).collect();
+        format!(
+            "Invalid JSON arguments for tool `{tool_name}`: {error}. Argument length: {}. Preview: {}{}",
+            raw_arguments.len(),
+            preview,
+            if raw_arguments.chars().count() > 240 { "..." } else { "" }
+        )
+    })
+}
+
+fn get_string_arg<'a>(args: &'a serde_json::Value, names: &[&str]) -> Option<&'a str> {
+    names.iter()
+        .find_map(|name| args.get(*name).and_then(|value| value.as_str()))
+}
+
+fn get_file_path_arg<'a>(args: &'a serde_json::Value) -> Option<&'a str> {
+    get_string_arg(args, &["path", "file_path", "filepath", "filename", "file"])
+}
+
+fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {
+    if let Some(value) = get_string_arg(args, &["content", "contents", "text", "data", "body"]) {
+        return Ok(value.to_string());
+    }
+    if let Some(encoded) = get_string_arg(args, &["content_base64", "contents_base64", "data_base64"]) {
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|error| anyhow::anyhow!("invalid base64 file content: {error}"))?;
+        return String::from_utf8(decoded)
+            .map_err(|error| anyhow::anyhow!("decoded file content is not utf-8: {error}"));
+    }
+    anyhow::bail!("missing file content argument (expected one of: content, contents, text, data, body, content_base64)")
+}
+
 // ---------------------------------------------------------------------------
 // Tool implementations
 // ---------------------------------------------------------------------------
@@ -875,15 +928,9 @@ async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
 }
 
 async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
-    let content = args
-        .get("content")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
+    let content = get_file_content_arg(args)?;
     let overwrite = args
         .get("overwrite")
         .and_then(|v| v.as_bool())
@@ -897,20 +944,14 @@ async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
     if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    tokio::fs::write(target, content).await?;
+    tokio::fs::write(target, &content).await?;
     Ok(format!("Created file {path} ({} bytes)", content.len()))
 }
 
 async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
-    let content = args
-        .get("content")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
+    let content = get_file_content_arg(args)?;
     let create_if_missing = args
         .get("create_if_missing")
         .and_then(|v| v.as_bool())
@@ -929,24 +970,17 @@ async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
     } else {
         String::new()
     };
-    existing.push_str(content);
+    existing.push_str(&content);
     tokio::fs::write(target, existing).await?;
     Ok(format!("Appended {} bytes to {path}", content.len()))
 }
 
 async fn execute_replace_in_file(args: &serde_json::Value) -> Result<String> {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
-    let old_text = args
-        .get("old_text")
-        .and_then(|v| v.as_str())
+    let old_text = get_string_arg(args, &["old_text", "search", "find"])
         .ok_or_else(|| anyhow::anyhow!("missing 'old_text' argument"))?;
-    let new_text = args
-        .get("new_text")
-        .and_then(|v| v.as_str())
+    let new_text = get_string_arg(args, &["new_text", "replace", "replacement"])
         .ok_or_else(|| anyhow::anyhow!("missing 'new_text' argument"))?;
     let replace_all = args
         .get("replace_all")
@@ -961,13 +995,11 @@ async fn execute_replace_in_file(args: &serde_json::Value) -> Result<String> {
 }
 
 async fn execute_apply_file_patch(args: &serde_json::Value) -> Result<String> {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
     let edits = args
         .get("edits")
+        .or_else(|| args.get("patches"))
         .and_then(|v| v.as_array())
         .ok_or_else(|| anyhow::anyhow!("missing 'edits' argument"))?;
     if edits.is_empty() {
@@ -980,10 +1012,14 @@ async fn execute_apply_file_patch(args: &serde_json::Value) -> Result<String> {
         .map(|(index, edit)| {
             let old_text = edit
                 .get("old_text")
+                .or_else(|| edit.get("search"))
+                .or_else(|| edit.get("find"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("edit {} is missing 'old_text'", index + 1))?;
             let new_text = edit
                 .get("new_text")
+                .or_else(|| edit.get("replace"))
+                .or_else(|| edit.get("replacement"))
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("edit {} is missing 'new_text'", index + 1))?;
             let replace_all = edit
@@ -1044,23 +1080,17 @@ async fn execute_write_file(
     session_manager: &Arc<SessionManager>,
     preferred_session_id: Option<SessionId>,
 ) -> Result<String> {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
+    let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
 
-    let content = args
-        .get("content")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
+    let content = get_file_content_arg(args)?;
 
     let base_dir = resolve_tool_cwd(args, session_manager, preferred_session_id).await?;
     let target = resolve_tool_path(path, base_dir.as_deref());
     if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    tokio::fs::write(&target, content).await?;
+    tokio::fs::write(&target, &content).await?;
     Ok(format!(
         "Written {} bytes to {}",
         content.len(),
@@ -2306,20 +2336,167 @@ async fn execute_run_terminal_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
-    _event_tx: &broadcast::Sender<AgentEvent>,
-    _thread_id: &str,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
-    execute_headless_shell_command(args, session_manager, session_id, "run_terminal_command").await
+    if should_use_managed_execution(args) {
+        let managed_args =
+            managed_alias_args(args, "Run a shell command in a managed terminal session");
+        execute_managed_command(
+            &managed_args,
+            session_manager,
+            session_id,
+            event_tx,
+            thread_id,
+        )
+        .await
+    } else {
+        execute_headless_shell_command(args, session_manager, session_id, "run_terminal_command")
+            .await
+    }
 }
 
 async fn execute_bash_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
-    _event_tx: &broadcast::Sender<AgentEvent>,
-    _thread_id: &str,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    thread_id: &str,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
-    execute_headless_shell_command(args, session_manager, session_id, "bash_command").await
+    if should_use_managed_execution(args) {
+        let managed_args =
+            managed_alias_args(args, "Run a shell command in a managed terminal session");
+        execute_managed_command(
+            &managed_args,
+            session_manager,
+            session_id,
+            event_tx,
+            thread_id,
+        )
+        .await
+    } else {
+        execute_headless_shell_command(args, session_manager, session_id, "bash_command").await
+    }
+}
+
+fn should_use_managed_execution(args: &serde_json::Value) -> bool {
+    if args
+        .get("session")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return true;
+    }
+
+    if args
+        .get("wait_for_completion")
+        .and_then(|value| value.as_bool())
+        == Some(false)
+    {
+        return true;
+    }
+
+    if args
+        .get("timeout_seconds")
+        .and_then(|value| value.as_u64())
+        .is_some_and(|value| value > 600)
+    {
+        return true;
+    }
+
+    if args
+        .get("sandbox_enabled")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    if args
+        .get("allow_network")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    if matches!(
+        args.get("security_level").and_then(|value| value.as_str()),
+        Some("highest" | "yolo")
+    ) {
+        return true;
+    }
+
+    args.get("command")
+        .and_then(|value| value.as_str())
+        .map(|command| {
+            command_requires_managed_state(command) || command_looks_interactive(command)
+        })
+        .unwrap_or(false)
+}
+
+fn command_requires_managed_state(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    let first = normalized
+        .split(|ch: char| ch.is_whitespace() || ch == ';' || ch == '&' || ch == '|')
+        .next()
+        .unwrap_or_default();
+
+    matches!(
+        first,
+        "cd"
+            | "pushd"
+            | "popd"
+            | "export"
+            | "unset"
+            | "alias"
+            | "unalias"
+            | "source"
+            | "."
+            | "set"
+            | "ulimit"
+            | "umask"
+            | "bind"
+            | "shopt"
+            | "complete"
+            | "compgen"
+            | "fg"
+            | "bg"
+            | "jobs"
+    )
+}
+
+fn command_looks_interactive(command: &str) -> bool {
+    let normalized = command.trim().to_ascii_lowercase();
+    [
+        "vim ",
+        "nvim ",
+        "nano ",
+        "less ",
+        "more ",
+        "top",
+        "htop",
+        "watch ",
+        "tail -f",
+        "ssh ",
+        "sftp ",
+        "scp ",
+        "man ",
+        "bash",
+        "zsh",
+        "fish",
+        "python",
+        "ipython",
+        "node",
+    ]
+    .iter()
+    .any(|pattern| normalized == *pattern || normalized.starts_with(pattern))
 }
 
 async fn execute_headless_shell_command(
@@ -3865,8 +4042,9 @@ mod urlencoding {
 mod tests {
     use super::{
         build_list_files_script, build_write_file_command, build_write_file_script,
-        managed_alias_args, parse_capture_output, resolve_skill_path, validate_read_path,
-        validate_write_path,
+        command_looks_interactive, command_requires_managed_state, managed_alias_args,
+        parse_capture_output, resolve_skill_path, should_use_managed_execution,
+        validate_read_path, validate_write_path,
     };
     use base64::Engine;
     use std::fs;
@@ -3962,6 +4140,40 @@ mod tests {
                 .and_then(|value| value.as_u64()),
             Some(42)
         );
+    }
+
+    #[test]
+    fn managed_execution_prefers_terminal_for_explicit_session_or_interactive_commands() {
+        assert!(should_use_managed_execution(&serde_json::json!({
+            "command": "ls -la",
+            "session": "abc"
+        })));
+        assert!(should_use_managed_execution(&serde_json::json!({
+            "command": "vim Cargo.toml"
+        })));
+        assert!(command_looks_interactive("top"));
+    }
+
+    #[test]
+    fn managed_execution_uses_headless_for_simple_blocking_commands() {
+        assert!(!should_use_managed_execution(&serde_json::json!({
+            "command": "ls -la"
+        })));
+        assert!(!should_use_managed_execution(&serde_json::json!({
+            "command": "cargo test -p tamux-tui",
+            "cwd": "/tmp/work"
+        })));
+    }
+
+    #[test]
+    fn managed_execution_detects_shell_state_changes() {
+        assert!(command_requires_managed_state("cd /tmp"));
+        assert!(command_requires_managed_state("export FOO=bar"));
+        assert!(should_use_managed_execution(&serde_json::json!({
+            "command": "cd /workspace && ls"
+        })));
+        assert!(!command_requires_managed_state("grep foo Cargo.toml"));
+        assert!(!command_requires_managed_state("ls -la"));
     }
 
     #[test]

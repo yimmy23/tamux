@@ -7,6 +7,28 @@ use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
 
+pub fn available_models(config: &ConfigState) -> Vec<crate::state::config::FetchedModel> {
+    let mut models = config.fetched_models().to_vec();
+    let current_model = config.model().trim();
+    if !current_model.is_empty() && !models.iter().any(|model| model.id == current_model) {
+        models.insert(
+            0,
+            crate::state::config::FetchedModel {
+                id: current_model.to_string(),
+                name: Some(
+                    if config.custom_model_name.trim().is_empty() {
+                        current_model.to_string()
+                    } else {
+                        config.custom_model_name.clone()
+                    },
+                ),
+                context_window: None,
+            },
+        );
+    }
+    models
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -33,63 +55,69 @@ pub fn render(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    let models = config.fetched_models();
+    let models = available_models(config);
     let cursor = modal.picker_cursor();
     let active_model = config.model();
 
-    if models.is_empty() {
-        let empty_line = Line::from(Span::styled("  Press Enter to fetch models", theme.fg_dim));
-        frame.render_widget(Paragraph::new(empty_line), chunks[0]);
-    } else {
-        let list_h = chunks[0].height as usize;
-        let visible_models: Vec<_> = models.iter().take(list_h).collect();
+    let list_h = chunks[0].height as usize;
+    let custom_row = "Custom model...";
+    let total_rows = models.len() + 1;
+    let window_start = cursor
+        .saturating_sub(list_h.saturating_sub(1))
+        .min(total_rows.saturating_sub(list_h));
+    let window_end = (window_start + list_h).min(total_rows);
 
-        let mut list_items: Vec<ListItem> = visible_models
-            .iter()
-            .enumerate()
-            .map(|(i, model)| {
-                let display_name = model.name.as_deref().unwrap_or(&model.id);
-                let is_selected = i == cursor;
-                let is_active = model.id == active_model || display_name == active_model;
-
-                let ctx_str = model
-                    .context_window
-                    .map(|c| format!(" ({}k ctx)", c / 1000))
-                    .unwrap_or_default();
-
-                if is_selected {
-                    ListItem::new(Line::from(vec![
-                        Span::raw(" > "),
-                        Span::raw(display_name.to_string()),
-                        Span::raw(ctx_str),
-                    ]))
-                    .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
-                } else if is_active && !active_model.is_empty() {
-                    ListItem::new(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(format!("\u{2022} {}", display_name), theme.accent_secondary),
-                        Span::styled(ctx_str, theme.fg_dim),
-                    ]))
+    let list_items: Vec<ListItem> = (window_start..window_end)
+        .map(|absolute_index| {
+            if absolute_index == models.len() {
+                let is_selected = absolute_index == cursor;
+                return if is_selected {
+                    ListItem::new(Line::from(vec![Span::raw(" > "), Span::raw(custom_row)]))
+                        .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
                 } else {
                     ListItem::new(Line::from(vec![
                         Span::raw("   "),
-                        Span::styled(display_name.to_string(), theme.fg_active),
-                        Span::styled(ctx_str, theme.fg_dim),
+                        Span::styled(custom_row, theme.accent_secondary),
                     ]))
-                }
-            })
-            .collect();
+                };
+            }
 
-        if models.len() > list_h {
-            list_items.push(ListItem::new(Line::from(Span::styled(
-                format!("  ... {} more models", models.len() - list_h),
-                theme.fg_dim,
-            ))));
-        }
+            let model = &models[absolute_index];
+            let i = absolute_index;
+            let display_name = model.name.as_deref().unwrap_or(&model.id);
+            let is_selected = i == cursor;
+            let is_active = model.id == active_model || display_name == active_model;
 
-        let list = List::new(list_items);
-        frame.render_widget(list, chunks[0]);
-    }
+            let ctx_str = model
+                .context_window
+                .map(|c| format!(" ({}k ctx)", c / 1000))
+                .unwrap_or_default();
+
+            if is_selected {
+                ListItem::new(Line::from(vec![
+                    Span::raw(" > "),
+                    Span::raw(display_name.to_string()),
+                    Span::raw(ctx_str),
+                ]))
+                .style(Style::default().bg(Color::Indexed(178)).fg(Color::Black))
+            } else if is_active && !active_model.is_empty() {
+                ListItem::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("\u{2022} {}", display_name), theme.accent_secondary),
+                    Span::styled(ctx_str, theme.fg_dim),
+                ]))
+            } else {
+                ListItem::new(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(display_name.to_string(), theme.fg_active),
+                    Span::styled(ctx_str, theme.fg_dim),
+                ]))
+            }
+        })
+        .collect();
+
+    let list = List::new(list_items);
+    frame.render_widget(list, chunks[0]);
 
     // Hints
     let hints = Line::from(vec![
@@ -97,7 +125,7 @@ pub fn render(
         Span::styled("↑↓", theme.fg_active),
         Span::styled(" nav  ", theme.fg_dim),
         Span::styled("Enter", theme.fg_active),
-        Span::styled(" sel  ", theme.fg_dim),
+        Span::styled(" sel/custom  ", theme.fg_dim),
         Span::styled("Esc", theme.fg_active),
         Span::styled(" close", theme.fg_dim),
     ]);

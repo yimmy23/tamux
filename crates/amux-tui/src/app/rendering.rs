@@ -5,11 +5,13 @@ impl TuiModel {
         let area = frame.area();
         let width = area.width;
         let input_height = self.input_height();
+        let concierge_height = self.concierge_banner_height();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3),
                 Constraint::Min(1),
+                Constraint::Length(concierge_height),
                 Constraint::Length(input_height),
                 Constraint::Length(1),
             ])
@@ -67,6 +69,21 @@ impl TuiModel {
                     self.sidebar.selected_item(),
                     &self.theme,
                     self.task_view_scroll,
+                    self.work_context_drag_anchor.and_then(|anchor| {
+                        self.work_context_drag_current.and_then(|current| {
+                            widgets::work_context_view::selection_points_from_mouse(
+                                body_chunks[0],
+                                &self.tasks,
+                                self.chat.active_thread_id(),
+                                self.sidebar.active_tab(),
+                                self.sidebar.selected_item(),
+                                &self.theme,
+                                self.task_view_scroll,
+                                anchor,
+                                current,
+                            )
+                        })
+                    }),
                 ),
                 MainPaneView::GoalComposer => {
                     render_helpers::render_goal_composer(frame, body_chunks[0], &self.theme)
@@ -122,6 +139,21 @@ impl TuiModel {
                     self.sidebar.selected_item(),
                     &self.theme,
                     self.task_view_scroll,
+                    self.work_context_drag_anchor.and_then(|anchor| {
+                        self.work_context_drag_current.and_then(|current| {
+                            widgets::work_context_view::selection_points_from_mouse(
+                                chunks[1],
+                                &self.tasks,
+                                self.chat.active_thread_id(),
+                                self.sidebar.active_tab(),
+                                self.sidebar.selected_item(),
+                                &self.theme,
+                                self.task_view_scroll,
+                                anchor,
+                                current,
+                            )
+                        })
+                    }),
                 ),
                 MainPaneView::GoalComposer => {
                     render_helpers::render_goal_composer(frame, chunks[1], &self.theme)
@@ -129,9 +161,20 @@ impl TuiModel {
             }
         }
 
+        if concierge_height > 0 {
+            widgets::concierge::render(
+                frame,
+                chunks[2],
+                &self.concierge,
+                &self.theme,
+                self.focus == FocusArea::Chat
+                    && self.chat.active_thread_id() == Some("concierge"),
+            );
+        }
+
         widgets::footer::render_input(
             frame,
-            chunks[2],
+            chunks[3],
             &self.input,
             &self.theme,
             self.focus == FocusArea::Input,
@@ -143,7 +186,7 @@ impl TuiModel {
         );
         widgets::footer::render_status_bar(
             frame,
-            chunks[3],
+            chunks[4],
             &self.theme,
             self.connected,
             self.last_error.is_some(),
@@ -156,7 +199,7 @@ impl TuiModel {
 
         if let Some(modal_kind) = self.modal.top() {
             let overlay_area = match modal_kind {
-                modal::ModalKind::Settings => render_helpers::centered_rect(75, 80, area),
+                modal::ModalKind::Settings => render_helpers::centered_rect(90, 88, area),
                 modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
@@ -206,6 +249,7 @@ impl TuiModel {
                         &self.config,
                         &self.auth,
                         &self.subagents,
+                        &self.concierge,
                         &self.theme,
                     );
                 }
@@ -265,7 +309,7 @@ impl TuiModel {
         let kind = self.modal.top()?;
         let area = Rect::new(0, 0, self.width, self.height);
         let rect = match kind {
-            modal::ModalKind::Settings => render_helpers::centered_rect(75, 80, area),
+            modal::ModalKind::Settings => render_helpers::centered_rect(90, 88, area),
             modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),

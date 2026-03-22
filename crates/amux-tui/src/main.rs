@@ -248,8 +248,8 @@ fn start_daemon_bridge(
                             DaemonCommand::GetProviderAuthStates => {
                                 let _ = client.get_provider_auth_states();
                             }
-                            DaemonCommand::ValidateProvider { provider_id, base_url, api_key } => {
-                                let _ = client.validate_provider(provider_id, base_url, api_key);
+                            DaemonCommand::ValidateProvider { provider_id, base_url, api_key, auth_source } => {
+                                let _ = client.validate_provider(provider_id, base_url, api_key, auth_source);
                             }
                             DaemonCommand::SetSubAgent(sub_agent_json) => {
                                 let _ = client.set_sub_agent(sub_agent_json);
@@ -259,6 +259,18 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::ListSubAgents => {
                                 let _ = client.list_sub_agents();
+                            }
+                            DaemonCommand::GetConciergeConfig => {
+                                let _ = client.get_concierge_config();
+                            }
+                            DaemonCommand::SetConciergeConfig(config_json) => {
+                                let _ = client.set_concierge_config(config_json);
+                            }
+                            DaemonCommand::RequestConciergeWelcome => {
+                                let _ = client.request_concierge_welcome();
+                            }
+                            DaemonCommand::DismissConciergeWelcome => {
+                                let _ = client.dismiss_concierge_welcome();
                             }
                         }
                     }

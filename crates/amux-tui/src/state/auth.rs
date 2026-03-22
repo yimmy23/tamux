@@ -18,6 +18,8 @@ pub struct AuthState {
     pub login_buffer: String,
     pub login_cursor: usize,
     pub login_target: Option<String>,
+    pub actions_focused: bool,
+    pub action_cursor: usize,
 }
 
 impl AuthState {
@@ -29,6 +31,8 @@ impl AuthState {
             login_buffer: String::new(),
             login_cursor: 0,
             login_target: None,
+            actions_focused: false,
+            action_cursor: 0,
         }
     }
 }

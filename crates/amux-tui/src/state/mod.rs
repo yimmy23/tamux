@@ -74,10 +74,15 @@ pub enum DaemonCommand {
         provider_id: String,
         base_url: String,
         api_key: String,
+        auth_source: String,
     },
     SetSubAgent(String),     // sub_agent_json
     RemoveSubAgent(String),  // sub_agent_id
     ListSubAgents,
+    GetConciergeConfig,
+    SetConciergeConfig(String), // config_json
+    RequestConciergeWelcome,
+    DismissConciergeWelcome,
 }
 
 // ── Placeholder sub-action enums ──────────────────────────────────────────────

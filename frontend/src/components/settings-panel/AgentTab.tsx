@@ -269,7 +269,12 @@ export function AgentTab({
                         <ModelSelector
                             providerId={settings.activeProvider}
                             value={providerConfig.model}
-                            onChange={(value) => updateSetting(settings.activeProvider, { ...providerConfig, model: value })}
+                            customName={providerConfig.customModelName}
+                            onChange={(value, customModelName) => updateSetting(settings.activeProvider, {
+                                ...providerConfig,
+                                model: value,
+                                customModelName: customModelName && customModelName !== value ? customModelName : "",
+                            })}
                             baseUrl={providerConfig.baseUrl || providerDef?.defaultBaseUrl}
                             apiKey={providerConfig.apiKey}
                             authSource={providerConfig.authSource}

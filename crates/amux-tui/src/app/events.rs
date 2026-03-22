@@ -50,6 +50,11 @@ impl TuiModel {
                 self.sync_config_to_daemon();
                 self.send_daemon_command(DaemonCommand::Refresh);
                 self.send_daemon_command(DaemonCommand::RefreshServices);
+                self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                self.send_daemon_command(DaemonCommand::ListSubAgents);
+                self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                self.concierge
+                    .reduce(crate::state::ConciergeAction::WelcomeLoading(true));
                 let cwd = std::env::current_dir()
                     .ok()
                     .map(|p| p.to_string_lossy().to_string());
@@ -65,6 +70,8 @@ impl TuiModel {
                 self.connected = false;
                 self.default_session_id = None;
                 self.agent_activity = None;
+                self.concierge
+                    .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
                 self.chat.reduce(chat::ChatAction::ResetStreaming);
                 self.clear_pending_stop();
                 self.status_line = "Disconnected from daemon".to_string();
@@ -73,6 +80,8 @@ impl TuiModel {
                 self.connected = false;
                 self.default_session_id = None;
                 self.agent_activity = None;
+                self.concierge
+                    .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
                 self.chat.reduce(chat::ChatAction::ResetStreaming);
                 self.clear_pending_stop();
                 self.status_line = format!("Connection lost. Retrying in {}s", delay_secs);
@@ -179,6 +188,7 @@ impl TuiModel {
                         provider: cfg.provider,
                         base_url: cfg.base_url,
                         model: cfg.model,
+                        custom_model_name: String::new(),
                         api_key: cfg.api_key,
                         assistant_id: cfg.assistant_id,
                         auth_source: cfg.auth_source,
@@ -302,29 +312,73 @@ impl TuiModel {
             ClientEvent::SubAgentRemoved { sub_agent_id } => {
                 self.subagents.reduce(crate::state::subagents::SubAgentsAction::Removed(sub_agent_id));
             }
+            ClientEvent::ConciergeConfig(raw) => {
+                let detail_level = raw
+                    .get("detail_level")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("proactive_triage")
+                    .to_string();
+                self.concierge.reduce(crate::state::ConciergeAction::ConfigReceived {
+                    enabled: raw
+                        .get("enabled")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(true),
+                    detail_level,
+                    provider: raw
+                        .get("provider")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string),
+                    model: raw
+                        .get("model")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string),
+                    auto_cleanup_on_navigate: raw
+                        .get("auto_cleanup_on_navigate")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(true),
+                });
+            }
             ClientEvent::ConciergeWelcome { content, actions } => {
                 self.concierge
                     .reduce(crate::state::ConciergeAction::WelcomeReceived { content, actions });
+                if self.chat.active_thread_id().is_none() {
+                    self.chat
+                        .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
+                    self.send_daemon_command(DaemonCommand::RequestThread(
+                        "concierge".to_string(),
+                    ));
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                } else if self.chat.active_thread_id() == Some("concierge") {
+                    self.focus = FocusArea::Chat;
+                }
             }
             ClientEvent::ConciergeWelcomeDismissed => {
                 self.concierge
                     .reduce(crate::state::ConciergeAction::WelcomeDismissed);
             }
             ClientEvent::Error(message) => {
-                if self.assistant_busy() {
+                let busy = self.assistant_busy();
+                if busy {
                     self.chat.reduce(chat::ChatAction::ForceStopStreaming);
                 }
                 self.agent_activity = None;
                 self.clear_pending_stop();
+                self.concierge
+                    .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
                 self.last_error = Some(message.clone());
                 self.error_active = true;
                 self.error_tick = self.tick_counter;
-                if let Some(thread) = self.chat.active_thread_mut() {
-                    thread.messages.push(chat::AgentMessage {
-                        role: chat::MessageRole::System,
-                        content: format!("Error: {}", message),
-                        ..Default::default()
-                    });
+                if busy && self.modal.top().is_none() {
+                    if let Some(thread) = self.chat.active_thread_mut() {
+                        thread.messages.push(chat::AgentMessage {
+                            role: chat::MessageRole::System,
+                            content: format!("Error: {}", message),
+                            ..Default::default()
+                        });
+                    }
+                } else {
+                    self.status_line = "Error recorded. Press Ctrl+E for details".to_string();
                 }
             }
             ClientEvent::WorkflowNotice {

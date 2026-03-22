@@ -230,7 +230,7 @@ impl TuiModel {
                         api_key: self.config.api_key.clone(),
                     });
                 }
-                let count = self.config.fetched_models().len().max(1);
+                let count = widgets::model_picker::available_models(&self.config).len() + 1;
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
                 self.modal.set_picker_item_count(count);
@@ -265,9 +265,13 @@ impl TuiModel {
             "conversation" | "chat" => {
                 self.main_pane_view = MainPaneView::Conversation;
             }
-            "settings" => self
-                .modal
-                .reduce(modal::ModalAction::Push(modal::ModalKind::Settings)),
+            "settings" => {
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+                self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                self.send_daemon_command(DaemonCommand::ListSubAgents);
+                self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+            }
             "view" => {
                 let next = match self.chat.transcript_mode() {
                     chat::TranscriptMode::Compact => chat::TranscriptMode::Tools,
@@ -447,6 +451,46 @@ impl TuiModel {
         }
         conversion::copy_to_clipboard(&text);
         self.status_line = "Copied to clipboard".to_string();
+    }
+
+    pub(super) fn copy_work_context_content(&mut self) {
+        let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+            return;
+        };
+
+        let text = match self.sidebar.active_tab() {
+            sidebar::SidebarTab::Files => {
+                let Some(context) = self.tasks.work_context_for_thread(&thread_id) else {
+                    return;
+                };
+                let Some(entry) = context.entries.get(self.sidebar.selected_item()) else {
+                    return;
+                };
+                if let Some(repo_root) = entry.repo_root.as_deref() {
+                    self.tasks
+                        .diff_for_path(repo_root, &entry.path)
+                        .map(str::to_string)
+                        .filter(|value| !value.trim().is_empty())
+                } else {
+                    self.tasks
+                        .preview_for_path(&entry.path)
+                        .filter(|preview| preview.is_text)
+                        .map(|preview| preview.content.clone())
+                        .filter(|value| !value.trim().is_empty())
+                }
+            }
+            sidebar::SidebarTab::Todos => self
+                .tasks
+                .todos_for_thread(&thread_id)
+                .get(self.sidebar.selected_item())
+                .map(|todo| todo.content.clone())
+                .filter(|value| !value.trim().is_empty()),
+        };
+
+        if let Some(text) = text {
+            conversion::copy_to_clipboard(&text);
+            self.status_line = "Copied to clipboard".to_string();
+        }
     }
 
     pub(super) fn resend_message(&mut self, index: usize) {

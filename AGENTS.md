@@ -31,6 +31,7 @@ Run from repo root unless noted:
 - Keep crate boundaries clean: shared wire types belong in `amux-protocol`, not duplicated in app crates.
 - For TUI work, keep rendering, input handling, and state/update logic in separate focused modules when practical.
 - Strong rule: every newly created file must stay under 500 lines of code. Split features into smaller modules/components before a file reaches 500 LOC.
+- **CRITICAL - NO SHORTCUTS**: Never mock, stub, or placeholder any function with intent to complete later. Always implement fully or decline the task explicitly. Violation results in immediate rejection and conversation termination.
 
 ## Testing Guidelines
 - Prefer unit tests close to implementation in Rust (`#[cfg(test)] mod tests` in source files).

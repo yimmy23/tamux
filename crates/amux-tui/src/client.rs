@@ -108,6 +108,7 @@ pub enum ClientEvent {
     SubAgentList(Vec<crate::state::SubAgentEntry>),
     SubAgentUpdated(crate::state::SubAgentEntry),
     SubAgentRemoved { sub_agent_id: String },
+    ConciergeConfig(Value),
 
     ConciergeWelcome {
         content: String,
@@ -515,6 +516,14 @@ impl DaemonClient {
             DaemonMessage::AgentSubAgentRemoved { sub_agent_id } => {
                 let _ = event_tx.send(ClientEvent::SubAgentRemoved { sub_agent_id }).await;
             }
+            DaemonMessage::AgentConciergeConfig { config_json } => {
+                match serde_json::from_str::<Value>(&config_json) {
+                    Ok(raw) => {
+                        let _ = event_tx.send(ClientEvent::ConciergeConfig(raw)).await;
+                    }
+                    Err(err) => warn!("Failed to parse concierge config response: {}", err),
+                }
+            }
             DaemonMessage::Error { message } => {
                 let _ = event_tx.send(ClientEvent::Error(message)).await;
             }
@@ -862,12 +871,13 @@ impl DaemonClient {
         provider_id: String,
         base_url: String,
         api_key: String,
+        auth_source: String,
     ) -> Result<()> {
         self.send(ClientMessage::AgentValidateProvider {
             provider_id,
             base_url,
             api_key,
-            auth_source: "api_key".to_string(),
+            auth_source,
         })
     }
 
@@ -881,6 +891,22 @@ impl DaemonClient {
 
     pub fn list_sub_agents(&self) -> Result<()> {
         self.send(ClientMessage::AgentListSubAgents)
+    }
+
+    pub fn get_concierge_config(&self) -> Result<()> {
+        self.send(ClientMessage::AgentGetConciergeConfig)
+    }
+
+    pub fn set_concierge_config(&self, config_json: String) -> Result<()> {
+        self.send(ClientMessage::AgentSetConciergeConfig { config_json })
+    }
+
+    pub fn request_concierge_welcome(&self) -> Result<()> {
+        self.send(ClientMessage::AgentRequestConciergeWelcome)
+    }
+
+    pub fn dismiss_concierge_welcome(&self) -> Result<()> {
+        self.send(ClientMessage::AgentDismissConciergeWelcome)
     }
 
     pub fn resolve_task_approval(&self, approval_id: String, decision: String) -> Result<()> {

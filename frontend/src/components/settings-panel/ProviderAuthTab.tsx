@@ -16,7 +16,6 @@ export function ProviderAuthTab() {
     const [validationResult, setValidationResult] = useState<Record<string, { valid: boolean; error?: string }>>({});
 
     // ChatGPT subscription auth state
-    const [chatgptAuthStatus, setChatgptAuthStatus] = useState<any>(null);
     const [chatgptAuthUrl, setChatgptAuthUrl] = useState<string | null>(null);
     const [chatgptAuthBusy, setChatgptAuthBusy] = useState(false);
 
@@ -32,7 +31,6 @@ export function ProviderAuthTab() {
             if (!amux?.openAICodexAuthStatus) return;
             void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
                 if (status?.available) {
-                    setChatgptAuthStatus(status);
                     setChatgptAuthUrl(null);
                     refreshProviderAuthStates();
                 }
@@ -63,13 +61,12 @@ export function ProviderAuthTab() {
         setChatgptAuthBusy(true);
         try {
             const result = await amux.openAICodexAuthLogin();
-            setChatgptAuthStatus(result);
             setChatgptAuthUrl(typeof result?.authUrl === "string" ? result.authUrl : null);
             if (result?.available) {
                 refreshProviderAuthStates();
             }
         } catch (error: any) {
-            setChatgptAuthStatus({ available: false, error: error?.message || "ChatGPT auth failed" });
+            void error;
         } finally {
             setChatgptAuthBusy(false);
         }
@@ -81,7 +78,6 @@ export function ProviderAuthTab() {
         setChatgptAuthBusy(true);
         try {
             await amux.openAICodexAuthLogout();
-            setChatgptAuthStatus(null);
             setChatgptAuthUrl(null);
             refreshProviderAuthStates();
         } catch { /* ignore */ } finally {

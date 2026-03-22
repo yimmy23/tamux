@@ -54,6 +54,16 @@ enum MainPaneView {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsPickerTarget {
+    Provider,
+    Model,
+    SubAgentProvider,
+    SubAgentModel,
+    ConciergeProvider,
+    ConciergeModel,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InputNoticeKind {
     Warning,
     Success,
@@ -108,6 +118,7 @@ pub struct TuiModel {
     // Pending ChatGPT subscription login flow
     openai_auth_url: Option<String>,
     openai_auth_status_text: Option<String>,
+    settings_picker_target: Option<SettingsPickerTarget>,
 
     // Vim motion state
     pending_g: bool,
@@ -141,6 +152,10 @@ pub struct TuiModel {
     // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,
     chat_drag_current: Option<Position>,
+
+    // Active mouse drag selection in the work-context preview pane
+    work_context_drag_anchor: Option<Position>,
+    work_context_drag_current: Option<Position>,
 }
 
 impl TuiModel {
@@ -176,6 +191,7 @@ impl TuiModel {
             error_tick: 0,
             openai_auth_url: None,
             openai_auth_status_text: None,
+            settings_picker_target: None,
             pending_g: false,
             show_sidebar_override: None,
             main_pane_view: MainPaneView::Conversation,
@@ -193,6 +209,8 @@ impl TuiModel {
             cancelled_thread_id: None,
             chat_drag_anchor: None,
             chat_drag_current: None,
+            work_context_drag_anchor: None,
+            work_context_drag_current: None,
         }
     }
 
@@ -236,6 +254,53 @@ impl TuiModel {
 
     fn assistant_busy(&self) -> bool {
         self.chat.is_streaming() || self.agent_activity.is_some()
+    }
+
+    fn concierge_banner_visible(&self) -> bool {
+        self.concierge.loading
+            || (self.concierge.welcome_visible
+                && self.chat.active_thread_id() == Some("concierge"))
+    }
+
+    fn concierge_banner_height(&self) -> u16 {
+        if self.concierge_banner_visible() {
+            4
+        } else {
+            0
+        }
+    }
+
+    fn execute_concierge_action(&mut self, action_index: usize) {
+        let Some(action) = self.concierge.welcome_actions.get(action_index).cloned() else {
+            return;
+        };
+
+        match action.action_type.as_str() {
+            "continue_session" => {
+                if let Some(thread_id) = action.thread_id {
+                    self.send_daemon_command(DaemonCommand::DismissConciergeWelcome);
+                    self.chat.reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+                    self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                }
+            }
+            "start_new" => {
+                self.send_daemon_command(DaemonCommand::DismissConciergeWelcome);
+                self.chat.reduce(chat::ChatAction::NewThread);
+                self.main_pane_view = MainPaneView::Conversation;
+                self.focus = FocusArea::Input;
+            }
+            "search" => {
+                self.main_pane_view = MainPaneView::Conversation;
+                self.focus = FocusArea::Input;
+                self.status_line = "Describe what you want to search in the concierge thread".to_string();
+            }
+            "dismiss" => {
+                self.send_daemon_command(DaemonCommand::DismissConciergeWelcome);
+            }
+            _ => {}
+        }
     }
 
     fn update_held_modifier(&mut self, code: KeyCode, pressed: bool) {

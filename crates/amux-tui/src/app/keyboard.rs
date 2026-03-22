@@ -43,7 +43,9 @@ impl TuiModel {
                 self.agent_activity = None;
                 self.show_input_notice("Stopped stream", InputNoticeKind::Success, 100, false);
             } else if self.focus == FocusArea::Chat {
-                if let Some(sel) = self.chat.selected_message() {
+                if matches!(self.main_pane_view, MainPaneView::WorkContext) {
+                    self.copy_work_context_content();
+                } else if let Some(sel) = self.chat.selected_message() {
                     self.copy_message(sel);
                 }
             }
@@ -51,6 +53,29 @@ impl TuiModel {
         }
         if let Some(modal_kind) = self.modal.top() {
             return self.handle_key_modal(code, modifiers, modal_kind);
+        }
+
+        if self.concierge.welcome_visible
+            && self.chat.active_thread_id() == Some("concierge")
+            && self.focus == FocusArea::Chat
+        {
+            match code {
+                KeyCode::Left | KeyCode::Up => {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::NavigateAction(-1));
+                    return false;
+                }
+                KeyCode::Right | KeyCode::Down => {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::NavigateAction(1));
+                    return false;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.execute_concierge_action(self.concierge.selected_action);
+                    return false;
+                }
+                _ => {}
+            }
         }
 
         if code != KeyCode::Esc {
@@ -282,6 +307,18 @@ impl TuiModel {
                     .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
             }
             KeyCode::Right if self.focus == FocusArea::Sidebar => {
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Todos));
+            }
+            KeyCode::Char('[')
+                if self.sidebar_visible() && self.focus != FocusArea::Input =>
+            {
+                self.sidebar
+                    .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Files));
+            }
+            KeyCode::Char(']')
+                if self.sidebar_visible() && self.focus != FocusArea::Input =>
+            {
                 self.sidebar
                     .reduce(sidebar::SidebarAction::SwitchTab(sidebar::SidebarTab::Todos));
             }

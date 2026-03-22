@@ -18,6 +18,7 @@ import { saveSession, startAutoSave } from "./lib/sessionPersistence";
 import { prepareOpenAIRequest, sendChatCompletion } from "./lib/agentClient";
 import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./lib/agentTools";
 import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
+import { ConciergeToast } from "./components/ConciergeToast";
 
 const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
 
@@ -124,35 +125,44 @@ export default function App() {
     }
 
     console.log("[concierge] setting up agent event listener in App.tsx");
+    const applyConciergeWelcome = (event: any) => {
+      if (event?.type !== "concierge_welcome") return;
+      useAgentStore.setState({
+        conciergeWelcome: {
+          content: event.content ?? "",
+          actions: event.actions ?? [],
+        },
+      });
+    };
 
     // Listen for the concierge_welcome event from the daemon.
     const unsubscribe = amux.onAgentEvent((event: any) => {
       console.log("[concierge] agent event received:", event?.type, event);
       if (event?.type === "concierge_welcome") {
         console.log("[concierge] ConciergeWelcome event! content length:", event.content?.length, "actions:", event.actions?.length);
-        useAgentStore.setState({
-          conciergeWelcome: {
-            content: event.content ?? "",
-            actions: event.actions ?? [],
-          },
-        });
+        applyConciergeWelcome(event);
       }
     });
 
-    // Request welcome after a short delay for bridge readiness.
-    const timer = setTimeout(() => {
-      if (amux.agentRequestConciergeWelcome) {
-        console.log("[concierge] sending agentRequestConciergeWelcome");
-        amux.agentRequestConciergeWelcome().catch((e: any) => {
-          console.error("[concierge] request failed:", e);
-        });
-      } else {
+    void useAgentStore.getState().refreshConciergeConfig?.();
+
+    const requestWelcome = () => {
+      if (!amux.agentRequestConciergeWelcome) {
         console.warn("[concierge] agentRequestConciergeWelcome not available on bridge");
+        return;
       }
-    }, 1500);
+      console.log("[concierge] sending agentRequestConciergeWelcome");
+      amux.agentRequestConciergeWelcome().catch((e: any) => {
+        console.error("[concierge] request failed:", e);
+      });
+    };
+
+    const timerFast = setTimeout(requestWelcome, 200);
+    const timerRetry = setTimeout(requestWelcome, 1500);
 
     return () => {
-      clearTimeout(timer);
+      clearTimeout(timerFast);
+      clearTimeout(timerRetry);
       if (typeof unsubscribe === "function") unsubscribe();
     };
   }, []);
@@ -901,69 +911,7 @@ export default function App() {
 
       <SetupOnboardingPanel />
       <AgentApprovalOverlay />
-      <InlineConciergeToast />
-    </div>
-  );
-}
-
-function InlineConciergeToast() {
-  const welcome = useAgentStore((s) => s.conciergeWelcome);
-  const conciergeConfig = useAgentStore((s) => s.conciergeConfig);
-
-  console.log("[InlineConciergeToast] mounted. welcome:", welcome, "config:", conciergeConfig);
-
-  if (!welcome) {
-    return <div id="concierge-toast-debug" style={{ display: "none" }} data-status="no-welcome" />;
-  }
-  if (!conciergeConfig?.enabled) {
-    return <div id="concierge-toast-debug" style={{ display: "none" }} data-status="disabled" />;
-  }
-
-  console.log("[InlineConciergeToast] VISIBLE! content:", welcome.content?.substring(0, 50));
-
-  return (
-    <div style={{
-      position: "fixed",
-      bottom: 20,
-      right: 20,
-      zIndex: 99999,
-      maxWidth: 420,
-      background: "rgba(18, 33, 47, 0.97)",
-      border: "2px solid var(--accent, #61c5ff)",
-      borderRadius: 8,
-      padding: 16,
-      boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
-      color: "#fff",
-      fontSize: 13,
-    }}>
-      <div style={{ fontSize: 10, color: "#61c5ff", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-        Concierge
-      </div>
-      <div style={{ lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 10 }}>
-        {welcome.content}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {(welcome.actions || []).map((action: any, i: number) => (
-          <button
-            key={i}
-            onClick={() => {
-              useAgentStore.setState({ conciergeWelcome: null });
-            }}
-            style={{
-              background: "rgba(97, 197, 255, 0.15)",
-              border: "1px solid rgba(97, 197, 255, 0.4)",
-              color: "#61c5ff",
-              borderRadius: 4,
-              padding: "5px 12px",
-              fontSize: 11,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            {action.label}
-          </button>
-        ))}
-      </div>
+      <ConciergeToast />
     </div>
   );
 }

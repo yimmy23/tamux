@@ -145,7 +145,7 @@ impl SettingsState {
         self.editing_field = Some(field.to_string());
         self.edit_buffer = current_value.to_string();
         self.edit_cursor = self.edit_buffer.len();
-        self.textarea_mode = field == "system_prompt";
+        self.textarea_mode = field == "system_prompt" || field == "subagent_system_prompt";
     }
 
     fn line_col_to_offset(&self, target_line: usize, target_col: usize) -> usize {
@@ -280,8 +280,6 @@ impl SettingsState {
             },
             SettingsTab::Auth => match self.field_cursor {
                 0 => "auth_provider_list",
-                1 => "auth_login",
-                2 => "auth_test",
                 _ => "",
             },
             SettingsTab::Agent => match self.field_cursor {
@@ -292,10 +290,6 @@ impl SettingsState {
             },
             SettingsTab::SubAgents => match self.field_cursor {
                 0 => "subagent_list",
-                1 => "subagent_add",
-                2 => "subagent_edit",
-                3 => "subagent_delete",
-                4 => "subagent_toggle",
                 _ => "",
             },
             SettingsTab::Concierge => match self.field_cursor {
@@ -333,9 +327,9 @@ impl SettingsState {
             SettingsTab::WebSearch => 7,
             SettingsTab::Chat => 6,
             SettingsTab::Gateway => 12,
-            SettingsTab::Auth => 3,
+            SettingsTab::Auth => 1,
             SettingsTab::Agent => 3,
-            SettingsTab::SubAgents => 5,
+            SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 4,
             SettingsTab::Advanced => 14,
         }
@@ -851,11 +845,11 @@ mod tests {
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
         assert_eq!(state.field_count(), 12); // enabled, prefix, slack×2, telegram×2, discord×3, whatsapp×3
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
-        assert_eq!(state.field_count(), 3); // provider_list, login, test
+        assert_eq!(state.field_count(), 1); // provider list with row-level actions handled separately
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
         assert_eq!(state.field_count(), 3); // name, prompt, backend
         state.reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
-        assert_eq!(state.field_count(), 5); // list, add, edit, delete, toggle
+        assert_eq!(state.field_count(), 1); // sub-agent list with row-level actions handled separately
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
         assert_eq!(state.field_count(), 4); // enabled, detail_level, provider, model
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));

@@ -1,6 +1,23 @@
 use super::*;
 
 impl TuiModel {
+    fn begin_custom_model_edit(&mut self) {
+        let current = if self.config.custom_model_name.trim().is_empty()
+            || self.config.custom_model_name == self.config.model
+        {
+            self.config.model.clone()
+        } else {
+            format!("{} | {}", self.config.custom_model_name, self.config.model)
+        };
+        if self.modal.top() != Some(modal::ModalKind::Settings) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        }
+        self.settings.reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+        self.settings.start_editing("custom_model_entry", &current);
+        self.status_line = "Enter custom model as `Name | ID` or just `ID`".to_string();
+    }
+
     pub(super) fn handle_key_modal(
         &mut self,
         code: KeyCode,
@@ -40,6 +57,22 @@ impl TuiModel {
                             "base_url" => self.config.base_url = value,
                             "api_key" => self.config.api_key = value,
                             "assistant_id" => self.config.assistant_id = value,
+                            "custom_model_entry" => {
+                                let trimmed = value.trim();
+                                let (name, model_id) = if let Some((lhs, rhs)) = trimmed.split_once('|') {
+                                    (lhs.trim(), rhs.trim())
+                                } else {
+                                    ("", trimmed)
+                                };
+                                if !model_id.is_empty() {
+                                    self.config.model = model_id.to_string();
+                                    self.config.custom_model_name = if name.is_empty() {
+                                        model_id.to_string()
+                                    } else {
+                                        name.to_string()
+                                    };
+                                }
+                            }
                             "gateway_prefix" => self.config.gateway_prefix = value,
                             "slack_token" => self.config.slack_token = value,
                             "slack_channel_filter" => self.config.slack_channel_filter = value,
@@ -142,6 +175,38 @@ impl TuiModel {
                                     self.config.agent_config_raw = Some(raw);
                                 }
                             }
+                            "subagent_name" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.name = value;
+                                }
+                            }
+                            "subagent_role" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.role = value;
+                                    editor.previous_role_preset = None;
+                                }
+                            }
+                            "subagent_system_prompt" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.system_prompt = value;
+                                }
+                            }
+                            "concierge_provider" => {
+                                self.concierge.provider = if value.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(value)
+                                };
+                                self.send_concierge_config();
+                            }
+                            "concierge_model" => {
+                                self.concierge.model = if value.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(value)
+                                };
+                                self.send_concierge_config();
+                            }
                             _ => {}
                         }
                         self.settings.reduce(SettingsAction::ConfirmEdit);
@@ -155,6 +220,20 @@ impl TuiModel {
                 return false;
             }
 
+                    match self.settings.active_tab() {
+                SettingsTab::Auth => {
+                    if self.handle_auth_settings_key(code) {
+                        return false;
+                    }
+                }
+                SettingsTab::SubAgents => {
+                    if self.handle_subagent_settings_key(code) {
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+
             match code {
                 KeyCode::Tab => {
                     let all = SettingsTab::all();
@@ -164,8 +243,13 @@ impl TuiModel {
                         .position(|&tab| tab == current)
                         .map(|i| (i + 1) % all.len())
                         .unwrap_or(0);
-                    self.settings
-                        .reduce(SettingsAction::SwitchTab(all[next_idx]));
+                    let next_tab = all[next_idx];
+                    self.settings.reduce(SettingsAction::SwitchTab(next_tab));
+                    if matches!(next_tab, SettingsTab::SubAgents) {
+                        self.send_daemon_command(DaemonCommand::ListSubAgents);
+                    } else if matches!(next_tab, SettingsTab::Concierge) {
+                        self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                    }
                     return false;
                 }
                 KeyCode::BackTab => {
@@ -176,8 +260,13 @@ impl TuiModel {
                         .position(|&tab| tab == current)
                         .map(|i| if i == 0 { all.len() - 1 } else { i - 1 })
                         .unwrap_or(0);
-                    self.settings
-                        .reduce(SettingsAction::SwitchTab(all[prev_idx]));
+                    let prev_tab = all[prev_idx];
+                    self.settings.reduce(SettingsAction::SwitchTab(prev_tab));
+                    if matches!(prev_tab, SettingsTab::SubAgents) {
+                        self.send_daemon_command(DaemonCommand::ListSubAgents);
+                    } else if matches!(prev_tab, SettingsTab::Concierge) {
+                        self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                    }
                     return false;
                 }
                 KeyCode::Down => {
@@ -364,127 +453,101 @@ impl TuiModel {
             modal::ModalKind::ProviderPicker => {
                 let cursor = self.modal.picker_cursor();
                 if let Some(def) = providers::PROVIDERS.get(cursor) {
-                    self.config.provider = def.id.to_string();
-                    self.config.base_url = def.default_base_url.to_string();
-                    self.config.model = def.default_model.to_string();
-                    self.config.api_key.clear();
-                    self.config.auth_source =
-                        providers::default_auth_source_for(def.id).to_string();
-                    self.config.api_transport = def.default_transport.to_string();
-                    self.config.assistant_id.clear();
-                    self.config.custom_context_window_tokens = if def.id == "custom" {
-                        Some(128_000)
-                    } else {
-                        None
-                    };
-                    self.config.context_window_tokens = if def.id == "custom" {
-                        self.config.custom_context_window_tokens.unwrap_or(128_000)
-                    } else {
-                        providers::known_context_window_for(def.id, def.default_model)
-                            .unwrap_or(128_000)
-                    };
-
-                    if let Some(raw) = &self.config.agent_config_raw {
-                        if let Some(provider_config) = raw.get(def.id) {
-                            if let Some(saved_base_url) =
-                                TuiModel::provider_field_str(provider_config, "baseUrl", "base_url")
-                            {
-                                if !saved_base_url.is_empty() {
-                                    self.config.base_url = saved_base_url.to_string();
+                    match self.settings_picker_target.unwrap_or(SettingsPickerTarget::Provider) {
+                        SettingsPickerTarget::Provider => self.apply_provider_selection(def.id),
+                        SettingsPickerTarget::SubAgentProvider => {
+                            if let Some(editor) = self.subagents.editor.as_mut() {
+                                editor.provider = def.id.to_string();
+                                let default_model =
+                                    providers::default_model_for_provider_auth(def.id, "api_key");
+                                if editor.model.trim().is_empty()
+                                    || !providers::known_models_for_provider_auth(def.id, "api_key")
+                                        .iter()
+                                        .any(|model| model.id == editor.model)
+                                {
+                                    editor.model = default_model;
                                 }
                             }
-                            if let Some(key) =
-                                TuiModel::provider_field_str(provider_config, "apiKey", "api_key")
-                            {
-                                self.config.api_key = key.to_string();
-                            }
-                            if let Some(saved_model) =
-                                TuiModel::provider_field_str(provider_config, "model", "model")
-                            {
-                                if !saved_model.is_empty() {
-                                    self.config.model = saved_model.to_string();
-                                }
-                            }
-                            if let Some(saved_transport) = TuiModel::provider_field_str(
-                                provider_config,
-                                "apiTransport",
-                                "api_transport",
-                            ) {
-                                self.config.api_transport =
-                                    if def.supported_transports.contains(&saved_transport) {
-                                        saved_transport.to_string()
-                                    } else {
-                                        def.default_transport.to_string()
-                                    };
-                            }
-                            if let Some(saved_auth_source) = TuiModel::provider_field_str(
-                                provider_config,
-                                "authSource",
-                                "auth_source",
-                            ) {
-                                self.config.auth_source =
-                                    if def.supported_auth_sources.contains(&saved_auth_source) {
-                                        saved_auth_source.to_string()
-                                    } else {
-                                        def.default_auth_source.to_string()
-                                    };
-                            }
-                            if let Some(saved_assistant_id) = TuiModel::provider_field_str(
-                                provider_config,
-                                "assistantId",
-                                "assistant_id",
-                            ) {
-                                self.config.assistant_id = saved_assistant_id.to_string();
-                            }
-                            self.config.custom_context_window_tokens =
-                                TuiModel::provider_field_u64(
-                                    provider_config,
-                                    "customContextWindowTokens",
-                                    "context_window_tokens",
-                                )
-                                .map(|value| value.max(1000) as u32);
-                            self.config.context_window_tokens =
-                                TuiModel::effective_context_window_for_provider_value(
-                                    def.id,
-                                    provider_config,
-                                );
+                            self.status_line = format!("Sub-agent provider: {}", def.name);
                         }
+                        SettingsPickerTarget::ConciergeProvider => {
+                            self.concierge.provider = Some(def.id.to_string());
+                            let default_model =
+                                providers::default_model_for_provider_auth(def.id, "api_key");
+                            if self.concierge.model.as_deref().unwrap_or("").is_empty() {
+                                self.concierge.model = Some(default_model);
+                            }
+                            self.send_concierge_config();
+                            self.status_line = format!("Concierge provider: {}", def.name);
+                        }
+                        SettingsPickerTarget::Model
+                        | SettingsPickerTarget::SubAgentModel
+                        | SettingsPickerTarget::ConciergeModel => {}
                     }
-
-                    if def.id == "openai" && self.config.auth_source == "chatgpt_subscription" {
-                        self.config.api_transport = "responses".to_string();
-                    }
-
-                    self.refresh_provider_models_for_current_auth();
-                    self.status_line = format!("Provider: {}", def.name);
-                    self.sync_config_to_daemon();
                 }
+                self.settings_picker_target = None;
                 self.modal.reduce(modal::ModalAction::Pop);
             }
             modal::ModalKind::ModelPicker => {
-                let models = self.config.fetched_models();
+                let models = widgets::model_picker::available_models(&self.config);
+                let cursor = self.modal.picker_cursor();
+                if cursor == models.len() {
+                    self.settings_picker_target = None;
+                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.begin_custom_model_edit();
+                    return;
+                }
                 if models.is_empty() {
                     self.status_line = "No models available. Set model in /settings".to_string();
                 } else {
-                    let cursor = self.modal.picker_cursor();
                     if let Some(model) = models.get(cursor) {
                         let model_id = model.id.clone();
                         let model_context_window = model.context_window;
-                        self.config
-                            .reduce(config::ConfigAction::SetModel(model_id.clone()));
-                        if self.config.provider != "custom" {
-                            self.config.context_window_tokens =
-                                model_context_window.unwrap_or(128_000);
+                        match self.settings_picker_target.unwrap_or(SettingsPickerTarget::Model) {
+                            SettingsPickerTarget::Model => {
+                                self.config
+                                    .reduce(config::ConfigAction::SetModel(model_id.clone()));
+                                self.config.custom_model_name = if providers::known_models_for_provider_auth(
+                                    &self.config.provider,
+                                    &self.config.auth_source,
+                                )
+                                .iter()
+                                .any(|entry| entry.id == model_id)
+                                {
+                                    String::new()
+                                } else {
+                                    model.name.clone().unwrap_or_else(|| model_id.clone())
+                                };
+                                if self.config.provider != "custom" {
+                                    self.config.context_window_tokens =
+                                        model_context_window.unwrap_or(128_000);
+                                }
+                                self.status_line = format!("Model: {}", model_id);
+                                if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                                    "model": model_id,
+                                })) {
+                                    self.send_daemon_command(DaemonCommand::SetConfigJson(json));
+                                }
+                                self.save_settings();
+                            }
+                            SettingsPickerTarget::SubAgentModel => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.model = model_id.clone();
+                                }
+                                self.status_line = format!("Sub-agent model: {}", model_id);
+                            }
+                            SettingsPickerTarget::ConciergeModel => {
+                                self.concierge.model = Some(model_id.clone());
+                                self.send_concierge_config();
+                                self.status_line = format!("Concierge model: {}", model_id);
+                            }
+                            SettingsPickerTarget::Provider
+                            | SettingsPickerTarget::SubAgentProvider
+                            | SettingsPickerTarget::ConciergeProvider => {}
                         }
-                        self.status_line = format!("Model: {}", model_id);
-                        if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                            "model": model_id,
-                        })) {
-                            self.send_daemon_command(DaemonCommand::SetConfigJson(json));
-                        }
-                        self.save_settings();
                     }
                 }
+                self.settings_picker_target = None;
                 self.modal.reduce(modal::ModalAction::Pop);
             }
             modal::ModalKind::OpenAIAuth => {

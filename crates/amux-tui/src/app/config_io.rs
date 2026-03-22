@@ -70,6 +70,7 @@ impl TuiModel {
             return serde_json::json!({
                 "baseUrl": &self.config.base_url,
                 "model": &self.config.model,
+                "customModelName": &self.config.custom_model_name,
                 "apiKey": &self.config.api_key,
                 "assistantId": &self.config.assistant_id,
                 "apiTransport": &self.config.api_transport,
@@ -92,6 +93,7 @@ impl TuiModel {
         serde_json::json!({
             "baseUrl": def.map(|entry| entry.default_base_url).unwrap_or(""),
             "model": def.map(|entry| entry.default_model).unwrap_or(""),
+            "customModelName": "",
             "apiKey": "",
             "assistantId": "",
             "apiTransport": providers::default_transport_for(provider_id),
@@ -105,6 +107,7 @@ impl TuiModel {
         serde_json::json!({
             "base_url": Self::provider_field_str(&ui_value, "baseUrl", "base_url").unwrap_or(""),
             "model": Self::provider_field_str(&ui_value, "model", "model").unwrap_or(""),
+            "custom_model_name": Self::provider_field_str(&ui_value, "customModelName", "custom_model_name").unwrap_or(""),
             "api_key": Self::provider_field_str(&ui_value, "apiKey", "api_key").unwrap_or(""),
             "assistant_id": Self::provider_field_str(&ui_value, "assistantId", "assistant_id").unwrap_or(""),
             "auth_source": Self::provider_field_str(&ui_value, "authSource", "auth_source").unwrap_or(providers::default_auth_source_for(provider_id)),
@@ -280,6 +283,9 @@ impl TuiModel {
             let base_url =
                 Self::provider_field_str(provider_config, "baseUrl", "base_url").unwrap_or("");
             let model = Self::provider_field_str(provider_config, "model", "model").unwrap_or("");
+            let custom_model_name =
+                Self::provider_field_str(provider_config, "customModelName", "custom_model_name")
+                    .unwrap_or("");
             let api_key =
                 Self::provider_field_str(provider_config, "apiKey", "api_key").unwrap_or("");
             let assistant_id =
@@ -313,6 +319,7 @@ impl TuiModel {
                     .map(|def| def.default_model.to_string())
                     .unwrap_or_default()
             };
+            self.config.custom_model_name = custom_model_name.to_string();
             self.config.api_key = api_key.to_string();
             self.config.assistant_id = assistant_id.to_string();
             self.config.auth_source =
@@ -323,13 +330,15 @@ impl TuiModel {
                 };
             let supported_models =
                 providers::known_models_for_provider_auth(provider_id, &self.config.auth_source);
-            if !supported_models.is_empty()
-                && !supported_models
-                    .iter()
-                    .any(|entry| entry.id == self.config.model)
+            if supported_models
+                .iter()
+                .any(|entry| entry.id == self.config.model)
             {
-                self.config.model =
-                    providers::default_model_for_provider_auth(provider_id, &self.config.auth_source);
+                self.config.custom_model_name.clear();
+            } else if self.config.custom_model_name.trim().is_empty()
+                && !self.config.model.trim().is_empty()
+            {
+                self.config.custom_model_name = self.config.model.clone();
             }
             self.config.api_transport =
                 if providers::supported_transports_for(provider_id).contains(&api_transport) {
@@ -578,6 +587,7 @@ impl TuiModel {
         json[&self.config.provider] = serde_json::json!({
             "baseUrl": &self.config.base_url,
             "model": &self.config.model,
+            "customModelName": &self.config.custom_model_name,
             "apiKey": &self.config.api_key,
             "assistantId": &self.config.assistant_id,
             "apiTransport": &self.config.api_transport,

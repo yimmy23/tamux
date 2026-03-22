@@ -18,6 +18,8 @@ import { isCDUIViewVisible, useCDUIVisibilityFlags } from "./lib/cduiVisibility"
 import { registerAITrainingPlugin } from "./plugins/ai-training/registerPlugin";
 import { registerCodingAgentsPlugin } from "./plugins/coding-agents/registerPlugin";
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
+import { ConciergeToast } from "./components/ConciergeToast";
+import { useAgentStore } from "./lib/agentStore";
 
 const EMBEDDED_VIEW_IDS = new Set([
   "search-overlay",
@@ -95,6 +97,52 @@ const CDUIApp = () => {
       cancelled = true;
     };
   }, [reloadViews]);
+
+  useEffect(() => {
+    const amux = (window as any).tamux ?? (window as any).amux;
+    if (!amux?.onAgentEvent) {
+      console.warn("[concierge] no onAgentEvent bridge available in CDUIApp");
+      return;
+    }
+
+    const applyConciergeWelcome = (event: any) => {
+      if (event?.type !== "concierge_welcome") {
+        return;
+      }
+      useAgentStore.setState({
+        conciergeWelcome: {
+          content: event.content ?? "",
+          actions: event.actions ?? [],
+        },
+      });
+    };
+
+    const unsubscribe = amux.onAgentEvent((event: any) => {
+      if (event?.type === "concierge_welcome") {
+        applyConciergeWelcome(event);
+      }
+    });
+
+    void useAgentStore.getState().refreshConciergeConfig?.();
+
+    const requestWelcome = () => {
+      if (!amux.agentRequestConciergeWelcome) {
+        return;
+      }
+      void amux.agentRequestConciergeWelcome().catch(() => {});
+    };
+
+    const timerFast = window.setTimeout(requestWelcome, 200);
+    const timerRetry = window.setTimeout(requestWelcome, 1500);
+
+    return () => {
+      window.clearTimeout(timerFast);
+      window.clearTimeout(timerRetry);
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (views) {
@@ -292,6 +340,7 @@ const CDUIApp = () => {
       })}
       <ViewBuilderOverlay />
       <SetupOnboardingPanel />
+      <ConciergeToast />
     </AppContext.Provider>
   );
 };

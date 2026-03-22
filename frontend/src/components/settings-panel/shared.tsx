@@ -227,10 +227,11 @@ export const smallBtnStyle: CSSProperties = {
     padding: "4px 8px",
 };
 
-export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, apiKey, authSource }: {
+export function ModelSelector({ providerId, value, customName, onChange, disabled, baseUrl, apiKey, authSource }: {
     providerId: AgentProviderId;
     value: string;
-    onChange: (value: string) => void;
+    customName?: string;
+    onChange: (value: string, name?: string) => void;
     disabled?: boolean;
     baseUrl?: string;
     apiKey?: string;
@@ -239,6 +240,8 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState("");
     const [useCustom, setUseCustom] = useState(false);
+    const [customModelId, setCustomModelId] = useState(value);
+    const [customModelName, setCustomModelName] = useState(customName || "");
     const [fetchedModels, setFetchedModels] = useState<ModelDefinition[]>([]);
     const [isFetching, setIsFetching] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
@@ -257,8 +260,15 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
                 merged.push(fm);
             }
         }
+        if (value.trim() && !merged.some((m) => m.id === value.trim())) {
+            merged.unshift({
+                id: value.trim(),
+                name: customName?.trim() || value.trim(),
+                contextWindow: 0,
+            });
+        }
         return merged;
-    }, [predefinedModels, fetchedModels]);
+    }, [predefinedModels, fetchedModels, value, customName]);
 
     const filteredModels = useMemo(() => {
         if (!search) return allModels;
@@ -325,6 +335,14 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
         }
     }, [isOpen]);
 
+    useEffect(() => {
+        setCustomModelId(value);
+    }, [value]);
+
+    useEffect(() => {
+        setCustomModelName(customName || "");
+    }, [customName]);
+
     const formatContextWindow = (tokens: number): string => {
         if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
         if (tokens >= 1000) return `${(tokens / 1000).toFixed(0)}K`;
@@ -333,16 +351,40 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
 
     if (useCustom) {
         return (
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{ display: "grid", gap: 4, width: "100%" }}>
                 <input
-                    ref={inputRef}
                     type="text"
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
+                    value={customModelName}
+                    onChange={(e) => setCustomModelName(e.target.value)}
+                    placeholder="Display name (optional)"
+                    disabled={disabled}
+                    style={{ ...inputStyle, width: "100%" }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={customModelId}
+                        onChange={(e) => setCustomModelId(e.target.value)}
                     placeholder="Enter model ID"
                     disabled={disabled}
                     style={{ ...inputStyle, flex: 1 }}
                 />
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const nextId = customModelId.trim();
+                            if (!nextId) return;
+                            onChange(nextId, customModelName.trim() || nextId);
+                            setUseCustom(false);
+                            setIsOpen(false);
+                            setSearch("");
+                        }}
+                        style={smallBtnStyle}
+                        title="Apply custom model"
+                    >
+                        Apply
+                    </button>
                 <button
                     type="button"
                     onClick={() => setUseCustom(false)}
@@ -351,6 +393,7 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
                 >
                     ✕
                 </button>
+                </div>
             </div>
         );
     }
@@ -416,7 +459,7 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
                             <div
                                 key={model.id}
                                 onClick={() => {
-                                    onChange(model.id);
+                                    onChange(model.id, model.name);
                                     setIsOpen(false);
                                     setSearch("");
                                 }}
@@ -456,10 +499,12 @@ export function ModelSelector({ providerId, value, onChange, disabled, baseUrl, 
                         <div
                             onClick={() => {
                                 if (search) {
-                                    onChange(search);
+                                    onChange(search, search);
                                     setIsOpen(false);
                                     setSearch("");
                                 } else {
+                                    setCustomModelId(value);
+                                    setCustomModelName(customName || "");
                                     setUseCustom(true);
                                 }
                             }}

@@ -4,17 +4,17 @@ export function ConciergeToast() {
     const welcome = useAgentStore((s) => s.conciergeWelcome);
     const dismiss = useAgentStore((s) => s.dismissConciergeWelcome);
     const config = useAgentStore((s) => s.conciergeConfig);
+    const setActiveThread = useAgentStore((s) => s.setActiveThread);
+    const createThread = useAgentStore((s) => s.createThread);
 
-    console.log("[ConciergeToast] render check — welcome:", !!welcome, "enabled:", config.enabled);
     if (!welcome || !config.enabled) return null;
-    console.log("[ConciergeToast] RENDERING toast with", welcome.content.length, "chars,", welcome.actions.length, "actions");
 
     return (
         <div style={{
             position: "fixed",
             bottom: 20,
             right: 20,
-            zIndex: 9000,
+            zIndex: 2147483647,
             maxWidth: 400,
             background: "rgba(18, 33, 47, 0.95)",
             border: "1px solid var(--accent)",
@@ -32,16 +32,17 @@ export function ConciergeToast() {
                 {welcome.actions.map((action, i) => (
                     <button
                         key={i}
-                        onClick={() => {
+                        onClick={async () => {
                             if (action.action_type === "dismiss") {
-                                dismiss();
+                                await dismiss();
                             } else if (action.action_type === "continue_session" && action.thread_id) {
-                                // Navigate to the thread
-                                useAgentStore.getState().setActiveThread(action.thread_id);
-                                dismiss();
+                                setActiveThread(action.thread_id);
+                                await dismiss();
                             } else if (action.action_type === "start_new") {
-                                useAgentStore.getState().createThread({});
-                                dismiss();
+                                createThread({});
+                                await dismiss();
+                            } else {
+                                await dismiss();
                             }
                         }}
                         style={{

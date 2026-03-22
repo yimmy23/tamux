@@ -96,6 +96,7 @@ function normalizeAgentBackend(value: unknown): AgentSettings["agentBackend"] {
 export interface AgentProviderConfig {
   baseUrl: string;
   model: string;
+  customModelName: string;
   apiKey: string;
   assistantId: string;
   apiTransport: ApiTransportMode;
@@ -176,13 +177,18 @@ function normalizeProviderConfig(
   const authSource = normalizeAuthSource(providerId, value?.authSource ?? fallback.authSource);
   const requestedModel = typeof value?.model === "string" ? value.model.trim() : fallback.model.trim();
   const supportedModels = getProviderModels(providerId, authSource);
-  const model = requestedModel && supportedModels.some((entry) => entry.id === requestedModel)
+  const matchesKnownModel = requestedModel && supportedModels.some((entry) => entry.id === requestedModel);
+  const model = requestedModel
     ? requestedModel
     : getDefaultModelForProvider(providerId, authSource);
+  const customModelName = typeof value?.customModelName === "string"
+    ? value.customModelName.trim()
+    : "";
   return {
     ...fallback,
     ...(value ?? {}),
     model,
+    customModelName: matchesKnownModel ? "" : (customModelName || (requestedModel && !matchesKnownModel ? requestedModel : "")),
     assistantId: typeof value?.assistantId === "string" ? value.assistantId : fallback.assistantId,
     apiTransport: normalizeApiTransport(providerId, value?.apiTransport ?? fallback.apiTransport),
     authSource,
@@ -542,26 +548,26 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are tamux, an agentic terminal multiplexer assistant. You can execute terminal commands, check system resources, and send messages to connected chat platforms (Slack, Discord, Telegram, WhatsApp) via the gateway. Use your tools proactively when the user asks you to perform actions. Be concise and direct.",
 
   activeProvider: "openai",
-  featherless: { baseUrl: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5.4", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: null },
-  qwen: { baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-max", apiKey: "", assistantId: "", apiTransport: "native_assistant", authSource: "api_key", customContextWindowTokens: null },
-  "qwen-deepinfra": { baseUrl: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  kimi: { baseUrl: "https://api.moonshot.ai/v1", model: "moonshot-v1-32k", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  "kimi-coding-plan": { baseUrl: "https://api.kimi.com/coding/v1", model: "kimi-for-coding", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  "z.ai": { baseUrl: "https://api.z.ai/api/paas/v4", model: "glm-4-plus", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  "z.ai-coding-plan": { baseUrl: "https://api.z.ai/api/coding/paas/v4", model: "glm-5", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  cerebras: { baseUrl: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  together: { baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: null },
-  ollama: { baseUrl: "http://localhost:11434/v1", model: "llama3.1", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  chutes: { baseUrl: "https://llm.chutes.ai/v1", model: "deepseek-ai/DeepSeek-V3", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  huggingface: { baseUrl: "https://api-inference.huggingface.co/v1", model: "meta-llama/Llama-3.3-70B-Instruct", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  minimax: { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M1-80k", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  "minimax-coding-plan": { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M2.7", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  "alibaba-coding-plan": { baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", model: "qwen3-coder", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  "opencode-zen": { baseUrl: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
-  custom: { baseUrl: "", model: "", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: 128_000 },
+  featherless: { baseUrl: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5.4", customModelName: "", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: null },
+  qwen: { baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-max", customModelName: "", apiKey: "", assistantId: "", apiTransport: "native_assistant", authSource: "api_key", customContextWindowTokens: null },
+  "qwen-deepinfra": { baseUrl: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  kimi: { baseUrl: "https://api.moonshot.ai/v1", model: "moonshot-v1-32k", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "kimi-coding-plan": { baseUrl: "https://api.kimi.com/coding/v1", model: "kimi-for-coding", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "z.ai": { baseUrl: "https://api.z.ai/api/paas/v4", model: "glm-4-plus", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "z.ai-coding-plan": { baseUrl: "https://api.z.ai/api/coding/paas/v4", model: "glm-5", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-sonnet-4", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  cerebras: { baseUrl: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  together: { baseUrl: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", customModelName: "", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: null },
+  ollama: { baseUrl: "http://localhost:11434/v1", model: "llama3.1", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  chutes: { baseUrl: "https://llm.chutes.ai/v1", model: "deepseek-ai/DeepSeek-V3", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  huggingface: { baseUrl: "https://api-inference.huggingface.co/v1", model: "meta-llama/Llama-3.3-70B-Instruct", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  minimax: { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M1-80k", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "minimax-coding-plan": { baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M2.7", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "alibaba-coding-plan": { baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", model: "qwen3-coder", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  "opencode-zen": { baseUrl: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", customModelName: "", apiKey: "", assistantId: "", apiTransport: "chat_completions", authSource: "api_key", customContextWindowTokens: null },
+  custom: { baseUrl: "", model: "", customModelName: "", apiKey: "", assistantId: "", apiTransport: "responses", authSource: "api_key", customContextWindowTokens: 128_000 },
 
   enableBashTool: true,
   enableVisionTool: false,
@@ -1102,7 +1108,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       const states = await bridge.agentGetProviderAuthStates();
       if (Array.isArray(states)) {
-        set({ providerAuthStates: states });
+        set({ providerAuthStates: states as ProviderAuthState[] });
       }
     } catch { /* ignore */ }
   },
@@ -1171,7 +1177,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       const list = await bridge.agentListSubAgents();
       if (Array.isArray(list)) {
-        set({ subAgents: list });
+        set({ subAgents: list as SubAgentDefinition[] });
       }
     } catch { /* ignore */ }
   },

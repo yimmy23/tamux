@@ -2196,3 +2196,101 @@ pub async fn fetch_models(
 
     Ok(models)
 }
+
+pub async fn validate_provider_connection(
+    provider_id: &str,
+    base_url: &str,
+    api_key: &str,
+    auth_source: AuthSource,
+) -> Result<Option<Vec<FetchedModel>>> {
+    let def = get_provider_definition(provider_id)
+        .with_context(|| format!("Unknown provider '{}'", provider_id))?;
+    let resolved_base_url = if base_url.trim().is_empty() {
+        def.default_base_url.to_string()
+    } else {
+        base_url.trim().to_string()
+    };
+
+    if provider_id == "openai" && auth_source == AuthSource::ChatgptSubscription {
+        let client = reqwest::Client::new();
+        let config = ProviderConfig {
+            base_url: resolved_base_url,
+            model: def.default_model.to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source,
+            api_transport: def.default_transport,
+            reasoning_effort: "off".to_string(),
+            context_window_tokens: def
+                .models
+                .iter()
+                .find(|model| model.id == def.default_model)
+                .map(|model| model.context_window)
+                .unwrap_or(128_000),
+            response_schema: None,
+        };
+        let _ = resolve_openai_codex_request_auth(&client, provider_id, &config).await?;
+        return Ok(None);
+    }
+
+    if def.supports_model_fetch {
+        return fetch_models(provider_id, &resolved_base_url, api_key).await.map(Some);
+    }
+
+    let client = reqwest::Client::new();
+    let request = match def.api_type {
+        ApiType::OpenAI => {
+            let url = build_chat_completion_url(&resolved_base_url);
+            let body = serde_json::json!({
+                "model": def.default_model,
+                "messages": [{ "role": "user", "content": "ok" }],
+                "max_tokens": 1,
+                "stream": false,
+            });
+            let mut req = client.post(url).header("Content-Type", "application/json");
+            if !api_key.is_empty() {
+                match def.auth_method {
+                    AuthMethod::Bearer => {
+                        req = req.header("Authorization", format!("Bearer {}", api_key));
+                    }
+                    AuthMethod::XApiKey => {
+                        req = req.header("x-api-key", api_key);
+                    }
+                }
+            }
+            req.json(&body)
+        }
+        ApiType::Anthropic => {
+            let url = format!("{}/v1/messages", resolved_base_url.trim_end_matches('/'));
+            let body = serde_json::json!({
+                "model": def.default_model,
+                "max_tokens": 1,
+                "messages": [{ "role": "user", "content": "ok" }],
+            });
+            let mut req = client
+                .post(url)
+                .header("Content-Type", "application/json")
+                .header("anthropic-version", "2023-06-01");
+            if !api_key.is_empty() {
+                match def.auth_method {
+                    AuthMethod::Bearer => {
+                        req = req.header("Authorization", format!("Bearer {}", api_key));
+                    }
+                    AuthMethod::XApiKey => {
+                        req = req.header("x-api-key", api_key);
+                    }
+                }
+            }
+            req.json(&body)
+        }
+    };
+
+    let response = request.send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        anyhow::bail!("Validation failed: {} - {}", status, text);
+    }
+
+    Ok(None)
+}

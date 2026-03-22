@@ -23,7 +23,10 @@ impl TuiModel {
 
         let body_start_row: u16 = 3;
         let actual_input_height = self.input_height();
-        let input_start_row: u16 = self.height.saturating_sub(actual_input_height + 1);
+        let concierge_height = self.concierge_banner_height();
+        let input_start_row: u16 =
+            self.height.saturating_sub(actual_input_height + 1);
+        let concierge_start_row = input_start_row.saturating_sub(concierge_height);
         let show_sidebar = self.sidebar_visible();
         let sidebar_pct: u16 = if self.width >= 120 { 33 } else { 28 };
         let sidebar_start_col: u16 = if show_sidebar {
@@ -49,10 +52,14 @@ impl TuiModel {
         };
 
         let cursor_in_body = mouse.row >= body_start_row && mouse.row < input_start_row;
+        let cursor_in_concierge =
+            concierge_height > 0 && mouse.row >= concierge_start_row && mouse.row < input_start_row;
         let cursor_in_sidebar = show_sidebar && cursor_in_body && mouse.column >= sidebar_start_col;
-        let cursor_in_chat = cursor_in_body && mouse.column < sidebar_start_col;
+        let cursor_in_chat =
+            cursor_in_body && mouse.row < concierge_start_row && mouse.column < sidebar_start_col;
         let cursor_in_input =
             mouse.row >= input_start_row && mouse.row < self.height.saturating_sub(1);
+        let concierge_area = Rect::new(0, concierge_start_row, self.width, concierge_height);
 
         match mouse.kind {
             MouseEventKind::ScrollUp => {
@@ -98,12 +105,30 @@ impl TuiModel {
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                if cursor_in_chat {
+                if cursor_in_concierge {
+                    if let Some(widgets::concierge::ConciergeHitTarget::Action(index)) =
+                        widgets::concierge::hit_test(
+                            concierge_area,
+                            &self.concierge,
+                            Position::new(mouse.column, mouse.row),
+                        )
+                    {
+                        self.concierge
+                            .reduce(crate::state::ConciergeAction::SelectAction(index));
+                        self.execute_concierge_action(index);
+                    } else if self.chat.active_thread_id() == Some("concierge") {
+                        self.focus = FocusArea::Chat;
+                    }
+                } else if cursor_in_chat {
                     self.focus = FocusArea::Chat;
                     if matches!(self.main_pane_view, MainPaneView::Conversation) {
                         let pos = Position::new(mouse.column, mouse.row);
                         self.chat_drag_anchor = Some(pos);
                         self.chat_drag_current = Some(pos);
+                    } else if matches!(self.main_pane_view, MainPaneView::WorkContext) {
+                        let pos = Position::new(mouse.column, mouse.row);
+                        self.work_context_drag_anchor = Some(pos);
+                        self.work_context_drag_current = Some(pos);
                     } else if let MainPaneView::Task(target) = &self.main_pane_view {
                         if let Some(hit) = widgets::task_view::hit_test(
                             chat_area,
@@ -137,6 +162,7 @@ impl TuiModel {
                     }
                 } else if cursor_in_sidebar {
                     self.clear_chat_drag_selection();
+                    self.clear_work_context_drag_selection();
                     self.focus = FocusArea::Sidebar;
                     match widgets::sidebar::hit_test(
                         sidebar_area,
@@ -176,6 +202,7 @@ impl TuiModel {
                     }
                 } else if cursor_in_input {
                     self.clear_chat_drag_selection();
+                    self.clear_work_context_drag_selection();
                     self.focus = FocusArea::Input;
                     if let Some(offset) = self.input_offset_from_mouse(input_start_row, mouse) {
                         self.input
@@ -199,6 +226,20 @@ impl TuiModel {
                         self.chat.reduce(chat::ChatAction::ScrollChat(-1));
                     }
                     self.chat_drag_current = Some(Position::new(mouse.column, mouse.row));
+                } else if self.work_context_drag_anchor.is_some()
+                    && matches!(self.main_pane_view, MainPaneView::WorkContext)
+                {
+                    if mouse.row <= chat_area.y.saturating_add(1) {
+                        self.task_view_scroll = self.task_view_scroll.saturating_sub(1);
+                    } else if mouse.row
+                        >= chat_area
+                            .y
+                            .saturating_add(chat_area.height)
+                            .saturating_sub(2)
+                    {
+                        self.task_view_scroll = self.task_view_scroll.saturating_add(1);
+                    }
+                    self.work_context_drag_current = Some(Position::new(mouse.column, mouse.row));
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
@@ -239,6 +280,43 @@ impl TuiModel {
                     } else if cursor_in_chat {
                         self.handle_chat_click(chat_area, Position::new(mouse.column, mouse.row));
                     }
+                } else if let Some(anchor) = self.work_context_drag_anchor.take() {
+                    let current = self
+                        .work_context_drag_current
+                        .take()
+                        .unwrap_or(Position::new(mouse.column, mouse.row));
+                    let Some((anchor_point, current_point)) =
+                        widgets::work_context_view::selection_points_from_mouse(
+                            chat_area,
+                            &self.tasks,
+                            self.chat.active_thread_id(),
+                            self.sidebar.active_tab(),
+                            self.sidebar.selected_item(),
+                            &self.theme,
+                            self.task_view_scroll,
+                            anchor,
+                            current,
+                        )
+                    else {
+                        return;
+                    };
+
+                    if anchor_point != current_point {
+                        if let Some(text) = widgets::work_context_view::selected_text(
+                            chat_area,
+                            &self.tasks,
+                            self.chat.active_thread_id(),
+                            self.sidebar.active_tab(),
+                            self.sidebar.selected_item(),
+                            &self.theme,
+                            self.task_view_scroll,
+                            anchor_point,
+                            current_point,
+                        ) {
+                            conversion::copy_to_clipboard(&text);
+                            self.status_line = "Copied selection to clipboard".to_string();
+                        }
+                    }
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
@@ -255,6 +333,11 @@ impl TuiModel {
     fn clear_chat_drag_selection(&mut self) {
         self.chat_drag_anchor = None;
         self.chat_drag_current = None;
+    }
+
+    fn clear_work_context_drag_selection(&mut self) {
+        self.work_context_drag_anchor = None;
+        self.work_context_drag_current = None;
     }
 
     fn byte_offset_for_display_col(text: &str, target_col: usize) -> usize {
@@ -410,6 +493,8 @@ impl TuiModel {
                         overlay_area,
                         &self.settings,
                         &self.config,
+                        &self.auth,
+                        &self.subagents,
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::settings::SettingsHitTarget::EditCursor { line, col }) => {
@@ -421,6 +506,69 @@ impl TuiModel {
                                 return;
                             }
                             self.settings.reduce(SettingsAction::SwitchTab(tab));
+                            if matches!(tab, SettingsTab::SubAgents) {
+                                self.send_daemon_command(DaemonCommand::ListSubAgents);
+                            } else if matches!(tab, SettingsTab::Concierge) {
+                                self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                            }
+                        }
+                        Some(widgets::settings::SettingsHitTarget::AuthProviderItem(index)) => {
+                            if self.settings.is_editing() {
+                                return;
+                            }
+                            self.auth.selected = index.min(self.auth.entries.len().saturating_sub(1));
+                            self.auth.actions_focused = false;
+                        }
+                        Some(widgets::settings::SettingsHitTarget::AuthAction { index, action }) => {
+                            if self.settings.is_editing() {
+                                return;
+                            }
+                            self.auth.selected = index.min(self.auth.entries.len().saturating_sub(1));
+                            self.auth.actions_focused = true;
+                            self.auth.action_cursor = match action {
+                                widgets::settings::AuthTabAction::Primary => 0,
+                                widgets::settings::AuthTabAction::Test => 1,
+                            };
+                            self.run_auth_tab_action();
+                        }
+                        Some(widgets::settings::SettingsHitTarget::SubAgentListItem(index)) => {
+                            if self.settings.is_editing() {
+                                return;
+                            }
+                            self.subagents
+                                .reduce(crate::state::subagents::SubAgentsAction::Select(index));
+                            self.subagents.actions_focused = false;
+                        }
+                        Some(widgets::settings::SettingsHitTarget::SubAgentAction(action)) => {
+                            if self.settings.is_editing() {
+                                return;
+                            }
+                            self.subagents.actions_focused = true;
+                            self.subagents.action_cursor = match action {
+                                widgets::settings::SubAgentTabAction::Add => 0,
+                                widgets::settings::SubAgentTabAction::Edit => 1,
+                                widgets::settings::SubAgentTabAction::Delete => 2,
+                                widgets::settings::SubAgentTabAction::Toggle => 3,
+                            };
+                            self.run_subagent_action();
+                        }
+                        Some(widgets::settings::SettingsHitTarget::SubAgentRowAction {
+                            index,
+                            action,
+                        }) => {
+                            if self.settings.is_editing() {
+                                return;
+                            }
+                            self.subagents
+                                .reduce(crate::state::subagents::SubAgentsAction::Select(index));
+                            self.subagents.actions_focused = true;
+                            self.subagents.action_cursor = match action {
+                                widgets::settings::SubAgentTabAction::Add => 0,
+                                widgets::settings::SubAgentTabAction::Edit => 1,
+                                widgets::settings::SubAgentTabAction::Delete => 2,
+                                widgets::settings::SubAgentTabAction::Toggle => 3,
+                            };
+                            self.run_subagent_action();
                         }
                         Some(widgets::settings::SettingsHitTarget::Field(field)) => {
                             if self.settings.is_editing() {
@@ -554,9 +702,7 @@ impl TuiModel {
                         && mouse.row < inner.y.saturating_add(inner.height.saturating_sub(1))
                     {
                         let idx = mouse.row.saturating_sub(inner.y) as usize;
-                        if self.config.fetched_models().is_empty()
-                            || idx < self.config.fetched_models().len()
-                        {
+                        if idx <= widgets::model_picker::available_models(&self.config).len() {
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }

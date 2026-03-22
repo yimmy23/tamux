@@ -17,6 +17,39 @@ type SubAgentForm = {
     max_duration_secs: string;
 };
 
+const ROLE_PRESETS = [
+    {
+        id: "code_review",
+        label: "Code Review",
+        system_prompt: "You are a code review specialist. Focus on correctness, regressions, security, edge cases, missing tests, and actionable fixes. Be concise and precise.",
+    },
+    {
+        id: "research",
+        label: "Research",
+        system_prompt: "You are a research specialist. Gather relevant code and runtime context, compare options, identify constraints, and return clear conclusions with supporting evidence.",
+    },
+    {
+        id: "testing",
+        label: "Testing",
+        system_prompt: "You are a testing specialist. Design focused verification, find reproducible failure cases, validate fixes, and call out remaining risks or missing coverage.",
+    },
+    {
+        id: "planning",
+        label: "Planning",
+        system_prompt: "You are a planning specialist. Break work into durable, ordered steps with clear dependencies, acceptance criteria, and realistic implementation boundaries.",
+    },
+    {
+        id: "documentation",
+        label: "Documentation",
+        system_prompt: "You are a documentation specialist. Produce clear developer-facing docs, explain behavior accurately, and keep examples aligned with the current implementation.",
+    },
+    {
+        id: "refactoring",
+        label: "Refactoring",
+        system_prompt: "You are a refactoring specialist. Improve structure and maintainability without changing behavior, preserve intent, and keep edits scoped and defensible.",
+    },
+] as const;
+
 const emptyForm: SubAgentForm = {
     name: "",
     provider: "",
@@ -99,6 +132,17 @@ export function SubAgentsTab() {
 
     const handleDelete = async (id: string) => {
         await removeSubAgent(id);
+    };
+
+    const handleRoleChange = (nextRole: string) => {
+        const preset = ROLE_PRESETS.find((item) => item.id === nextRole);
+        const previousPreset = ROLE_PRESETS.find((item) => item.id === form.role);
+        const shouldReplacePrompt = !form.system_prompt || (previousPreset && form.system_prompt === previousPreset.system_prompt);
+        setForm({
+            ...form,
+            role: nextRole,
+            system_prompt: preset && shouldReplacePrompt ? preset.system_prompt : form.system_prompt,
+        });
     };
 
     const handleToggle = async (sa: SubAgentDefinition) => {
@@ -221,16 +265,13 @@ export function SubAgentsTab() {
                         <SettingRow label="Role">
                             <select
                                 value={form.role}
-                                onChange={(e) => setForm({ ...form, role: e.target.value })}
+                                onChange={(e) => handleRoleChange(e.target.value)}
                                 style={{ ...inputStyle, width: 220 }}
                             >
                                 <option value="">None</option>
-                                <option value="code_review">Code Review</option>
-                                <option value="research">Research</option>
-                                <option value="testing">Testing</option>
-                                <option value="planning">Planning</option>
-                                <option value="documentation">Documentation</option>
-                                <option value="refactoring">Refactoring</option>
+                                {ROLE_PRESETS.map((preset) => (
+                                    <option key={preset.id} value={preset.id}>{preset.label}</option>
+                                ))}
                             </select>
                         </SettingRow>
                         <SettingRow label="System Prompt">
