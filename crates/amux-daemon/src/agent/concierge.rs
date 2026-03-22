@@ -124,6 +124,61 @@ impl ConciergeEngine {
         tracing::info!("concierge: ConciergeWelcome event emitted, receivers={}", send_result.unwrap_or(0));
     }
 
+    /// Generate a welcome and return the data directly (for inline sending).
+    /// Also adds the message to the concierge thread, but does NOT emit via event_tx.
+    pub async fn generate_welcome(
+        &self,
+        threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+    ) -> Option<(String, ConciergeDetailLevel, Vec<ConciergeAction>)> {
+        let config = self.config.read().await;
+        if !config.concierge.enabled {
+            tracing::info!("concierge: disabled, skipping generate_welcome");
+            return None;
+        }
+        let detail_level = config.concierge.detail_level;
+        drop(config);
+
+        self.prune_welcome_messages(threads).await;
+
+        tracing::info!("concierge: generate_welcome at level {:?}", detail_level);
+        let context = self.gather_context(threads, tasks, detail_level).await;
+        let (content, actions) = self.compose_welcome(detail_level, &context).await;
+
+        if content.is_empty() {
+            return None;
+        }
+
+        // Add to concierge thread.
+        {
+            let mut threads_guard = threads.write().await;
+            if let Some(thread) = threads_guard.get_mut(CONCIERGE_THREAD_ID) {
+                thread.messages.push(AgentMessage {
+                    role: MessageRole::Assistant,
+                    content: content.clone(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    provider: Some("concierge".into()),
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    reasoning: None,
+                    timestamp: super::now_millis(),
+                });
+                thread.updated_at = super::now_millis();
+            }
+        }
+        *self.pending_welcome_count.write().await += 1;
+
+        tracing::info!("concierge: generate_welcome done, {} chars, {} actions", content.len(), actions.len());
+        Some((content, detail_level, actions))
+    }
+
     /// Prune pending welcome messages from the concierge thread.
     pub async fn prune_welcome_messages(
         &self,

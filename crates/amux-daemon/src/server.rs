@@ -1737,13 +1737,25 @@ where
 
                 ClientMessage::AgentRequestConciergeWelcome => {
                     tracing::info!("server: received AgentRequestConciergeWelcome");
-                    let agent_ref = agent.clone();
-                    tokio::spawn(async move {
-                        agent_ref
-                            .concierge
-                            .on_client_connected(&agent_ref.threads, &agent_ref.tasks)
-                            .await;
-                    });
+                    // Generate welcome inline (awaits LLM call for non-Minimal levels).
+                    // We send the result directly as a DaemonMessage rather than going
+                    // through the broadcast event channel, because the connection handler's
+                    // try_recv loop won't drain until the next client message arrives.
+                    let welcome = agent.concierge.generate_welcome(&agent.threads, &agent.tasks).await;
+                    if let Some((content, detail_level, actions)) = welcome {
+                        let event = crate::agent::types::AgentEvent::ConciergeWelcome {
+                            thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),
+                            content,
+                            detail_level,
+                            actions,
+                        };
+                        if let Ok(json) = serde_json::to_string(&event) {
+                            framed
+                                .send(DaemonMessage::AgentEvent { event_json: json })
+                                .await
+                                .ok();
+                        }
+                    }
                 }
 
                 ClientMessage::AgentDismissConciergeWelcome => {
