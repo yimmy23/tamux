@@ -121,7 +121,12 @@ Plans:
   2. Agent distinguishes novel solution approaches from known patterns — only genuinely new approaches trigger skill drafting
   3. Skills follow a visible maturity lifecycle (Draft to Testing to Active to Proven to Canonical) with real-world use counts driving promotion
   4. New and promoted skills are surfaced to the user naturally in conversation via concierge messaging
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Foundation types, pure functions, config extensions, history methods, preflight filter fix
+- [ ] 06-02-PLAN.md — Consolidation sub-tasks: candidate flagging, LLM skill drafting, mental tests, lifecycle promotions
+- [ ] 06-03-PLAN.md — Concierge skill announcements, HeartbeatDigest events, IPC protocol, CLI skill subcommand
 
 ### Phase 7: Community Skills
 **Goal**: Operators can share skills with provenance and import community skills safely
@@ -185,7 +190,7 @@ Note: Phases 8 and 9 can execute in parallel with phases 2-7 (they only depend o
 | 3. Transparent Autonomy | 5/5 | Complete |  |
 | 4. Adaptive Heartbeat | 0/3 | Not started | - |
 | 5. Memory Consolidation | 0/4 | Not started | - |
-| 6. Skill Discovery | 0/? | Not started | - |
+| 6. Skill Discovery | 0/3 | Not started | - |
 | 7. Community Skills | 0/? | Not started | - |
 | 8. Gateway Completion | 0/? | Not started | - |
 | 9. Distribution | 0/? | Not started | - |
