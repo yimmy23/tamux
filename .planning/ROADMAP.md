@@ -140,9 +140,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Security scanner, format conversion types, and protocol message extensions
-- [ ] 07-02-PLAN.md — Registry client, import/export/publish flows, and server IPC handlers
-- [ ] 07-03-PLAN.md — CLI subcommands for search, import, export, and publish
+- [x] 07-01-PLAN.md — Security scanner, format conversion types, and protocol message extensions
+- [x] 07-02-PLAN.md — Registry client, import/export/publish flows, and server IPC handlers
+- [x] 07-03-PLAN.md — CLI subcommands for search, import, export, and publish
 
 ### Phase 8: Gateway Completion
 **Goal**: The agent communicates through Slack, Discord, and Telegram natively from the daemon, with unified config and health monitoring
@@ -154,8 +154,14 @@ Plans:
   3. Daemon-side Telegram gateway uses long-polling for incoming messages and sends replies via real API (not stubs)
   4. All gateway platforms share a single unified configuration surface for both daemon and Electron paths
   5. Gateway disconnections are detected, auto-reconnected, and status surfaced to the user
-**Plans**: TBD
+**Plans:** 4 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 08-01-PLAN.md — Foundation types: gateway_health.rs, gateway_format.rs pure modules, AgentEvent::GatewayStatus, config feature flag
+- [ ] 08-02-PLAN.md — Health-aware polling: GatewayState health tracking, exponential backoff, status events, env var fallback, thread context
+- [ ] 08-03-PLAN.md — Send tool enhancements: thread-aware replies, format conversion, rate limiting, chunking, unreplied detection
+- [ ] 08-04-PLAN.md — Client status display: TUI sidebar indicators, Electron health badges, bridge deprecation feature flag
 
 ### Phase 9: Distribution
 **Goal**: Anyone can install tamux with a single command on any platform and be running within seconds
@@ -196,7 +202,7 @@ Note: Phases 8 and 9 can execute in parallel with phases 2-7 (they only depend o
 | 4. Adaptive Heartbeat | 0/3 | Not started | - |
 | 5. Memory Consolidation | 0/4 | Not started | - |
 | 6. Skill Discovery | 0/3 | Not started | - |
-| 7. Community Skills | 0/3 | Not started | - |
-| 8. Gateway Completion | 0/? | Not started | - |
+| 7. Community Skills | 1/3 | In Progress | - |
+| 8. Gateway Completion | 0/4 | Not started | - |
 | 9. Distribution | 0/? | Not started | - |
 | 10. Progressive UX | 0/? | Not started | - |
