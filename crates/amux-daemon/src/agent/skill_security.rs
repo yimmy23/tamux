@@ -1,5 +1,232 @@
 //! Security scanning for community skill imports.
 
+use std::sync::LazyLock;
+
+use serde::{Deserialize, Serialize};
+
+use regex::RegexSet;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanVerdict {
+    Pass,
+    Warn,
+    Block,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingSeverity {
+    Critical,
+    Suspicious,
+    Info,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanTier {
+    PatternBlocklist,
+    StructuralValidation,
+    LlmReview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScanFinding {
+    pub tier: ScanTier,
+    pub severity: FindingSeverity,
+    pub line: Option<usize>,
+    pub pattern: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScanReport {
+    pub verdict: ScanVerdict,
+    pub findings: Vec<ScanFinding>,
+}
+
+const CRITICAL_PATTERN_LABELS: &[&str] = &[
+    "rm -rf",
+    "sudo",
+    "chmod 777",
+    "dd of=/dev",
+    "mkfs",
+    ">/dev/sd",
+    "environment secret",
+    "curl | sh",
+    "wget | sh",
+    "nc -l",
+    "ncat",
+    "reverse shell",
+];
+
+const SUSPICIOUS_PATTERN_LABELS: &[&str] = &[
+    "curl",
+    "wget",
+    "http url",
+    "find /",
+    "recursive glob",
+    "chown",
+    "kill",
+    "pkill",
+];
+
+static CRITICAL_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)\brm\s+-rf\b",
+        r"(?i)\bsudo\b",
+        r"(?i)\bchmod\s+777\b",
+        r"(?i)\bdd\b.*\bof=/dev/",
+        r"(?i)\bmkfs(\.[a-z0-9]+)?\b",
+        r"(?i)>\s*/dev/sd[a-z]\d*",
+        r"\$(?:\{)?(?:API_KEY|SECRET|TOKEN|PASSWORD)(?:\})?",
+        r"(?i)\bcurl\b[^\n|]*\|\s*(?:sh|bash)\b",
+        r"(?i)\bwget\b[^\n|]*\|\s*(?:sh|bash)\b",
+        r"(?i)\bnc\s+-l\b",
+        r"(?i)\bncat\b",
+        r"(?i)bash\s+-i\s+>&\s*/dev/tcp/",
+    ])
+    .expect("valid critical skill security regexes")
+});
+
+static SUSPICIOUS_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)\bcurl\b",
+        r"(?i)\bwget\b",
+        r"(?i)https?://",
+        r"(?i)\bfind\s+/",
+        r"\*\*/\*",
+        r"(?i)\bchown\b",
+        r"(?i)\bkill\b",
+        r"(?i)\bpkill\b",
+    ])
+    .expect("valid suspicious skill security regexes")
+});
+
+pub(super) fn scan_patterns(content: &str) -> Vec<ScanFinding> {
+    let mut findings = Vec::new();
+
+    for (index, line) in content.lines().enumerate() {
+        for matched in CRITICAL_PATTERNS.matches(line).iter() {
+            findings.push(ScanFinding {
+                tier: ScanTier::PatternBlocklist,
+                severity: FindingSeverity::Critical,
+                line: Some(index + 1),
+                pattern: Some(CRITICAL_PATTERN_LABELS[matched].to_string()),
+                message: format!(
+                    "Critical pattern '{}' detected in skill content",
+                    CRITICAL_PATTERN_LABELS[matched]
+                ),
+            });
+        }
+
+        for matched in SUSPICIOUS_PATTERNS.matches(line).iter() {
+            findings.push(ScanFinding {
+                tier: ScanTier::PatternBlocklist,
+                severity: FindingSeverity::Suspicious,
+                line: Some(index + 1),
+                pattern: Some(SUSPICIOUS_PATTERN_LABELS[matched].to_string()),
+                message: format!(
+                    "Suspicious pattern '{}' detected in skill content",
+                    SUSPICIOUS_PATTERN_LABELS[matched]
+                ),
+            });
+        }
+    }
+
+    findings
+}
+
+pub(super) fn scan_structure(content: &str, tool_whitelist: &[String]) -> Vec<ScanFinding> {
+    let whitelist: std::collections::HashSet<&str> =
+        tool_whitelist.iter().map(String::as_str).collect();
+    let mut findings = Vec::new();
+
+    for (index, line) in content.lines().enumerate() {
+        for tool in extract_tool_references(line) {
+            if !whitelist.contains(tool.as_str()) {
+                findings.push(ScanFinding {
+                    tier: ScanTier::StructuralValidation,
+                    severity: FindingSeverity::Suspicious,
+                    line: Some(index + 1),
+                    pattern: Some(tool.clone()),
+                    message: format!("Tool '{tool}' is not in the allowed whitelist"),
+                });
+            }
+        }
+    }
+
+    findings
+}
+
+pub(super) fn compute_verdict(findings: &[ScanFinding]) -> ScanVerdict {
+    if findings
+        .iter()
+        .any(|finding| finding.severity == FindingSeverity::Critical)
+    {
+        ScanVerdict::Block
+    } else if findings
+        .iter()
+        .any(|finding| finding.severity == FindingSeverity::Suspicious)
+    {
+        ScanVerdict::Warn
+    } else {
+        ScanVerdict::Pass
+    }
+}
+
+pub fn scan_skill_content(content: &str, tool_whitelist: &[String]) -> ScanReport {
+    let mut findings = scan_patterns(content);
+    findings.extend(scan_structure(content, tool_whitelist));
+    let verdict = compute_verdict(&findings);
+    ScanReport { verdict, findings }
+}
+
+fn extract_tool_references(line: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+
+    let mut remaining = line;
+    while let Some(start) = remaining.find('`') {
+        let after_start = &remaining[start + 1..];
+        let Some(end) = after_start.find('`') else {
+            break;
+        };
+        let candidate = after_start[..end].trim();
+        if is_tool_name(candidate) {
+            refs.push(candidate.to_string());
+        }
+        remaining = &after_start[end + 1..];
+    }
+
+    let trimmed = line.trim();
+    if let Some(value) = trimmed.strip_prefix("-") {
+        let candidate = value.trim();
+        if is_tool_name(candidate) {
+            refs.push(candidate.to_string());
+        }
+    }
+
+    if let Some((key, value)) = trimmed.split_once(':') {
+        if matches!(key.trim(), "tool" | "tools" | "allowed_tools") {
+            let candidate = value.trim();
+            if is_tool_name(candidate) {
+                refs.push(candidate.to_string());
+            }
+        }
+    }
+
+    refs.sort();
+    refs.dedup();
+    refs
+}
+
+fn is_tool_name(candidate: &str) -> bool {
+    !candidate.is_empty()
+        && candidate
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
