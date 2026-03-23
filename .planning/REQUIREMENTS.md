@@ -48,10 +48,10 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 - [x] **SKIL-04**: Draft skills are validated against a few mental test scenarios (LLM evaluation) before promotion to Testing
 - [x] **SKIL-05**: Skill promotion requires N successful real-world uses (configurable threshold, default: 3)
 - [x] **SKIL-06**: New and promoted skills surfaced to user naturally in conversation via concierge
-- [ ] **SKIL-07**: Community skill registry: operators can publish skills with provenance metadata
-- [ ] **SKIL-08**: Imported community skills reset to Draft maturity and must prove themselves locally before promotion
-- [ ] **SKIL-09**: Community skill security: mandatory static analysis scan before import
-- [ ] **SKIL-10**: Skill format compatible with agentskills.io standard (SKILL.md + metadata frontmatter)
+- [x] **SKIL-07**: Community skill registry: operators can publish skills with provenance metadata
+- [x] **SKIL-08**: Imported community skills reset to Draft maturity and must prove themselves locally before promotion
+- [x] **SKIL-09**: Community skill security: mandatory static analysis scan before import
+- [x] **SKIL-10**: Skill format compatible with agentskills.io standard (SKILL.md + metadata frontmatter)
 
 ### Transparent Autonomy
 
@@ -83,8 +83,8 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 - [ ] **GATE-01**: Daemon-side Slack gateway: real `conversations.history` polling + `chat.postMessage` via reqwest (not stubs)
 - [ ] **GATE-02**: Daemon-side Discord gateway: real REST API message receive/send via reqwest (not stubs)
 - [ ] **GATE-03**: Daemon-side Telegram gateway: real `getUpdates` long-polling + `sendMessage` via reqwest (not stubs)
-- [ ] **GATE-04**: Unified gateway config: single configuration surface for both daemon and Electron gateway paths
-- [ ] **GATE-05**: Gateway health monitoring: detect disconnections, auto-reconnect, surface status to user
+- [x] **GATE-04**: Unified gateway config: single configuration surface for both daemon and Electron gateway paths
+- [x] **GATE-05**: Gateway health monitoring: detect disconnections, auto-reconnect, surface status to user
 - [ ] **GATE-06**: Gateway messages routed through heartbeat: unreplied messages surfaced as proactive items
 
 ## v2 Requirements
@@ -171,10 +171,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SKIL-04 | Phase 6 | Complete |
 | SKIL-05 | Phase 6 | Complete |
 | SKIL-06 | Phase 6 | Complete |
-| SKIL-07 | Phase 7 | Pending |
-| SKIL-08 | Phase 7 | Pending |
-| SKIL-09 | Phase 7 | Pending |
-| SKIL-10 | Phase 7 | Pending |
+| SKIL-07 | Phase 7 | Complete |
+| SKIL-08 | Phase 7 | Complete |
+| SKIL-09 | Phase 7 | Complete |
+| SKIL-10 | Phase 7 | Complete |
 | TRNS-01 | Phase 3 | Complete |
 | TRNS-02 | Phase 3 | Complete |
 | TRNS-03 | Phase 3 | Complete |
@@ -194,8 +194,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GATE-01 | Phase 8 | Pending |
 | GATE-02 | Phase 8 | Pending |
 | GATE-03 | Phase 8 | Pending |
-| GATE-04 | Phase 8 | Pending |
-| GATE-05 | Phase 8 | Pending |
+| GATE-04 | Phase 8 | Complete |
+| GATE-05 | Phase 8 | Complete |
 | GATE-06 | Phase 8 | Pending |
 
 **Coverage:**

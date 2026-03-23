@@ -158,7 +158,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 08-01-PLAN.md — Foundation types: gateway_health.rs, gateway_format.rs pure modules, AgentEvent::GatewayStatus, config feature flag
+- [x] 08-01-PLAN.md — Foundation types: gateway_health.rs, gateway_format.rs pure modules, AgentEvent::GatewayStatus, config feature flag
 - [ ] 08-02-PLAN.md — Health-aware polling: GatewayState health tracking, exponential backoff, status events, env var fallback, thread context
 - [ ] 08-03-PLAN.md — Send tool enhancements: thread-aware replies, format conversion, rate limiting, chunking, unreplied detection
 - [ ] 08-04-PLAN.md — Client status display: TUI sidebar indicators, Electron health badges, bridge deprecation feature flag

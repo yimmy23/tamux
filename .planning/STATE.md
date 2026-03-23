@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase complete — ready for verification
-stopped_at: Completed 06-03-PLAN.md
-last_updated: "2026-03-23T17:45:19.982Z"
+status: Ready to execute
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-03-23T22:06:39.920Z"
 progress:
   total_phases: 10
-  completed_phases: 4
-  total_plans: 24
-  completed_plans: 22
+  completed_phases: 5
+  total_plans: 31
+  completed_plans: 26
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-23)
 
 **Core value:** An agent that feels alive and gets smarter over time -- while remaining simple enough that anyone can understand what it's doing and why.
-**Current focus:** Phase 06 — skill-discovery
+**Current focus:** Phase 08 — gateway-completion
 
 ## Current Position
 
-Phase: 06 (skill-discovery) — EXECUTING
-Plan: 3 of 3
+Phase: 08 (gateway-completion) — EXECUTING
+Plan: 2 of 4
 
 ## Performance Metrics
 
@@ -68,6 +68,10 @@ Plan: 3 of 3
 | Phase 06 P01 | 6min | 2 tasks | 6 files |
 | Phase 06 P02 | 7min | 1 tasks | 4 files |
 | Phase 06 P03 | 9min | 2 tasks | 7 files |
+| Phase 07-community-skills P01 | 569 | 2 tasks | 8 files |
+| Phase 07-community-skills P02 | 23m 15s | 2 tasks | 9 files |
+| Phase 07-community-skills P03 | 3m 23s | 2 tasks | 2 files |
+| Phase 08 P01 | 6min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -118,6 +122,16 @@ Recent decisions affecting current work:
 - [Phase 06]: Separate skill_draft_watermark from trace_review_watermark to avoid coupling (Pitfall 7)
 - [Phase 06]: One LLM call max per tick for drafting and mental tests; 2/3 mental test pass threshold; send_refinement_llm_call promoted to pub(super)
 - [Phase 06]: Skill announcements on AgentEngine via concierge.rs impl block; dual notification for canonical promotions; bincode requires no serde skip attributes
+- [Phase 07-community-skills]: agentskills.io remains the lean interchange format while tamux imports synthesize default local extensions for lifecycle tracking.
+- [Phase 07-community-skills]: New community skill IPC variants return explicit daemon errors until Plan 07-02 wires full registry handlers, preserving exhaustive matches and green builds.
+- [Phase 07-community-skills]: Verified publishers skip only the tier-3 review branch while pattern and structural scans still run for every import.
+- [Phase 07-community-skills]: Community imports always write into ~/.tamux/skills/community and immediately reset variant status to draft after registration.
+- [Phase 07-community-skills]: Registry publish uses multipart uploads with env-token auth so the IPC path is complete without introducing a config migration in this plan.
+- [Phase 07-community-skills]: CLI import resolves publisher verification from registry search results so daemon scan policy receives the trust signal it expects.
+- [Phase 07-community-skills]: Search output uses compact fixed-width columns with truncation so community results stay readable in terminals.
+- [Phase 08]: String type for GatewayStatus.status field to avoid coupling wire format to internal health module
+- [Phase 08]: Sentinel character approach for Slack bold conversion to prevent double-converting italic markers
+- [Phase 08]: Safe Telegram MarkdownV2 escaping (escape everything) as baseline; formatting-preserving version deferred
 
 ### Pending Todos
 
@@ -131,6 +145,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-23T17:45:19.980Z
-Stopped at: Completed 06-03-PLAN.md
+Last session: 2026-03-23T22:06:39.917Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
