@@ -134,7 +134,40 @@ impl AgentEngine {
 
         match self.history.list_goal_runs().await {
             Ok(goal_runs) if !goal_runs.is_empty() => {
-                *self.goal_runs.lock().await = goal_runs.into_iter().collect();
+                let mut runs: VecDeque<GoalRun> = goal_runs.into_iter().collect();
+                let mut paused_count = 0;
+
+                // D-11: Mark interrupted goal runs as Paused on restart.
+                for goal_run in runs.iter_mut() {
+                    if matches!(
+                        goal_run.status,
+                        GoalRunStatus::Running | GoalRunStatus::Planning
+                    ) {
+                        goal_run.status = GoalRunStatus::Paused;
+                        goal_run.events.push(GoalRunEvent {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            timestamp: now_millis(),
+                            phase: "restart".to_string(),
+                            message: "Daemon restarted; goal run paused for operator review."
+                                .to_string(),
+                            details: None,
+                            step_index: None,
+                            todo_snapshot: Vec::new(),
+                        });
+                        paused_count += 1;
+                    }
+                }
+
+                if paused_count > 0 {
+                    tracing::info!(
+                        paused_count,
+                        "paused interrupted goal runs on restart (D-11)"
+                    );
+                }
+
+                *self.goal_runs.lock().await = runs;
+                // Persist the paused status back to SQLite immediately
+                self.persist_goal_runs().await;
             }
             Ok(_) => {
                 let goal_runs_path = self.data_dir.join("goal-runs.json");
@@ -221,6 +254,48 @@ impl AgentEngine {
 
         // Seed built-in skill documents into ~/.tamux/skills/builtin/
         seed_builtin_skills(&self.data_dir);
+
+        // Restore HeuristicStore from persistence (D-10)
+        let heuristic_path = self.data_dir.join("heuristics.json");
+        if heuristic_path.exists() {
+            match tokio::fs::read_to_string(&heuristic_path).await {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(store) => {
+                        *self.heuristic_store.write().await = store;
+                        tracing::info!(
+                            "restored heuristic store from {}",
+                            heuristic_path.display()
+                        );
+                    }
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "failed to parse heuristics.json, using defaults"
+                    ),
+                },
+                Err(e) => tracing::warn!(error = %e, "failed to read heuristics.json"),
+            }
+        }
+
+        // Restore PatternStore from persistence (D-10)
+        let pattern_path = self.data_dir.join("patterns.json");
+        if pattern_path.exists() {
+            match tokio::fs::read_to_string(&pattern_path).await {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(store) => {
+                        *self.pattern_store.write().await = store;
+                        tracing::info!(
+                            "restored pattern store from {}",
+                            pattern_path.display()
+                        );
+                    }
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "failed to parse patterns.json, using defaults"
+                    ),
+                },
+                Err(e) => tracing::warn!(error = %e, "failed to read patterns.json"),
+            }
+        }
 
         let repo_watches = {
             let contexts = self.thread_work_contexts.read().await;
@@ -385,5 +460,39 @@ impl AgentEngine {
         if let Err(error) = self.history.replace_agent_config_items(&items).await {
             tracing::warn!("failed to persist config to sqlite: {error}");
         }
+    }
+
+    /// Persist HeuristicStore to data_dir/heuristics.json.
+    pub(super) async fn persist_heuristic_store(&self) {
+        let store = self.heuristic_store.read().await.clone();
+        let path = self.data_dir.join("heuristics.json");
+        match serde_json::to_string_pretty(&store) {
+            Ok(json) => {
+                if let Err(e) = tokio::fs::write(&path, json).await {
+                    tracing::warn!(error = %e, "failed to persist heuristic store");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to serialize heuristic store"),
+        }
+    }
+
+    /// Persist PatternStore to data_dir/patterns.json.
+    pub(super) async fn persist_pattern_store(&self) {
+        let store = self.pattern_store.read().await.clone();
+        let path = self.data_dir.join("patterns.json");
+        match serde_json::to_string_pretty(&store) {
+            Ok(json) => {
+                if let Err(e) = tokio::fs::write(&path, json).await {
+                    tracing::warn!(error = %e, "failed to persist pattern store");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to serialize pattern store"),
+        }
+    }
+
+    /// Persist both learning stores after consolidation updates.
+    pub(super) async fn persist_learning_stores(&self) {
+        self.persist_heuristic_store().await;
+        self.persist_pattern_store().await;
     }
 }
