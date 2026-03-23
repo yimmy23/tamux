@@ -49,6 +49,7 @@ fn should_forward_agent_event(
         None => matches!(
             event,
             crate::agent::types::AgentEvent::HeartbeatResult { .. }
+                | crate::agent::types::AgentEvent::HeartbeatDigest { .. }
                 | crate::agent::types::AgentEvent::Notification { .. }
                 | crate::agent::types::AgentEvent::AnticipatoryUpdate { .. }
                 | crate::agent::types::AgentEvent::ConciergeWelcome { .. }

@@ -1010,6 +1010,21 @@ pub struct AgentConfig {
     pub task_poll_interval_secs: u64,
     #[serde(default = "default_heartbeat_mins")]
     pub heartbeat_interval_mins: u64,
+    /// Cron expression for heartbeat schedule (overrides heartbeat_interval_mins). Per D-06.
+    #[serde(default)]
+    pub heartbeat_cron: Option<String>,
+    /// Heartbeat check configuration. Per D-04.
+    #[serde(default)]
+    pub heartbeat_checks: HeartbeatChecksConfig,
+    /// Quiet hours start (hour 0-23, local time). Per D-07.
+    #[serde(default)]
+    pub quiet_hours_start: Option<u32>,
+    /// Quiet hours end (hour 0-23, local time). Per D-07.
+    #[serde(default)]
+    pub quiet_hours_end: Option<u32>,
+    /// Manual do-not-disturb toggle. Per D-07.
+    #[serde(default)]
+    pub dnd_enabled: bool,
     #[serde(default)]
     pub tools: ToolsConfig,
     /// Additional provider configurations keyed by provider name.
@@ -1359,6 +1374,11 @@ impl Default for AgentConfig {
             keep_recent_on_compact: default_keep_recent_on_compact(),
             task_poll_interval_secs: default_task_poll_secs(),
             heartbeat_interval_mins: default_heartbeat_mins(),
+            heartbeat_cron: None,
+            heartbeat_checks: HeartbeatChecksConfig::default(),
+            quiet_hours_start: None,
+            quiet_hours_end: None,
+            dnd_enabled: false,
             tools: ToolsConfig::default(),
             providers: HashMap::new(),
             gateway: GatewayConfig::default(),
@@ -1701,6 +1721,14 @@ pub enum AgentEvent {
         item_id: String,
         result: HeartbeatOutcome,
         message: String,
+    },
+    /// Prioritized heartbeat digest from structured checks + LLM synthesis. Per D-11.
+    HeartbeatDigest {
+        cycle_id: String,
+        actionable: bool,
+        digest: String,
+        items: Vec<HeartbeatDigestItem>,
+        checked_at: u64,
     },
     Notification {
         title: String,
@@ -2416,6 +2444,118 @@ pub struct HeartbeatItem {
 
 fn default_zero() -> u64 {
     0
+}
+
+// ---------------------------------------------------------------------------
+// Heartbeat structured checks (Phase 2 — core heartbeat)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HeartbeatCheckType {
+    StaleTodos,
+    StuckGoalRuns,
+    UnrepliedGatewayMessages,
+    RepoChanges,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckDetail {
+    pub id: String,
+    pub label: String,
+    pub age_hours: f64,
+    pub severity: CheckSeverity,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatCheckResult {
+    pub check_type: HeartbeatCheckType,
+    pub items_found: usize,
+    pub summary: String,
+    pub details: Vec<CheckDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatDigestItem {
+    pub priority: u8,
+    pub check_type: HeartbeatCheckType,
+    pub title: String,
+    pub suggestion: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatChecksConfig {
+    #[serde(default = "default_true")]
+    pub stale_todos_enabled: bool,
+    #[serde(default = "default_stale_todo_threshold_hours")]
+    pub stale_todo_threshold_hours: u64,
+    #[serde(default = "default_true")]
+    pub stuck_goals_enabled: bool,
+    #[serde(default = "default_stuck_goal_threshold_hours")]
+    pub stuck_goal_threshold_hours: u64,
+    #[serde(default = "default_true")]
+    pub unreplied_messages_enabled: bool,
+    #[serde(default = "default_unreplied_threshold_hours")]
+    pub unreplied_message_threshold_hours: u64,
+    #[serde(default = "default_true")]
+    pub repo_changes_enabled: bool,
+    #[serde(default)]
+    pub stale_todos_cron: Option<String>,
+    #[serde(default)]
+    pub stuck_goals_cron: Option<String>,
+    #[serde(default)]
+    pub unreplied_messages_cron: Option<String>,
+    #[serde(default)]
+    pub repo_changes_cron: Option<String>,
+}
+
+fn default_stale_todo_threshold_hours() -> u64 {
+    24
+}
+fn default_stuck_goal_threshold_hours() -> u64 {
+    2
+}
+fn default_unreplied_threshold_hours() -> u64 {
+    1
+}
+
+impl Default for HeartbeatChecksConfig {
+    fn default() -> Self {
+        Self {
+            stale_todos_enabled: true,
+            stale_todo_threshold_hours: default_stale_todo_threshold_hours(),
+            stuck_goals_enabled: true,
+            stuck_goal_threshold_hours: default_stuck_goal_threshold_hours(),
+            unreplied_messages_enabled: true,
+            unreplied_message_threshold_hours: default_unreplied_threshold_hours(),
+            repo_changes_enabled: true,
+            stale_todos_cron: None,
+            stuck_goals_cron: None,
+            unreplied_messages_cron: None,
+            repo_changes_cron: None,
+        }
+    }
+}
+
+/// Convert legacy heartbeat_interval_mins to a cron expression. Per D-08.
+pub fn interval_mins_to_cron(mins: u64) -> String {
+    match mins {
+        0 | 1 => "* * * * *".to_string(),
+        m if m <= 59 && 60 % m == 0 => format!("*/{} * * * *", m),
+        60 => "0 * * * *".to_string(),
+        m if m > 60 && m % 60 == 0 => format!("0 */{} * * *", m / 60),
+        m => format!("*/{} * * * *", m.min(59)),
+    }
 }
 
 // ---------------------------------------------------------------------------
