@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-03-23T17:23:12.691Z"
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-03-23T17:33:11.878Z"
 progress:
   total_phases: 10
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-23)
 ## Current Position
 
 Phase: 06 (skill-discovery) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Plan: 2 of 3
 | Phase 05 P02 | 5min | 2 tasks | 3 files |
 | Phase 05 P04 | 9min | 2 tasks | 4 files |
 | Phase 06 P01 | 6min | 2 tasks | 6 files |
+| Phase 06 P02 | 7min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Learned patterns threshold: usage_count >= 5 AND effectiveness >= 0.6 for system prompt injection
 - [Phase 05]: Memory refinement handles one conflict group per tick (budget-safe); send_refinement_llm_call uses provider api_transport
 - [Phase 06]: SkillMaturityStatus supports legacy kebab-case parsing for backward compat; pure functions take pre-fetched patterns for testability
+- [Phase 06]: Separate skill_draft_watermark from trace_review_watermark to avoid coupling (Pitfall 7)
+- [Phase 06]: One LLM call max per tick for drafting and mental tests; 2/3 mental test pass threshold; send_refinement_llm_call promoted to pub(super)
 
 ### Pending Todos
 
@@ -126,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-23T17:23:12.690Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-03-23T17:33:11.876Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None

@@ -125,7 +125,7 @@ Plans:
 
 Plans:
 - [x] 06-01-PLAN.md — Foundation types, pure functions, config extensions, history methods, preflight filter fix
-- [ ] 06-02-PLAN.md — Consolidation sub-tasks: candidate flagging, LLM skill drafting, mental tests, lifecycle promotions
+- [x] 06-02-PLAN.md — Consolidation sub-tasks: candidate flagging, LLM skill drafting, mental tests, lifecycle promotions
 - [ ] 06-03-PLAN.md — Concierge skill announcements, HeartbeatDigest events, IPC protocol, CLI skill subcommand
 
 ### Phase 7: Community Skills
