@@ -331,6 +331,7 @@ impl AgentEngine {
             tracing::warn!("failed to persist agent config to sqlite: {error}");
         }
         *self.config.write().await = config;
+        self.config_notify.notify_waiters();
     }
 
     pub async fn set_config_item_json(
@@ -351,6 +352,7 @@ impl AgentEngine {
             .await
             .context("failed to persist config item update")?;
         *self.config.write().await = merged.clone();
+        self.config_notify.notify_waiters();
         self.reinit_gateway().await;
         Ok(merged)
     }

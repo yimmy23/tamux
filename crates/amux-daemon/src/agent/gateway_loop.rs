@@ -190,16 +190,12 @@ impl AgentEngine {
     /// Main background loop — processes tasks, runs heartbeats, polls gateway.
     pub async fn run_loop(self: Arc<Self>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let config = self.config.read().await.clone();
-        let agent_backend = config.agent_backend;
 
         let task_interval = std::time::Duration::from_secs(config.task_poll_interval_secs);
-        let heartbeat_interval =
-            std::time::Duration::from_secs(config.heartbeat_interval_mins * 60);
         let gateway_poll_interval = std::time::Duration::from_secs(3);
         let mut watcher_refresh_rx = self.watcher_refresh_rx.lock().await.take();
 
         let mut task_tick = tokio::time::interval(task_interval);
-        let mut heartbeat_tick = tokio::time::interval(heartbeat_interval);
         let mut gateway_tick = tokio::time::interval(gateway_poll_interval);
         let mut watcher_tick =
             tokio::time::interval(std::time::Duration::from_millis(FILE_WATCH_TICK_MS));
@@ -208,9 +204,30 @@ impl AgentEngine {
             tokio::time::interval(std::time::Duration::from_secs(ANTICIPATORY_TICK_SECS));
         let mut pending_watcher_refreshes: HashMap<String, Instant> = HashMap::new();
 
+        // Cron-based heartbeat scheduling (D-06, BEAT-01)
+        let heartbeat_cron_expr = super::heartbeat::resolve_cron_from_config(&config);
+        let agent_backend = config.agent_backend;
+        let mut heartbeat_cron: croner::Cron = heartbeat_cron_expr
+            .parse()
+            .unwrap_or_else(|_| "*/15 * * * *".parse().unwrap());
+        let mut next_heartbeat = {
+            let now_local = chrono::Local::now();
+            heartbeat_cron
+                .find_next_occurrence(&now_local, false)
+                .map(|dt| {
+                    let dur = (dt - now_local)
+                        .to_std()
+                        .unwrap_or(std::time::Duration::from_secs(900));
+                    tokio::time::Instant::now() + dur
+                })
+                .unwrap_or_else(|_| {
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(900)
+                })
+        };
+
         tracing::info!(
             task_poll_secs = config.task_poll_interval_secs,
-            heartbeat_mins = config.heartbeat_interval_mins,
+            heartbeat_cron = %heartbeat_cron_expr,
             "agent background loop started"
         );
 
@@ -222,9 +239,46 @@ impl AgentEngine {
                         tracing::error!("agent task error: {e}");
                     }
                 }
-                _ = heartbeat_tick.tick() => {
-                    if let Err(e) = self.run_heartbeat().await {
-                        tracing::error!("agent heartbeat error: {e}");
+                _ = tokio::time::sleep_until(next_heartbeat) => {
+                    if !self.is_quiet_hours().await {
+                        if let Err(e) = self.run_heartbeat().await {
+                            tracing::error!("agent heartbeat error: {e}");
+                        }
+                    } else {
+                        tracing::debug!("heartbeat suppressed (quiet hours/DND)");
+                    }
+                    // Recompute next occurrence AFTER heartbeat completes (Pitfall 1)
+                    let now_local = chrono::Local::now();
+                    next_heartbeat = heartbeat_cron
+                        .find_next_occurrence(&now_local, false)
+                        .map(|dt| {
+                            let dur = (dt - now_local)
+                                .to_std()
+                                .unwrap_or(std::time::Duration::from_secs(900));
+                            tokio::time::Instant::now() + dur
+                        })
+                        .unwrap_or_else(|_| {
+                            tokio::time::Instant::now() + std::time::Duration::from_secs(900)
+                        });
+                }
+                // Config hot-reload: recompute heartbeat schedule (Pitfall 5)
+                _ = self.config_notify.notified() => {
+                    let new_cron_expr = self.resolve_heartbeat_cron().await;
+                    if let Ok(new_cron) = new_cron_expr.parse::<croner::Cron>() {
+                        heartbeat_cron = new_cron;
+                        let now_local = chrono::Local::now();
+                        next_heartbeat = heartbeat_cron
+                            .find_next_occurrence(&now_local, false)
+                            .map(|dt| {
+                                let dur = (dt - now_local)
+                                    .to_std()
+                                    .unwrap_or(std::time::Duration::from_secs(900));
+                                tokio::time::Instant::now() + dur
+                            })
+                            .unwrap_or_else(|_| {
+                                tokio::time::Instant::now() + std::time::Duration::from_secs(900)
+                            });
+                        tracing::info!(cron = %new_cron_expr, "heartbeat schedule updated");
                     }
                 }
                 _ = anticipatory_tick.tick() => {

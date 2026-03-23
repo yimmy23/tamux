@@ -378,6 +378,7 @@ mod tests {
             watcher_refresh_tx,
             watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
             circuit_breakers,
+            config_notify: tokio::sync::Notify::new(),
         })
     }
 

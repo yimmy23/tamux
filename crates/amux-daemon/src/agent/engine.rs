@@ -112,6 +112,8 @@ pub struct AgentEngine {
     pub watcher_refresh_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
     /// Per-provider circuit breakers for LLM call path gating.
     pub circuit_breakers: Arc<CircuitBreakerRegistry>,
+    /// Notifies the run_loop when config changes so heartbeat schedule can be recomputed.
+    pub config_notify: tokio::sync::Notify,
 }
 
 impl AgentEngine {
@@ -203,6 +205,7 @@ impl AgentEngine {
             watcher_refresh_tx,
             watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
             circuit_breakers,
+            config_notify: tokio::sync::Notify::new(),
         })
     }
 
