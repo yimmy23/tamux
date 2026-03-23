@@ -75,7 +75,7 @@ Plans:
 Plans:
 - [x] 03-01-PLAN.md — Daemon foundation: explanation module, action_audit table, AuditAction event, IPC messages
 - [x] 03-02-PLAN.md — Daemon integration: heartbeat/escalation/causal-trace audit entry wiring
-- [ ] 03-03-PLAN.md — TUI audit feed: AuditState reducer, audit widget, escalation status line
+- [x] 03-03-PLAN.md — TUI audit feed: AuditState reducer, audit widget, escalation status line
 - [x] 03-04-PLAN.md — Electron audit panel: auditStore, AuditPanel components, event listener
 - [ ] 03-05-PLAN.md — CLI audit subcommand and escalation cancel IPC flow
 
