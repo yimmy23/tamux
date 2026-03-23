@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-03-23T02:20:01.138Z"
+status: Ready to execute
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-03-23T08:03:46.511Z"
 progress:
   total_phases: 10
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 5
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-23)
 
 **Core value:** An agent that feels alive and gets smarter over time -- while remaining simple enough that anyone can understand what it's doing and why.
-**Current focus:** Phase 01 — production-foundation
+**Current focus:** Phase 02 — core-heartbeat
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
+Phase: 02 (core-heartbeat) — EXECUTING
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -49,6 +49,8 @@ Plan: Not started
 | Phase 01 P01 | 25min | 3 tasks | 2 files |
 | Phase 01 P02 | 36min | 2 tasks | 30 files |
 | Phase 01 P03 | 10min | 2 tasks | 9 files |
+| Phase 02 P01 | 9min | 2 tasks | 5 files |
+| Phase 02-core-heartbeat P02 | 11min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -64,6 +66,10 @@ Recent decisions affecting current work:
 - [Phase 01]: tokio-rusqlite 0.6.0 for rusqlite 0.32 compat; busy_timeout=5000 for D-13; refresh_thread_stats moved to standalone fn
 - [Phase 01]: Arc<HistoryStore> shared via server.rs; Handle::block_on() for PTY sync-to-async bridge; channel capacities configurable via serde defaults
 - [Phase 01]: Approach B (wrap at call sites) for circuit breaker wiring; Arc<CircuitBreakerRegistry> shared between AgentEngine and ConciergeEngine
+- [Phase 02]: Async test helper constructs full AgentEngine with real HistoryStore rather than mocking for integration correctness
+- [Phase 02]: check_unreplied_messages returns items_found=0 in Phase 2 (conservative) -- full detection deferred to Phase 8
+- [Phase 02]: Severity escalation uses threshold multipliers (1.5x/3x for todos, 2x/4x for goals) for progressive urgency
+- [Phase 02-core-heartbeat]: Pure function check_quiet_window extracted for testability; tokio::sync::Notify for config change notification to background loops
 
 ### Pending Todos
 
@@ -77,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-23T02:15:06.643Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-03-23T08:03:46.510Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None

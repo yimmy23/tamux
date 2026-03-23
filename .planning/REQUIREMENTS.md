@@ -18,11 +18,11 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 
 ### Proactive Heartbeat
 
-- [ ] **BEAT-01**: Daemon runs a configurable heartbeat loop using `croner` cron expressions (default: every 15 minutes)
-- [ ] **BEAT-02**: Heartbeat checks: stale TODOs, stuck goal runs, unreplied gateway messages, repo changes
-- [ ] **BEAT-03**: Heartbeat is silent by default — only surfaces items with concrete actionable suggestions
-- [ ] **BEAT-04**: Heartbeat results delivered via existing `AgentEvent` broadcast to all connected clients
-- [ ] **BEAT-05**: User can configure heartbeat schedule, enable/disable checks, and set quiet hours in agent config
+- [x] **BEAT-01**: Daemon runs a configurable heartbeat loop using `croner` cron expressions (default: every 15 minutes)
+- [x] **BEAT-02**: Heartbeat checks: stale TODOs, stuck goal runs, unreplied gateway messages, repo changes
+- [x] **BEAT-03**: Heartbeat is silent by default — only surfaces items with concrete actionable suggestions
+- [x] **BEAT-04**: Heartbeat results delivered via existing `AgentEvent` broadcast to all connected clients
+- [x] **BEAT-05**: User can configure heartbeat schedule, enable/disable checks, and set quiet hours in agent config
 - [ ] **BEAT-06**: Operator-aware scheduling: agent learns when user is active and surfaces proactive items during active windows
 - [ ] **BEAT-07**: Adaptive heartbeat: agent learns what to check based on operator model patterns (what user cares about, what goes wrong)
 - [ ] **BEAT-08**: Heartbeat batches multiple checks into a single LLM call to manage token cost
@@ -147,11 +147,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUN-04 | Phase 1 | Complete |
 | FOUN-05 | Phase 1 | Complete |
 | FOUN-06 | Phase 1 | Complete |
-| BEAT-01 | Phase 2 | Pending |
-| BEAT-02 | Phase 2 | Pending |
-| BEAT-03 | Phase 2 | Pending |
-| BEAT-04 | Phase 2 | Pending |
-| BEAT-05 | Phase 2 | Pending |
+| BEAT-01 | Phase 2 | Complete |
+| BEAT-02 | Phase 2 | Complete |
+| BEAT-03 | Phase 2 | Complete |
+| BEAT-04 | Phase 2 | Complete |
+| BEAT-05 | Phase 2 | Complete |
 | BEAT-06 | Phase 4 | Pending |
 | BEAT-07 | Phase 4 | Pending |
 | BEAT-08 | Phase 2 | Pending |
