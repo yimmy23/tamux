@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — HistoryStore async migration to tokio-rusqlite 0.6.0 with WAL pragmas
+- [x] 01-01-PLAN.md — HistoryStore async migration to tokio-rusqlite 0.6.0 with WAL pragmas
 - [ ] 01-02-PLAN.md — Shared Arc<HistoryStore> wiring + configurable broadcast channel capacity
 - [ ] 01-03-PLAN.md — Circuit breaker wiring into LLM call path with per-provider instances
 
