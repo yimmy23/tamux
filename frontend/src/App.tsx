@@ -20,6 +20,7 @@ import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./
 import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
 import { ConciergeToast } from "./components/ConciergeToast";
 import { useNotificationStore } from "./lib/notificationStore";
+import { useAuditStore } from "./lib/auditStore";
 
 const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
 
@@ -36,6 +37,7 @@ const SystemMonitorPanel = lazy(() => import("./components/SystemMonitorPanel").
 const FileManagerPanel = lazy(() => import("./components/FileManagerPanel").then((module) => ({ default: module.FileManagerPanel })));
 const TimeTravelSlider = lazy(() => import("./components/TimeTravelSlider").then((module) => ({ default: module.TimeTravelSlider })));
 const ExecutionCanvas = lazy(() => import("./components/ExecutionCanvas").then((module) => ({ default: module.ExecutionCanvas })));
+const AuditPanel = lazy(() => import("./components/audit-panel/AuditPanel").then((module) => ({ default: module.AuditPanel })));
 
 export default function App() {
   const createWorkspace = useWorkspaceStore((s) => s.createWorkspace);
@@ -81,6 +83,7 @@ export default function App() {
   const symbolHits = useAgentMissionStore((s) => s.symbolHits);
   const toggleAgentPanel = useWorkspaceStore((s) => s.toggleAgentPanel);
   const toggleSessionVault = useWorkspaceStore((s) => s.toggleSessionVault);
+  const auditPanelOpen = useAuditStore((s) => s.isOpen);
   const gatewayThreadMapRef = useRef<Record<string, string>>({});
   const gatewayInFlightRef = useRef<Set<string>>(new Set());
 
@@ -154,12 +157,38 @@ export default function App() {
                 `[${i + 1}] ${item.title ?? "Unknown"}${item.suggestion ? " \u2014 " + item.suggestion : ""}`,
             )
             .join("\n");
+          // Per D-01: render explanation inline beneath the heartbeat action
+          const explanation = typeof event.explanation === "string" ? event.explanation : "";
           useNotificationStore.getState().addNotification({
             title: event.digest || "Heartbeat: items need attention",
-            body,
+            body: explanation ? body + "\n" + explanation : body,
             source: "heartbeat",
           });
         }
+      }
+      // Audit event handlers (Phase 3 - Transparent Autonomy)
+      if (event?.type === "audit_action") {
+        useAuditStore.getState().addEntry({
+          id: event.id ?? "",
+          timestamp: event.timestamp ?? Date.now(),
+          actionType: event.action_type ?? "heartbeat",
+          summary: event.summary ?? "",
+          explanation: event.explanation ?? null,
+          confidence: event.confidence ?? null,
+          confidenceBand: event.confidence_band ?? null,
+          causalTraceId: event.causal_trace_id ?? null,
+          threadId: event.thread_id ?? null,
+        });
+      }
+      if (event?.type === "escalation_update") {
+        useAuditStore.getState().setEscalation({
+          threadId: event.thread_id ?? "",
+          fromLevel: event.from_level ?? "L0",
+          toLevel: event.to_level ?? "L1",
+          reason: event.reason ?? "",
+          attempts: event.attempts ?? 0,
+          auditId: event.audit_id ?? null,
+        });
       }
     });
 
@@ -182,6 +211,18 @@ export default function App() {
       clearTimeout(timer);
       if (typeof unsubscribe === "function") unsubscribe();
     };
+  }, []);
+
+  // Ctrl+Shift+A toggles the Audit Feed panel
+  useEffect(() => {
+    const handleAuditShortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === "A") {
+        e.preventDefault();
+        useAuditStore.getState().togglePanel();
+      }
+    };
+    window.addEventListener("keydown", handleAuditShortcut);
+    return () => window.removeEventListener("keydown", handleAuditShortcut);
   }, []);
 
   useEffect(() => {
@@ -921,6 +962,7 @@ export default function App() {
       <Suspense fallback={null}>
         {commandPaletteOpen && <CommandPalette />}
         {notificationPanelOpen && <NotificationPanel />}
+        {auditPanelOpen && <AuditPanel />}
         {commandHistoryOpen && <CommandHistoryPicker />}
         {snippetPickerOpen && <SnippetPicker />}
         {canvasOpen && <ExecutionCanvas />}
