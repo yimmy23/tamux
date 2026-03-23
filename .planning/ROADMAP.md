@@ -51,7 +51,12 @@ Plans:
   3. When the heartbeat finds something, all connected clients (TUI, Electron, CLI) receive the notification
   4. User can configure schedule, toggle individual checks, and set quiet hours from agent config
   5. Multiple heartbeat checks are batched into a single LLM call to keep token cost low
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Heartbeat type contracts, config extension, and four built-in check functions
+- [ ] 02-02-PLAN.md — Cron scheduling, quiet hours/DND, and SQLite heartbeat_history persistence
+- [ ] 02-03-PLAN.md — LLM synthesis orchestration, digest broadcasting, and gateway_loop wiring
 
 ### Phase 3: Transparent Autonomy
 **Goal**: Users trust the agent's autonomous actions because every action is explained, auditable, and escalation reasoning is visible
@@ -157,7 +162,7 @@ Note: Phases 8 and 9 can execute in parallel with phases 2-7 (they only depend o
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Production Foundation | 0/3 | Planning complete | - |
-| 2. Core Heartbeat | 0/? | Not started | - |
+| 2. Core Heartbeat | 0/3 | Planning complete | - |
 | 3. Transparent Autonomy | 0/? | Not started | - |
 | 4. Adaptive Heartbeat | 0/? | Not started | - |
 | 5. Memory Consolidation | 0/? | Not started | - |
