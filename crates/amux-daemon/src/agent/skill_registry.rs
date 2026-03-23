@@ -127,11 +127,46 @@ impl RegistryClient {
         tarball_path: &Path,
         metadata: &PublishMetadata,
     ) -> Result<()> {
-        let _ = metadata;
-        let _ = tarball_path;
-        anyhow::bail!(
-            "registry publish requires authentication; registry token configuration is not implemented yet"
+        let token = std::env::var("TAMUX_REGISTRY_TOKEN")
+            .or_else(|_| std::env::var("REGISTRY_TOKEN"))
+            .context("registry publish requires TAMUX_REGISTRY_TOKEN or REGISTRY_TOKEN")?;
+        let tarball_bytes = tokio::fs::read(tarball_path)
+            .await
+            .with_context(|| format!("read tarball {}", tarball_path.display()))?;
+        let metadata_json = serde_json::to_string(metadata).context("serialize publish metadata")?;
+        let filename = tarball_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("skill.tar.gz")
+            .to_string();
+
+        let form = reqwest::multipart::Form::new()
+            .part(
+                "tarball",
+                reqwest::multipart::Part::bytes(tarball_bytes)
+                    .file_name(filename)
+                    .mime_str("application/gzip")?,
+            )
+            .text("metadata", metadata_json);
+
+        let url = format!("{}/skills", self.registry_url);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(FETCH_TIMEOUT_SECS),
+            async {
+                let response = self
+                    .http
+                    .post(&url)
+                    .bearer_auth(token)
+                    .multipart(form)
+                    .send()
+                    .await?;
+                response.error_for_status()?;
+                Ok::<(), anyhow::Error>(())
+            },
         )
+        .await
+        .context("registry publish request timed out")??;
+        Ok(())
     }
 
     async fn load_index(&self) -> Result<RegistryIndex> {
