@@ -42,11 +42,11 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 
 ### Skill Ecosystem
 
-- [ ] **SKIL-01**: Agent automatically drafts a candidate skill when it solves a novel problem (high tool count, multiple replans, eventual success)
-- [ ] **SKIL-02**: Novelty detection: agent recognizes when a solution approach hasn't been seen before
-- [ ] **SKIL-03**: Skills follow maturity lifecycle: Draft → Testing → Active → Proven → Canonical
+- [x] **SKIL-01**: Agent automatically drafts a candidate skill when it solves a novel problem (high tool count, multiple replans, eventual success)
+- [x] **SKIL-02**: Novelty detection: agent recognizes when a solution approach hasn't been seen before
+- [x] **SKIL-03**: Skills follow maturity lifecycle: Draft → Testing → Active → Proven → Canonical
 - [ ] **SKIL-04**: Draft skills are validated against a few mental test scenarios (LLM evaluation) before promotion to Testing
-- [ ] **SKIL-05**: Skill promotion requires N successful real-world uses (configurable threshold, default: 3)
+- [x] **SKIL-05**: Skill promotion requires N successful real-world uses (configurable threshold, default: 3)
 - [ ] **SKIL-06**: New and promoted skills surfaced to user naturally in conversation via concierge
 - [ ] **SKIL-07**: Community skill registry: operators can publish skills with provenance metadata
 - [ ] **SKIL-08**: Imported community skills reset to Draft maturity and must prove themselves locally before promotion
@@ -165,11 +165,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEMO-07 | Phase 5 | Complete |
 | MEMO-08 | Phase 5 | Complete |
 | MEMO-09 | Phase 5 | Complete |
-| SKIL-01 | Phase 6 | Pending |
-| SKIL-02 | Phase 6 | Pending |
-| SKIL-03 | Phase 6 | Pending |
+| SKIL-01 | Phase 6 | Complete |
+| SKIL-02 | Phase 6 | Complete |
+| SKIL-03 | Phase 6 | Complete |
 | SKIL-04 | Phase 6 | Pending |
-| SKIL-05 | Phase 6 | Pending |
+| SKIL-05 | Phase 6 | Complete |
 | SKIL-06 | Phase 6 | Pending |
 | SKIL-07 | Phase 7 | Pending |
 | SKIL-08 | Phase 7 | Pending |
