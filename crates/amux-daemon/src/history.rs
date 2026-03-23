@@ -140,6 +140,22 @@ pub struct ExecutionTraceRow {
     pub created_at: i64,
 }
 
+/// Row type for context_archive query results (Phase 5 — cross-session continuity).
+#[derive(Debug, Clone)]
+pub struct ContextArchiveRow {
+    pub id: String,
+    pub thread_id: String,
+    pub original_role: Option<String>,
+    pub compressed_content: String,
+    pub summary: Option<String>,
+    pub relevance_score: f64,
+    pub token_count_original: i64,
+    pub token_count_compressed: i64,
+    pub metadata_json: Option<String>,
+    pub archived_at: i64,
+    pub last_accessed_at: Option<i64>,
+}
+
 pub struct ProvenanceEventRecord<'a> {
     pub event_type: &'a str,
     pub summary: &'a str,
@@ -3612,6 +3628,44 @@ impl HistoryStore {
             }
         }
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// List the most recent context archive entries for a thread.
+    pub async fn list_context_archive_entries(
+        &self,
+        thread_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ContextArchiveRow>> {
+        let thread_id = thread_id.to_string();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, thread_id, original_role, compressed_content, summary, \
+                     relevance_score, token_count_original, token_count_compressed, \
+                     metadata_json, archived_at, last_accessed_at \
+                     FROM context_archive WHERE thread_id = ?1 \
+                     ORDER BY archived_at DESC LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![thread_id, limit as i64], |row| {
+                    Ok(ContextArchiveRow {
+                        id: row.get(0)?,
+                        thread_id: row.get(1)?,
+                        original_role: row.get(2)?,
+                        compressed_content: row.get(3)?,
+                        summary: row.get(4)?,
+                        relevance_score: row.get::<_, f64>(5).unwrap_or(0.0),
+                        token_count_original: row.get::<_, i64>(6).unwrap_or(0),
+                        token_count_compressed: row.get::<_, i64>(7).unwrap_or(0),
+                        metadata_json: row.get(8)?,
+                        archived_at: row.get(9)?,
+                        last_accessed_at: row.get(10)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     // -- Execution traces --

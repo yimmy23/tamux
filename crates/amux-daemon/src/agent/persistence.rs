@@ -297,6 +297,108 @@ impl AgentEngine {
             }
         }
 
+        // D-10: Restore context for the most recent active thread.
+        {
+            let threads = self.threads.read().await;
+            let most_recent = threads
+                .values()
+                .filter(|t| !t.messages.is_empty())
+                .max_by_key(|t| t.messages.last().map(|m| m.timestamp).unwrap_or(0));
+
+            if let Some(thread) = most_recent {
+                let thread_id = thread.id.clone();
+                let last_topic = thread
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|m| matches!(m.role, MessageRole::User))
+                    .map(|m| {
+                        let content: String = m.content.chars().take(100).collect();
+                        if m.content.len() > 100 {
+                            format!("{}...", content)
+                        } else {
+                            content
+                        }
+                    })
+                    .unwrap_or_else(|| "previous session".to_string());
+                drop(threads);
+
+                // Try FTS5 archive restoration
+                match self
+                    .history
+                    .list_context_archive_entries(&thread_id, 20)
+                    .await
+                {
+                    Ok(rows) if !rows.is_empty() => {
+                        let entries: Vec<super::context::archive::ArchiveEntry> = rows
+                            .into_iter()
+                            .map(|row| super::context::archive::ArchiveEntry {
+                                id: row.id,
+                                thread_id: row.thread_id,
+                                original_role: row.original_role,
+                                compressed_content: row.compressed_content,
+                                summary: row.summary,
+                                relevance_score: row.relevance_score,
+                                token_count_original: row.token_count_original as u32,
+                                token_count_compressed: row.token_count_compressed as u32,
+                                metadata: row
+                                    .metadata_json
+                                    .and_then(|j| serde_json::from_str(&j).ok()),
+                                archived_at: row.archived_at as u64,
+                                last_accessed_at: row.last_accessed_at.map(|v| v as u64),
+                            })
+                            .collect();
+
+                        let request = super::context::restoration::RestorationRequest {
+                            thread_id: thread_id.clone(),
+                            query: Some(last_topic.clone()),
+                            max_items: 10,
+                            max_tokens: 2000,
+                        };
+                        let restored =
+                            super::context::restoration::rank_and_select(&entries, &request);
+                        if !restored.is_empty() {
+                            tracing::info!(
+                                thread_id = %thread_id,
+                                items = restored.len(),
+                                "restored context for most recent thread (D-10)"
+                            );
+
+                            // Store a continuity flag -- the next agent message in this thread
+                            // should acknowledge the context restoration.
+                            self.history
+                                .set_consolidation_state(
+                                    "continuity_thread_id",
+                                    &thread_id,
+                                    now_millis(),
+                                )
+                                .await
+                                .ok();
+                            self.history
+                                .set_consolidation_state(
+                                    "continuity_topic",
+                                    &last_topic,
+                                    now_millis(),
+                                )
+                                .await
+                                .ok();
+                        }
+                    }
+                    Ok(_) => {
+                        tracing::debug!(
+                            "no archive entries for most recent thread, skipping context restoration"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "failed to list archive entries for context restoration"
+                        );
+                    }
+                }
+            }
+        }
+
         let repo_watches = {
             let contexts = self.thread_work_contexts.read().await;
             contexts
@@ -494,5 +596,45 @@ impl AgentEngine {
     pub(super) async fn persist_learning_stores(&self) {
         self.persist_heuristic_store().await;
         self.persist_pattern_store().await;
+    }
+
+    /// Check if a continuity acknowledgment is pending for the given thread.
+    /// Returns the acknowledgment message if one should be injected, and clears
+    /// the flag. Per D-10: "Resuming from where we left off -- last working on [topic]."
+    pub(super) async fn take_continuity_acknowledgment(
+        &self,
+        thread_id: &str,
+    ) -> Option<String> {
+        let stored_id = self
+            .history
+            .get_consolidation_state("continuity_thread_id")
+            .await
+            .ok()
+            .flatten()?;
+        if stored_id.is_empty() || stored_id != thread_id {
+            return None;
+        }
+        let topic = self
+            .history
+            .get_consolidation_state("continuity_topic")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "the previous session".to_string());
+
+        // Clear the flag so it only fires once
+        self.history
+            .set_consolidation_state("continuity_thread_id", "", now_millis())
+            .await
+            .ok();
+        self.history
+            .set_consolidation_state("continuity_topic", "", now_millis())
+            .await
+            .ok();
+
+        Some(format!(
+            "Resuming from where we left off \u{2014} last working on {}.",
+            topic
+        ))
     }
 }
