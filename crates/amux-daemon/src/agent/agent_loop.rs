@@ -54,6 +54,17 @@ impl AgentEngine {
             tracing::warn!(thread_id = %tid, error = %error, "failed to sync thread to Honcho");
         }
 
+        // Inject continuity acknowledgment if pending (D-10 / MEMO-09)
+        if let Some(ack_message) = self.take_continuity_acknowledgment(&tid).await {
+            let mut threads = self.threads.write().await;
+            if let Some(thread) = threads.get_mut(&tid) {
+                let mut msg = AgentMessage::user(&ack_message, now_millis());
+                msg.role = MessageRole::System;
+                thread.messages.push(msg);
+            }
+            tracing::info!(thread_id = %tid, "injected continuity acknowledgment");
+        }
+
         // Resolve provider config after the user message is attached so
         // startup/config failures still persist a complete thread history.
         // If the current task has a sub-agent provider override, use that instead.
