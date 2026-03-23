@@ -57,7 +57,8 @@ export const useAuditStore = create<AuditState>((set) => ({
       ),
     }));
     // Send dismiss to daemon via IPC bridge
-    const bridge = (window as Record<string, unknown>).tamux ?? (window as Record<string, unknown>).amux;
+    const w = window as unknown as Record<string, unknown>;
+    const bridge = w.tamux ?? w.amux;
     if (bridge && typeof (bridge as Record<string, unknown>).dismissAuditEntry === "function") {
       (bridge as Record<string, (...args: unknown[]) => unknown>).dismissAuditEntry(entryId);
     }
