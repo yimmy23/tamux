@@ -79,6 +79,20 @@ pub struct CollaborationSessionRow {
     pub updated_at: u64,
 }
 
+/// Row type for heartbeat_history table. Per D-12.
+#[derive(Debug, Clone)]
+pub struct HeartbeatHistoryRow {
+    pub id: String,
+    pub cycle_timestamp: i64,
+    pub checks_json: String,
+    pub synthesis_json: Option<String>,
+    pub actionable: bool,
+    pub digest_text: Option<String>,
+    pub llm_tokens_used: i64,
+    pub duration_ms: i64,
+    pub status: String,
+}
+
 pub struct ProvenanceEventRecord<'a> {
     pub event_type: &'a str,
     pub summary: &'a str,
@@ -2567,6 +2581,20 @@ impl HistoryStore {
                 updated_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_agent_config_updates_key_ts ON agent_config_updates(key_path, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS heartbeat_history (
+                id              TEXT PRIMARY KEY,
+                cycle_timestamp INTEGER NOT NULL,
+                checks_json     TEXT NOT NULL,
+                synthesis_json  TEXT,
+                actionable      INTEGER NOT NULL DEFAULT 0,
+                digest_text     TEXT,
+                llm_tokens_used INTEGER NOT NULL DEFAULT 0,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                status          TEXT NOT NULL DEFAULT 'completed'
+            );
+            CREATE INDEX IF NOT EXISTS idx_heartbeat_history_ts ON heartbeat_history(cycle_timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_heartbeat_history_actionable ON heartbeat_history(actionable, cycle_timestamp DESC);
             ",
         )?;
         // FTS5 virtual table for context archive full-text search.
@@ -3506,6 +3534,63 @@ impl HistoryStore {
         )?;
         Ok(updated)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Persist a heartbeat cycle result to SQLite. Per D-12.
+    pub async fn insert_heartbeat_history(
+        &self,
+        id: &str,
+        cycle_timestamp: i64,
+        checks_json: &str,
+        synthesis_json: Option<&str>,
+        actionable: bool,
+        digest_text: Option<&str>,
+        llm_tokens_used: i64,
+        duration_ms: i64,
+        status: &str,
+    ) -> Result<()> {
+        let id = id.to_string();
+        let checks_json = checks_json.to_string();
+        let synthesis_json = synthesis_json.map(|s| s.to_string());
+        let digest_text = digest_text.map(|s| s.to_string());
+        let status = status.to_string();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO heartbeat_history \
+                 (id, cycle_timestamp, checks_json, synthesis_json, actionable, digest_text, llm_tokens_used, duration_ms, status) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    id, cycle_timestamp, checks_json, synthesis_json,
+                    actionable as i32, digest_text, llm_tokens_used, duration_ms, status
+                ],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("insert_heartbeat_history: {e}"))
+    }
+
+    /// List recent heartbeat history entries. Per D-12.
+    pub async fn list_heartbeat_history(&self, limit: usize) -> Result<Vec<HeartbeatHistoryRow>> {
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, cycle_timestamp, checks_json, synthesis_json, actionable, \
+                 digest_text, llm_tokens_used, duration_ms, status \
+                 FROM heartbeat_history ORDER BY cycle_timestamp DESC LIMIT ?1"
+            )?;
+            let rows = stmt.query_map([limit as i64], |row| {
+                Ok(HeartbeatHistoryRow {
+                    id: row.get(0)?,
+                    cycle_timestamp: row.get(1)?,
+                    checks_json: row.get(2)?,
+                    synthesis_json: row.get(3)?,
+                    actionable: row.get::<_, i32>(4)? != 0,
+                    digest_text: row.get(5)?,
+                    llm_tokens_used: row.get(6)?,
+                    duration_ms: row.get(7)?,
+                    status: row.get(8)?,
+                })
+            })?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
+        }).await.map_err(|e| anyhow::anyhow!("list_heartbeat_history: {e}"))
     }
 }
 
