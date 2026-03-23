@@ -122,19 +122,28 @@ impl AgentEngine {
             result.tombstones_purged = self.cleanup_expired_tombstones(&config).await;
         }
 
-        // Sub-task 4: Memory refinement reserved for Plan 04
+        // Sub-task 4: Proactive memory refinement (LLM call, most expensive -- runs LAST)
+        if std::time::Instant::now() < deadline {
+            result.facts_refined = self.refine_memory_facts(&deadline).await;
+        }
+
+        // Persist learning stores after consolidation updates (D-10)
+        if result.traces_reviewed > 0 {
+            self.persist_learning_stores().await;
+        }
 
         // Log provenance for the consolidation tick (MEMO-04)
         self.record_provenance_event(
             "memory_consolidation",
             &format!(
-                "Consolidation tick: {} traces reviewed, {} facts decayed, {} tombstones purged",
-                result.traces_reviewed, result.facts_decayed, result.tombstones_purged
+                "Consolidation tick: {} traces reviewed, {} facts decayed, {} tombstones purged, {} facts refined",
+                result.traces_reviewed, result.facts_decayed, result.tombstones_purged, result.facts_refined
             ),
             serde_json::json!({
                 "traces_reviewed": result.traces_reviewed,
                 "facts_decayed": result.facts_decayed,
-                "tombstones_purged": result.tombstones_purged
+                "tombstones_purged": result.tombstones_purged,
+                "facts_refined": result.facts_refined
             }),
             None,
             None,
@@ -421,6 +430,198 @@ impl AgentEngine {
                 0
             }
         }
+    }
+
+    /// Proactive memory refinement: detect redundant/contradictory facts and merge via LLM.
+    /// Per D-12: budget within the 30-second tick. Runs LAST (most expensive sub-task).
+    /// Per Pitfall 3: check circuit breaker before LLM call. Skip if open.
+    async fn refine_memory_facts(&self, deadline: &std::time::Instant) -> usize {
+        // 1. Check remaining budget -- need at least 10 seconds for an LLM call
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.as_secs() < 10 {
+            tracing::debug!("skipping memory refinement -- insufficient budget");
+            return 0;
+        }
+
+        // 2. Check circuit breaker for configured provider
+        let config = self.config.read().await.clone();
+        if let Err(_e) = self.check_circuit_breaker(&config.provider).await {
+            tracing::debug!(
+                provider = %config.provider,
+                "skipping memory refinement -- circuit breaker open"
+            );
+            return 0;
+        }
+
+        // 3. Read MEMORY.md content
+        let memory_path = active_memory_dir(&self.data_dir)
+            .join(MemoryTarget::Memory.file_name());
+        let content = match tokio::fs::read_to_string(&memory_path).await {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+
+        // 4. Extract fact candidates and find contradictions/redundancies
+        let candidates = extract_memory_fact_candidates(&content);
+        if candidates.len() < 2 {
+            return 0; // Need at least 2 facts to find contradictions
+        }
+
+        // Find facts with overlapping keys (potential contradictions/redundancies)
+        let mut key_groups: std::collections::HashMap<String, Vec<&MemoryFactCandidate>> =
+            std::collections::HashMap::new();
+        for candidate in &candidates {
+            let normalized_key = candidate.key.to_lowercase().trim().to_string();
+            key_groups
+                .entry(normalized_key)
+                .or_default()
+                .push(candidate);
+        }
+
+        let conflicting: Vec<_> = key_groups.values().filter(|group| group.len() > 1).collect();
+
+        if conflicting.is_empty() {
+            return 0; // No contradictions found
+        }
+
+        // 5. Build a short LLM prompt to merge the first conflict group
+        // Only handle one conflict per tick to stay within budget
+        let conflict = &conflicting[0];
+        let facts_text: String = conflict
+            .iter()
+            .map(|f| format!("- {}: {}", f.key, f.display))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let refinement_prompt = format!(
+            "You are a memory consolidation agent. These memory facts appear to be about the same topic but may conflict or be redundant.\n\n\
+             Facts:\n{}\n\n\
+             Merge these into a single, accurate fact. Return ONLY the merged fact as a single line. \
+             If they truly conflict, keep the most recent/specific one. If redundant, combine into one concise fact.",
+            facts_text
+        );
+
+        // 6. Make LLM call with timeout -- following the pattern from memory_flush.rs
+        let llm_timeout = remaining.saturating_sub(std::time::Duration::from_secs(2));
+
+        let merged_content = match tokio::time::timeout(
+            llm_timeout,
+            self.send_refinement_llm_call(&config, &refinement_prompt),
+        )
+        .await
+        {
+            Ok(Ok(response)) => response.trim().to_string(),
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "memory refinement LLM call failed");
+                return 0;
+            }
+            Err(_) => {
+                tracing::debug!("memory refinement LLM call timed out within budget");
+                return 0;
+            }
+        };
+
+        if merged_content.is_empty() {
+            return 0;
+        }
+
+        // 7. Supersede the original facts with the merged result
+        // Per Pitfall 2: tombstone-before-update via supersede_memory_fact
+        let original_content = conflict
+            .iter()
+            .map(|f| f.display.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        match self
+            .supersede_memory_fact(
+                MemoryTarget::Memory,
+                &original_content,
+                &conflict[0].key,
+                &merged_content,
+                "consolidation_refinement",
+            )
+            .await
+        {
+            Ok(()) => {
+                tracing::info!(key = %conflict[0].key, "refined memory fact via LLM merge");
+                1
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to supersede memory fact during refinement");
+                0
+            }
+        }
+    }
+
+    /// Minimal LLM call for memory refinement. Uses the operator's configured provider/model.
+    /// Short context, focused prompt -- minimal token cost.
+    ///
+    /// Pattern follows memory_flush.rs:
+    /// 1. Build ApiMessage vec (system + user)
+    /// 2. Get ProviderConfig for the configured provider
+    /// 3. Call send_completion_request with empty tools, Chat transport
+    /// 4. Collect text content from Delta/Done chunks in the stream
+    /// 5. Return concatenated response text
+    async fn send_refinement_llm_call(
+        &self,
+        config: &AgentConfig,
+        user_prompt: &str,
+    ) -> anyhow::Result<String> {
+        use futures::StreamExt;
+
+        let provider_config = resolve_active_provider_config(config)?;
+
+        let system =
+            "You are a concise memory consolidation agent. Respond with ONLY the merged fact, nothing else.";
+
+        let messages = vec![ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text(user_prompt.to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }];
+
+        let mut stream = send_completion_request(
+            &self.http_client,
+            &config.provider,
+            &provider_config,
+            system,
+            &messages,
+            &[], // No tools needed for refinement
+            provider_config.api_transport,
+            None, // No previous_response_id
+            None, // No upstream_thread_id
+            RetryStrategy::Bounded {
+                max_retries: 1,
+                retry_delay_ms: 1000,
+            },
+        );
+
+        let mut response = String::new();
+        while let Some(chunk_result) = stream.next().await {
+            match chunk_result {
+                Ok(CompletionChunk::Delta { content, .. }) => {
+                    response.push_str(&content);
+                }
+                Ok(CompletionChunk::Done { content, .. }) => {
+                    if !content.is_empty() {
+                        response.push_str(&content);
+                    }
+                    break;
+                }
+                Ok(CompletionChunk::Error { message }) => {
+                    return Err(anyhow::anyhow!("refinement LLM error: {}", message));
+                }
+                Ok(_) => {} // Ignore ToolCalls, TransportFallback, Retry
+                Err(e) => {
+                    return Err(anyhow::anyhow!("refinement LLM stream error: {}", e));
+                }
+            }
+        }
+
+        Ok(response)
     }
 }
 

@@ -50,7 +50,7 @@ const SESSION_SEARCH_OUTPUT_MAX_CHARS: usize = 12_000;
 /// Per D-08: "ToolHeuristic.effectiveness_score modulates tool ranking in tool_executor.rs
 /// for known task types."
 pub fn reorder_tools_by_heuristics(
-    tools: &mut Vec<ToolDefinition>,
+    tools: &mut [ToolDefinition],
     heuristic_store: &super::learning::heuristics::HeuristicStore,
     task_type: &str,
 ) {
