@@ -131,7 +131,7 @@ impl AgentEngine {
         history: HistoryStore,
         data_dir: PathBuf,
     ) -> Arc<Self> {
-        let (event_tx, _) = broadcast::channel(256);
+        let (event_tx, _) = broadcast::channel(config.agent_event_channel_capacity);
         let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
 
         // Pre-initialize external agent runners for discovery

@@ -483,9 +483,9 @@ mod tests {
 
     #[tokio::test]
     async fn merge_config_patch_preserves_existing_provider_state() {
-        let manager = SessionManager::new();
         let root = tempdir().unwrap();
-        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path());
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
         let mut config = engine.get_config().await;
         config.provider = "openai".to_string();
         config.base_url = "https://api.openai.com/v1".to_string();
@@ -546,9 +546,9 @@ mod tests {
 
     #[tokio::test]
     async fn merge_config_patch_sanitizes_stale_enum_strings() {
-        let manager = SessionManager::new();
         let root = tempdir().unwrap();
-        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path());
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
 
         engine
             .merge_config_patch_json(
@@ -582,9 +582,9 @@ mod tests {
 
     #[tokio::test]
     async fn merge_config_patch_preserves_extended_gateway_fields() {
-        let manager = SessionManager::new();
         let root = tempdir().unwrap();
-        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path());
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
 
         engine
             .merge_config_patch_json(

@@ -1426,10 +1426,10 @@ export * from "../shared/types";
         Ok(())
     }
 
-    #[test]
-    fn render_temporal_summarizes_recent_workspace_history() -> Result<()> {
+    #[tokio::test]
+    async fn render_temporal_summarizes_recent_workspace_history() -> Result<()> {
         let root = make_temp_dir()?;
-        let store = HistoryStore::new_test_store(&root)?;
+        let store = HistoryStore::new_test_store(&root).await?;
         store.append_command_log(&amux_protocol::CommandLogEntry {
             id: "cmd-1".to_string(),
             command: "deploy staging".to_string(),
@@ -1441,9 +1441,9 @@ export * from "../shared/types";
             pane_id: None,
             exit_code: Some(1),
             duration_ms: Some(50),
-        })?;
+        }).await?;
 
-        let rendered = render_temporal(&root, &store, Some("deploy"), 5)?;
+        let rendered = render_temporal(&root, &store, Some("deploy"), 5).await?;
         assert!(rendered.contains("deploy staging"));
         assert!(rendered.contains("1 failure"));
 
@@ -1451,8 +1451,8 @@ export * from "../shared/types";
         Ok(())
     }
 
-    #[test]
-    fn render_temporal_excludes_sibling_paths() -> Result<()> {
+    #[tokio::test]
+    async fn render_temporal_excludes_sibling_paths() -> Result<()> {
         let root = make_temp_dir()?;
         let sibling = root.with_file_name(format!(
             "{}-other",
@@ -1461,7 +1461,7 @@ export * from "../shared/types";
                 .unwrap_or("workspace")
         ));
         fs::create_dir_all(&sibling)?;
-        let store = HistoryStore::new_test_store(&root)?;
+        let store = HistoryStore::new_test_store(&root).await?;
         store.append_command_log(&amux_protocol::CommandLogEntry {
             id: "cmd-in".to_string(),
             command: "cargo test".to_string(),
@@ -1473,7 +1473,7 @@ export * from "../shared/types";
             pane_id: None,
             exit_code: Some(0),
             duration_ms: Some(10),
-        })?;
+        }).await?;
         store.append_command_log(&amux_protocol::CommandLogEntry {
             id: "cmd-out".to_string(),
             command: "cargo build".to_string(),
@@ -1485,9 +1485,9 @@ export * from "../shared/types";
             pane_id: None,
             exit_code: Some(0),
             duration_ms: Some(10),
-        })?;
+        }).await?;
 
-        let rendered = render_temporal(&root, &store, None, 10)?;
+        let rendered = render_temporal(&root, &store, None, 10).await?;
         assert!(rendered.contains("cargo test"));
         assert!(!rendered.contains("cargo build"));
 

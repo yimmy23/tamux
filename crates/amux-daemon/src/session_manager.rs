@@ -34,6 +34,16 @@ struct PendingApproval {
 }
 
 impl SessionManager {
+    #[cfg(test)]
+    pub async fn new_test(root: &std::path::Path) -> Arc<Self> {
+        let history = Arc::new(
+            HistoryStore::new_test_store(root)
+                .await
+                .expect("test history store initialization failed"),
+        );
+        Self::new_with_history(history, 256)
+    }
+
     pub fn new_with_history(history: Arc<HistoryStore>, pty_channel_capacity: usize) -> Arc<Self> {
         let snapshots = SnapshotStore::new_with_history((*history).clone());
         Arc::new(Self {

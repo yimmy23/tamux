@@ -4675,7 +4675,7 @@ mod tests {
 
         store.upsert_goal_run(&goal_run).await?;
         let loaded = store
-            .get_goal_run("goal-1")?
+            .get_goal_run("goal-1").await?
             .expect("goal run should exist after upsert");
 
         assert_eq!(loaded.events.len(), 1);
@@ -4826,7 +4826,7 @@ mod tests {
             created_at: 2_000,
         }).await?;
 
-        let report = store.provenance_report(10).await?;
+        let report = store.provenance_report(10)?;
         assert_eq!(report.total_entries, 2);
         assert_eq!(report.valid_hash_entries, 2);
         assert_eq!(report.valid_chain_entries, 2);
@@ -4872,13 +4872,13 @@ mod tests {
         let canonical_record = store.register_skill_document(&canonical).await?;
         let frontend_record = store.register_skill_document(&frontend).await?;
         let resolved = store
-            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()]).await?
             .expect("variant should resolve");
         assert_eq!(resolved.variant_id, frontend_record.variant_id);
 
         store.record_skill_variant_use(&frontend_record.variant_id, Some(true)).await?;
         let refreshed = store
-            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()]).await?
             .expect("variant should still resolve");
         assert_eq!(refreshed.use_count, 1);
         assert_eq!(refreshed.success_count, 1);
@@ -4928,7 +4928,7 @@ mod tests {
         );
 
         let refreshed = store
-            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()]).await?
             .expect("variant should resolve");
         assert_eq!(refreshed.use_count, 1);
         assert_eq!(refreshed.success_count, 1);

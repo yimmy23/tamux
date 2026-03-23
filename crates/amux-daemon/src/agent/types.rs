@@ -1045,6 +1045,12 @@ pub struct AgentConfig {
     /// Default managed-command policy applied when tools do not override it.
     #[serde(default)]
     pub managed_execution: ManagedExecutionConfig,
+    /// Broadcast channel capacity for PTY session output fanout.
+    #[serde(default = "default_pty_channel_capacity")]
+    pub pty_channel_capacity: usize,
+    /// Broadcast channel capacity for agent event fanout.
+    #[serde(default = "default_agent_event_channel_capacity")]
+    pub agent_event_channel_capacity: usize,
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -1259,6 +1265,12 @@ fn default_reasoning_effort() -> String {
 fn default_max_tool_loops() -> u32 {
     0
 }
+fn default_pty_channel_capacity() -> usize {
+    1024
+}
+fn default_agent_event_channel_capacity() -> usize {
+    512
+}
 fn default_max_retries() -> u32 {
     3
 }
@@ -1359,6 +1371,8 @@ impl Default for AgentConfig {
             compliance: ComplianceConfig::default(),
             tool_synthesis: ToolSynthesisConfig::default(),
             managed_execution: ManagedExecutionConfig::default(),
+            pty_channel_capacity: default_pty_channel_capacity(),
+            agent_event_channel_capacity: default_agent_event_channel_capacity(),
             extra: HashMap::new(),
         }
     }
@@ -2485,6 +2499,22 @@ pub enum CompletionChunk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FOUN-05: Channel capacity is configurable via AgentConfig.
+    #[test]
+    fn configurable_channel_capacity() {
+        // Test defaults
+        let json_minimal = r#"{}"#;
+        let parsed: AgentConfig = serde_json::from_str(json_minimal).unwrap();
+        assert_eq!(parsed.pty_channel_capacity, 1024);
+        assert_eq!(parsed.agent_event_channel_capacity, 512);
+
+        // Test serde roundtrip with custom values
+        let json = r#"{"pty_channel_capacity": 2048, "agent_event_channel_capacity": 1024}"#;
+        let parsed: AgentConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.pty_channel_capacity, 2048);
+        assert_eq!(parsed.agent_event_channel_capacity, 1024);
+    }
 
     #[test]
     fn alibaba_coding_plan_uses_openai_by_default() {

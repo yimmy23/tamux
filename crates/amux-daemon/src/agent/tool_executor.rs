@@ -4870,7 +4870,8 @@ mod tests {
 
     #[tokio::test]
     async fn headless_shell_command_can_be_cancelled() {
-        let session_manager = Arc::new(SessionManager::new());
+        let root = tempfile::tempdir().unwrap();
+        let session_manager = SessionManager::new_test(root.path()).await;
         let token = CancellationToken::new();
         let cancel = token.clone();
 

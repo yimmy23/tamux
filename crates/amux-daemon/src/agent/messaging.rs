@@ -297,9 +297,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete_thread_messages_updates_live_thread_and_persisted_history() {
-        let manager = SessionManager::new();
         let root = tempdir().unwrap();
-        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path());
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
         let thread_id = "thread_test";
 
         {
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(thread.messages[1].content, "third");
         drop(live);
 
-        let persisted = engine.history.list_messages(thread_id, Some(10)).unwrap();
+        let persisted = engine.history.list_messages(thread_id, Some(10)).await.unwrap();
         assert_eq!(persisted.len(), 2);
         assert_eq!(persisted[0].content, "first");
         assert_eq!(persisted[1].content, "third");

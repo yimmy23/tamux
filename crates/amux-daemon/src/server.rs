@@ -78,7 +78,7 @@ pub async fn run() -> Result<()> {
 
     let manager = SessionManager::new_with_history(
         history.clone(),
-        1024, // Default PTY channel capacity; will be wired to AgentConfig in Task 2
+        agent_config.pty_channel_capacity,
     );
     let reaper_manager = manager.clone();
 
