@@ -92,6 +92,12 @@ enum Commands {
         limit: usize,
     },
 
+    /// Manage discovered skills.
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
+
     /// Ping the daemon (health check).
     Ping,
 
@@ -143,6 +149,38 @@ enum InstallTarget {
     Plugin {
         /// npm package spec or local package directory.
         package: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillAction {
+    /// List all skills with their maturity status.
+    #[command(alias = "ls")]
+    List {
+        /// Filter by status (draft, testing, active, proven, promoted_to_canonical).
+        #[arg(long)]
+        status: Option<String>,
+        /// Maximum number of entries to show.
+        #[arg(long, default_value = "50")]
+        limit: usize,
+    },
+    /// Show details of a specific skill.
+    Inspect {
+        /// Skill name or variant ID.
+        name: String,
+    },
+    /// Reject and delete a draft skill.
+    Reject {
+        /// Skill name or variant ID.
+        name: String,
+    },
+    /// Fast-promote a skill (skip to target status).
+    Promote {
+        /// Skill name or variant ID.
+        name: String,
+        /// Target status to promote to.
+        #[arg(long, default_value = "active")]
+        to: String,
     },
 }
 
@@ -283,6 +321,66 @@ async fn main() -> Result<()> {
                 entries.len()
             );
         }
+
+        Commands::Skill { action } => match action {
+            SkillAction::List { status, limit } => {
+                let variants = client::send_skill_list(status, limit).await?;
+                if variants.is_empty() {
+                    println!("No skills found.");
+                } else {
+                    println!(
+                        "{:<12} {:<24} {:>5}  {:>9}  {}",
+                        "STATUS", "SKILL NAME", "USES", "SUCCESS", "TAGS"
+                    );
+                    for v in &variants {
+                        let success_str = format!("{}/{}", v.success_count, v.use_count);
+                        let tags = v.context_tags.join(", ");
+                        println!(
+                            "{:<12} {:<24} {:>5}  {:>9}  {}",
+                            v.status, v.skill_name, v.use_count, success_str, tags
+                        );
+                    }
+                    println!("\n{} skill(s) shown.", variants.len());
+                }
+            }
+            SkillAction::Inspect { name } => {
+                let (variant, content) = client::send_skill_inspect(&name).await?;
+                if let Some(v) = variant {
+                    println!("Skill:       {}", v.skill_name);
+                    println!("Variant:     {} ({})", v.variant_name, v.variant_id);
+                    println!("Status:      {}", v.status);
+                    println!("Path:        {}", v.relative_path);
+                    println!(
+                        "Usage:       {} uses ({} success, {} failure)",
+                        v.use_count, v.success_count, v.failure_count
+                    );
+                    if !v.context_tags.is_empty() {
+                        println!("Tags:        {}", v.context_tags.join(", "));
+                    }
+                    if let Some(c) = content {
+                        println!("\n--- SKILL.md ---\n{}", c);
+                    }
+                } else {
+                    eprintln!("Skill not found: {}", name);
+                }
+            }
+            SkillAction::Reject { name } => {
+                let (success, message) = client::send_skill_reject(&name).await?;
+                if success {
+                    println!("{}", message);
+                } else {
+                    eprintln!("{}", message);
+                }
+            }
+            SkillAction::Promote { name, to } => {
+                let (success, message) = client::send_skill_promote(&name, &to).await?;
+                if success {
+                    println!("{}", message);
+                } else {
+                    eprintln!("{}", message);
+                }
+            }
+        },
 
         Commands::Scrub { text } => {
             let input = if let Some(t) = text {

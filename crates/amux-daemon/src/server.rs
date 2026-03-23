@@ -2312,6 +2312,213 @@ where
                         })
                         .await?;
                 }
+
+                ClientMessage::SkillList { status, limit } => {
+                    let limit = limit.clamp(1, 200);
+                    let result = if let Some(ref st) = status {
+                        agent.history.list_skill_variants_by_status(st, limit).await
+                    } else {
+                        agent.history.list_skill_variants(None, limit).await
+                    };
+                    match result {
+                        Ok(records) => {
+                            let variants: Vec<amux_protocol::SkillVariantPublic> = records
+                                .into_iter()
+                                .map(|r| amux_protocol::SkillVariantPublic {
+                                    variant_id: r.variant_id,
+                                    skill_name: r.skill_name,
+                                    variant_name: r.variant_name,
+                                    relative_path: r.relative_path,
+                                    status: r.status,
+                                    use_count: r.use_count,
+                                    success_count: r.success_count,
+                                    failure_count: r.failure_count,
+                                    context_tags: r.context_tags,
+                                    created_at: r.created_at,
+                                    updated_at: r.updated_at,
+                                })
+                                .collect();
+                            framed
+                                .send(DaemonMessage::SkillListResult { variants })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("skill list failed: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::SkillInspect { identifier } => {
+                    // Try variant_id first, then fall back to skill name search
+                    let variant = match agent.history.get_skill_variant(&identifier).await {
+                        Ok(Some(v)) => Some(v),
+                        _ => {
+                            // Search by skill name
+                            match agent.history.list_skill_variants(Some(&identifier), 1).await {
+                                Ok(variants) => variants.into_iter().next(),
+                                Err(_) => None,
+                            }
+                        }
+                    };
+
+                    let (public, content) = if let Some(ref v) = variant {
+                        // Read SKILL.md content from disk
+                        let skill_path = agent.data_dir
+                            .parent()
+                            .unwrap_or(std::path::Path::new("."))
+                            .join("skills")
+                            .join(&v.relative_path);
+                        let content = tokio::fs::read_to_string(&skill_path).await.ok();
+                        let public = amux_protocol::SkillVariantPublic {
+                            variant_id: v.variant_id.clone(),
+                            skill_name: v.skill_name.clone(),
+                            variant_name: v.variant_name.clone(),
+                            relative_path: v.relative_path.clone(),
+                            status: v.status.clone(),
+                            use_count: v.use_count,
+                            success_count: v.success_count,
+                            failure_count: v.failure_count,
+                            context_tags: v.context_tags.clone(),
+                            created_at: v.created_at,
+                            updated_at: v.updated_at,
+                        };
+                        (Some(public), content)
+                    } else {
+                        (None, None)
+                    };
+
+                    framed
+                        .send(DaemonMessage::SkillInspectResult {
+                            variant: public,
+                            content,
+                        })
+                        .await?;
+                }
+
+                ClientMessage::SkillReject { identifier } => {
+                    // Find the variant
+                    let variant = match agent.history.get_skill_variant(&identifier).await {
+                        Ok(Some(v)) => Some(v),
+                        _ => {
+                            match agent.history.list_skill_variants(Some(&identifier), 1).await {
+                                Ok(variants) => variants.into_iter().next(),
+                                Err(_) => None,
+                            }
+                        }
+                    };
+
+                    let msg = if let Some(v) = variant {
+                        // Only draft/testing skills can be rejected
+                        if v.status != "draft" && v.status != "testing" {
+                            DaemonMessage::SkillActionResult {
+                                success: false,
+                                message: format!(
+                                    "Cannot reject skill '{}' with status '{}' -- only draft/testing skills can be rejected.",
+                                    v.skill_name, v.status
+                                ),
+                            }
+                        } else {
+                            // Delete the SKILL.md file from disk
+                            let skill_path = agent.data_dir
+                                .parent()
+                                .unwrap_or(std::path::Path::new("."))
+                                .join("skills")
+                                .join(&v.relative_path);
+                            let _ = tokio::fs::remove_file(&skill_path).await;
+
+                            // Update status to archived
+                            match agent.history.update_skill_variant_status(&v.variant_id, "archived").await {
+                                Ok(()) => DaemonMessage::SkillActionResult {
+                                    success: true,
+                                    message: format!("Rejected and archived skill '{}'.", v.skill_name),
+                                },
+                                Err(e) => DaemonMessage::SkillActionResult {
+                                    success: false,
+                                    message: format!("Failed to archive skill: {e}"),
+                                },
+                            }
+                        }
+                    } else {
+                        DaemonMessage::SkillActionResult {
+                            success: false,
+                            message: format!("Skill not found: {identifier}"),
+                        }
+                    };
+                    framed.send(msg).await?;
+                }
+
+                ClientMessage::SkillPromote { identifier, target_status } => {
+                    // Validate target status
+                    let valid_statuses = ["draft", "testing", "active", "proven", "promoted_to_canonical"];
+                    if !valid_statuses.contains(&target_status.as_str()) {
+                        framed
+                            .send(DaemonMessage::SkillActionResult {
+                                success: false,
+                                message: format!(
+                                    "Invalid target status '{}'. Valid: {}",
+                                    target_status,
+                                    valid_statuses.join(", ")
+                                ),
+                            })
+                            .await?;
+                    } else {
+                        // Find the variant
+                        let variant = match agent.history.get_skill_variant(&identifier).await {
+                            Ok(Some(v)) => Some(v),
+                            _ => {
+                                match agent.history.list_skill_variants(Some(&identifier), 1).await {
+                                    Ok(variants) => variants.into_iter().next(),
+                                    Err(_) => None,
+                                }
+                            }
+                        };
+
+                        let msg = if let Some(v) = variant {
+                            match agent.history.update_skill_variant_status(&v.variant_id, &target_status).await {
+                                Ok(()) => {
+                                    // Record provenance
+                                    agent.record_provenance_event(
+                                        "skill_lifecycle_promotion",
+                                        &format!(
+                                            "Skill '{}' fast-promoted {} -> {} via CLI",
+                                            v.skill_name, v.status, target_status
+                                        ),
+                                        serde_json::json!({
+                                            "variant_id": v.variant_id,
+                                            "skill_name": v.skill_name,
+                                            "from_status": v.status,
+                                            "to_status": target_status,
+                                            "trigger": "cli_promote",
+                                        }),
+                                        None, None, None, None, None,
+                                    ).await;
+
+                                    DaemonMessage::SkillActionResult {
+                                        success: true,
+                                        message: format!(
+                                            "Skill '{}' promoted from {} to {}.",
+                                            v.skill_name, v.status, target_status
+                                        ),
+                                    }
+                                }
+                                Err(e) => DaemonMessage::SkillActionResult {
+                                    success: false,
+                                    message: format!("Failed to promote skill: {e}"),
+                                },
+                            }
+                        } else {
+                            DaemonMessage::SkillActionResult {
+                                success: false,
+                                message: format!("Skill not found: {identifier}"),
+                            }
+                        };
+                        framed.send(msg).await?;
+                    }
+                }
             }
         }
     }

@@ -486,6 +486,34 @@ pub enum ClientMessage {
     AuditDismiss {
         entry_id: String,
     },
+
+    /// List skill variants with optional status filter. Per SKIL-03/D-09.
+    SkillList {
+        /// Filter by maturity status (draft, testing, active, proven, promoted_to_canonical).
+        status: Option<String>,
+        /// Maximum entries to return.
+        limit: usize,
+    },
+
+    /// Inspect a specific skill by name or variant_id. Per SKIL-03/D-09.
+    SkillInspect {
+        /// Skill name or variant ID.
+        identifier: String,
+    },
+
+    /// Reject (delete) a draft skill. Per SKIL-03/D-09.
+    SkillReject {
+        /// Skill name or variant ID.
+        identifier: String,
+    },
+
+    /// Fast-promote a skill to a target status. Per SKIL-03/D-09.
+    SkillPromote {
+        /// Skill name or variant ID.
+        identifier: String,
+        /// Target status (e.g. "active").
+        target_status: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -849,6 +877,23 @@ pub enum DaemonMessage {
         success: bool,
         message: String,
     },
+
+    /// Response to SkillList -- list of skill variant records. Per SKIL-03/D-09.
+    SkillListResult {
+        variants: Vec<SkillVariantPublic>,
+    },
+
+    /// Response to SkillInspect -- single skill detail with content. Per SKIL-03/D-09.
+    SkillInspectResult {
+        variant: Option<SkillVariantPublic>,
+        content: Option<String>,
+    },
+
+    /// Response to SkillReject/SkillPromote. Per SKIL-03/D-09.
+    SkillActionResult {
+        success: bool,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -877,6 +922,23 @@ pub struct AuditEntryPublic {
     pub goal_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+}
+
+/// Public skill variant record shared across all crates. Per SKIL-03/D-09.
+/// The daemon maps `SkillVariantRecord` -> `SkillVariantPublic` for IPC responses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkillVariantPublic {
+    pub variant_id: String,
+    pub skill_name: String,
+    pub variant_name: String,
+    pub relative_path: String,
+    pub status: String,
+    pub use_count: u32,
+    pub success_count: u32,
+    pub failure_count: u32,
+    pub context_tags: Vec<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
 }
 
 /// Metadata about a running session.
@@ -1229,4 +1291,196 @@ pub struct TelemetryLedgerStatus {
     pub valid: bool,
     pub first_invalid_seq: Option<usize>,
     pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_skill_variant() -> SkillVariantPublic {
+        SkillVariantPublic {
+            variant_id: "sv-001".to_string(),
+            skill_name: "git_rebase_workflow".to_string(),
+            variant_name: "v1".to_string(),
+            relative_path: "drafts/git_rebase_workflow/SKILL.md".to_string(),
+            status: "active".to_string(),
+            use_count: 12,
+            success_count: 10,
+            failure_count: 2,
+            context_tags: vec!["git".to_string(), "rebase".to_string()],
+            created_at: 1700000000,
+            updated_at: 1700001000,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ClientMessage round-trips
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn skill_list_with_status_bincode_roundtrip() {
+        let msg = ClientMessage::SkillList {
+            status: Some("draft".to_string()),
+            limit: 50,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillList { status, limit } => {
+                assert_eq!(status, Some("draft".to_string()));
+                assert_eq!(limit, 50);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_list_without_status_bincode_roundtrip() {
+        let msg = ClientMessage::SkillList {
+            status: None,
+            limit: 10,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillList { status, limit } => {
+                assert_eq!(status, None);
+                assert_eq!(limit, 10);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_inspect_bincode_roundtrip() {
+        let msg = ClientMessage::SkillInspect {
+            identifier: "test-skill".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillInspect { identifier } => {
+                assert_eq!(identifier, "test-skill");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_reject_bincode_roundtrip() {
+        let msg = ClientMessage::SkillReject {
+            identifier: "test-skill".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillReject { identifier } => {
+                assert_eq!(identifier, "test-skill");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_promote_bincode_roundtrip() {
+        let msg = ClientMessage::SkillPromote {
+            identifier: "test-skill".to_string(),
+            target_status: "active".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillPromote {
+                identifier,
+                target_status,
+            } => {
+                assert_eq!(identifier, "test-skill");
+                assert_eq!(target_status, "active");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DaemonMessage round-trips
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn skill_list_result_with_variants_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillListResult {
+            variants: vec![sample_skill_variant()],
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillListResult { variants } => {
+                assert_eq!(variants.len(), 1);
+                assert_eq!(variants[0], sample_skill_variant());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_list_result_empty_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillListResult { variants: vec![] };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillListResult { variants } => {
+                assert!(variants.is_empty());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_inspect_result_none_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillInspectResult {
+            variant: None,
+            content: None,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillInspectResult { variant, content } => {
+                assert!(variant.is_none());
+                assert!(content.is_none());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_action_result_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillActionResult {
+            success: true,
+            message: "ok".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillActionResult { success, message } => {
+                assert!(success);
+                assert_eq!(message, "ok");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SkillVariantPublic serde
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn skill_variant_public_json_roundtrip() {
+        let variant = sample_skill_variant();
+        let json = serde_json::to_string(&variant).unwrap();
+        let decoded: SkillVariantPublic = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, variant);
+    }
 }

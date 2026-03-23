@@ -567,6 +567,56 @@ pub async fn send_audit_query(
     }
 }
 
+pub async fn send_skill_list(
+    status: Option<String>,
+    limit: usize,
+) -> Result<Vec<amux_protocol::SkillVariantPublic>> {
+    match roundtrip(ClientMessage::SkillList { status, limit }).await? {
+        DaemonMessage::SkillListResult { variants } => Ok(variants),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_inspect(
+    identifier: &str,
+) -> Result<(Option<amux_protocol::SkillVariantPublic>, Option<String>)> {
+    match roundtrip(ClientMessage::SkillInspect {
+        identifier: identifier.to_string(),
+    })
+    .await?
+    {
+        DaemonMessage::SkillInspectResult { variant, content } => Ok((variant, content)),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_reject(identifier: &str) -> Result<(bool, String)> {
+    match roundtrip(ClientMessage::SkillReject {
+        identifier: identifier.to_string(),
+    })
+    .await?
+    {
+        DaemonMessage::SkillActionResult { success, message } => Ok((success, message)),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_promote(identifier: &str, target_status: &str) -> Result<(bool, String)> {
+    match roundtrip(ClientMessage::SkillPromote {
+        identifier: identifier.to_string(),
+        target_status: target_status.to_string(),
+    })
+    .await?
+    {
+        DaemonMessage::SkillActionResult { success, message } => Ok((success, message)),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
 pub async fn run_bridge(
     session: Option<String>,
     shell: Option<String>,
