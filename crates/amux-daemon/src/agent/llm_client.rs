@@ -562,8 +562,7 @@ pub fn send_completion_request(
 
 /// Convert `AgentMessage` history to API format.
 pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<ApiMessage> {
-    let mut announced_tool_calls = HashSet::new();
-    let mut emitted_tool_results = HashSet::new();
+    let mut pending_tool_results = HashSet::new();
 
     messages
         .iter()
@@ -577,10 +576,11 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
         })
         .filter_map(|m| {
             if matches!(m.role, super::types::MessageRole::Assistant) {
+                pending_tool_results.clear();
                 if let Some(tool_calls) = &m.tool_calls {
                     for tool_call in tool_calls {
                         if !tool_call.id.trim().is_empty() {
-                            announced_tool_calls.insert(tool_call.id.clone());
+                            pending_tool_results.insert(tool_call.id.clone());
                         }
                     }
                 }
@@ -590,11 +590,13 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
                 let Some(tool_call_id) = m.tool_call_id.as_ref() else {
                     return None;
                 };
-                if !announced_tool_calls.contains(tool_call_id)
-                    || !emitted_tool_results.insert(tool_call_id.clone())
-                {
+                if !pending_tool_results.remove(tool_call_id) {
                     return None;
                 }
+            } else if !matches!(m.role, super::types::MessageRole::Assistant)
+                && !pending_tool_results.is_empty()
+            {
+                pending_tool_results.clear();
             }
 
             let tool_calls = m.tool_calls.as_ref().map(|tcs| {
@@ -2390,6 +2392,7 @@ pub async fn validate_provider_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::types::{AgentMessage, MessageRole, ToolCall, ToolFunction};
 
     #[test]
     fn anthropic_groups_consecutive_tool_results_into_one_user_message() {
@@ -2445,5 +2448,99 @@ mod tests {
         assert_eq!(blocks[0]["type"], "tool_result");
         assert_eq!(blocks[0]["tool_use_id"], "call_1");
         assert_eq!(blocks[1]["tool_use_id"], "call_2");
+    }
+
+    #[test]
+    fn messages_to_api_format_keeps_reused_tool_ids_across_turns() {
+        let messages = vec![
+            AgentMessage {
+                role: MessageRole::Assistant,
+                content: "first".to_string(),
+                tool_calls: Some(vec![ToolCall {
+                    id: "2013".to_string(),
+                    function: ToolFunction {
+                        name: "tool_a".to_string(),
+                        arguments: "{}".to_string(),
+                    },
+                }]),
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 1,
+            },
+            AgentMessage {
+                role: MessageRole::Tool,
+                content: "ok 1".to_string(),
+                tool_calls: None,
+                tool_call_id: Some("2013".to_string()),
+                tool_name: Some("tool_a".to_string()),
+                tool_arguments: Some("{}".to_string()),
+                tool_status: Some("done".to_string()),
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 2,
+            },
+            AgentMessage::user("next", 3),
+            AgentMessage {
+                role: MessageRole::Assistant,
+                content: "second".to_string(),
+                tool_calls: Some(vec![ToolCall {
+                    id: "2013".to_string(),
+                    function: ToolFunction {
+                        name: "tool_b".to_string(),
+                        arguments: "{}".to_string(),
+                    },
+                }]),
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 4,
+            },
+            AgentMessage {
+                role: MessageRole::Tool,
+                content: "ok 2".to_string(),
+                tool_calls: None,
+                tool_call_id: Some("2013".to_string()),
+                tool_name: Some("tool_b".to_string()),
+                tool_arguments: Some("{}".to_string()),
+                tool_status: Some("done".to_string()),
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 5,
+            },
+        ];
+
+        let api_messages = messages_to_api_format(&messages);
+        let tool_results = api_messages
+            .iter()
+            .filter(|message| message.role == "tool")
+            .count();
+        assert_eq!(tool_results, 2);
     }
 }
