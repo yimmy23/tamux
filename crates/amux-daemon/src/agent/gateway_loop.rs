@@ -14,9 +14,34 @@ impl AgentEngine {
             tracing::info!("gateway: disabled in config, skipping initialization");
             return;
         }
-        let slack_token = gw.slack_token.clone();
-        let telegram_token = gw.telegram_token.clone();
-        let discord_token = gw.discord_token.clone();
+        // D-02: Env var fallback for token migration from Electron
+        let slack_token = if gw.slack_token.is_empty() {
+            let val = std::env::var("AMUX_SLACK_TOKEN").unwrap_or_default();
+            if !val.is_empty() {
+                tracing::info!("gateway: using AMUX_SLACK_TOKEN env var (config.json empty)");
+            }
+            val
+        } else {
+            gw.slack_token.clone()
+        };
+        let telegram_token = if gw.telegram_token.is_empty() {
+            let val = std::env::var("AMUX_TELEGRAM_TOKEN").unwrap_or_default();
+            if !val.is_empty() {
+                tracing::info!("gateway: using AMUX_TELEGRAM_TOKEN env var (config.json empty)");
+            }
+            val
+        } else {
+            gw.telegram_token.clone()
+        };
+        let discord_token = if gw.discord_token.is_empty() {
+            let val = std::env::var("AMUX_DISCORD_TOKEN").unwrap_or_default();
+            if !val.is_empty() {
+                tracing::info!("gateway: using AMUX_DISCORD_TOKEN env var (config.json empty)");
+            }
+            val
+        } else {
+            gw.discord_token.clone()
+        };
         let discord_channel_filter = gw.discord_channel_filter.clone();
         let slack_channel_filter = gw.slack_channel_filter.clone();
 
@@ -473,12 +498,25 @@ impl AgentEngine {
     }
 
     /// Poll all gateway platforms for incoming messages and route to agent.
+    ///
+    /// Each platform poll is wrapped with health tracking (Plan 02):
+    /// - Check `should_retry` before polling (backoff skip)
+    /// - Call `on_success`/`on_failure` based on result
+    /// - Emit `GatewayStatus` event on status transitions
+    /// - Emit `HeartbeatDigest` on connected/disconnected transitions (D-05)
+    /// - Store thread contexts from incoming messages into `reply_contexts`
+    /// - Track `last_incoming_at` per channel
+    /// - Respect Slack 60s poll interval (Pitfall 1)
     async fn poll_gateway_messages(&self) {
+        use super::gateway_health::GatewayConnectionStatus;
+
         let mut gw_guard = self.gateway_state.lock().await;
         let gw = match gw_guard.as_mut() {
             Some(g) => g,
             None => return,
         };
+
+        let now_ms = now_millis();
 
         // Use cached channel lists (populated by init_gateway) instead of
         // repeatedly touching config storage every poll cycle.
@@ -487,57 +525,218 @@ impl AgentEngine {
 
         // Collect messages from all platforms
         let mut incoming = Vec::new();
+        // Track status transitions to emit events after dropping the mutex
+        let mut status_transitions: Vec<(String, String, Option<String>, Option<u32>)> = Vec::new();
 
+        // --- Telegram ---
         if !gw.config.telegram_token.is_empty() {
-            match gateway::poll_telegram(gw).await {
-                Ok(telegram_msgs) => {
-                    if !telegram_msgs.is_empty() {
-                        tracing::info!(
-                            count = telegram_msgs.len(),
-                            "gateway: telegram messages received"
-                        );
+            if gw.telegram_health.should_retry(now_ms) {
+                let old_status = gw.telegram_health.status;
+                match gateway::poll_telegram(gw).await {
+                    Ok(telegram_msgs) => {
+                        gw.telegram_health.on_success(now_ms);
+                        if !telegram_msgs.is_empty() {
+                            tracing::info!(
+                                count = telegram_msgs.len(),
+                                "gateway: telegram messages received"
+                            );
+                        }
+                        // Store thread contexts and update last_incoming_at
+                        for msg in &telegram_msgs {
+                            if let Some(ref tc) = msg.thread_context {
+                                let key = format!("Telegram:{}", msg.channel);
+                                gw.reply_contexts.insert(key.clone(), tc.clone());
+                                gw.last_incoming_at.insert(key, now_ms);
+                            }
+                        }
+                        incoming.extend(telegram_msgs);
                     }
-                    incoming.extend(telegram_msgs);
+                    Err(e) => {
+                        gw.telegram_health.on_failure(now_ms, e.to_string());
+                        tracing::warn!("gateway: telegram poll error: {e}");
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("gateway: telegram poll error: {e}");
+                if gw.telegram_health.status_changed(old_status) {
+                    status_transitions.push((
+                        "Telegram".to_string(),
+                        format!("{:?}", gw.telegram_health.status).to_lowercase(),
+                        gw.telegram_health.last_error.clone(),
+                        Some(gw.telegram_health.consecutive_failure_count),
+                    ));
                 }
+            } else {
+                tracing::debug!(
+                    backoff_secs = gw.telegram_health.current_backoff_secs,
+                    "gateway: telegram poll skipped (backoff active)"
+                );
             }
         }
 
+        // --- Slack (60s interval per Pitfall 1) ---
         if !slack_channels.is_empty() && !gw.config.slack_token.is_empty() {
-            match gateway::poll_slack(gw, &slack_channels).await {
-                Ok(slack_msgs) => {
-                    if !slack_msgs.is_empty() {
-                        tracing::info!(count = slack_msgs.len(), "gateway: slack messages received");
+            let slack_interval_ms = gw.slack_poll_interval_secs * 1000;
+            let should_poll_slack = match gw.last_slack_poll_ms {
+                Some(last) => now_ms.saturating_sub(last) >= slack_interval_ms,
+                None => true, // First poll
+            };
+
+            if should_poll_slack && gw.slack_health.should_retry(now_ms) {
+                gw.last_slack_poll_ms = Some(now_ms);
+                let old_status = gw.slack_health.status;
+                match gateway::poll_slack(gw, &slack_channels).await {
+                    Ok(slack_msgs) => {
+                        gw.slack_health.on_success(now_ms);
+                        if !slack_msgs.is_empty() {
+                            tracing::info!(count = slack_msgs.len(), "gateway: slack messages received");
+                        }
+                        for msg in &slack_msgs {
+                            if let Some(ref tc) = msg.thread_context {
+                                let key = format!("Slack:{}", msg.channel);
+                                gw.reply_contexts.insert(key.clone(), tc.clone());
+                                gw.last_incoming_at.insert(key, now_ms);
+                            }
+                        }
+                        incoming.extend(slack_msgs);
                     }
-                    incoming.extend(slack_msgs);
+                    Err(e) => {
+                        gw.slack_health.on_failure(now_ms, e.to_string());
+                        tracing::warn!("gateway: slack poll error: {e}");
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("gateway: slack poll error: {e}");
+                if gw.slack_health.status_changed(old_status) {
+                    status_transitions.push((
+                        "Slack".to_string(),
+                        format!("{:?}", gw.slack_health.status).to_lowercase(),
+                        gw.slack_health.last_error.clone(),
+                        Some(gw.slack_health.consecutive_failure_count),
+                    ));
                 }
+            } else if !should_poll_slack {
+                tracing::debug!(
+                    interval_secs = gw.slack_poll_interval_secs,
+                    "gateway: slack poll skipped (interval not elapsed)"
+                );
+            } else {
+                tracing::debug!(
+                    backoff_secs = gw.slack_health.current_backoff_secs,
+                    "gateway: slack poll skipped (backoff active)"
+                );
             }
         }
 
+        // --- Discord ---
         if !discord_channels.is_empty() && !gw.config.discord_token.is_empty() {
-            match gateway::poll_discord(gw, &discord_channels).await {
-                Ok(discord_msgs) => {
-                    if !discord_msgs.is_empty() {
-                        tracing::info!(
-                            count = discord_msgs.len(),
-                            "gateway: discord messages received"
-                        );
+            if gw.discord_health.should_retry(now_ms) {
+                let old_status = gw.discord_health.status;
+                match gateway::poll_discord(gw, &discord_channels).await {
+                    Ok(discord_msgs) => {
+                        gw.discord_health.on_success(now_ms);
+                        if !discord_msgs.is_empty() {
+                            tracing::info!(
+                                count = discord_msgs.len(),
+                                "gateway: discord messages received"
+                            );
+                        }
+                        for msg in &discord_msgs {
+                            if let Some(ref tc) = msg.thread_context {
+                                let key = format!("Discord:{}", msg.channel);
+                                gw.reply_contexts.insert(key.clone(), tc.clone());
+                                gw.last_incoming_at.insert(key, now_ms);
+                            }
+                        }
+                        incoming.extend(discord_msgs);
                     }
-                    incoming.extend(discord_msgs);
+                    Err(e) => {
+                        gw.discord_health.on_failure(now_ms, e.to_string());
+                        tracing::warn!("gateway: discord poll error: {e}");
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("gateway: discord poll error: {e}");
+                if gw.discord_health.status_changed(old_status) {
+                    status_transitions.push((
+                        "Discord".to_string(),
+                        format!("{:?}", gw.discord_health.status).to_lowercase(),
+                        gw.discord_health.last_error.clone(),
+                        Some(gw.discord_health.consecutive_failure_count),
+                    ));
                 }
+            } else {
+                tracing::debug!(
+                    backoff_secs = gw.discord_health.current_backoff_secs,
+                    "gateway: discord poll skipped (backoff active)"
+                );
             }
         }
 
-        // Drop the mutex before processing (send_message needs it indirectly)
+        // Drop the mutex before dispatching events (send_message needs it indirectly)
         drop(gw_guard);
+
+        // Emit GatewayStatus events and HeartbeatDigest for status transitions
+        for (platform, status, last_error, consecutive_failures) in &status_transitions {
+            // Emit GatewayStatus event to all connected clients
+            let _ = self.event_tx.send(AgentEvent::GatewayStatus {
+                platform: platform.clone(),
+                status: status.clone(),
+                last_error: last_error.clone(),
+                consecutive_failures: *consecutive_failures,
+            });
+
+            // D-05: Emit HeartbeatDigest on connected/disconnected transitions
+            let is_connect_disconnect = status == "connected" || status == "disconnected" || status == "error";
+            if is_connect_disconnect {
+                let description = match (status.as_str(), last_error) {
+                    ("connected", _) => format!("{platform} reconnected"),
+                    ("error", Some(err)) => {
+                        let fail_count = consecutive_failures.unwrap_or(0);
+                        format!("{platform} disconnected after {fail_count} failures: {err}")
+                    }
+                    ("error", None) => format!("{platform} disconnected"),
+                    ("disconnected", _) => format!("{platform} disconnected"),
+                    _ => format!("{platform} status: {status}"),
+                };
+
+                let _ = self.event_tx.send(AgentEvent::HeartbeatDigest {
+                    cycle_id: format!("gateway_health_{}", Uuid::new_v4()),
+                    actionable: status != "connected",
+                    digest: description.clone(),
+                    items: vec![HeartbeatDigestItem {
+                        priority: if status == "connected" { 3 } else { 1 },
+                        check_type: HeartbeatCheckType::UnrepliedGatewayMessages,
+                        title: description,
+                        suggestion: if status == "connected" {
+                            format!("{platform} is back online")
+                        } else {
+                            format!("Check {platform} API credentials and connectivity")
+                        },
+                    }],
+                    checked_at: now_ms,
+                    explanation: None,
+                    confidence: None,
+                });
+
+                // Audit entry for health transition per D-05
+                let audit_entry = crate::history::AuditEntryRow {
+                    id: format!("gw_health_{}", Uuid::new_v4()),
+                    timestamp: now_ms as i64,
+                    action_type: "gateway_health_transition".to_string(),
+                    summary: format!("{platform} -> {status}"),
+                    explanation: last_error.clone(),
+                    confidence: None,
+                    confidence_band: None,
+                    causal_trace_id: None,
+                    thread_id: None,
+                    goal_run_id: None,
+                    task_id: None,
+                    raw_data_json: Some(serde_json::json!({
+                        "platform": platform,
+                        "new_status": status,
+                        "consecutive_failures": consecutive_failures,
+                    }).to_string()),
+                };
+                if let Err(e) = self.history.insert_action_audit(&audit_entry).await {
+                    tracing::warn!(platform = %platform, "gateway: failed to persist health audit: {e}");
+                }
+            }
+        }
 
         // Route each message to the agent
         for msg in incoming {
