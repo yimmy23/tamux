@@ -9,6 +9,7 @@ use amux_protocol::{
 };
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use tokio_rusqlite;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -29,7 +30,7 @@ pub struct WormIntegrityResult {
 
 #[derive(Clone)]
 pub struct HistoryStore {
-    db_path: PathBuf,
+    conn: tokio_rusqlite::Connection,
     skill_dir: PathBuf,
     telemetry_dir: PathBuf,
     worm_dir: PathBuf,
@@ -249,7 +250,7 @@ pub struct AgentMessagePatch {
 }
 
 impl HistoryStore {
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let base = amux_protocol::ensure_amux_data_dir()?;
         let history_dir = base.join("history");
         let skill_dir = base.join("skills").join("generated");
@@ -261,13 +262,31 @@ impl HistoryStore {
         std::fs::create_dir_all(&telemetry_dir)?;
         std::fs::create_dir_all(&worm_dir)?;
 
+        let db_path = history_dir.join("command-history.db");
+        let conn = tokio_rusqlite::Connection::open(&db_path)
+            .await
+            .context("failed to open SQLite connection via tokio-rusqlite")?;
+
+        // Apply WAL pragmas on the connection's background thread (FOUN-01, FOUN-06, per D-03)
+        // busy_timeout=5000 also satisfies D-13: SQLite waits up to 5s before SQLITE_BUSY
+        conn.call(|conn| {
+            conn.pragma_update(None, "journal_mode", "WAL")?;
+            conn.pragma_update(None, "synchronous", "NORMAL")?;
+            conn.pragma_update(None, "foreign_keys", "ON")?;
+            conn.pragma_update(None, "wal_autocheckpoint", "1000")?;
+            conn.pragma_update(None, "busy_timeout", "5000")?;
+            Ok(())
+        })
+        .await
+        .context("failed to apply WAL pragmas")?;
+
         let store = Self {
-            db_path: history_dir.join("command-history.db"),
+            conn,
             skill_dir,
             telemetry_dir,
             worm_dir,
         };
-        store.init_schema()?;
+        store.init_schema().await?;
         Ok(store)
     }
 
@@ -335,7 +354,7 @@ impl HistoryStore {
     }
 
     #[cfg(test)]
-    pub(crate) fn new_test_store(root: &Path) -> Result<Self> {
+    pub(crate) async fn new_test_store(root: &Path) -> Result<Self> {
         let history_dir = root.join("history");
         let skill_dir = root.join("skills").join("generated");
         let telemetry_dir = root.join("semantic-logs");
@@ -346,13 +365,25 @@ impl HistoryStore {
         std::fs::create_dir_all(&telemetry_dir)?;
         std::fs::create_dir_all(&worm_dir)?;
 
+        let db_path = history_dir.join("command-history.db");
+        let conn = tokio_rusqlite::Connection::open(&db_path).await?;
+        conn.call(|conn| {
+            conn.pragma_update(None, "journal_mode", "WAL")?;
+            conn.pragma_update(None, "synchronous", "NORMAL")?;
+            conn.pragma_update(None, "foreign_keys", "ON")?;
+            conn.pragma_update(None, "wal_autocheckpoint", "1000")?;
+            conn.pragma_update(None, "busy_timeout", "5000")?;
+            Ok(())
+        })
+        .await?;
+
         let store = Self {
-            db_path: history_dir.join("command-history.db"),
+            conn,
             skill_dir,
             telemetry_dir,
             worm_dir,
         };
-        store.init_schema()?;
+        store.init_schema().await?;
         Ok(store)
     }
 
@@ -2025,8 +2056,8 @@ impl HistoryStore {
             .map_err(Into::into)
     }
 
-    fn init_schema(&self) -> Result<()> {
-        let connection = self.open_connection()?;
+    async fn init_schema(&self) -> Result<()> {
+        self.conn.call(|connection| {
         connection.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS history_entries (
@@ -2399,29 +2430,30 @@ impl HistoryStore {
             "CREATE VIRTUAL TABLE IF NOT EXISTS context_archive_fts USING fts5(summary, compressed_content, content=context_archive, content_rowid=rowid);",
         ).ok(); // .ok() — ignore if FTS5 not available in this SQLite build
 
-        ensure_column(&connection, "agent_tasks", "session_id", "TEXT")?;
-        ensure_column(&connection, "agent_threads", "metadata_json", "TEXT")?;
-        ensure_column(&connection, "agent_tasks", "scheduled_at", "INTEGER")?;
-        ensure_column(&connection, "agent_tasks", "goal_run_id", "TEXT")?;
-        ensure_column(&connection, "agent_tasks", "goal_run_title", "TEXT")?;
-        ensure_column(&connection, "agent_tasks", "goal_step_id", "TEXT")?;
-        ensure_column(&connection, "agent_tasks", "goal_step_title", "TEXT")?;
-        ensure_column(&connection, "agent_tasks", "parent_task_id", "TEXT")?;
-        ensure_column(&connection, "agent_tasks", "parent_thread_id", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "session_id", "TEXT")?;
+        ensure_column(connection, "agent_threads", "metadata_json", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "scheduled_at", "INTEGER")?;
+        ensure_column(connection, "agent_tasks", "goal_run_id", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "goal_run_title", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "goal_step_id", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "goal_step_title", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "parent_task_id", "TEXT")?;
+        ensure_column(connection, "agent_tasks", "parent_thread_id", "TEXT")?;
         ensure_column(
-            &connection,
+            connection,
             "agent_tasks",
             "runtime",
             "TEXT NOT NULL DEFAULT 'daemon'",
         )?;
-        ensure_column(&connection, "goal_runs", "client_request_id", "TEXT")?;
-        ensure_column(&connection, "goal_run_events", "step_index", "INTEGER")?;
-        ensure_column(&connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
+        ensure_column(connection, "goal_runs", "client_request_id", "TEXT")?;
+        ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
+        ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)",
             [],
         )?;
         Ok(())
+        }).await
     }
 
     fn append_telemetry(&self, kind: &str, payload: serde_json::Value) -> Result<()> {
@@ -2524,12 +2556,6 @@ impl HistoryStore {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| self.skill_dir.clone())
-    }
-
-    fn open_connection(&self) -> Result<Connection> {
-        let connection = Connection::open(&self.db_path)?;
-        connection.pragma_update(None, "foreign_keys", "ON")?;
-        Ok(connection)
     }
 
     fn provenance_signing_key(&self) -> Result<String> {
