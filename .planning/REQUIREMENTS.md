@@ -23,10 +23,10 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 - [x] **BEAT-03**: Heartbeat is silent by default — only surfaces items with concrete actionable suggestions
 - [x] **BEAT-04**: Heartbeat results delivered via existing `AgentEvent` broadcast to all connected clients
 - [x] **BEAT-05**: User can configure heartbeat schedule, enable/disable checks, and set quiet hours in agent config
-- [ ] **BEAT-06**: Operator-aware scheduling: agent learns when user is active and surfaces proactive items during active windows
-- [ ] **BEAT-07**: Adaptive heartbeat: agent learns what to check based on operator model patterns (what user cares about, what goes wrong)
+- [x] **BEAT-06**: Operator-aware scheduling: agent learns when user is active and surfaces proactive items during active windows
+- [x] **BEAT-07**: Adaptive heartbeat: agent learns what to check based on operator model patterns (what user cares about, what goes wrong)
 - [x] **BEAT-08**: Heartbeat batches multiple checks into a single LLM call to manage token cost
-- [ ] **BEAT-09**: Heartbeat integrates M2 Anticipatory Runtime outputs (morning brief, stuck hints, predictive hydration)
+- [x] **BEAT-09**: Heartbeat integrates M2 Anticipatory Runtime outputs (morning brief, stuck hints, predictive hydration)
 
 ### Memory Consolidation
 
@@ -152,10 +152,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BEAT-03 | Phase 2 | Complete |
 | BEAT-04 | Phase 2 | Complete |
 | BEAT-05 | Phase 2 | Complete |
-| BEAT-06 | Phase 4 | Pending |
-| BEAT-07 | Phase 4 | Pending |
+| BEAT-06 | Phase 4 | Complete |
+| BEAT-07 | Phase 4 | Complete |
 | BEAT-08 | Phase 2 | Complete |
-| BEAT-09 | Phase 4 | Pending |
+| BEAT-09 | Phase 4 | Complete |
 | MEMO-01 | Phase 5 | Pending |
 | MEMO-02 | Phase 5 | Pending |
 | MEMO-03 | Phase 5 | Pending |

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase complete — ready for verification
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-03-23T10:58:05.299Z"
+status: Ready to execute
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-23T12:46:07.639Z"
 progress:
   total_phases: 10
   completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 15
+  completed_plans: 13
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-23)
 
 **Core value:** An agent that feels alive and gets smarter over time -- while remaining simple enough that anyone can understand what it's doing and why.
-**Current focus:** Phase 03 — transparent-autonomy
+**Current focus:** Phase 04 — adaptive-heartbeat
 
 ## Current Position
 
-Phase: 03 (transparent-autonomy) — EXECUTING
-Plan: 5 of 5
+Phase: 04 (adaptive-heartbeat) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Plan: 5 of 5
 | Phase 03 P02 | 5min | 2 tasks | 3 files |
 | Phase 03 P03 | 5min | 2 tasks | 10 files |
 | Phase 03 P05 | 7min | 2 tasks | 6 files |
+| Phase 04 P01 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,7 @@ Recent decisions affecting current work:
 - [Phase 03]: AuditState follows TaskState reducer pattern; HeartbeatDigestVm explanation is Option<String> for backward compat; confidence dots hidden at confident band per D-10
 - [Phase 03]: Skipped duplicate AuditQuery handler (Plan 01 already added it); used humantime for timestamp formatting
 - [Phase 03]: EscalationCancel race condition: already-resolved returns success (not error) per Pitfall 6
+- [Phase 04]: EMA alpha default 0.3 for ~5-session adaptation; priority floor 0.1 per D-05; AuditDismiss stubbed for Plan 02 wiring
 
 ### Pending Todos
 
@@ -105,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-23T10:58:05.296Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-03-23T12:46:07.637Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
