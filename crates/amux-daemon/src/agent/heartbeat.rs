@@ -7,6 +7,8 @@
 //! - Broadcasts HeartbeatDigest only when actionable (BEAT-03/D-14)
 //! - Persists every cycle to SQLite regardless of LLM outcome (D-12/Pitfall 4)
 
+use std::collections::HashMap;
+
 use super::*;
 use crate::history::AuditEntryRow;
 use chrono::Timelike;
@@ -598,6 +600,76 @@ impl AgentEngine {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Activity-aware scheduling pure functions (BEAT-06/D-01/D-03)
+// ---------------------------------------------------------------------------
+
+/// Check if a given UTC hour is a peak activity hour.
+///
+/// Returns `true` if the hour is in the explicit `peak_hours` list OR if the
+/// EMA-smoothed activity count for that hour meets/exceeds `ema_threshold`.
+pub(super) fn is_peak_activity_hour(
+    current_hour_utc: u8,
+    peak_hours: &[u8],
+    smoothed_histogram: &HashMap<u8, f64>,
+    ema_threshold: f64,
+) -> bool {
+    peak_hours.contains(&current_hour_utc)
+        || smoothed_histogram
+            .get(&current_hour_utc)
+            .map(|&count| count >= ema_threshold)
+            .unwrap_or(false)
+}
+
+/// Decide whether a check should run this cycle based on its priority weight.
+///
+/// Weight 1.0 = every cycle, 0.5 = every 2nd, 0.25 = every 4th. Weight 0.0
+/// means never run. Per D-05: checks are never fully disabled (caller ensures
+/// weight stays >= 0.1), but this function respects 0.0 for completeness.
+pub(super) fn should_run_check(weight: f64, cycle_count: u64) -> bool {
+    if weight >= 1.0 {
+        return true;
+    }
+    if weight <= 0.0 {
+        return false;
+    }
+    let skip_factor = (1.0 / weight).round() as u64;
+    if skip_factor == 0 {
+        return true;
+    }
+    cycle_count % skip_factor == 0
+}
+
+/// Compute a check's learned priority weight from user feedback signals.
+///
+/// Returns a value in `[0.1, 1.0]` (per D-05: never fully disables).
+///
+/// - `dismiss_count`: times user dismissed this check type
+/// - `inaction_count`: times user never acted on this check type
+/// - `total_shown`: total times this check was shown
+/// - `recovery_count`: times user acted after a period of ignoring
+/// - `decay_rate`: penalty per dismissal (suggest 0.1)
+/// - `recovery_rate`: bonus per recovery action (suggest 0.1)
+pub(super) fn compute_check_priority(
+    dismiss_count: u64,
+    inaction_count: u64,
+    total_shown: u64,
+    recovery_count: u64,
+    decay_rate: f64,
+    recovery_rate: f64,
+) -> f64 {
+    let dismiss_penalty = (dismiss_count as f64 * decay_rate).min(0.6);
+    let inaction_penalty = if total_shown > 0 {
+        let inaction_rate = inaction_count as f64 / total_shown as f64;
+        (inaction_rate * 0.4).min(0.3)
+    } else {
+        0.0
+    };
+    let recovery_bonus = (recovery_count as f64 * recovery_rate).min(0.5);
+    let raw = 1.0 - dismiss_penalty - inaction_penalty + recovery_bonus;
+    raw.clamp(0.1, 1.0) // Never fully disable per D-05
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,5 +956,90 @@ ITEMS:
         let items = parse_digest_items(response);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].check_type, HeartbeatCheckType::StuckGoalRuns);
+    }
+
+    // ── is_peak_activity_hour tests (BEAT-06/D-01) ──────────────────────
+
+    #[test]
+    fn peak_activity_hour_in_peak_hours_list() {
+        let smoothed: HashMap<u8, f64> = HashMap::new();
+        assert!(is_peak_activity_hour(9, &[9, 10, 14], &smoothed, 2.0));
+    }
+
+    #[test]
+    fn peak_activity_hour_above_ema_threshold() {
+        let mut smoothed: HashMap<u8, f64> = HashMap::new();
+        smoothed.insert(15, 5.0);
+        assert!(is_peak_activity_hour(15, &[], &smoothed, 2.0));
+    }
+
+    #[test]
+    fn peak_activity_hour_below_threshold_and_not_in_list() {
+        let mut smoothed: HashMap<u8, f64> = HashMap::new();
+        smoothed.insert(3, 1.0);
+        assert!(!is_peak_activity_hour(3, &[9, 10], &smoothed, 2.0));
+    }
+
+    // ── should_run_check tests (BEAT-06/D-05) ──────────────────────────
+
+    #[test]
+    fn should_run_check_weight_one_always_runs() {
+        assert!(should_run_check(1.0, 0));
+        assert!(should_run_check(1.0, 1));
+        assert!(should_run_check(1.0, 99));
+    }
+
+    #[test]
+    fn should_run_check_weight_quarter_every_fourth_cycle() {
+        assert!(should_run_check(0.25, 4));  // 4 % 4 == 0
+        assert!(should_run_check(0.25, 8));  // 8 % 4 == 0
+        assert!(should_run_check(0.25, 0));  // 0 % 4 == 0
+    }
+
+    #[test]
+    fn should_run_check_weight_quarter_skips_other_cycles() {
+        assert!(!should_run_check(0.25, 1)); // 1 % 4 != 0
+        assert!(!should_run_check(0.25, 3)); // 3 % 4 != 0
+    }
+
+    #[test]
+    fn should_run_check_weight_zero_never_runs() {
+        assert!(!should_run_check(0.0, 0));
+        assert!(!should_run_check(0.0, 1));
+        assert!(!should_run_check(0.0, 100));
+    }
+
+    // ── compute_check_priority tests (BEAT-09/D-04/D-05) ───────────────
+
+    #[test]
+    fn compute_check_priority_zero_dismissals_returns_one() {
+        let result = compute_check_priority(0, 0, 0, 0, 0.1, 0.1);
+        assert!((result - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn compute_check_priority_many_dismissals_clamped_minimum() {
+        // 100 dismissals * 0.1 decay = 10.0 penalty, capped at 0.6
+        // With 0 inaction, 0 recovery: 1.0 - 0.6 = 0.4
+        // But also test with very high dismissals to hit 0.1 floor
+        let result = compute_check_priority(100, 100, 100, 0, 0.1, 0.1);
+        assert!((result - 0.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn compute_check_priority_recovery_partially_restores() {
+        // 5 dismissals * 0.1 = 0.5 penalty
+        // 0 inaction: no penalty
+        // 3 recovery * 0.1 = 0.3 bonus
+        // 1.0 - 0.5 + 0.3 = 0.8
+        let result = compute_check_priority(5, 0, 0, 3, 0.1, 0.1);
+        assert!((result - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn priority_floor_never_below_point_one() {
+        // Extreme dismissals and inaction with no recovery
+        let result = compute_check_priority(1000, 1000, 1000, 0, 1.0, 0.0);
+        assert!((result - 0.1).abs() < f64::EPSILON);
     }
 }

@@ -69,6 +69,36 @@ pub(super) struct SessionRhythm {
     pub start_hour_histogram: HashMap<u8, u64>,
     pub activity_hour_histogram: HashMap<u8, u64>,
     pub total_observed_session_minutes: u64,
+    /// EMA-smoothed activity histogram persisted across daemon restarts. Per D-02.
+    #[serde(default)]
+    pub smoothed_activity_histogram: HashMap<u8, f64>,
+}
+
+// ---------------------------------------------------------------------------
+// EMA smoothing pure functions (BEAT-06/D-02)
+// ---------------------------------------------------------------------------
+
+/// Exponential moving average update: `alpha * sample + (1 - alpha) * current`.
+pub(super) fn ema_update(current: f64, sample: f64, alpha: f64) -> f64 {
+    alpha * sample + (1.0 - alpha) * current
+}
+
+/// Apply EMA smoothing to an activity histogram across all 24 hours.
+///
+/// Hours with no observation decay toward zero; observed hours adapt toward
+/// the new count. Returns a full 24-hour histogram.
+pub(super) fn smooth_activity_histogram(
+    current: &HashMap<u8, f64>,
+    observation: &HashMap<u8, u64>,
+    alpha: f64,
+) -> HashMap<u8, f64> {
+    let mut smoothed = current.clone();
+    for hour in 0..24u8 {
+        let observed = observation.get(&hour).copied().unwrap_or(0) as f64;
+        let old = smoothed.get(&hour).copied().unwrap_or(0.0);
+        smoothed.insert(hour, ema_update(old, observed, alpha));
+    }
+    smoothed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -997,6 +1027,53 @@ mod tests {
             detect_revision_signal("Please run tests."),
             RevisionSignal::None
         );
+    }
+
+    // ── EMA smoothing tests (BEAT-06/D-02) ────────────────────────────
+
+    #[test]
+    fn ema_update_basic_calculation() {
+        let result = ema_update(10.0, 20.0, 0.3);
+        // 0.3 * 20 + 0.7 * 10 = 6 + 7 = 13
+        assert!((result - 13.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn ema_update_converges_toward_sample() {
+        let mut value = 0.0;
+        for _ in 0..50 {
+            value = ema_update(value, 100.0, 0.3);
+        }
+        // After 50 iterations with alpha=0.3, value should be very close to 100
+        assert!((value - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn smooth_activity_histogram_applies_ema_to_all_24_hours() {
+        let current: HashMap<u8, f64> = HashMap::new();
+        let mut observation: HashMap<u8, u64> = HashMap::new();
+        observation.insert(9, 5);
+        observation.insert(14, 3);
+
+        let smoothed = smooth_activity_histogram(&current, &observation, 0.3);
+        assert_eq!(smoothed.len(), 24);
+        // hour 9: ema_update(0.0, 5.0, 0.3) = 1.5
+        assert!((smoothed[&9] - 1.5).abs() < f64::EPSILON);
+        // hour 14: ema_update(0.0, 3.0, 0.3) = 0.9
+        assert!((smoothed[&14] - 0.9).abs() < f64::EPSILON);
+        // hour 0 (unobserved): ema_update(0.0, 0.0, 0.3) = 0.0
+        assert!((smoothed[&0]).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn smooth_activity_histogram_decays_unobserved_hours() {
+        let mut current: HashMap<u8, f64> = HashMap::new();
+        current.insert(9, 10.0); // previously active at hour 9
+        let observation: HashMap<u8, u64> = HashMap::new(); // no activity this session
+
+        let smoothed = smooth_activity_histogram(&current, &observation, 0.3);
+        // hour 9: ema_update(10.0, 0.0, 0.3) = 0.7 * 10.0 = 7.0
+        assert!((smoothed[&9] - 7.0).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -2656,6 +2656,8 @@ impl HistoryStore {
         ensure_column(connection, "goal_runs", "client_request_id", "TEXT")?;
         ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
         ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
+        // BEAT-09: user_action column for dismissal tracking in action_audit.
+        ensure_column(connection, "action_audit", "user_action", "TEXT")?;
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)",
             [],
@@ -3785,6 +3787,66 @@ impl HistoryStore {
             }
             Ok(deleted)
         }).await.map_err(|e| anyhow::anyhow!("cleanup_action_audit: {e}"))
+    }
+
+    /// Mark an audit entry as dismissed by the user. Per BEAT-09/D-04.
+    pub async fn dismiss_audit_entry(&self, entry_id: &str) -> Result<()> {
+        let entry_id = entry_id.to_string();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "UPDATE action_audit SET user_action = 'dismissed' WHERE id = ?1",
+                [&entry_id],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("dismiss_audit_entry: {e}"))
+    }
+
+    /// Count dismissed audit entries per action_type since a given timestamp (ms).
+    pub async fn count_dismissals_by_type(&self, since_timestamp: i64) -> Result<std::collections::HashMap<String, u64>> {
+        let since = since_timestamp;
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT action_type, COUNT(*) FROM action_audit \
+                 WHERE user_action = 'dismissed' AND timestamp >= ?1 \
+                 GROUP BY action_type"
+            )?;
+            let rows = stmt.query_map([since], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows.into_iter().collect())
+        }).await.map_err(|e| anyhow::anyhow!("count_dismissals_by_type: {e}"))
+    }
+
+    /// Count total audit entries per action_type since a given timestamp (ms).
+    pub async fn count_shown_by_type(&self, since_timestamp: i64) -> Result<std::collections::HashMap<String, u64>> {
+        let since = since_timestamp;
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT action_type, COUNT(*) FROM action_audit \
+                 WHERE timestamp >= ?1 \
+                 GROUP BY action_type"
+            )?;
+            let rows = stmt.query_map([since], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows.into_iter().collect())
+        }).await.map_err(|e| anyhow::anyhow!("count_shown_by_type: {e}"))
+    }
+
+    /// Count audit entries where user acted on them, per action_type since a given timestamp (ms).
+    pub async fn count_acted_on_by_type(&self, since_timestamp: i64) -> Result<std::collections::HashMap<String, u64>> {
+        let since = since_timestamp;
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT action_type, COUNT(*) FROM action_audit \
+                 WHERE user_action = 'acted_on' AND timestamp >= ?1 \
+                 GROUP BY action_type"
+            )?;
+            let rows = stmt.query_map([since], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows.into_iter().collect())
+        }).await.map_err(|e| anyhow::anyhow!("count_acted_on_by_type: {e}"))
     }
 }
 
@@ -5513,6 +5575,106 @@ mod tests {
         }
         let all_threads = store.list_threads().await?;
         assert_eq!(all_threads.len(), 8);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    // ── action_audit user_action column tests (BEAT-09/D-04) ────────────
+
+    #[tokio::test]
+    async fn ensure_column_adds_user_action_to_action_audit() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        // Verify the column exists by inserting and querying
+        let has = store.conn.call(|conn| {
+            Ok(table_has_column(conn, "action_audit", "user_action")?)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert!(has, "user_action column should exist after init_schema");
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dismiss_audit_entry_sets_user_action() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        let entry = AuditEntryRow {
+            id: "test-dismiss-1".to_string(),
+            timestamp: 1000,
+            action_type: "heartbeat".to_string(),
+            summary: "Test entry".to_string(),
+            explanation: None,
+            confidence: None,
+            confidence_band: None,
+            causal_trace_id: None,
+            thread_id: None,
+            goal_run_id: None,
+            task_id: None,
+            raw_data_json: None,
+        };
+        store.insert_action_audit(&entry).await?;
+        store.dismiss_audit_entry("test-dismiss-1").await?;
+
+        let user_action: Option<String> = store.conn.call(|conn| {
+            conn.query_row(
+                "SELECT user_action FROM action_audit WHERE id = ?1",
+                ["test-dismiss-1"],
+                |row| row.get(0),
+            ).map_err(|e| e.into())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(user_action.as_deref(), Some("dismissed"));
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn count_dismissals_by_type_returns_correct_counts() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        // Insert 3 heartbeat entries, dismiss 2
+        for i in 0..3 {
+            let entry = AuditEntryRow {
+                id: format!("hb-{}", i),
+                timestamp: 1000 + i,
+                action_type: "heartbeat".to_string(),
+                summary: format!("HB entry {}", i),
+                explanation: None,
+                confidence: None,
+                confidence_band: None,
+                causal_trace_id: None,
+                thread_id: None,
+                goal_run_id: None,
+                task_id: None,
+                raw_data_json: None,
+            };
+            store.insert_action_audit(&entry).await?;
+        }
+        store.dismiss_audit_entry("hb-0").await?;
+        store.dismiss_audit_entry("hb-1").await?;
+
+        // Insert 1 escalation entry, dismiss it
+        let esc_entry = AuditEntryRow {
+            id: "esc-0".to_string(),
+            timestamp: 2000,
+            action_type: "escalation".to_string(),
+            summary: "Escalation".to_string(),
+            explanation: None,
+            confidence: None,
+            confidence_band: None,
+            causal_trace_id: None,
+            thread_id: None,
+            goal_run_id: None,
+            task_id: None,
+            raw_data_json: None,
+        };
+        store.insert_action_audit(&esc_entry).await?;
+        store.dismiss_audit_entry("esc-0").await?;
+
+        let counts = store.count_dismissals_by_type(0).await?;
+        assert_eq!(counts.get("heartbeat").copied(), Some(2));
+        assert_eq!(counts.get("escalation").copied(), Some(1));
+
+        let shown = store.count_shown_by_type(0).await?;
+        assert_eq!(shown.get("heartbeat").copied(), Some(3));
+        assert_eq!(shown.get("escalation").copied(), Some(1));
+
         fs::remove_dir_all(root)?;
         Ok(())
     }
