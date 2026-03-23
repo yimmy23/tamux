@@ -241,7 +241,7 @@ impl AgentEngine {
                 }
                 _ = tokio::time::sleep_until(next_heartbeat) => {
                     if !self.is_quiet_hours().await {
-                        if let Err(e) = self.run_heartbeat().await {
+                        if let Err(e) = self.run_structured_heartbeat().await {
                             tracing::error!("agent heartbeat error: {e}");
                         }
                     } else {
