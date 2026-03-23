@@ -789,10 +789,32 @@ impl AgentEngine {
             );
         }
 
+        // --- Phase 10: Memory consolidation (MEMO-01 through MEMO-08) ---
+        // Per D-03: consolidation runs as a heartbeat sub-phase during idle periods.
+        let consolidation_budget = std::time::Duration::from_secs(
+            config.consolidation.budget_secs,
+        );
+        let consolidation_result = self
+            .maybe_run_consolidation_if_idle(consolidation_budget)
+            .await;
+        if let Some(ref result) = consolidation_result {
+            tracing::info!(
+                traces = result.traces_reviewed,
+                decayed = result.facts_decayed,
+                tombstones = result.tombstones_purged,
+                refined = result.facts_refined,
+                "consolidation tick completed"
+            );
+        }
+
+        // Recompute duration after consolidation phase so it includes Phase 10 time.
+        let duration_ms = start.elapsed().as_millis() as i64;
+        let consolidated = consolidation_result.is_some();
         tracing::info!(
             cycle_id = %cycle_id,
             actionable = actionable,
             checks = check_results.len(),
+            consolidated = consolidated,
             duration_ms = duration_ms,
             "heartbeat cycle complete"
         );
