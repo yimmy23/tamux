@@ -69,6 +69,13 @@ pub enum ClientEvent {
     AgentConfigRaw(Value),
     ModelsFetched(Vec<FetchedModel>),
     HeartbeatItems(Vec<HeartbeatItem>),
+    HeartbeatDigest {
+        cycle_id: String,
+        actionable: bool,
+        digest: String,
+        items: Vec<(u8, String, String, String)>,
+        checked_at: u64,
+    },
     AnticipatoryItems(Vec<AnticipatoryItem>),
 
     Delta {
@@ -860,6 +867,39 @@ impl DaemonClient {
                     .unwrap_or_default();
                 let _ = event_tx
                     .send(ClientEvent::ConciergeWelcome { content, actions })
+                    .await;
+            }
+            "heartbeat_digest" => {
+                let items: Vec<(u8, String, String, String)> = event
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|item| {
+                                Some((
+                                    item.get("priority")?.as_u64()? as u8,
+                                    item.get("check_type")?.as_str()?.to_string(),
+                                    item.get("title")?.as_str()?.to_string(),
+                                    item.get("suggestion")?.as_str()?.to_string(),
+                                ))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let _ = event_tx
+                    .send(ClientEvent::HeartbeatDigest {
+                        cycle_id: get_string(&event, "cycle_id").unwrap_or_default(),
+                        actionable: event
+                            .get("actionable")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        digest: get_string(&event, "digest").unwrap_or_default(),
+                        items,
+                        checked_at: event
+                            .get("checked_at")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                    })
                     .await;
             }
             _ => {}

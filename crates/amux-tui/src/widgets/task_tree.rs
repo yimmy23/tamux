@@ -219,6 +219,58 @@ fn build_rows(
         }
     }
 
+    // Zone 4: Heartbeat Digest (latest structured digest from LLM synthesis)
+    if let Some(digest) = tasks.last_digest() {
+        if digest.actionable && !digest.items.is_empty() {
+            if heartbeat_items.is_empty() {
+                // Only show separator if Zone 3 didn't already render one
+                rows.push(SidebarRow {
+                    line: Line::from(Span::styled(
+                        "\u{2500}".repeat(width.min(40)),
+                        theme.fg_dim,
+                    )),
+                    target: None,
+                    selectable_index: None,
+                });
+            }
+            rows.push(SidebarRow {
+                line: Line::from(Span::styled(
+                    "\u{2665} Heartbeat Digest".to_string(),
+                    theme.accent_danger,
+                )),
+                target: None,
+                selectable_index: None,
+            });
+            for item in &digest.items {
+                let priority_indicator = match item.priority {
+                    1 => Span::styled("!!", theme.accent_danger),
+                    2 => Span::styled("! ", theme.accent_secondary),
+                    _ => Span::styled("  ", theme.fg_dim),
+                };
+                rows.push(SidebarRow {
+                    line: Line::from(vec![
+                        Span::raw("  "),
+                        priority_indicator,
+                        Span::raw(" "),
+                        Span::raw(item.title.clone()),
+                    ]),
+                    target: None,
+                    selectable_index: None,
+                });
+                if !item.suggestion.is_empty() {
+                    rows.push(SidebarRow {
+                        line: Line::from(vec![
+                            Span::raw("     "),
+                            Span::styled(item.suggestion.clone(), theme.fg_dim),
+                        ]),
+                        target: None,
+                        selectable_index: None,
+                    });
+                }
+            }
+        }
+    }
+
     // Empty state
     if rows.is_empty() {
         rows.push(SidebarRow {

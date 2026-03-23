@@ -110,6 +110,23 @@ pub struct HeartbeatItem {
     pub timestamp: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct HeartbeatDigestVm {
+    pub cycle_id: String,
+    pub actionable: bool,
+    pub digest: String,
+    pub items: Vec<HeartbeatDigestItemVm>,
+    pub checked_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct HeartbeatDigestItemVm {
+    pub priority: u8,
+    pub check_type: String,
+    pub title: String,
+    pub suggestion: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TodoStatus {
     Pending,
@@ -194,6 +211,7 @@ pub enum TaskAction {
         path: Option<String>,
     },
     HeartbeatItemsReceived(Vec<HeartbeatItem>),
+    HeartbeatDigestReceived(HeartbeatDigestVm),
 }
 
 // ── TaskState ─────────────────────────────────────────────────────────────────
@@ -208,6 +226,7 @@ pub struct TaskState {
     git_diffs: std::collections::HashMap<String, String>,
     file_previews: std::collections::HashMap<String, FilePreview>,
     heartbeat_items: Vec<HeartbeatItem>,
+    last_digest: Option<HeartbeatDigestVm>,
 }
 
 impl TaskState {
@@ -222,6 +241,7 @@ impl TaskState {
             git_diffs: std::collections::HashMap::new(),
             file_previews: std::collections::HashMap::new(),
             heartbeat_items: Vec::new(),
+            last_digest: None,
         }
     }
 
@@ -235,6 +255,10 @@ impl TaskState {
 
     pub fn heartbeat_items(&self) -> &[HeartbeatItem] {
         &self.heartbeat_items
+    }
+
+    pub fn last_digest(&self) -> Option<&HeartbeatDigestVm> {
+        self.last_digest.as_ref()
     }
 
     pub fn todos_for_thread(&self, thread_id: &str) -> &[TodoItem] {
@@ -350,6 +374,10 @@ impl TaskState {
 
             TaskAction::HeartbeatItemsReceived(items) => {
                 self.heartbeat_items = items;
+            }
+
+            TaskAction::HeartbeatDigestReceived(digest) => {
+                self.last_digest = Some(digest);
             }
         }
     }
@@ -511,5 +539,41 @@ mod tests {
             Some("Beta")
         );
         assert!(state.task_by_id("unknown").is_none());
+    }
+
+    #[test]
+    fn heartbeat_digest_received_stores_and_replaces() {
+        let mut state = TaskState::new();
+        assert!(state.last_digest().is_none());
+        state.reduce(TaskAction::HeartbeatDigestReceived(HeartbeatDigestVm {
+            cycle_id: "c1".into(),
+            actionable: true,
+            digest: "2 items".into(),
+            items: vec![HeartbeatDigestItemVm {
+                priority: 1,
+                check_type: "stale_todos".into(),
+                title: "3 stale TODOs".into(),
+                suggestion: "Review them".into(),
+            }],
+            checked_at: 1234567890,
+        }));
+        let d = state.last_digest().unwrap();
+        assert_eq!(d.cycle_id, "c1");
+        assert!(d.actionable);
+        assert_eq!(d.items.len(), 1);
+        assert_eq!(d.items[0].priority, 1);
+
+        // Replace with new digest
+        state.reduce(TaskAction::HeartbeatDigestReceived(HeartbeatDigestVm {
+            cycle_id: "c2".into(),
+            actionable: false,
+            digest: "All clear".into(),
+            items: vec![],
+            checked_at: 1234567891,
+        }));
+        let d = state.last_digest().unwrap();
+        assert_eq!(d.cycle_id, "c2");
+        assert!(!d.actionable);
+        assert!(d.items.is_empty());
     }
 }

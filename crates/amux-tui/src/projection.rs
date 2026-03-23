@@ -54,6 +54,13 @@ pub enum ClientEvent {
     ModelsFetched(Vec<crate::state::config::FetchedModel>),
 
     HeartbeatItems(Vec<crate::state::task::HeartbeatItem>),
+    HeartbeatDigest {
+        cycle_id: String,
+        actionable: bool,
+        digest: String,
+        items: Vec<(u8, String, String, String)>,
+        checked_at: u64,
+    },
     AnticipatoryItems(Vec<crate::state::task::HeartbeatItem>),
 
     Delta {
@@ -221,6 +228,7 @@ impl DaemonProjection {
             ClientEvent::HeartbeatItems(items) => {
                 vec![AppAction::Task(TaskAction::HeartbeatItemsReceived(items))]
             }
+            ClientEvent::HeartbeatDigest { .. } => vec![],
             ClientEvent::AnticipatoryItems(_) => vec![],
             ClientEvent::WorkflowNotice { message, .. } => vec![AppAction::Status(message)],
             ClientEvent::ProviderAuthStates(_) => vec![],

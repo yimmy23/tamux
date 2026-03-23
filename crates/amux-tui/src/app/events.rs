@@ -285,6 +285,39 @@ impl TuiModel {
                 self.tasks
                     .reduce(task::TaskAction::HeartbeatItemsReceived(items));
             }
+            ClientEvent::HeartbeatDigest {
+                cycle_id,
+                actionable,
+                digest,
+                items,
+                checked_at,
+            } => {
+                let vm_items: Vec<task::HeartbeatDigestItemVm> = items
+                    .into_iter()
+                    .map(|(priority, check_type, title, suggestion)| {
+                        task::HeartbeatDigestItemVm {
+                            priority,
+                            check_type,
+                            title,
+                            suggestion,
+                        }
+                    })
+                    .collect();
+                let item_count = vm_items.len();
+                self.tasks
+                    .reduce(task::TaskAction::HeartbeatDigestReceived(
+                        task::HeartbeatDigestVm {
+                            cycle_id,
+                            actionable,
+                            digest: digest.clone(),
+                            items: vm_items,
+                            checked_at,
+                        },
+                    ));
+                if actionable && item_count > 0 {
+                    self.status_line = format!("\u{2665} Heartbeat: {}", digest);
+                }
+            }
             ClientEvent::AnticipatoryItems(items) => {
                 self.anticipatory
                     .reduce(crate::state::AnticipatoryAction::Replace(items));
