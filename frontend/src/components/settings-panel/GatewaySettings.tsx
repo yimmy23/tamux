@@ -19,7 +19,7 @@ interface DaemonGatewayConfig {
 // ---------------------------------------------------------------------------
 // GatewayHealth — per-platform status badges from agentStore
 // ---------------------------------------------------------------------------
-function GatewayHealth() {
+export function GatewayHealth() {
   const gatewayStatuses = useAgentStore((s) => s.gatewayStatuses);
   const platforms = Object.entries(gatewayStatuses);
 

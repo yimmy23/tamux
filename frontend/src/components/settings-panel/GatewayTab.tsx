@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentSettings } from "../../lib/agentStore";
 import { PasswordInput, Section, SettingRow, TextInput, Toggle, smallBtnStyle } from "./shared";
+import { GatewayHealth } from "./GatewaySettings";
 
 type WhatsAppStatus = "disconnected" | "connecting" | "qr_ready" | "connected" | "error";
 
@@ -198,6 +199,10 @@ export function GatewayTab({
 }) {
     return (
         <>
+            <Section title="Connection Status">
+                <GatewayHealth />
+            </Section>
+
             <Section title="Gateway">
                 <SettingRow label="Enable Gateway">
                     <Toggle value={settings.gateway_enabled}
