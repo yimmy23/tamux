@@ -380,6 +380,8 @@ mod tests {
             circuit_breakers,
             config_notify: tokio::sync::Notify::new(),
             learned_check_weights: RwLock::new(HashMap::new()),
+            heuristic_store: RwLock::new(super::learning::heuristics::HeuristicStore::default()),
+            pattern_store: RwLock::new(super::learning::patterns::PatternStore::default()),
         })
     }
 

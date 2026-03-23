@@ -1078,6 +1078,9 @@ pub struct AgentConfig {
     /// Minimum smoothed count to consider an hour "active". Per D-02.
     #[serde(default = "default_ema_activity_threshold")]
     pub ema_activity_threshold: f64,
+    /// Memory consolidation controls (Phase 5).
+    #[serde(default)]
+    pub consolidation: ConsolidationConfig,
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -1244,6 +1247,83 @@ impl Default for ToolSynthesisSandboxConfig {
             max_output_kb: default_generated_tool_output_kb(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Consolidation config (Phase 5 — memory consolidation)
+// ---------------------------------------------------------------------------
+
+/// Configuration for idle-time memory consolidation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationConfig {
+    /// Whether memory consolidation is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Maximum wall-clock seconds a single consolidation tick may use. Per D-02.
+    #[serde(default = "default_consolidation_budget_secs")]
+    pub budget_secs: u64,
+    /// Seconds of operator inactivity before consolidation may begin. Per D-01.
+    #[serde(default = "default_consolidation_idle_threshold_secs")]
+    pub idle_threshold_secs: u64,
+    /// Days to keep tombstoned (superseded) memory facts before permanent deletion. Per D-05.
+    #[serde(default = "default_consolidation_tombstone_ttl_days")]
+    pub tombstone_ttl_days: u64,
+    /// Number of successful repetitions before a heuristic is promoted. Per D-07.
+    #[serde(default = "default_consolidation_heuristic_promotion_threshold")]
+    pub heuristic_promotion_threshold: u32,
+    /// Half-life in hours for exponential memory fact decay. Per D-04.
+    #[serde(default = "default_consolidation_memory_decay_half_life_hours")]
+    pub memory_decay_half_life_hours: f64,
+    /// Whether to auto-resume interrupted goal runs on daemon restart. Per D-11.
+    #[serde(default)]
+    pub auto_resume_goal_runs: bool,
+    /// Confidence threshold below which decayed facts are tombstoned. Per MEMO-02.
+    #[serde(default = "default_consolidation_fact_decay_supersede_threshold")]
+    pub fact_decay_supersede_threshold: f64,
+}
+
+fn default_consolidation_budget_secs() -> u64 {
+    30
+}
+fn default_consolidation_idle_threshold_secs() -> u64 {
+    300
+}
+fn default_consolidation_tombstone_ttl_days() -> u64 {
+    7
+}
+fn default_consolidation_heuristic_promotion_threshold() -> u32 {
+    3
+}
+fn default_consolidation_memory_decay_half_life_hours() -> f64 {
+    69.0
+}
+fn default_consolidation_fact_decay_supersede_threshold() -> f64 {
+    0.2
+}
+
+impl Default for ConsolidationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            budget_secs: default_consolidation_budget_secs(),
+            idle_threshold_secs: default_consolidation_idle_threshold_secs(),
+            tombstone_ttl_days: default_consolidation_tombstone_ttl_days(),
+            heuristic_promotion_threshold: default_consolidation_heuristic_promotion_threshold(),
+            memory_decay_half_life_hours: default_consolidation_memory_decay_half_life_hours(),
+            auto_resume_goal_runs: false,
+            fact_decay_supersede_threshold: default_consolidation_fact_decay_supersede_threshold(),
+        }
+    }
+}
+
+/// Outcome of a single consolidation tick.
+#[derive(Debug, Clone, Default)]
+pub struct ConsolidationResult {
+    pub traces_reviewed: usize,
+    pub facts_decayed: usize,
+    pub tombstones_purged: usize,
+    pub facts_refined: usize,
+    pub skipped_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1418,6 +1498,7 @@ impl Default for AgentConfig {
             ema_alpha: default_ema_alpha(),
             low_activity_frequency_factor: default_low_activity_frequency_factor(),
             ema_activity_threshold: default_ema_activity_threshold(),
+            consolidation: ConsolidationConfig::default(),
             extra: HashMap::new(),
         }
     }
@@ -3068,5 +3149,46 @@ mod tests {
             }
             _ => panic!("wrong variant after deserialize"),
         }
+    }
+
+    // ── Consolidation type tests (Phase 5 — MEMO-02/MEMO-07) ────────────
+
+    #[test]
+    fn consolidation_config_defaults() {
+        let cfg = ConsolidationConfig::default();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.budget_secs, 30);
+        assert_eq!(cfg.idle_threshold_secs, 300);
+        assert_eq!(cfg.tombstone_ttl_days, 7);
+        assert_eq!(cfg.heuristic_promotion_threshold, 3);
+        assert!((cfg.memory_decay_half_life_hours - 69.0).abs() < f64::EPSILON);
+        assert!(!cfg.auto_resume_goal_runs);
+        assert!((cfg.fact_decay_supersede_threshold - 0.2).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn consolidation_config_deserializes_from_empty_json() {
+        let cfg: ConsolidationConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.budget_secs, 30);
+        assert_eq!(cfg.idle_threshold_secs, 300);
+    }
+
+    #[test]
+    fn consolidation_config_on_agent_config() {
+        let json = r#"{}"#;
+        let parsed: AgentConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.consolidation.enabled);
+        assert_eq!(parsed.consolidation.budget_secs, 30);
+    }
+
+    #[test]
+    fn consolidation_result_defaults_are_zero() {
+        let result = ConsolidationResult::default();
+        assert_eq!(result.traces_reviewed, 0);
+        assert_eq!(result.facts_decayed, 0);
+        assert_eq!(result.tombstones_purged, 0);
+        assert_eq!(result.facts_refined, 0);
+        assert!(result.skipped_reason.is_none());
     }
 }

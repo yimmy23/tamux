@@ -118,6 +118,10 @@ pub struct AgentEngine {
     /// When present, these override the config `priority_weight` fields.
     /// Falls back to config weights when a check type has no learned weight.
     pub(crate) learned_check_weights: RwLock<HashMap<HeartbeatCheckType, f64>>,
+    /// Aggregated learned heuristics persisted across restarts (Phase 5).
+    pub(super) heuristic_store: RwLock<super::learning::heuristics::HeuristicStore>,
+    /// Mined tool-usage patterns persisted across restarts (Phase 5).
+    pub(super) pattern_store: RwLock<super::learning::patterns::PatternStore>,
 }
 
 impl AgentEngine {
@@ -211,6 +215,8 @@ impl AgentEngine {
             circuit_breakers,
             config_notify: tokio::sync::Notify::new(),
             learned_check_weights: RwLock::new(HashMap::new()),
+            heuristic_store: RwLock::new(super::learning::heuristics::HeuristicStore::default()),
+            pattern_store: RwLock::new(super::learning::patterns::PatternStore::default()),
         })
     }
 

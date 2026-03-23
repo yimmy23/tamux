@@ -110,6 +110,36 @@ pub struct AuditEntryRow {
     pub raw_data_json: Option<String>,
 }
 
+/// Row type for memory_tombstones table (Phase 5 — consolidation).
+#[derive(Debug, Clone)]
+pub struct MemoryTombstoneRow {
+    pub id: String,
+    pub target: String,
+    pub original_content: String,
+    pub fact_key: Option<String>,
+    pub replaced_by: Option<String>,
+    pub replaced_at: i64,
+    pub source_kind: String,
+    pub provenance_id: Option<String>,
+    pub created_at: i64,
+}
+
+/// Row type for execution_traces query results (Phase 5 — consolidation).
+#[derive(Debug, Clone)]
+pub struct ExecutionTraceRow {
+    pub id: String,
+    pub goal_run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub task_type: Option<String>,
+    pub outcome: Option<String>,
+    pub quality_score: Option<f64>,
+    pub tool_sequence_json: Option<String>,
+    pub metrics_json: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub tokens_used: Option<i64>,
+    pub created_at: i64,
+}
+
 pub struct ProvenanceEventRecord<'a> {
     pub event_type: &'a str,
     pub summary: &'a str,
@@ -2630,6 +2660,26 @@ impl HistoryStore {
             CREATE INDEX IF NOT EXISTS idx_action_audit_ts ON action_audit(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_action_audit_type_ts ON action_audit(action_type, timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_action_audit_thread ON action_audit(thread_id, timestamp DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_tombstones (
+                id TEXT PRIMARY KEY,
+                target TEXT NOT NULL,
+                original_content TEXT NOT NULL,
+                fact_key TEXT,
+                replaced_by TEXT,
+                replaced_at INTEGER NOT NULL,
+                source_kind TEXT NOT NULL,
+                provenance_id TEXT,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_tombstones_created ON memory_tombstones(created_at);
+            CREATE INDEX IF NOT EXISTS idx_tombstones_target ON memory_tombstones(target, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS consolidation_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             ",
         )?;
         // FTS5 virtual table for context archive full-text search.
@@ -2663,6 +2713,177 @@ impl HistoryStore {
             [],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    // ── Memory tombstone CRUD (Phase 5) ────────────────────────────────
+
+    pub async fn insert_memory_tombstone(
+        &self,
+        id: &str,
+        target: &str,
+        original_content: &str,
+        fact_key: Option<&str>,
+        replaced_by: Option<&str>,
+        source_kind: &str,
+        provenance_id: Option<&str>,
+        created_at: u64,
+    ) -> Result<()> {
+        let id = id.to_string();
+        let target = target.to_string();
+        let original_content = original_content.to_string();
+        let fact_key = fact_key.map(str::to_string);
+        let replaced_by = replaced_by.map(str::to_string);
+        let source_kind = source_kind.to_string();
+        let provenance_id = provenance_id.map(str::to_string);
+        let now = created_at as i64;
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO memory_tombstones (id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![id, target, original_content, fact_key, replaced_by, now, source_kind, provenance_id, now],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_memory_tombstones(
+        &self,
+        target: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<MemoryTombstoneRow>> {
+        let target = target.map(str::to_string);
+        self.conn.call(move |conn| {
+            if let Some(target) = target {
+                let mut stmt = conn.prepare(
+                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![target, limit as i64], |row| {
+                    Ok(MemoryTombstoneRow {
+                        id: row.get(0)?,
+                        target: row.get(1)?,
+                        original_content: row.get(2)?,
+                        fact_key: row.get(3)?,
+                        replaced_by: row.get(4)?,
+                        replaced_at: row.get(5)?,
+                        source_kind: row.get(6)?,
+                        provenance_id: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            } else {
+                let mut stmt = conn.prepare(
+                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones ORDER BY created_at DESC LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit as i64], |row| {
+                    Ok(MemoryTombstoneRow {
+                        id: row.get(0)?,
+                        target: row.get(1)?,
+                        original_content: row.get(2)?,
+                        fact_key: row.get(3)?,
+                        replaced_by: row.get(4)?,
+                        replaced_at: row.get(5)?,
+                        source_kind: row.get(6)?,
+                        provenance_id: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            }
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn delete_expired_tombstones(&self, max_age_ms: u64, now: u64) -> Result<usize> {
+        let cutoff = (now as i64) - (max_age_ms as i64);
+        self.conn.call(move |conn| {
+            let count = conn.execute(
+                "DELETE FROM memory_tombstones WHERE created_at < ?1",
+                params![cutoff],
+            )?;
+            Ok(count)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn restore_tombstone(&self, tombstone_id: &str) -> Result<Option<MemoryTombstoneRow>> {
+        let tombstone_id = tombstone_id.to_string();
+        self.conn.call(move |conn| {
+            let row: Option<MemoryTombstoneRow> = conn.query_row(
+                "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE id = ?1",
+                params![tombstone_id],
+                |row| {
+                    Ok(MemoryTombstoneRow {
+                        id: row.get(0)?,
+                        target: row.get(1)?,
+                        original_content: row.get(2)?,
+                        fact_key: row.get(3)?,
+                        replaced_by: row.get(4)?,
+                        replaced_at: row.get(5)?,
+                        source_kind: row.get(6)?,
+                        provenance_id: row.get(7)?,
+                        created_at: row.get(8)?,
+                    })
+                },
+            ).optional()?;
+            if row.is_some() {
+                conn.execute("DELETE FROM memory_tombstones WHERE id = ?1", params![tombstone_id])?;
+            }
+            Ok(row)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    // ── Consolidation state CRUD (Phase 5) ───────────────────────────────
+
+    pub async fn get_consolidation_state(&self, key: &str) -> Result<Option<String>> {
+        let key = key.to_string();
+        self.conn.call(move |conn| {
+            let value: Option<String> = conn.query_row(
+                "SELECT value FROM consolidation_state WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            ).optional()?;
+            Ok(value)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn set_consolidation_state(&self, key: &str, value: &str, now: u64) -> Result<()> {
+        let key = key.to_string();
+        let value = value.to_string();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO consolidation_state (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                params![key, value, now as i64],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    // ── Successful trace queries (Phase 5) ───────────────────────────────
+
+    pub async fn list_recent_successful_traces(
+        &self,
+        after_timestamp: u64,
+        limit: usize,
+    ) -> Result<Vec<ExecutionTraceRow>> {
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at FROM execution_traces WHERE outcome = 'success' AND created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![after_timestamp as i64, limit as i64], |row| {
+                Ok(ExecutionTraceRow {
+                    id: row.get(0)?,
+                    goal_run_id: row.get(1)?,
+                    task_id: row.get(2)?,
+                    task_type: row.get(3)?,
+                    outcome: row.get(4)?,
+                    quality_score: row.get(5)?,
+                    tool_sequence_json: row.get(6)?,
+                    metrics_json: row.get(7)?,
+                    duration_ms: row.get(8)?,
+                    tokens_used: row.get(9)?,
+                    created_at: row.get(10)?,
+                })
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
@@ -5674,6 +5895,149 @@ mod tests {
         let shown = store.count_shown_by_type(0).await?;
         assert_eq!(shown.get("heartbeat").copied(), Some(3));
         assert_eq!(shown.get("escalation").copied(), Some(1));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    // ── Memory tombstone tests (Phase 5) ─────────────────────────────────
+
+    #[tokio::test]
+    async fn memory_tombstone_insert_and_list_round_trips() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        store.insert_memory_tombstone(
+            "t-1", "soul", "old fact about rust", Some("rust_version"),
+            Some("Rust 1.80"), "consolidation", None, 1000,
+        ).await?;
+        store.insert_memory_tombstone(
+            "t-2", "memory", "stale project note", None,
+            None, "decay", Some("prov-1"), 2000,
+        ).await?;
+
+        // List all
+        let all = store.list_memory_tombstones(None, 10).await?;
+        assert_eq!(all.len(), 2);
+        // Ordered by created_at DESC
+        assert_eq!(all[0].id, "t-2");
+        assert_eq!(all[1].id, "t-1");
+
+        // List by target
+        let soul_only = store.list_memory_tombstones(Some("soul"), 10).await?;
+        assert_eq!(soul_only.len(), 1);
+        assert_eq!(soul_only[0].id, "t-1");
+        assert_eq!(soul_only[0].original_content, "old fact about rust");
+        assert_eq!(soul_only[0].fact_key.as_deref(), Some("rust_version"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_tombstone_delete_expired() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        store.insert_memory_tombstone(
+            "old", "soul", "ancient", None, None, "decay", None, 100,
+        ).await?;
+        store.insert_memory_tombstone(
+            "new", "soul", "recent", None, None, "decay", None, 5000,
+        ).await?;
+
+        // Delete tombstones older than 4000ms as of now=6000
+        let deleted = store.delete_expired_tombstones(4000, 6000).await?;
+        assert_eq!(deleted, 1);
+
+        let remaining = store.list_memory_tombstones(None, 10).await?;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "new");
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_tombstone_restore() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        store.insert_memory_tombstone(
+            "t-restore", "memory", "fact to restore", None,
+            None, "decay", None, 3000,
+        ).await?;
+
+        let restored = store.restore_tombstone("t-restore").await?;
+        assert!(restored.is_some());
+        let row = restored.unwrap();
+        assert_eq!(row.original_content, "fact to restore");
+
+        // Should be deleted after restore
+        let remaining = store.list_memory_tombstones(None, 10).await?;
+        assert_eq!(remaining.len(), 0);
+
+        // Restoring non-existent returns None
+        let none = store.restore_tombstone("t-restore").await?;
+        assert!(none.is_none());
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    // ── Consolidation state tests (Phase 5) ──────────────────────────────
+
+    #[tokio::test]
+    async fn consolidation_state_set_get_round_trips() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        // Initially empty
+        let val = store.get_consolidation_state("last_watermark").await?;
+        assert!(val.is_none());
+
+        // Set and get
+        store.set_consolidation_state("last_watermark", "12345", 1000).await?;
+        let val = store.get_consolidation_state("last_watermark").await?;
+        assert_eq!(val.as_deref(), Some("12345"));
+
+        // Overwrite
+        store.set_consolidation_state("last_watermark", "99999", 2000).await?;
+        let val = store.get_consolidation_state("last_watermark").await?;
+        assert_eq!(val.as_deref(), Some("99999"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    // ── Successful trace query test (Phase 5) ────────────────────────────
+
+    #[tokio::test]
+    async fn list_recent_successful_traces_with_watermark() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        // Insert traces with different outcomes
+        store.insert_execution_trace(
+            "tr-1", None, Some("task-1"), "research", "success",
+            Some(0.9), "[]", "{}", 100, 50, 1000,
+        ).await?;
+        store.insert_execution_trace(
+            "tr-2", None, Some("task-2"), "coding", "failure",
+            Some(0.3), "[]", "{}", 200, 80, 2000,
+        ).await?;
+        store.insert_execution_trace(
+            "tr-3", None, Some("task-3"), "research", "success",
+            Some(0.8), "[]", "{}", 150, 60, 3000,
+        ).await?;
+
+        // Query after watermark=1500 should only return tr-3 (success after watermark)
+        let traces = store.list_recent_successful_traces(1500, 100).await?;
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].id, "tr-3");
+        assert_eq!(traces[0].outcome.as_deref(), Some("success"));
+
+        // Query after watermark=0 should return both successful traces
+        let traces = store.list_recent_successful_traces(0, 100).await?;
+        assert_eq!(traces.len(), 2);
+        // ASC order
+        assert_eq!(traces[0].id, "tr-1");
+        assert_eq!(traces[1].id, "tr-3");
 
         fs::remove_dir_all(root)?;
         Ok(())
