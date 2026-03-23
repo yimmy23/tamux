@@ -69,14 +69,14 @@ Plans:
   3. A chronological action audit feed is accessible from TUI, Electron, and CLI
   4. Agent communicates confidence level on non-trivial decisions (e.g., "I'm 80% sure this is a stale TODO")
   5. When the agent escalates through levels (self-correction to sub-agent to user to external), the user sees each step and reasoning
-**Plans:** 5 plans
+**Plans:** 3/5 plans executed
 **UI hint**: yes
 
 Plans:
 - [x] 03-01-PLAN.md — Daemon foundation: explanation module, action_audit table, AuditAction event, IPC messages
-- [ ] 03-02-PLAN.md — Daemon integration: heartbeat/escalation/causal-trace audit entry wiring
+- [x] 03-02-PLAN.md — Daemon integration: heartbeat/escalation/causal-trace audit entry wiring
 - [ ] 03-03-PLAN.md — TUI audit feed: AuditState reducer, audit widget, escalation status line
-- [ ] 03-04-PLAN.md — Electron audit panel: auditStore, AuditPanel components, event listener
+- [x] 03-04-PLAN.md — Electron audit panel: auditStore, AuditPanel components, event listener
 - [ ] 03-05-PLAN.md — CLI audit subcommand and escalation cancel IPC flow
 
 ### Phase 4: Adaptive Heartbeat
@@ -171,7 +171,7 @@ Note: Phases 8 and 9 can execute in parallel with phases 2-7 (they only depend o
 |-------|----------------|--------|-----------|
 | 1. Production Foundation | 3/3 | Complete | - |
 | 2. Core Heartbeat | 4/4 | Complete | |
-| 3. Transparent Autonomy | 0/5 | Planned | - |
+| 3. Transparent Autonomy | 3/5 | In Progress|  |
 | 4. Adaptive Heartbeat | 0/? | Not started | - |
 | 5. Memory Consolidation | 0/? | Not started | - |
 | 6. Skill Discovery | 0/? | Not started | - |

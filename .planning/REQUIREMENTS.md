@@ -59,7 +59,7 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 - [x] **TRNS-02**: Causal trace summaries available on demand: user can ask "why did you do that?" and get a clear answer
 - [x] **TRNS-03**: Action audit feed: chronological list of all autonomous actions accessible from any client
 - [x] **TRNS-04**: Confidence signals: agent communicates its certainty level on non-trivial decisions
-- [ ] **TRNS-05**: Escalation visibility: when agent escalates (L0→L1→L2→L3), user sees the progression and reasoning
+- [x] **TRNS-05**: Escalation visibility: when agent escalates (L0→L1→L2→L3), user sees the progression and reasoning
 
 ### Progressive UX
 
@@ -179,7 +179,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TRNS-02 | Phase 3 | Complete |
 | TRNS-03 | Phase 3 | Complete |
 | TRNS-04 | Phase 3 | Complete |
-| TRNS-05 | Phase 3 | Pending |
+| TRNS-05 | Phase 3 | Complete |
 | PRUX-01 | Phase 10 | Pending |
 | PRUX-02 | Phase 10 | Pending |
 | PRUX-03 | Phase 10 | Pending |
