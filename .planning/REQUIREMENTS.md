@@ -30,12 +30,12 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 
 ### Memory Consolidation
 
-- [ ] **MEMO-01**: During idle heartbeat ticks, agent reviews recent execution traces and consolidates learnings into MEMORY.md
+- [x] **MEMO-01**: During idle heartbeat ticks, agent reviews recent execution traces and consolidates learnings into MEMORY.md
 - [x] **MEMO-02**: Memory facts have confidence scores that decay exponentially over time (configurable half-life, default ~69 hours)
-- [ ] **MEMO-03**: Consolidation is append-only with tombstones — never deletes, only marks facts as superseded
-- [ ] **MEMO-04**: All consolidation actions logged to provenance system with full audit trail
-- [ ] **MEMO-05**: 7-day rollback window: any consolidation can be reversed within 7 days
-- [ ] **MEMO-06**: Successful tool sequences automatically promoted into learned heuristics during consolidation
+- [x] **MEMO-03**: Consolidation is append-only with tombstones — never deletes, only marks facts as superseded
+- [x] **MEMO-04**: All consolidation actions logged to provenance system with full audit trail
+- [x] **MEMO-05**: 7-day rollback window: any consolidation can be reversed within 7 days
+- [x] **MEMO-06**: Successful tool sequences automatically promoted into learned heuristics during consolidation
 - [x] **MEMO-07**: Idle detection uses composite signal: no active tasks + no active goals + no active streams + operator inactive
 - [ ] **MEMO-08**: Proactive memory refinement: reorganize and compress memory blocks for higher signal density during idle time
 - [x] **MEMO-09**: Cross-session context continuity: threads resume seamlessly after daemon restart with full context
@@ -156,12 +156,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BEAT-07 | Phase 4 | Complete |
 | BEAT-08 | Phase 2 | Complete |
 | BEAT-09 | Phase 4 | Complete |
-| MEMO-01 | Phase 5 | Pending |
+| MEMO-01 | Phase 5 | Complete |
 | MEMO-02 | Phase 5 | Complete |
-| MEMO-03 | Phase 5 | Pending |
-| MEMO-04 | Phase 5 | Pending |
-| MEMO-05 | Phase 5 | Pending |
-| MEMO-06 | Phase 5 | Pending |
+| MEMO-03 | Phase 5 | Complete |
+| MEMO-04 | Phase 5 | Complete |
+| MEMO-05 | Phase 5 | Complete |
+| MEMO-06 | Phase 5 | Complete |
 | MEMO-07 | Phase 5 | Complete |
 | MEMO-08 | Phase 5 | Pending |
 | MEMO-09 | Phase 5 | Complete |
