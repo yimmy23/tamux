@@ -2550,6 +2550,160 @@ mod tests {
     }
 
     /// FOUN-04: Circuit breaker AgentEvent variants serialize and deserialize correctly.
+    // -----------------------------------------------------------------------
+    // Heartbeat type contract tests (BEAT-01, BEAT-02, BEAT-04, BEAT-05)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn heartbeat_checks_config_deserializes_from_empty_json() {
+        let cfg: HeartbeatChecksConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.stale_todos_enabled);
+        assert_eq!(cfg.stale_todo_threshold_hours, 24);
+        assert!(cfg.stuck_goals_enabled);
+        assert_eq!(cfg.stuck_goal_threshold_hours, 2);
+        assert!(cfg.unreplied_messages_enabled);
+        assert_eq!(cfg.unreplied_message_threshold_hours, 1);
+        assert!(cfg.repo_changes_enabled);
+        assert!(cfg.stale_todos_cron.is_none());
+        assert!(cfg.stuck_goals_cron.is_none());
+        assert!(cfg.unreplied_messages_cron.is_none());
+        assert!(cfg.repo_changes_cron.is_none());
+    }
+
+    #[test]
+    fn heartbeat_check_type_serializes_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::StaleTodos).unwrap(),
+            "\"stale_todos\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::StuckGoalRuns).unwrap(),
+            "\"stuck_goal_runs\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::UnrepliedGatewayMessages).unwrap(),
+            "\"unreplied_gateway_messages\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::RepoChanges).unwrap(),
+            "\"repo_changes\""
+        );
+    }
+
+    #[test]
+    fn check_severity_serializes_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::Low).unwrap(),
+            "\"low\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::High).unwrap(),
+            "\"high\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::Critical).unwrap(),
+            "\"critical\""
+        );
+    }
+
+    #[test]
+    fn heartbeat_check_result_roundtrips_through_serde() {
+        let result = HeartbeatCheckResult {
+            check_type: HeartbeatCheckType::StaleTodos,
+            items_found: 2,
+            summary: "2 stale TODO(s)".to_string(),
+            details: vec![CheckDetail {
+                id: "todo-1".to_string(),
+                label: "Fix the bug".to_string(),
+                age_hours: 48.5,
+                severity: CheckSeverity::High,
+                context: "TODO pending for 48.5h".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: HeartbeatCheckResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.check_type, HeartbeatCheckType::StaleTodos);
+        assert_eq!(parsed.items_found, 2);
+        assert_eq!(parsed.details.len(), 1);
+        assert_eq!(parsed.details[0].severity, CheckSeverity::High);
+    }
+
+    #[test]
+    fn heartbeat_digest_item_roundtrips_through_serde() {
+        let item = HeartbeatDigestItem {
+            priority: 1,
+            check_type: HeartbeatCheckType::StuckGoalRuns,
+            title: "Stuck goal run".to_string(),
+            suggestion: "Consider cancelling".to_string(),
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        let parsed: HeartbeatDigestItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.priority, 1);
+        assert_eq!(parsed.check_type, HeartbeatCheckType::StuckGoalRuns);
+        assert_eq!(parsed.title, "Stuck goal run");
+        assert_eq!(parsed.suggestion, "Consider cancelling");
+    }
+
+    #[test]
+    fn agent_config_backward_compat_new_heartbeat_fields() {
+        // JSON missing heartbeat_cron, heartbeat_checks, quiet_hours, dnd_enabled
+        let json = r#"{}"#;
+        let parsed: AgentConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.heartbeat_cron.is_none());
+        assert!(parsed.heartbeat_checks.stale_todos_enabled);
+        assert_eq!(parsed.heartbeat_checks.stale_todo_threshold_hours, 24);
+        assert!(parsed.quiet_hours_start.is_none());
+        assert!(parsed.quiet_hours_end.is_none());
+        assert!(!parsed.dnd_enabled);
+    }
+
+    #[test]
+    fn agent_event_heartbeat_digest_serde_roundtrip() {
+        let event = AgentEvent::HeartbeatDigest {
+            cycle_id: "cycle-1".to_string(),
+            actionable: true,
+            digest: "2 items need attention".to_string(),
+            items: vec![HeartbeatDigestItem {
+                priority: 1,
+                check_type: HeartbeatCheckType::StaleTodos,
+                title: "Stale todos".to_string(),
+                suggestion: "Review pending items".to_string(),
+            }],
+            checked_at: 1234567890,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            AgentEvent::HeartbeatDigest {
+                cycle_id,
+                actionable,
+                digest,
+                items,
+                checked_at,
+            } => {
+                assert_eq!(cycle_id, "cycle-1");
+                assert!(actionable);
+                assert_eq!(digest, "2 items need attention");
+                assert_eq!(items.len(), 1);
+                assert_eq!(checked_at, 1234567890);
+            }
+            _ => panic!("wrong variant after deserialize"),
+        }
+    }
+
+    #[test]
+    fn interval_mins_to_cron_converts_correctly() {
+        assert_eq!(interval_mins_to_cron(1), "* * * * *");
+        assert_eq!(interval_mins_to_cron(15), "*/15 * * * *");
+        assert_eq!(interval_mins_to_cron(60), "0 * * * *");
+        assert_eq!(interval_mins_to_cron(120), "0 */2 * * *");
+        assert_eq!(interval_mins_to_cron(0), "* * * * *");
+    }
+
     #[test]
     fn circuit_breaker_event_serde_roundtrip() {
         let event = AgentEvent::ProviderCircuitOpen {

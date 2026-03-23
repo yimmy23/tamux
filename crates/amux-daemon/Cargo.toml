@@ -40,6 +40,7 @@ which = "7"
 jsonrepair = "0.1.0"
 serde_yaml = "0.9.34"
 notify = "6"
+croner = "3"
 
 [target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }
