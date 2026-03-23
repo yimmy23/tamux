@@ -12,6 +12,17 @@ use rusqlite::{params, Connection, OptionalExtension};
 use tokio_rusqlite;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+/// Helper trait to convert any error into `tokio_rusqlite::Error` inside `.call()` closures.
+trait IntoCallError<T> {
+    fn call_err(self) -> std::result::Result<T, tokio_rusqlite::Error>;
+}
+
+impl<T, E: std::error::Error + Send + Sync + 'static> IntoCallError<T> for std::result::Result<T, E> {
+    fn call_err(self) -> std::result::Result<T, tokio_rusqlite::Error> {
+        self.map_err(|e| tokio_rusqlite::Error::Other(Box::new(e)))
+    }
+}
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
@@ -290,67 +301,76 @@ impl HistoryStore {
         Ok(store)
     }
 
-    pub fn list_agent_config_items(&self) -> Result<Vec<(String, serde_json::Value)>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
-            "SELECT key_path, value_json FROM agent_config_items ORDER BY length(key_path) ASC, key_path ASC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            let key_path = row.get::<_, String>(0)?;
-            let value_json = row.get::<_, String>(1)?;
-            Ok((key_path, value_json))
-        })?;
-        let mut items = Vec::new();
-        for row in rows {
-            let (key_path, value_json) = row?;
-            let value = serde_json::from_str::<serde_json::Value>(&value_json)
-                .with_context(|| format!("invalid config value for {key_path}"))?;
-            items.push((key_path, value));
-        }
-        Ok(items)
-    }
-
-    pub fn replace_agent_config_items(&self, items: &[(String, serde_json::Value)]) -> Result<()> {
-        let connection = self.open_connection()?;
-        let transaction = connection.unchecked_transaction()?;
-        transaction.execute("DELETE FROM agent_config_items", [])?;
-        let now = now_ts() as i64;
-        for (key_path, value) in items {
-            let value_json = serde_json::to_string(value)?;
-            transaction.execute(
-                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
-                params![key_path, value_json, now],
+    pub async fn list_agent_config_items(&self) -> Result<Vec<(String, serde_json::Value)>> {
+        self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT key_path, value_json FROM agent_config_items ORDER BY length(key_path) ASC, key_path ASC",
             )?;
-        }
-        transaction.commit()?;
-        Ok(())
+            let rows = stmt.query_map([], |row| {
+                let key_path = row.get::<_, String>(0)?;
+                let value_json = row.get::<_, String>(1)?;
+                Ok((key_path, value_json))
+            })?;
+            let mut items = Vec::new();
+            for row in rows {
+                let (key_path, value_json) = row?;
+                let value = serde_json::from_str::<serde_json::Value>(&value_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                items.push((key_path, value));
+            }
+            Ok(items)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn upsert_agent_config_item(
+    pub async fn replace_agent_config_items(&self, items: &[(String, serde_json::Value)]) -> Result<()> {
+        let items: Vec<(String, String)> = items
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), serde_json::to_string(v)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let items = items.clone();
+        self.conn.call(move |conn| {
+            let transaction = conn.unchecked_transaction()?;
+            transaction.execute("DELETE FROM agent_config_items", [])?;
+            let now = now_ts() as i64;
+            for (key_path, value_json) in &items {
+                transaction.execute(
+                    "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                    params![key_path, value_json, now],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn upsert_agent_config_item(
         &self,
         key_path: &str,
         value: &serde_json::Value,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        let transaction = connection.unchecked_transaction()?;
-        let prefix = format!("{key_path}/%");
+        let key_path = key_path.to_string();
         let value_json = serde_json::to_string(value)?;
-        let now = now_ts() as i64;
-        transaction.execute(
-            "DELETE FROM agent_config_items \
-             WHERE key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%'",
-            params![key_path, prefix],
-        )?;
-        transaction.execute(
-            "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
-            params![key_path, value_json.clone(), now],
-        )?;
-        transaction.execute(
-            "INSERT INTO agent_config_updates (id, key_path, value_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![uuid::Uuid::new_v4().to_string(), key_path, value_json, now],
-        )?;
-        transaction.commit()?;
-        Ok(())
+        let value = value.clone();
+        self.conn.call(move |conn| {
+            let transaction = conn.unchecked_transaction()?;
+            let prefix = format!("{key_path}/%");
+            let now = now_ts() as i64;
+            transaction.execute(
+                "DELETE FROM agent_config_items \
+                 WHERE key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%'",
+                params![key_path, prefix],
+            )?;
+            transaction.execute(
+                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                params![key_path, value_json.clone(), now],
+            )?;
+            transaction.execute(
+                "INSERT INTO agent_config_updates (id, key_path, value_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params![uuid::Uuid::new_v4().to_string(), key_path, value_json, now],
+            )?;
+            transaction.commit()?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     #[cfg(test)]
@@ -387,8 +407,7 @@ impl HistoryStore {
         Ok(store)
     }
 
-    pub fn record_managed_finish(&self, record: &ManagedHistoryRecord) -> Result<()> {
-        let connection = self.open_connection()?;
+    pub async fn record_managed_finish(&self, record: &ManagedHistoryRecord) -> Result<()> {
         let timestamp = now_ts() as i64;
         let excerpt = format!(
             "exit={:?} duration_ms={:?} snapshot={} rationale={}",
@@ -398,22 +417,31 @@ impl HistoryStore {
             record.rationale
         );
 
-        connection.execute(
-            "INSERT OR REPLACE INTO history_entries (id, kind, title, excerpt, content, path, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                record.execution_id,
-                "managed-command",
-                record.command,
-                excerpt,
-                format!("{}\n{}", record.command, record.rationale),
-                record.snapshot_path,
-                timestamp,
-            ],
-        )?;
-        connection.execute(
-            "INSERT OR REPLACE INTO history_fts (id, title, excerpt, content) VALUES (?1, ?2, ?3, ?4)",
-            params![record.execution_id, record.command, excerpt, record.rationale],
-        )?;
+        let execution_id = record.execution_id.clone();
+        let command = record.command.clone();
+        let rationale = record.rationale.clone();
+        let snapshot_path = record.snapshot_path.clone();
+        let excerpt_clone = excerpt.clone();
+        let record = record.clone();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO history_entries (id, kind, title, excerpt, content, path, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    execution_id,
+                    "managed-command",
+                    command,
+                    excerpt_clone,
+                    format!("{}\n{}", command, rationale),
+                    snapshot_path,
+                    timestamp,
+                ],
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO history_fts (id, title, excerpt, content) VALUES (?1, ?2, ?3, ?4)",
+                params![execution_id, command, excerpt_clone, rationale],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
         self.append_telemetry(
             "operational",
@@ -427,7 +455,7 @@ impl HistoryStore {
                 "duration_ms": record.duration_ms,
                 "snapshot": record.snapshot_path,
             }),
-        )?;
+        ).await?;
         self.append_telemetry(
             "cognitive",
             json!({
@@ -436,7 +464,7 @@ impl HistoryStore {
                 "source": record.source,
                 "rationale": record.rationale,
             }),
-        )?;
+        ).await?;
 
         let mut system = System::new_all();
         system.refresh_memory();
@@ -450,40 +478,43 @@ impl HistoryStore {
                 "used_memory": system.used_memory(),
                 "cpu_usage": system.global_cpu_info().cpu_usage(),
             }),
-        )?;
+        ).await?;
 
         Ok(())
     }
 
-    pub fn search(&self, query: &str, limit: usize) -> Result<(String, Vec<HistorySearchHit>)> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
-            "SELECT history_entries.id, kind, title, excerpt, path, timestamp, bm25(history_fts) \
-             FROM history_fts JOIN history_entries ON history_entries.id = history_fts.id \
-             WHERE history_fts MATCH ?1 ORDER BY bm25(history_fts) LIMIT ?2",
-        )?;
-        let rows = stmt.query_map(params![query, limit as i64], |row| {
-            Ok(HistorySearchHit {
-                id: row.get(0)?,
-                kind: row.get(1)?,
-                title: row.get(2)?,
-                excerpt: row.get(3)?,
-                path: row.get(4)?,
-                timestamp: row.get::<_, i64>(5)? as u64,
-                score: row.get(6)?,
-            })
-        })?;
+    pub async fn search(&self, query: &str, limit: usize) -> Result<(String, Vec<HistorySearchHit>)> {
+        let query = query.to_string();
+        let query = query.to_string();
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT history_entries.id, kind, title, excerpt, path, timestamp, bm25(history_fts) \
+                 FROM history_fts JOIN history_entries ON history_entries.id = history_fts.id \
+                 WHERE history_fts MATCH ?1 ORDER BY bm25(history_fts) LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![query, limit as i64], |row| {
+                Ok(HistorySearchHit {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    title: row.get(2)?,
+                    excerpt: row.get(3)?,
+                    path: row.get(4)?,
+                    timestamp: row.get::<_, i64>(5)? as u64,
+                    score: row.get(6)?,
+                })
+            })?;
 
-        let hits = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
-        let summary = if hits.is_empty() {
-            format!("No prior runs matched '{query}'.")
-        } else {
-            format!("Found {} historical matches for '{query}'.", hits.len())
-        };
-        Ok((summary, hits))
+            let hits = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+            let summary = if hits.is_empty() {
+                format!("No prior runs matched '{query}'.")
+            } else {
+                format!("Found {} historical matches for '{query}'.", hits.len())
+            };
+            Ok((summary, hits))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn generate_skill(
+    pub async fn generate_skill(
         &self,
         query: Option<&str>,
         title: Option<&str>,
@@ -491,6 +522,7 @@ impl HistoryStore {
         let title = title.unwrap_or("Recovered Workflow").trim();
         let (summary, hits) = self
             .search(query.unwrap_or("*"), 8)
+            .await
             .unwrap_or_else(|_| ("No history available.".to_string(), Vec::new()));
         let safe_name = title
             .chars()
@@ -519,11 +551,11 @@ impl HistoryStore {
         }
         std::fs::write(&path, body)
             .with_context(|| format!("failed to write {}", path.display()))?;
-        self.register_skill_document(&path)?;
+        self.register_skill_document(&path).await?;
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
     }
 
-    pub fn register_skill_document(&self, path: &Path) -> Result<SkillVariantRecord> {
+    pub async fn register_skill_document(&self, path: &Path) -> Result<SkillVariantRecord> {
         let skills_root = self.skills_root();
         let canonical = std::fs::canonicalize(path)
             .with_context(|| format!("failed to access skill document {}", path.display()))?;
@@ -544,232 +576,250 @@ impl HistoryStore {
             .with_context(|| format!("failed to read skill document {}", canonical.display()))?;
         let metadata = derive_skill_metadata(&relative_path, &content);
         let now = now_ts();
+        let context_tags_json = serde_json::to_string(&metadata.context_tags)?;
+        let skill_name = metadata.skill_name.clone();
+        let variant_name = metadata.variant_name.clone();
 
-        let connection = self.open_connection()?;
-        let existing: Option<SkillVariantRecord> = connection
-            .query_row(
-                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                 FROM skill_variants WHERE relative_path = ?1",
-                params![relative_path],
-                map_skill_variant_row,
-            )
-            .optional()?;
-
-        let variant_id = existing
-            .as_ref()
-            .map(|record| record.variant_id.clone())
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let version = existing
-            .as_ref()
-            .map(|record| record.version.clone())
-            .unwrap_or_else(|| {
-                let version_num: i64 = connection
-                    .query_row(
-                        "SELECT COUNT(*) FROM skill_variants WHERE skill_name = ?1",
-                        params![metadata.skill_name.as_str()],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(0);
-                format!("v{}.0", version_num + 1)
-            });
-        let parent_variant_id: Option<String> = if metadata.variant_name == "canonical" {
-            None
-        } else {
-            connection
+        let path = path.clone();
+        let variant_id = self.conn.call(move |conn| {
+            let existing: Option<SkillVariantRecord> = conn
                 .query_row(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants WHERE relative_path = ?1",
+                    params![relative_path],
+                    map_skill_variant_row,
+                )
+                .optional()?;
+
+            let variant_id = existing
+                .as_ref()
+                .map(|record| record.variant_id.clone())
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let version = existing
+                .as_ref()
+                .map(|record| record.version.clone())
+                .unwrap_or_else(|| {
+                    let version_num: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM skill_variants WHERE skill_name = ?1",
+                            params![skill_name.as_str()],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+                    format!("v{}.0", version_num + 1)
+                });
+            let parent_variant_id: Option<String> = if variant_name == "canonical" {
+                None
+            } else {
+                conn.query_row(
                     "SELECT variant_id FROM skill_variants WHERE skill_name = ?1 AND variant_name = 'canonical' LIMIT 1",
-                    params![metadata.skill_name.as_str()],
+                    params![skill_name.as_str()],
                     |row| row.get(0),
                 )
                 .optional()?
-        };
-        let created_at = existing
-            .as_ref()
-            .map(|record| record.created_at)
-            .unwrap_or(now);
-        let last_used_at = existing.as_ref().and_then(|record| record.last_used_at);
-        let use_count = existing
-            .as_ref()
-            .map(|record| record.use_count)
-            .unwrap_or(0);
-        let success_count = existing
-            .as_ref()
-            .map(|record| record.success_count)
-            .unwrap_or(0);
-        let failure_count = existing
-            .as_ref()
-            .map(|record| record.failure_count)
-            .unwrap_or(0);
-        let status = existing
-            .as_ref()
-            .map(|record| record.status.clone())
-            .unwrap_or_else(|| "active".to_string());
-        let context_tags_json = serde_json::to_string(&metadata.context_tags)?;
+            };
+            let created_at = existing
+                .as_ref()
+                .map(|record| record.created_at)
+                .unwrap_or(now);
+            let last_used_at = existing.as_ref().and_then(|record| record.last_used_at);
+            let use_count = existing
+                .as_ref()
+                .map(|record| record.use_count)
+                .unwrap_or(0);
+            let success_count = existing
+                .as_ref()
+                .map(|record| record.success_count)
+                .unwrap_or(0);
+            let failure_count = existing
+                .as_ref()
+                .map(|record| record.failure_count)
+                .unwrap_or(0);
+            let status = existing
+                .as_ref()
+                .map(|record| record.status.clone())
+                .unwrap_or_else(|| "active".to_string());
 
-        connection.execute(
-            "INSERT OR REPLACE INTO skill_variants \
-             (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                variant_id,
-                metadata.skill_name,
-                metadata.variant_name,
-                relative_path,
-                parent_variant_id,
-                version,
-                context_tags_json,
-                use_count as i64,
-                success_count as i64,
-                failure_count as i64,
-                status,
-                last_used_at.map(|value| value as i64),
-                created_at as i64,
-                now as i64,
-            ],
-        )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO skill_variants \
+                 (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                params![
+                    variant_id,
+                    skill_name,
+                    variant_name,
+                    relative_path,
+                    parent_variant_id,
+                    version,
+                    context_tags_json,
+                    use_count as i64,
+                    success_count as i64,
+                    failure_count as i64,
+                    status,
+                    last_used_at.map(|value| value as i64),
+                    created_at as i64,
+                    now as i64,
+                ],
+            )?;
 
-        connection
-            .query_row(
+            Ok(variant_id)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        self.rebalance_skill_variants(&metadata.skill_name).await?;
+
+        let vid = variant_id.clone();
+        self.conn.call(move |conn| {
+            conn.query_row(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
                  FROM skill_variants WHERE variant_id = ?1",
-                params![variant_id.clone()],
+                params![vid],
                 map_skill_variant_row,
             )
-            .context("failed to load registered skill variant")?;
-        self.rebalance_skill_variants(&metadata.skill_name)?;
-        self.open_connection()?
-            .query_row(
-                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                 FROM skill_variants WHERE variant_id = ?1",
-                params![variant_id],
-                map_skill_variant_row,
-            )
-            .context("failed to load rebalanced skill variant")
+            .map_err(Into::into)
+        }).await.context("failed to load rebalanced skill variant")
     }
 
-    pub fn list_skill_variants(
+    pub async fn list_skill_variants(
         &self,
         query: Option<&str>,
         limit: usize,
     ) -> Result<Vec<SkillVariantRecord>> {
-        let connection = self.open_connection()?;
         let normalized_query = query
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(|value| value.to_ascii_lowercase());
         let limit = limit.clamp(1, 200) as i64;
 
-        let mut variants = if let Some(query) = normalized_query.as_deref() {
-            let like = format!("%{query}%");
-            let mut stmt = connection.prepare(
-                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                 FROM skill_variants \
-                 WHERE lower(skill_name) LIKE ?1 OR lower(variant_name) LIKE ?1 OR lower(relative_path) LIKE ?1 OR lower(context_tags_json) LIKE ?1 \
-                 ORDER BY updated_at DESC LIMIT ?2",
-            )?;
-            let rows = stmt.query_map(params![like, limit], map_skill_variant_row)?;
-            rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
-        } else {
-            let mut stmt = connection.prepare(
-                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                 FROM skill_variants \
-                 ORDER BY updated_at DESC LIMIT ?1",
-            )?;
-            let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
-            rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
-        };
+        let query = query.map(str::to_string);
+        self.conn.call(move |conn| {
+            let mut variants = if let Some(query) = normalized_query.as_deref() {
+                let like = format!("%{query}%");
+                let mut stmt = conn.prepare(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants \
+                     WHERE lower(skill_name) LIKE ?1 OR lower(variant_name) LIKE ?1 OR lower(relative_path) LIKE ?1 OR lower(context_tags_json) LIKE ?1 \
+                     ORDER BY updated_at DESC LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![like, limit], map_skill_variant_row)?;
+                rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
+            } else {
+                let mut stmt = conn.prepare(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants \
+                     ORDER BY updated_at DESC LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
+                rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
+            };
 
-        variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
-        Ok(variants)
+            variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+            Ok(variants)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn resolve_skill_variant(
+    pub async fn resolve_skill_variant(
         &self,
         skill: &str,
         context_tags: &[String],
     ) -> Result<Option<SkillVariantRecord>> {
-        let connection = self.open_connection()?;
         let normalized = normalize_skill_lookup(skill);
         if normalized.is_empty() {
             return Ok(None);
         }
+        let context_tags = context_tags.to_vec();
 
-        let mut stmt = connection.prepare(
-            "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-             FROM skill_variants",
-        )?;
-        let rows = stmt.query_map([], map_skill_variant_row)?;
-        let mut candidates = rows
-            .filter_map(|row| row.ok())
-            .filter(|record| skill_variant_matches(record, &normalized))
-            .filter(|record| record.status != "archived" && record.status != "merged")
-            .collect::<Vec<_>>();
-        if candidates.is_empty() {
-            return Ok(None);
-        }
-        candidates.sort_by(|left, right| compare_skill_variants(left, right, context_tags));
-        Ok(candidates.into_iter().next())
+        let skill = skill.to_string();
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants",
+            )?;
+            let rows = stmt.query_map([], map_skill_variant_row)?;
+            let mut candidates = rows
+                .filter_map(|row| row.ok())
+                .filter(|record| skill_variant_matches(record, &normalized))
+                .filter(|record| record.status != "archived" && record.status != "merged")
+                .collect::<Vec<_>>();
+            if candidates.is_empty() {
+                return Ok(None);
+            }
+            candidates.sort_by(|left, right| compare_skill_variants(left, right, &context_tags));
+            Ok(candidates.into_iter().next())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn record_skill_variant_use(&self, variant_id: &str, outcome: Option<bool>) -> Result<()> {
-        let connection = self.open_connection()?;
-        let now = now_ts() as i64;
-        match outcome {
-            Some(true) => {
-                connection.execute(
-                    "UPDATE skill_variants \
-                     SET use_count = use_count + 1, success_count = success_count + 1, last_used_at = ?2, updated_at = ?2 \
-                     WHERE variant_id = ?1",
-                    params![variant_id, now],
-                )?;
+    pub async fn record_skill_variant_use(&self, variant_id: &str, outcome: Option<bool>) -> Result<()> {
+        let variant_id = variant_id.to_string();
+        let variant_id = variant_id.to_string();
+        self.conn.call(move |conn| {
+            let now = now_ts() as i64;
+            match outcome {
+                Some(true) => {
+                    conn.execute(
+                        "UPDATE skill_variants \
+                         SET use_count = use_count + 1, success_count = success_count + 1, last_used_at = ?2, updated_at = ?2 \
+                         WHERE variant_id = ?1",
+                        params![variant_id, now],
+                    )?;
+                }
+                Some(false) => {
+                    conn.execute(
+                        "UPDATE skill_variants \
+                         SET use_count = use_count + 1, failure_count = failure_count + 1, last_used_at = ?2, updated_at = ?2 \
+                         WHERE variant_id = ?1",
+                        params![variant_id, now],
+                    )?;
+                }
+                None => {
+                    conn.execute(
+                        "UPDATE skill_variants \
+                         SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
+                         WHERE variant_id = ?1",
+                        params![variant_id, now],
+                    )?;
+                }
             }
-            Some(false) => {
-                connection.execute(
-                    "UPDATE skill_variants \
-                     SET use_count = use_count + 1, failure_count = failure_count + 1, last_used_at = ?2, updated_at = ?2 \
-                     WHERE variant_id = ?1",
-                    params![variant_id, now],
-                )?;
-            }
-            None => {
-                connection.execute(
-                    "UPDATE skill_variants \
-                     SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
-                     WHERE variant_id = ?1",
-                    params![variant_id, now],
-                )?;
-            }
-        }
-        Ok(())
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn record_skill_variant_consultation(
+    pub async fn record_skill_variant_consultation(
         &self,
         record: &SkillVariantConsultationRecord<'_>,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
         let now = record.consulted_at as i64;
         let context_tags_json = serde_json::to_string(record.context_tags)?;
-        connection.execute(
-            "INSERT OR REPLACE INTO skill_variant_usage \
-             (usage_id, variant_id, thread_id, task_id, goal_run_id, context_tags_json, consulted_at, resolved_at, outcome) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)",
-            params![
-                record.usage_id,
-                record.variant_id,
-                record.thread_id,
-                record.task_id,
-                record.goal_run_id,
-                context_tags_json,
-                now,
-            ],
-        )?;
-        connection.execute(
-            "UPDATE skill_variants \
-             SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
-             WHERE variant_id = ?1",
-            params![record.variant_id, now],
-        )?;
+        let usage_id = record.usage_id.to_string();
+        let variant_id = record.variant_id.to_string();
+        let thread_id = record.thread_id.map(str::to_string);
+        let task_id = record.task_id.map(str::to_string);
+        let goal_run_id = record.goal_run_id.map(str::to_string);
+        let context_tags_owned: Vec<String> = record.context_tags.to_vec();
+
+        let record = record.clone();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO skill_variant_usage \
+                 (usage_id, variant_id, thread_id, task_id, goal_run_id, context_tags_json, consulted_at, resolved_at, outcome) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)",
+                params![
+                    usage_id,
+                    variant_id,
+                    thread_id,
+                    task_id,
+                    goal_run_id,
+                    context_tags_json,
+                    now,
+                ],
+            )?;
+            conn.execute(
+                "UPDATE skill_variants \
+                 SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
+                 WHERE variant_id = ?1",
+                params![variant_id, now],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
         self.append_telemetry(
             "cognitive",
             json!({
@@ -779,13 +829,13 @@ impl HistoryStore {
                 "thread_id": record.thread_id,
                 "task_id": record.task_id,
                 "goal_run_id": record.goal_run_id,
-                "context_tags": record.context_tags,
+                "context_tags": context_tags_owned,
             }),
-        )?;
+        ).await?;
         Ok(())
     }
 
-    pub fn settle_skill_variant_usage(
+    pub async fn settle_skill_variant_usage(
         &self,
         thread_id: Option<&str>,
         task_id: Option<&str>,
@@ -800,76 +850,72 @@ impl HistoryStore {
             anyhow::bail!("invalid skill usage outcome '{outcome}'");
         }
 
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
-            "SELECT usage_id, variant_id FROM skill_variant_usage \
-             WHERE resolved_at IS NULL AND ( \
-                (?1 IS NOT NULL AND task_id = ?1) OR \
-                (?2 IS NOT NULL AND goal_run_id = ?2) OR \
-                (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
-             )",
-        )?;
-        let rows = stmt.query_map(params![task_id, goal_run_id, thread_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        let pending = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
-        if pending.is_empty() {
-            return Ok(0);
-        }
+        let thread_id_owned = thread_id.map(str::to_string);
+        let task_id_owned = task_id.map(str::to_string);
+        let goal_run_id_owned = goal_run_id.map(str::to_string);
+        let outcome_clone = normalized_outcome.clone();
 
-        let resolved_at = now_ts() as i64;
-        let variant_ids = pending
-            .iter()
-            .map(|(_, variant_id)| variant_id.clone())
-            .collect::<BTreeSet<_>>();
-        let mut success_counts = BTreeMap::<String, usize>::new();
-        let mut failure_counts = BTreeMap::<String, usize>::new();
-        for (usage_id, variant_id) in &pending {
-            connection.execute(
-                "UPDATE skill_variant_usage SET resolved_at = ?2, outcome = ?3 WHERE usage_id = ?1",
-                params![usage_id, resolved_at, normalized_outcome.as_str()],
+        let thread_id = thread_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let goal_run_id = goal_run_id.map(str::to_string);
+        let outcome = outcome.to_string();
+        let (pending_len, skill_names) = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT usage_id, variant_id FROM skill_variant_usage \
+                 WHERE resolved_at IS NULL AND ( \
+                    (?1 IS NOT NULL AND task_id = ?1) OR \
+                    (?2 IS NOT NULL AND goal_run_id = ?2) OR \
+                    (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
+                 )",
             )?;
-            if normalized_outcome == "success" {
-                *success_counts.entry(variant_id.clone()).or_default() += 1;
-            } else {
-                *failure_counts.entry(variant_id.clone()).or_default() += 1;
+            let rows = stmt.query_map(params![task_id_owned, goal_run_id_owned, thread_id_owned], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let pending = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+            if pending.is_empty() {
+                return Ok((0usize, BTreeSet::<String>::new()));
             }
-        }
 
-        for (variant_id, count) in success_counts {
-            connection.execute(
-                "UPDATE skill_variants \
-                 SET success_count = success_count + ?2, updated_at = ?3 \
-                 WHERE variant_id = ?1",
-                params![variant_id, count as i64, resolved_at],
-            )?;
-        }
-        for (variant_id, count) in failure_counts {
-            connection.execute(
-                "UPDATE skill_variants \
-                 SET failure_count = failure_count + ?2, updated_at = ?3 \
-                 WHERE variant_id = ?1",
-                params![variant_id, count as i64, resolved_at],
-            )?;
-        }
+            let resolved_at = now_ts() as i64;
+            let variant_ids = pending
+                .iter()
+                .map(|(_, variant_id)| variant_id.clone())
+                .collect::<BTreeSet<_>>();
+            let mut success_counts = BTreeMap::<String, usize>::new();
+            let mut failure_counts = BTreeMap::<String, usize>::new();
+            for (usage_id, variant_id) in &pending {
+                conn.execute(
+                    "UPDATE skill_variant_usage SET resolved_at = ?2, outcome = ?3 WHERE usage_id = ?1",
+                    params![usage_id, resolved_at, outcome_clone.as_str()],
+                )?;
+                if outcome_clone == "success" {
+                    *success_counts.entry(variant_id.clone()).or_default() += 1;
+                } else {
+                    *failure_counts.entry(variant_id.clone()).or_default() += 1;
+                }
+            }
 
-        self.append_telemetry(
-            "cognitive",
-            json!({
-                "timestamp": resolved_at,
-                "kind": "skill_variant_settled",
-                "thread_id": thread_id,
-                "task_id": task_id,
-                "goal_run_id": goal_run_id,
-                "outcome": normalized_outcome,
-                "count": pending.len(),
-            }),
-        )?;
-        let skill_names = variant_ids
-            .into_iter()
-            .filter_map(|variant_id| {
-                connection
-                    .query_row(
+            for (variant_id, count) in success_counts {
+                conn.execute(
+                    "UPDATE skill_variants \
+                     SET success_count = success_count + ?2, updated_at = ?3 \
+                     WHERE variant_id = ?1",
+                    params![variant_id, count as i64, resolved_at],
+                )?;
+            }
+            for (variant_id, count) in failure_counts {
+                conn.execute(
+                    "UPDATE skill_variants \
+                     SET failure_count = failure_count + ?2, updated_at = ?3 \
+                     WHERE variant_id = ?1",
+                    params![variant_id, count as i64, resolved_at],
+                )?;
+            }
+
+            let skill_names = variant_ids
+                .into_iter()
+                .filter_map(|variant_id| {
+                    conn.query_row(
                         "SELECT skill_name FROM skill_variants WHERE variant_id = ?1",
                         params![variant_id],
                         |row| row.get::<_, String>(0),
@@ -877,118 +923,146 @@ impl HistoryStore {
                     .optional()
                     .ok()
                     .flatten()
-            })
-            .collect::<BTreeSet<_>>();
-        for skill_name in skill_names {
-            let _ = self.rebalance_skill_variants(&skill_name);
-            if normalized_outcome == "success" {
-                let _ = self.maybe_branch_skill_variants(&skill_name);
-                let _ = self.maybe_merge_skill_variants(&skill_name);
-            }
-        }
-        Ok(pending.len())
-    }
-
-    pub fn rebalance_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
-            "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-             FROM skill_variants WHERE skill_name = ?1",
-        )?;
-        let rows = stmt.query_map(params![skill_name], map_skill_variant_row)?;
-        let mut variants = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
-        if variants.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let now = now_ts();
-        let canonical = variants
-            .iter()
-            .find(|variant| variant.is_canonical())
-            .cloned();
-        let canonical_success_rate = canonical
-            .as_ref()
-            .map(SkillVariantRecord::success_rate)
-            .unwrap_or(0.0);
-        let promoted_variant_id = variants
-            .iter()
-            .filter(|variant| !variant.is_canonical())
-            .filter(|variant| {
-                variant.use_count >= SKILL_PROMOTION_MIN_USES
-                    && variant.success_count >= SKILL_PROMOTION_MIN_SUCCESS_COUNT
-                    && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
-                    && variant.success_rate() > canonical_success_rate + SKILL_PROMOTION_MARGIN
-            })
-            .max_by(|left, right| compare_skill_variants(left, right, &[]))
-            .map(|variant| variant.variant_id.clone());
-
-        for variant in &mut variants {
-            let next_status =
-                rebalance_skill_variant_status(variant, promoted_variant_id.as_deref(), now);
-            if next_status != variant.status {
-                connection.execute(
-                    "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
-                    params![variant.variant_id, next_status, now as i64],
-                )?;
-                variant.status = next_status.to_string();
-                variant.updated_at = now;
-            }
-        }
-
-        variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
-        Ok(variants)
-    }
-
-    pub fn maybe_branch_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
-            "SELECT skill_variants.variant_id, skill_variants.relative_path, skill_variants.context_tags_json, skill_variant_usage.context_tags_json \
-             FROM skill_variant_usage \
-             JOIN skill_variants ON skill_variants.variant_id = skill_variant_usage.variant_id \
-             WHERE skill_variants.skill_name = ?1 AND skill_variant_usage.outcome = 'success'",
-        )?;
-        let rows = stmt.query_map(params![skill_name], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
-
-        let mut candidates = BTreeMap::<(String, String), BranchCandidate>::new();
-        for row in rows.filter_map(|row| row.ok()) {
-            let (variant_id, relative_path, variant_tags_json, usage_tags_json) = row;
-            let variant_tags =
-                serde_json::from_str::<Vec<String>>(&variant_tags_json).unwrap_or_default();
-            let usage_tags =
-                serde_json::from_str::<Vec<String>>(&usage_tags_json).unwrap_or_default();
-            let mismatch = usage_tags
-                .into_iter()
-                .map(|value| value.to_ascii_lowercase())
-                .filter(|tag| {
-                    !variant_tags
-                        .iter()
-                        .any(|existing| existing.eq_ignore_ascii_case(tag))
                 })
                 .collect::<BTreeSet<_>>();
-            if mismatch.len() < 2 {
-                continue;
-            }
-            let branch_tags = mismatch.into_iter().take(3).collect::<Vec<_>>();
-            let branch_key = branch_tags.join("-");
-            let entry = candidates
-                .entry((variant_id.clone(), branch_key.clone()))
-                .or_insert_with(|| BranchCandidate {
-                    source_variant_id: variant_id.clone(),
-                    source_relative_path: relative_path.clone(),
-                    branch_tags: branch_tags.clone(),
-                    success_count: 0,
-                });
-            entry.success_count += 1;
+
+            Ok((pending.len(), skill_names))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        if pending_len == 0 {
+            return Ok(0);
         }
 
-        let existing = self.list_skill_variants(Some(skill_name), 200)?;
+        self.append_telemetry(
+            "cognitive",
+            json!({
+                "timestamp": now_ts() as i64,
+                "kind": "skill_variant_settled",
+                "thread_id": thread_id,
+                "task_id": task_id,
+                "goal_run_id": goal_run_id,
+                "outcome": normalized_outcome,
+                "count": pending_len,
+            }),
+        ).await?;
+
+        for skill_name in skill_names {
+            let _ = self.rebalance_skill_variants(&skill_name).await;
+            if normalized_outcome == "success" {
+                let _ = self.maybe_branch_skill_variants(&skill_name).await;
+                let _ = self.maybe_merge_skill_variants(&skill_name).await;
+            }
+        }
+        Ok(pending_len)
+    }
+
+    pub async fn rebalance_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
+        let skill_name = skill_name.to_string();
+        let skill_name = skill_name.to_string();
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE skill_name = ?1",
+            )?;
+            let rows = stmt.query_map(params![skill_name], map_skill_variant_row)?;
+            let mut variants = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+            if variants.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let now = now_ts();
+            let canonical = variants
+                .iter()
+                .find(|variant| variant.is_canonical())
+                .cloned();
+            let canonical_success_rate = canonical
+                .as_ref()
+                .map(SkillVariantRecord::success_rate)
+                .unwrap_or(0.0);
+            let promoted_variant_id = variants
+                .iter()
+                .filter(|variant| !variant.is_canonical())
+                .filter(|variant| {
+                    variant.use_count >= SKILL_PROMOTION_MIN_USES
+                        && variant.success_count >= SKILL_PROMOTION_MIN_SUCCESS_COUNT
+                        && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
+                        && variant.success_rate() > canonical_success_rate + SKILL_PROMOTION_MARGIN
+                })
+                .max_by(|left, right| compare_skill_variants(left, right, &[]))
+                .map(|variant| variant.variant_id.clone());
+
+            for variant in &mut variants {
+                let next_status =
+                    rebalance_skill_variant_status(variant, promoted_variant_id.as_deref(), now);
+                if next_status != variant.status {
+                    conn.execute(
+                        "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
+                        params![variant.variant_id, next_status, now as i64],
+                    )?;
+                    variant.status = next_status.to_string();
+                    variant.updated_at = now;
+                }
+            }
+
+            variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+            Ok(variants)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn maybe_branch_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
+        let skill_name_owned = skill_name.to_string();
+        let skill_name = skill_name.to_string();
+        let candidates = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT skill_variants.variant_id, skill_variants.relative_path, skill_variants.context_tags_json, skill_variant_usage.context_tags_json \
+                 FROM skill_variant_usage \
+                 JOIN skill_variants ON skill_variants.variant_id = skill_variant_usage.variant_id \
+                 WHERE skill_variants.skill_name = ?1 AND skill_variant_usage.outcome = 'success'",
+            )?;
+            let rows = stmt.query_map(params![skill_name_owned], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?;
+
+            let mut candidates = BTreeMap::<(String, String), BranchCandidate>::new();
+            for row in rows.filter_map(|row| row.ok()) {
+                let (variant_id, relative_path, variant_tags_json, usage_tags_json) = row;
+                let variant_tags =
+                    serde_json::from_str::<Vec<String>>(&variant_tags_json).unwrap_or_default();
+                let usage_tags =
+                    serde_json::from_str::<Vec<String>>(&usage_tags_json).unwrap_or_default();
+                let mismatch = usage_tags
+                    .into_iter()
+                    .map(|value| value.to_ascii_lowercase())
+                    .filter(|tag| {
+                        !variant_tags
+                            .iter()
+                            .any(|existing| existing.eq_ignore_ascii_case(tag))
+                    })
+                    .collect::<BTreeSet<_>>();
+                if mismatch.len() < 2 {
+                    continue;
+                }
+                let branch_tags = mismatch.into_iter().take(3).collect::<Vec<_>>();
+                let branch_key = branch_tags.join("-");
+                let entry = candidates
+                    .entry((variant_id.clone(), branch_key.clone()))
+                    .or_insert_with(|| BranchCandidate {
+                        source_variant_id: variant_id.clone(),
+                        source_relative_path: relative_path.clone(),
+                        branch_tags: branch_tags.clone(),
+                        success_count: 0,
+                    });
+                entry.success_count += 1;
+            }
+            Ok(candidates)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let existing = self.list_skill_variants(Some(&skill_name), 200).await?;
         let mut created = Vec::new();
         for candidate in candidates.into_values() {
             if candidate.success_count < 3 {
@@ -1000,25 +1074,29 @@ impl HistoryStore {
             }) {
                 continue;
             }
-            if let Some(record) = self.create_branched_skill_variant(skill_name, &candidate)? {
+            if let Some(record) = self.create_branched_skill_variant(&skill_name, &candidate).await? {
                 created.push(record);
             }
         }
 
         if !created.is_empty() {
-            let _ = self.rebalance_skill_variants(skill_name);
+            let _ = self.rebalance_skill_variants(&skill_name).await;
         }
         Ok(created)
     }
 
-    pub fn maybe_merge_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
-            "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-             FROM skill_variants WHERE skill_name = ?1",
-        )?;
-        let rows = stmt.query_map(params![skill_name], map_skill_variant_row)?;
-        let variants = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+    pub async fn maybe_merge_skill_variants(&self, skill_name: &str) -> Result<Vec<SkillVariantRecord>> {
+        let skill_name_owned = skill_name.to_string();
+        let skill_name = skill_name.to_string();
+        let variants = self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE skill_name = ?1",
+            )?;
+            let rows = stmt.query_map(params![skill_name_owned], map_skill_variant_row)?;
+            Ok(rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
         if variants.is_empty() {
             return Ok(Vec::new());
         }
@@ -1086,16 +1164,21 @@ impl HistoryStore {
                     canonical_path.display()
                 )
             })?;
-            let _ = self.register_skill_document(&canonical_path)?;
+            let _ = self.register_skill_document(&canonical_path).await?;
         }
 
-        for variant_id in &merged_ids {
-            connection.execute(
-                "UPDATE skill_variants SET status = 'merged', updated_at = ?2 WHERE variant_id = ?1",
-                params![variant_id, now as i64],
-            )?;
-        }
+        let merged_ids_clone = merged_ids.clone();
+        self.conn.call(move |conn| {
+            for variant_id in &merged_ids_clone {
+                conn.execute(
+                    "UPDATE skill_variants SET status = 'merged', updated_at = ?2 WHERE variant_id = ?1",
+                    params![variant_id, now as i64],
+                )?;
+            }
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
+        let merged_notes_len = merged_notes.len();
         self.append_telemetry(
             "cognitive",
             json!({
@@ -1103,14 +1186,14 @@ impl HistoryStore {
                 "kind": "skill_variant_merged",
                 "skill_name": skill_name,
                 "variant_ids": merged_ids,
-                "merged_count": merged_notes.len(),
+                "merged_count": merged_notes_len,
             }),
-        )?;
+        ).await?;
 
-        self.list_skill_variants(Some(skill_name), 200)
+        self.list_skill_variants(Some(&skill_name), 200).await
     }
 
-    fn create_branched_skill_variant(
+    async fn create_branched_skill_variant(
         &self,
         skill_name: &str,
         candidate: &BranchCandidate,
@@ -1141,7 +1224,7 @@ impl HistoryStore {
             .join("generated")
             .join(format!("{skill_name}--{branch_slug}.md"));
         if branch_path.exists() {
-            return self.register_skill_document(&branch_path).map(Some);
+            return self.register_skill_document(&branch_path).await.map(Some);
         }
 
         let mut body = format!(
@@ -1161,12 +1244,13 @@ impl HistoryStore {
         }
         std::fs::write(&branch_path, body)
             .with_context(|| format!("failed to write branched skill {}", branch_path.display()))?;
-        self.register_skill_document(&branch_path).map(Some)
+        self.register_skill_document(&branch_path).await.map(Some)
     }
 
-    pub fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+    pub async fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
+        let entry = entry.clone();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO command_log \
              (id, command, timestamp, path, cwd, workspace_id, surface_id, pane_id, exit_code, duration_ms) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -1184,29 +1268,34 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn complete_command_log(
+    pub async fn complete_command_log(
         &self,
         id: &str,
         exit_code: Option<i32>,
         duration_ms: Option<i64>,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let id = id.to_string();
+        self.conn.call(move |conn| {
+        conn.execute(
             "UPDATE command_log SET exit_code = ?2, duration_ms = ?3 WHERE id = ?1",
             params![id, exit_code, duration_ms],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn query_command_log(
+    pub async fn query_command_log(
         &self,
         workspace_id: Option<&str>,
         pane_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<CommandLogEntry>> {
-        let connection = self.open_connection()?;
+        let workspace_id = workspace_id.map(str::to_string);
+        let pane_id = pane_id.map(str::to_string);
+        self.conn.call(move |conn| {
         let limit = limit.unwrap_or(200).max(1) as i64;
 
         let sql = match (workspace_id.is_some(), pane_id.is_some()) {
@@ -1231,7 +1320,7 @@ impl HistoryStore {
             }
         };
 
-        let mut stmt = connection.prepare(sql)?;
+        let mut stmt = conn.prepare(sql)?;
         let rows = match (workspace_id, pane_id) {
             (Some(workspace_id), Some(pane_id)) => {
                 stmt.query_map(params![workspace_id, pane_id, limit], map_command_log_entry)?
@@ -1246,17 +1335,20 @@ impl HistoryStore {
         };
 
         Ok(rows.filter_map(|row| row.ok()).collect())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn clear_command_log(&self) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute("DELETE FROM command_log", [])?;
+    pub async fn clear_command_log(&self) -> Result<()> {
+        self.conn.call(move |conn| {
+        conn.execute("DELETE FROM command_log", [])?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn create_thread(&self, thread: &AgentDbThread) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+    pub async fn create_thread(&self, thread: &AgentDbThread) -> Result<()> {
+        let thread = thread.clone();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO agent_threads \
              (id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
@@ -1276,27 +1368,32 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn delete_thread(&self, id: &str) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute("DELETE FROM agent_threads WHERE id = ?1", params![id])?;
+    pub async fn delete_thread(&self, id: &str) -> Result<()> {
+        let id = id.to_string();
+        self.conn.call(move |conn| {
+        conn.execute("DELETE FROM agent_threads WHERE id = ?1", params![id])?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_threads(&self) -> Result<Vec<AgentDbThread>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+    pub async fn list_threads(&self) -> Result<Vec<AgentDbThread>> {
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json \
              FROM agent_threads ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], map_agent_thread)?;
         Ok(rows.filter_map(|row| row.ok()).collect())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn get_thread(&self, id: &str) -> Result<Option<AgentDbThread>> {
-        let connection = self.open_connection()?;
-        connection
+    pub async fn get_thread(&self, id: &str) -> Result<Option<AgentDbThread>> {
+        let id = id.to_string();
+        self.conn.call(move |conn| {
+        conn
             .query_row(
                 "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json \
                  FROM agent_threads WHERE id = ?1",
@@ -1305,11 +1402,13 @@ impl HistoryStore {
             )
             .optional()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn add_message(&self, message: &AgentDbMessage) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+    pub async fn add_message(&self, message: &AgentDbMessage) -> Result<()> {
+        let message = message.clone();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO agent_messages \
              (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -1329,13 +1428,16 @@ impl HistoryStore {
                 message.metadata_json,
             ],
         )?;
-        self.refresh_thread_stats(&connection, &message.thread_id)?;
+        refresh_thread_stats(conn, &message.thread_id)?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn update_message(&self, id: &str, patch: &AgentMessagePatch) -> Result<()> {
-        let connection = self.open_connection()?;
-        let thread_id: Option<String> = connection
+    pub async fn update_message(&self, id: &str, patch: &AgentMessagePatch) -> Result<()> {
+        let id = id.to_string();
+        let patch = patch.clone();
+        self.conn.call(move |conn| {
+        let thread_id: Option<String> = conn
             .query_row(
                 "SELECT thread_id FROM agent_messages WHERE id = ?1",
                 params![id],
@@ -1347,7 +1449,7 @@ impl HistoryStore {
             return Ok(());
         }
 
-        connection.execute(
+        conn.execute(
             "UPDATE agent_messages SET
                 content = COALESCE(?2, content),
                 provider = COALESCE(?3, provider),
@@ -1374,17 +1476,20 @@ impl HistoryStore {
         )?;
 
         if let Some(thread_id) = thread_id {
-            self.refresh_thread_stats(&connection, &thread_id)?;
+            refresh_thread_stats(conn, &thread_id)?;
         }
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Delete specific messages from a thread by their IDs.
-    pub fn delete_messages(&self, thread_id: &str, message_ids: &[&str]) -> Result<usize> {
+    pub async fn delete_messages(&self, thread_id: &str, message_ids: &[&str]) -> Result<usize> {
         if message_ids.is_empty() {
             return Ok(0);
         }
-        let connection = self.open_connection()?;
+        let thread_id = thread_id.to_string();
+        let message_ids: Vec<String> = message_ids.iter().map(|s| s.to_string()).collect();
+        self.conn.call(move |conn| {
         let placeholders: Vec<String> = message_ids.iter().map(|_| "?".to_string()).collect();
         let sql = format!(
             "DELETE FROM agent_messages WHERE thread_id = ? AND id IN ({})",
@@ -1396,30 +1501,34 @@ impl HistoryStore {
             params.push(Box::new(id.to_string()));
         }
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count = connection.execute(&sql, refs.as_slice())?;
-        self.refresh_thread_stats(&connection, thread_id)?;
+        let count = conn.execute(&sql, refs.as_slice())?;
+        refresh_thread_stats(conn, &thread_id)?;
         Ok(count)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_messages(
+    pub async fn list_messages(
         &self,
         thread_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<AgentDbMessage>> {
-        let connection = self.open_connection()?;
+        let thread_id = thread_id.to_string();
+        self.conn.call(move |conn| {
         let limit = limit.unwrap_or(500).max(1) as i64;
-        let mut stmt = connection.prepare(
+        let mut stmt = conn.prepare(
             "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
              FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at ASC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![thread_id, limit], map_agent_message)?;
         Ok(rows.filter_map(|row| row.ok()).collect())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn get_worm_chain_tip(&self, kind: &str) -> Result<Option<WormChainTip>> {
-        let connection = self.open_connection()?;
-        connection
-            .query_row(
+    pub async fn get_worm_chain_tip(&self, kind: &str) -> Result<Option<WormChainTip>> {
+        let kind = kind.to_string();
+        let kind = kind.to_string();
+        self.conn.call(move |conn| {
+            conn.query_row(
                 "SELECT kind, seq, hash FROM worm_chain_tip WHERE kind = ?1",
                 params![kind],
                 |row| {
@@ -1432,21 +1541,28 @@ impl HistoryStore {
             )
             .optional()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn set_worm_chain_tip(&self, kind: &str, seq: i64, hash: &str) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
-            "INSERT INTO worm_chain_tip (kind, seq, hash) VALUES (?1, ?2, ?3) \
-             ON CONFLICT(kind) DO UPDATE SET seq = excluded.seq, hash = excluded.hash",
-            params![kind, seq, hash],
-        )?;
-        Ok(())
+    pub async fn set_worm_chain_tip(&self, kind: &str, seq: i64, hash: &str) -> Result<()> {
+        let kind = kind.to_string();
+        let hash = hash.to_string();
+        let kind = kind.to_string();
+        let hash = hash.to_string();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT INTO worm_chain_tip (kind, seq, hash) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT(kind) DO UPDATE SET seq = excluded.seq, hash = excluded.hash",
+                params![kind, seq, hash],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+    pub async fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
+        let entry = entry.clone();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO transcript_index \
              (id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -1463,13 +1579,15 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_transcript_index(
+    pub async fn list_transcript_index(
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<TranscriptIndexEntry>> {
-        let connection = self.open_connection()?;
+        let workspace_id = workspace_id.map(str::to_string);
+        self.conn.call(move |conn| {
         let sql = if workspace_id.is_some() {
             "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
              FROM transcript_index WHERE workspace_id = ?1 ORDER BY captured_at DESC"
@@ -1477,18 +1595,20 @@ impl HistoryStore {
             "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
              FROM transcript_index ORDER BY captured_at DESC"
         };
-        let mut stmt = connection.prepare(sql)?;
+        let mut stmt = conn.prepare(sql)?;
         let rows = if let Some(workspace_id) = workspace_id {
             stmt.query_map(params![workspace_id], map_transcript_index_entry)?
         } else {
             stmt.query_map([], map_transcript_index_entry)?
         };
         Ok(rows.filter_map(|row| row.ok()).collect())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+    pub async fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
+        let entry = entry.clone();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO snapshot_index \
              (snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -1504,13 +1624,15 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_snapshot_index(
+    pub async fn list_snapshot_index(
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<SnapshotIndexEntry>> {
-        let connection = self.open_connection()?;
+        let workspace_id = workspace_id.map(str::to_string);
+        self.conn.call(move |conn| {
         let sql = if workspace_id.is_some() {
             "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
              FROM snapshot_index WHERE workspace_id = ?1 OR workspace_id IS NULL ORDER BY created_at DESC"
@@ -1518,18 +1640,20 @@ impl HistoryStore {
             "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
              FROM snapshot_index ORDER BY created_at DESC"
         };
-        let mut stmt = connection.prepare(sql)?;
+        let mut stmt = conn.prepare(sql)?;
         let rows = if let Some(workspace_id) = workspace_id {
             stmt.query_map(params![workspace_id], map_snapshot_index_entry)?
         } else {
             stmt.query_map([], map_snapshot_index_entry)?
         };
         Ok(rows.filter_map(|row| row.ok()).collect())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn get_snapshot_index(&self, snapshot_id: &str) -> Result<Option<SnapshotIndexEntry>> {
-        let connection = self.open_connection()?;
-        connection
+    pub async fn get_snapshot_index(&self, snapshot_id: &str) -> Result<Option<SnapshotIndexEntry>> {
+        let snapshot_id = snapshot_id.to_string();
+        self.conn.call(move |conn| {
+        conn
             .query_row(
                 "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
                  FROM snapshot_index WHERE snapshot_id = ?1",
@@ -1538,20 +1662,24 @@ impl HistoryStore {
             )
             .optional()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn delete_snapshot_index(&self, snapshot_id: &str) -> Result<bool> {
-        let connection = self.open_connection()?;
-        let affected = connection.execute(
+    pub async fn delete_snapshot_index(&self, snapshot_id: &str) -> Result<bool> {
+        let snapshot_id = snapshot_id.to_string();
+        self.conn.call(move |conn| {
+        let affected = conn.execute(
             "DELETE FROM snapshot_index WHERE snapshot_id = ?1",
             params![snapshot_id],
         )?;
         Ok(affected > 0)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+    pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
+        let entry = entry.clone();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO agent_events \
              (id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -1568,15 +1696,18 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_agent_events(
+    pub async fn list_agent_events(
         &self,
         category: Option<&str>,
         pane_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<AgentEventRow>> {
-        let connection = self.open_connection()?;
+        let category = category.map(str::to_string);
+        let pane_id = pane_id.map(str::to_string);
+        self.conn.call(move |conn| {
         let limit = limit.unwrap_or(500).max(1) as i64;
         let sql = match (category.is_some(), pane_id.is_some()) {
             (true, true) => {
@@ -1596,7 +1727,7 @@ impl HistoryStore {
                  FROM agent_events ORDER BY timestamp DESC LIMIT ?1"
             }
         };
-        let mut stmt = connection.prepare(sql)?;
+        let mut stmt = conn.prepare(sql)?;
         let rows = match (category, pane_id) {
             (Some(category), Some(pane_id)) => {
                 stmt.query_map(params![category, pane_id, limit], map_agent_event_row)?
@@ -1610,12 +1741,14 @@ impl HistoryStore {
             (None, None) => stmt.query_map(params![limit], map_agent_event_row)?,
         };
         Ok(rows.filter_map(|row| row.ok()).collect())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn upsert_agent_task(&self, task: &AgentTask) -> Result<()> {
-        let mut connection = self.open_connection()?;
-        let transaction = connection.transaction()?;
-        let notify_channels_json = serde_json::to_string(&task.notify_channels)?;
+    pub async fn upsert_agent_task(&self, task: &AgentTask) -> Result<()> {
+        let task = task.clone();
+        self.conn.call(move |conn| {
+        let transaction = conn.transaction()?;
+        let notify_channels_json = serde_json::to_string(&task.notify_channels).call_err()?;
 
         transaction.execute(
             "INSERT OR REPLACE INTO agent_tasks \
@@ -1690,17 +1823,20 @@ impl HistoryStore {
 
         transaction.commit()?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn delete_agent_task(&self, task_id: &str) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute("DELETE FROM agent_tasks WHERE id = ?1", params![task_id])?;
+    pub async fn delete_agent_task(&self, task_id: &str) -> Result<()> {
+        let task_id = task_id.to_string();
+        self.conn.call(move |conn| {
+        conn.execute("DELETE FROM agent_tasks WHERE id = ?1", params![task_id])?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_agent_tasks(&self) -> Result<Vec<AgentTask>> {
-        let connection = self.open_connection()?;
-        let mut dependency_stmt = connection.prepare(
+    pub async fn list_agent_tasks(&self) -> Result<Vec<AgentTask>> {
+        self.conn.call(move |conn| {
+        let mut dependency_stmt = conn.prepare(
             "SELECT task_id, depends_on_task_id FROM agent_task_dependencies ORDER BY ordinal ASC",
         )?;
         let dependency_rows = dependency_stmt.query_map([], |row| {
@@ -1712,7 +1848,7 @@ impl HistoryStore {
             dependency_map.entry(task_id).or_default().push(dependency);
         }
 
-        let mut log_stmt = connection.prepare(
+        let mut log_stmt = conn.prepare(
             "SELECT id, task_id, timestamp, level, phase, message, details, attempt FROM agent_task_logs ORDER BY timestamp ASC",
         )?;
         let log_rows = log_stmt.query_map([], |row| {
@@ -1735,7 +1871,7 @@ impl HistoryStore {
             log_map.entry(task_id).or_default().push(log);
         }
 
-        let mut stmt = connection.prepare(
+        let mut stmt = conn.prepare(
             "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
              FROM agent_tasks \
              ORDER BY CASE status \
@@ -1817,13 +1953,15 @@ impl HistoryStore {
             tasks.push(task);
         }
         Ok(tasks)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
-        let mut connection = self.open_connection()?;
-        let transaction = connection.transaction()?;
-        let memory_updates_json = serde_json::to_string(&goal_run.memory_updates)?;
-        let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids)?;
+    pub async fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
+        let goal_run = goal_run.clone();
+        self.conn.call(move |conn| {
+        let transaction = conn.transaction()?;
+        let memory_updates_json = serde_json::to_string(&goal_run.memory_updates).call_err()?;
+        let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids).call_err()?;
 
         transaction.execute(
             "INSERT OR REPLACE INTO goal_runs \
@@ -1887,7 +2025,7 @@ impl HistoryStore {
             params![&goal_run.id],
         )?;
         for event in &goal_run.events {
-            let todo_snapshot_json = serde_json::to_string(&event.todo_snapshot)?;
+            let todo_snapshot_json = serde_json::to_string(&event.todo_snapshot).call_err()?;
             transaction.execute(
                 "INSERT OR REPLACE INTO goal_run_events (id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
@@ -1905,11 +2043,12 @@ impl HistoryStore {
 
         transaction.commit()?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_goal_runs(&self) -> Result<Vec<GoalRun>> {
-        let connection = self.open_connection()?;
-        let mut step_stmt = connection.prepare(
+    pub async fn list_goal_runs(&self) -> Result<Vec<GoalRun>> {
+        self.conn.call(move |conn| {
+        let mut step_stmt = conn.prepare(
             "SELECT id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at \
              FROM goal_run_steps ORDER BY goal_run_id ASC, ordinal ASC",
         )?;
@@ -1939,7 +2078,7 @@ impl HistoryStore {
             step_map.entry(goal_run_id).or_default().push(step);
         }
 
-        let mut event_stmt = connection.prepare(
+        let mut event_stmt = conn.prepare(
             "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json FROM goal_run_events ORDER BY timestamp ASC",
         )?;
         let event_rows = event_stmt.query_map([], |row| {
@@ -1966,7 +2105,7 @@ impl HistoryStore {
             event_map.entry(goal_run_id).or_default().push(event);
         }
 
-        let mut stmt = connection.prepare(
+        let mut stmt = conn.prepare(
             "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, child_task_ids_json \
              FROM goal_runs ORDER BY updated_at DESC",
         )?;
@@ -2017,32 +2156,37 @@ impl HistoryStore {
             goal_runs.push(goal_run);
         }
         Ok(goal_runs)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn get_goal_run(&self, goal_run_id: &str) -> Result<Option<GoalRun>> {
+    pub async fn get_goal_run(&self, goal_run_id: &str) -> Result<Option<GoalRun>> {
         Ok(self
-            .list_goal_runs()?
+            .list_goal_runs()
+            .await?
             .into_iter()
             .find(|goal_run| goal_run.id == goal_run_id))
     }
 
-    pub fn upsert_collaboration_session(
+    pub async fn upsert_collaboration_session(
         &self,
         parent_task_id: &str,
         session_json: &str,
         updated_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let parent_task_id = parent_task_id.to_string();
+        let session_json = session_json.to_string();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO collaboration_sessions (parent_task_id, session_json, updated_at) VALUES (?1, ?2, ?3)",
             params![parent_task_id, session_json, updated_at as i64],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_collaboration_sessions(&self) -> Result<Vec<CollaborationSessionRow>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+    pub async fn list_collaboration_sessions(&self) -> Result<Vec<CollaborationSessionRow>> {
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT parent_task_id, session_json, updated_at FROM collaboration_sessions ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -2054,6 +2198,7 @@ impl HistoryStore {
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     async fn init_schema(&self) -> Result<()> {
@@ -2453,17 +2598,19 @@ impl HistoryStore {
             [],
         )?;
         Ok(())
-        }).await
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    fn append_telemetry(&self, kind: &str, payload: serde_json::Value) -> Result<()> {
+    async fn append_telemetry(&self, kind: &str, payload: serde_json::Value) -> Result<()> {
         let line = serde_json::to_string(&payload)?;
-        let log_path = self.telemetry_dir.join(format!("{}.jsonl", kind));
-        let worm_path = self.worm_dir.join(format!("{}-ledger.jsonl", kind));
+        let telemetry_dir = self.telemetry_dir.clone();
+        let worm_dir = self.worm_dir.clone();
+        let log_path = telemetry_dir.join(format!("{}.jsonl", kind));
+        let worm_path = worm_dir.join(format!("{}-ledger.jsonl", kind));
 
         append_line(&log_path, &line)?;
 
-        let (prev_hash, seq) = match self.get_worm_chain_tip(kind)? {
+        let (prev_hash, seq) = match self.get_worm_chain_tip(kind).await? {
             Some(tip) => (tip.hash, tip.seq + 1),
             None => {
                 let (prev_hash, seq) = read_last_worm_entry(&worm_path);
@@ -2480,15 +2627,15 @@ impl HistoryStore {
             "payload": payload,
         }))?;
         append_line(&worm_path, &worm_line)?;
-        self.set_worm_chain_tip(kind, seq, &hash)?;
+        self.set_worm_chain_tip(kind, seq, &hash).await?;
         Ok(())
     }
 
     /// Detect sequences of 3+ consecutive successful managed commands
     /// that completed within a 5-minute window.
-    pub fn detect_skill_candidates(&self) -> Result<Vec<(String, Vec<HistorySearchHit>)>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+    pub async fn detect_skill_candidates(&self) -> Result<Vec<(String, Vec<HistorySearchHit>)>> {
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT id, kind, title, excerpt, path, timestamp FROM history_entries \
              WHERE kind = 'managed-command' \
              ORDER BY timestamp DESC LIMIT 20",
@@ -2536,6 +2683,7 @@ impl HistoryStore {
         }
 
         Ok(candidates)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Verify the hash-chain integrity of all WORM telemetry ledger files.
@@ -2576,26 +2724,7 @@ impl HistoryStore {
         Ok(key)
     }
 
-    fn refresh_thread_stats(&self, connection: &Connection, thread_id: &str) -> Result<()> {
-        let (message_count, total_tokens, last_preview, updated_at): (i64, i64, String, i64) = connection.query_row(
-            "SELECT 
-                COUNT(*),
-                COALESCE(SUM(total_tokens), 0),
-                COALESCE((SELECT substr(content, 1, 100) FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), ''),
-                COALESCE((SELECT created_at FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), strftime('%s','now') * 1000)
-             FROM agent_messages WHERE thread_id = ?1",
-            params![thread_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )?;
-
-        connection.execute(
-            "UPDATE agent_threads SET message_count = ?2, total_tokens = ?3, last_preview = ?4, updated_at = ?5 WHERE id = ?1",
-            params![thread_id, message_count, total_tokens, last_preview, updated_at],
-        )?;
-        Ok(())
-    }
-
-    pub fn upsert_subagent_metrics(
+    pub async fn upsert_subagent_metrics(
         &self,
         task_id: &str,
         parent_task_id: Option<&str>,
@@ -2612,8 +2741,12 @@ impl HistoryStore {
         created_at: u64,
         updated_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let task_id = task_id.to_string();
+        let parent_task_id = parent_task_id.map(str::to_string);
+        let thread_id = thread_id.map(str::to_string);
+        let health_state = health_state.to_string();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO subagent_metrics \
              (task_id, parent_task_id, thread_id, tool_calls_total, tool_calls_succeeded, tool_calls_failed, tokens_consumed, context_budget_tokens, progress_rate, last_progress_at, stuck_score, health_state, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
@@ -2635,28 +2768,43 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn record_memory_provenance(&self, record: &MemoryProvenanceRecord<'_>) -> Result<()> {
-        let connection = self.open_connection()?;
+    pub async fn record_memory_provenance(&self, record: &MemoryProvenanceRecord<'_>) -> Result<()> {
         let fact_keys_json = serde_json::to_string(record.fact_keys)?;
-        connection.execute(
-            "INSERT OR REPLACE INTO memory_provenance \
-             (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                record.id,
-                record.target,
-                record.mode,
-                record.source_kind,
-                record.content,
-                fact_keys_json,
-                record.thread_id,
-                record.task_id,
-                record.goal_run_id,
-                record.created_at as i64,
-            ],
-        )?;
+        let id = record.id.to_string();
+        let target = record.target.to_string();
+        let mode = record.mode.to_string();
+        let source_kind = record.source_kind.to_string();
+        let content = record.content.to_string();
+        let thread_id = record.thread_id.map(str::to_string);
+        let task_id = record.task_id.map(str::to_string);
+        let goal_run_id = record.goal_run_id.map(str::to_string);
+        let created_at = record.created_at;
+        let fact_keys_owned: Vec<String> = record.fact_keys.to_vec();
+
+        let record = record.clone();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO memory_provenance \
+                 (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    id,
+                    target,
+                    mode,
+                    source_kind,
+                    content,
+                    fact_keys_json,
+                    thread_id,
+                    task_id,
+                    goal_run_id,
+                    created_at as i64,
+                ],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
         self.append_telemetry(
             "cognitive",
             json!({
@@ -2668,20 +2816,22 @@ impl HistoryStore {
                 "thread_id": record.thread_id,
                 "task_id": record.task_id,
                 "goal_run_id": record.goal_run_id,
-                "fact_keys": record.fact_keys,
+                "fact_keys": fact_keys_owned,
             }),
-        )?;
+        ).await?;
         Ok(())
     }
 
-    pub fn memory_provenance_report(
+    pub async fn memory_provenance_report(
         &self,
         target: Option<&str>,
         limit: usize,
     ) -> Result<MemoryProvenanceReport> {
-        let connection = self.open_connection()?;
+        let target = target.map(str::to_string);
+        self.conn.call(move |conn| {
         let limit = limit.clamp(1, 200);
         let normalized_target = target
+            .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
@@ -2697,7 +2847,7 @@ impl HistoryStore {
             .as_millis() as u64;
         match normalized_target.as_deref() {
             Some(target) => {
-                let mut stmt = connection.prepare(
+                let mut stmt = conn.prepare(
                     "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at \
                      FROM memory_provenance WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
                 )?;
@@ -2715,7 +2865,7 @@ impl HistoryStore {
                 }
             }
             None => {
-                let mut stmt = connection.prepare(
+                let mut stmt = conn.prepare(
                     "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at \
                      FROM memory_provenance ORDER BY created_at DESC LIMIT ?1",
                 )?;
@@ -2742,9 +2892,10 @@ impl HistoryStore {
             summary_by_status,
             entries,
         })
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn record_provenance_event(&self, record: &ProvenanceEventRecord<'_>) -> Result<()> {
+    pub async fn record_provenance_event(&self, record: &ProvenanceEventRecord<'_>) -> Result<()> {
         let telemetry_path = self.telemetry_dir.join("provenance.jsonl");
         let previous_entry = read_last_provenance_entry(&telemetry_path);
         let sequence = previous_entry
@@ -2796,7 +2947,7 @@ impl HistoryStore {
             compliance_mode: record.compliance_mode.to_string(),
         };
 
-        self.append_telemetry("provenance", serde_json::to_value(entry)?)?;
+        self.append_telemetry("provenance", serde_json::to_value(entry)?).await?;
         Ok(())
     }
 
@@ -2921,9 +3072,10 @@ impl HistoryStore {
         Ok(path)
     }
 
-    pub fn get_subagent_metrics(&self, task_id: &str) -> Result<Option<SubagentMetrics>> {
-        let connection = self.open_connection()?;
-        connection
+    pub async fn get_subagent_metrics(&self, task_id: &str) -> Result<Option<SubagentMetrics>> {
+        let task_id = task_id.to_string();
+        self.conn.call(move |conn| {
+        conn
             .query_row(
                 "SELECT task_id, parent_task_id, thread_id, tool_calls_total, tool_calls_succeeded, tool_calls_failed, tokens_consumed, context_budget_tokens, progress_rate, last_progress_at, stuck_score, health_state, created_at, updated_at \
                  FROM subagent_metrics WHERE task_id = ?1",
@@ -2949,10 +3101,11 @@ impl HistoryStore {
             )
             .optional()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Insert or replace a checkpoint row in the `agent_checkpoints` table.
-    pub fn upsert_checkpoint(
+    pub async fn upsert_checkpoint(
         &self,
         id: &str,
         goal_run_id: &str,
@@ -2963,7 +3116,13 @@ impl HistoryStore {
         context_summary: Option<&str>,
         created_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
+        let id = id.to_string();
+        let goal_run_id = goal_run_id.to_string();
+        let thread_id = thread_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let state_json = state_json.to_string();
+        let context_summary = context_summary.map(str::to_string);
+        self.conn.call(move |conn| {
         let type_str = match checkpoint_type {
             CheckpointType::PreStep => "pre_step",
             CheckpointType::PostStep => "post_step",
@@ -2971,7 +3130,7 @@ impl HistoryStore {
             CheckpointType::PreRecovery => "pre_recovery",
             CheckpointType::Periodic => "periodic",
         };
-        connection.execute(
+        conn.execute(
             "INSERT OR REPLACE INTO agent_checkpoints \
              (id, goal_run_id, thread_id, task_id, checkpoint_type, state_json, context_summary, created_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -2987,13 +3146,15 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Load all checkpoint JSON blobs for a given goal run, ordered by
     /// `created_at` descending.
-    pub fn list_checkpoints_for_goal_run(&self, goal_run_id: &str) -> Result<Vec<String>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+    pub async fn list_checkpoints_for_goal_run(&self, goal_run_id: &str) -> Result<Vec<String>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT state_json FROM agent_checkpoints WHERE goal_run_id = ?1 ORDER BY created_at DESC",
         )?;
         let rows = stmt
@@ -3001,12 +3162,14 @@ impl HistoryStore {
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Load a single checkpoint by ID.
-    pub fn get_checkpoint(&self, id: &str) -> Result<Option<String>> {
-        let connection = self.open_connection()?;
-        connection
+    pub async fn get_checkpoint(&self, id: &str) -> Result<Option<String>> {
+        let id = id.to_string();
+        self.conn.call(move |conn| {
+        conn
             .query_row(
                 "SELECT state_json FROM agent_checkpoints WHERE id = ?1",
                 params![id],
@@ -3014,14 +3177,16 @@ impl HistoryStore {
             )
             .optional()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Delete checkpoints by their IDs.
-    pub fn delete_checkpoints(&self, ids: &[&str]) -> Result<usize> {
+    pub async fn delete_checkpoints(&self, ids: &[&str]) -> Result<usize> {
         if ids.is_empty() {
             return Ok(0);
         }
-        let connection = self.open_connection()?;
+        let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+        self.conn.call(move |conn| {
         let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
         let sql = format!(
             "DELETE FROM agent_checkpoints WHERE id IN ({})",
@@ -3031,13 +3196,14 @@ impl HistoryStore {
             .iter()
             .map(|id| id as &dyn rusqlite::types::ToSql)
             .collect();
-        let deleted = connection.execute(&sql, params.as_slice())?;
+        let deleted = conn.execute(&sql, params.as_slice())?;
         Ok(deleted)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     // -- Health log --
 
-    pub fn insert_health_log(
+    pub async fn insert_health_log(
         &self,
         id: &str,
         entity_type: &str,
@@ -3047,15 +3213,22 @@ impl HistoryStore {
         intervention: Option<&str>,
         created_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let id = id.to_string();
+        let entity_type = entity_type.to_string();
+        let entity_id = entity_id.to_string();
+        let health_state = health_state.to_string();
+        let indicators_json = indicators_json.map(str::to_string);
+        let intervention = intervention.map(str::to_string);
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT INTO agent_health_log (id, entity_type, entity_id, health_state, indicators_json, intervention, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![id, entity_type, entity_id, health_state, indicators_json, intervention, created_at as i64],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_health_log(
+    pub async fn list_health_log(
         &self,
         limit: u32,
     ) -> Result<
@@ -3069,8 +3242,8 @@ impl HistoryStore {
             u64,
         )>,
     > {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at FROM agent_health_log ORDER BY created_at DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |row| {
@@ -3086,11 +3259,12 @@ impl HistoryStore {
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     // -- Context archive --
 
-    pub fn insert_context_archive(
+    pub async fn insert_context_archive(
         &self,
         id: &str,
         thread_id: &str,
@@ -3103,24 +3277,33 @@ impl HistoryStore {
         metadata_json: Option<&str>,
         archived_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let id = id.to_string();
+        let thread_id = thread_id.to_string();
+        let original_role = original_role.map(str::to_string);
+        let compressed_content = compressed_content.to_string();
+        let summary = summary.map(str::to_string);
+        let metadata_json = metadata_json.map(str::to_string);
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO context_archive (id, thread_id, original_role, compressed_content, summary, relevance_score, token_count_original, token_count_compressed, metadata_json, archived_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![id, thread_id, original_role, compressed_content, summary, relevance_score, token_count_original as i64, token_count_compressed as i64, metadata_json, archived_at as i64],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn search_context_archive(
+    pub async fn search_context_archive(
         &self,
         thread_id: &str,
         query: &str,
         limit: u32,
     ) -> Result<Vec<String>> {
-        let connection = self.open_connection()?;
+        let thread_id = thread_id.to_string();
+        let query = query.to_string();
+        self.conn.call(move |conn| {
         // Try FTS5 first, fall back to LIKE search
         let fts_result: Result<Vec<String>> = (|| {
-            let mut stmt = connection.prepare(
+            let mut stmt = conn.prepare(
                 "SELECT ca.id FROM context_archive ca JOIN context_archive_fts fts ON ca.rowid = fts.rowid WHERE ca.thread_id = ?1 AND context_archive_fts MATCH ?2 ORDER BY rank LIMIT ?3",
             )?;
             let rows = stmt.query_map(params![thread_id, query, limit], |row| row.get(0))?;
@@ -3133,7 +3316,7 @@ impl HistoryStore {
             Err(_) => {
                 // Fallback: simple LIKE search
                 let like_pattern = format!("%{query}%");
-                let mut stmt = connection.prepare(
+                let mut stmt = conn.prepare(
                     "SELECT id FROM context_archive WHERE thread_id = ?1 AND (compressed_content LIKE ?2 OR summary LIKE ?2) ORDER BY archived_at DESC LIMIT ?3",
                 )?;
                 let rows =
@@ -3142,11 +3325,12 @@ impl HistoryStore {
                     .map_err(Into::into)
             }
         }
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     // -- Execution traces --
 
-    pub fn insert_execution_trace(
+    pub async fn insert_execution_trace(
         &self,
         id: &str,
         goal_run_id: Option<&str>,
@@ -3160,38 +3344,48 @@ impl HistoryStore {
         tokens_used: u32,
         created_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let id = id.to_string();
+        let goal_run_id = goal_run_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let task_type = task_type.to_string();
+        let outcome = outcome.to_string();
+        let tool_sequence_json = tool_sequence_json.to_string();
+        let metrics_json = metrics_json.to_string();
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO execution_traces (id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms as i64, tokens_used as i64, created_at as i64],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_execution_traces(
+    pub async fn list_execution_traces(
         &self,
         task_type: Option<&str>,
         limit: u32,
     ) -> Result<Vec<String>> {
-        let connection = self.open_connection()?;
+        let task_type = task_type.map(str::to_string);
+        self.conn.call(move |conn| {
         if let Some(task_type) = task_type {
-            let mut stmt = connection.prepare(
+            let mut stmt = conn.prepare(
                 "SELECT metrics_json FROM execution_traces WHERE task_type = ?1 ORDER BY created_at DESC LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![task_type, limit], |row| row.get(0))?;
             rows.collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(Into::into)
         } else {
-            let mut stmt = connection.prepare(
+            let mut stmt = conn.prepare(
                 "SELECT metrics_json FROM execution_traces ORDER BY created_at DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![limit], |row| row.get(0))?;
             rows.collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(Into::into)
         }
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn insert_causal_trace(
+    pub async fn insert_causal_trace(
         &self,
         id: &str,
         thread_id: Option<&str>,
@@ -3206,8 +3400,19 @@ impl HistoryStore {
         model_used: Option<&str>,
         created_at: u64,
     ) -> Result<()> {
-        let connection = self.open_connection()?;
-        connection.execute(
+        let id = id.to_string();
+        let thread_id = thread_id.map(str::to_string);
+        let goal_run_id = goal_run_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let decision_type = decision_type.to_string();
+        let selected_json = selected_json.to_string();
+        let rejected_options_json = rejected_options_json.to_string();
+        let context_hash = context_hash.to_string();
+        let causal_factors_json = causal_factors_json.to_string();
+        let outcome_json = outcome_json.to_string();
+        let model_used = model_used.map(str::to_string);
+        self.conn.call(move |conn| {
+        conn.execute(
             "INSERT OR REPLACE INTO causal_traces (id, thread_id, goal_run_id, task_id, decision_type, selected_json, rejected_options_json, context_hash, causal_factors_json, outcome_json, model_used, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 id,
@@ -3225,15 +3430,17 @@ impl HistoryStore {
             ],
         )?;
         Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_causal_traces_for_option(
+    pub async fn list_causal_traces_for_option(
         &self,
         option_type: &str,
         limit: u32,
     ) -> Result<Vec<String>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+        let option_type = option_type.to_string();
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT outcome_json
              FROM causal_traces
              WHERE json_extract(selected_json, '$.option_type') = ?1
@@ -3243,15 +3450,17 @@ impl HistoryStore {
         let rows = stmt.query_map(params![option_type, limit], |row| row.get(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn list_recent_causal_trace_records(
+    pub async fn list_recent_causal_trace_records(
         &self,
         option_type: &str,
         limit: u32,
     ) -> Result<Vec<CausalTraceRecord>> {
-        let connection = self.open_connection()?;
-        let mut stmt = connection.prepare(
+        let option_type = option_type.to_string();
+        self.conn.call(move |conn| {
+        let mut stmt = conn.prepare(
             "SELECT selected_json, causal_factors_json, outcome_json, created_at
              FROM causal_traces
              WHERE json_extract(selected_json, '$.option_type') = ?1
@@ -3268,17 +3477,22 @@ impl HistoryStore {
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub fn settle_skill_selection_causal_traces(
+    pub async fn settle_skill_selection_causal_traces(
         &self,
         thread_id: Option<&str>,
         task_id: Option<&str>,
         goal_run_id: Option<&str>,
         outcome_json: &str,
     ) -> Result<usize> {
-        let connection = self.open_connection()?;
-        let updated = connection.execute(
+        let thread_id = thread_id.map(str::to_string);
+        let task_id = task_id.map(str::to_string);
+        let goal_run_id = goal_run_id.map(str::to_string);
+        let outcome_json = outcome_json.to_string();
+        self.conn.call(move |conn| {
+        let updated = conn.execute(
             "UPDATE causal_traces
              SET outcome_json = ?4
              WHERE decision_type = 'skill_selection'
@@ -3291,7 +3505,27 @@ impl HistoryStore {
             params![task_id, goal_run_id, thread_id, outcome_json],
         )?;
         Ok(updated)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
+}
+
+fn refresh_thread_stats(connection: &Connection, thread_id: &str) -> std::result::Result<(), rusqlite::Error> {
+    let (message_count, total_tokens, last_preview, updated_at): (i64, i64, String, i64) = connection.query_row(
+        "SELECT
+            COUNT(*),
+            COALESCE(SUM(total_tokens), 0),
+            COALESCE((SELECT substr(content, 1, 100) FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), ''),
+            COALESCE((SELECT created_at FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT 1), strftime('%s','now') * 1000)
+         FROM agent_messages WHERE thread_id = ?1",
+        params![thread_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+
+    connection.execute(
+        "UPDATE agent_threads SET message_count = ?2, total_tokens = ?3, last_preview = ?4, updated_at = ?5 WHERE id = ?1",
+        params![thread_id, message_count, total_tokens, last_preview, updated_at],
+    )?;
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -4271,7 +4505,7 @@ fn ensure_column(
     table: &str,
     column: &str,
     definition: &str,
-) -> Result<()> {
+) -> std::result::Result<(), rusqlite::Error> {
     if table_has_column(connection, table, column)? {
         return Ok(());
     }
@@ -4283,7 +4517,7 @@ fn ensure_column(
     Ok(())
 }
 
-fn table_has_column(connection: &Connection, table: &str, column: &str) -> Result<bool> {
+fn table_has_column(connection: &Connection, table: &str, column: &str) -> std::result::Result<bool, rusqlite::Error> {
     let pragma = format!("PRAGMA table_info({table})");
     let mut stmt = connection.prepare(&pragma)?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
@@ -4301,27 +4535,19 @@ mod tests {
     use std::fs;
     use uuid::Uuid;
 
-    fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
+    async fn make_test_store() -> Result<(HistoryStore, PathBuf)> {
         let root = std::env::temp_dir().join(format!("tamux-history-test-{}", Uuid::new_v4()));
-        fs::create_dir_all(root.join("history"))?;
-        fs::create_dir_all(root.join("skills/generated"))?;
-        fs::create_dir_all(root.join("semantic-logs/worm"))?;
-        Ok((
-            HistoryStore {
-                db_path: root.join("history/command-history.db"),
-                skill_dir: root.join("skills/generated"),
-                telemetry_dir: root.join("semantic-logs"),
-                worm_dir: root.join("semantic-logs/worm"),
-            },
-            root,
-        ))
+        let store = HistoryStore::new_test_store(&root).await?;
+        Ok((store, root))
     }
 
-    #[test]
-    fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        let connection = Connection::open(&store.db_path)?;
-        connection.execute_batch(
+    #[tokio::test]
+    async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        // Drop existing tables and recreate with legacy schema (missing columns)
+        store.conn.call(|conn| {
+            conn.execute_batch("DROP TABLE IF EXISTS agent_tasks")?;
+            conn.execute_batch(
             "
             CREATE TABLE agent_tasks (
                 id                   TEXT PRIMARY KEY,
@@ -4351,36 +4577,37 @@ mod tests {
             CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, priority, created_at DESC);
             ",
         )?;
-        drop(connection);
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        store.init_schema()?;
+        store.init_schema().await?;
 
-        let connection = Connection::open(&store.db_path)?;
-        assert!(table_has_column(&connection, "agent_tasks", "session_id")?);
-        assert!(table_has_column(
-            &connection,
-            "agent_tasks",
-            "scheduled_at"
-        )?);
-        assert!(table_has_column(&connection, "agent_tasks", "goal_run_id")?);
+        let has_cols = store.conn.call(|conn| {
+            let has_session = table_has_column(conn, "agent_tasks", "session_id")?;
+            let has_scheduled = table_has_column(conn, "agent_tasks", "scheduled_at")?;
+            let has_goal_run = table_has_column(conn, "agent_tasks", "goal_run_id")?;
+            let index_name: Option<String> = conn
+                .query_row(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            Ok((has_session, has_scheduled, has_goal_run, index_name))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let index_name: Option<String> = connection
-            .query_row(
-                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-        assert_eq!(index_name.as_deref(), Some("idx_agent_tasks_goal_run"));
+        assert!(has_cols.0);
+        assert!(has_cols.1);
+        assert!(has_cols.2);
+        assert_eq!(has_cols.3.as_deref(), Some("idx_agent_tasks_goal_run"));
 
         fs::remove_dir_all(root)?;
         Ok(())
     }
 
-    #[test]
-    fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
+        let (store, root) = make_test_store().await?;
 
         let goal_run = GoalRun {
             id: "goal-1".to_string(),
@@ -4446,7 +4673,7 @@ mod tests {
             }],
         };
 
-        store.upsert_goal_run(&goal_run)?;
+        store.upsert_goal_run(&goal_run).await?;
         let loaded = store
             .get_goal_run("goal-1")?
             .expect("goal run should exist after upsert");
@@ -4460,10 +4687,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn memory_provenance_write_round_trips() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn memory_provenance_write_round_trips() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
 
         let fact_keys = vec!["shell".to_string(), "editor".to_string()];
         store.record_memory_provenance(&MemoryProvenanceRecord {
@@ -4477,14 +4704,15 @@ mod tests {
             task_id: Some("task-1"),
             goal_run_id: None,
             created_at: 42,
-        })?;
+        }).await?;
 
-        let connection = Connection::open(&store.db_path)?;
-        let row: (String, String, String, String, String) = connection.query_row(
-            "SELECT target, mode, source_kind, content, fact_keys_json FROM memory_provenance WHERE id = 'mem-1'",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-        )?;
+        let row = store.conn.call(|conn| {
+            conn.query_row(
+                "SELECT target, mode, source_kind, content, fact_keys_json FROM memory_provenance WHERE id = 'mem-1'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)),
+            ).map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
         assert_eq!(row.0, "USER.md");
         assert_eq!(row.1, "append");
         assert_eq!(row.2, "tool");
@@ -4498,10 +4726,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn memory_provenance_report_marks_old_entries_uncertain() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn memory_provenance_report_marks_old_entries_uncertain() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let recent_keys = vec!["shell".to_string()];
         let old_keys = vec!["editor".to_string()];
         let now_ms = std::time::SystemTime::now()
@@ -4520,7 +4748,7 @@ mod tests {
             task_id: None,
             goal_run_id: None,
             created_at: now_ms,
-        })?;
+        }).await?;
         store.record_memory_provenance(&MemoryProvenanceRecord {
             id: "old",
             target: "MEMORY.md",
@@ -4532,9 +4760,9 @@ mod tests {
             task_id: None,
             goal_run_id: None,
             created_at: now_ms.saturating_sub(40 * 86_400_000),
-        })?;
+        }).await?;
 
-        let report = store.memory_provenance_report(None, 10)?;
+        let report = store.memory_provenance_report(None, 10).await?;
         assert_eq!(report.total_entries, 2);
         assert_eq!(report.summary_by_status.get("active").copied(), Some(1));
         assert_eq!(report.summary_by_status.get("uncertain").copied(), Some(1));
@@ -4543,17 +4771,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn collaboration_session_round_trips() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn collaboration_session_round_trips() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         store.upsert_collaboration_session(
             "task-parent",
             r#"{"id":"c1","parent_task_id":"task-parent"}"#,
             42,
-        )?;
+        ).await?;
 
-        let rows = store.list_collaboration_sessions()?;
+        let rows = store.list_collaboration_sessions().await?;
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].parent_task_id, "task-parent");
         assert_eq!(rows[0].updated_at, 42);
@@ -4563,10 +4791,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn provenance_report_validates_hash_and_signature() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn provenance_report_validates_hash_and_signature() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let first = serde_json::json!({"step": 1});
         let second = serde_json::json!({"step": 2});
         store.record_provenance_event(&ProvenanceEventRecord {
@@ -4582,7 +4810,7 @@ mod tests {
             compliance_mode: "soc2",
             sign: true,
             created_at: 1_000,
-        })?;
+        }).await?;
         store.record_provenance_event(&ProvenanceEventRecord {
             event_type: "step_completed",
             summary: "step completed",
@@ -4596,9 +4824,9 @@ mod tests {
             compliance_mode: "soc2",
             sign: true,
             created_at: 2_000,
-        })?;
+        }).await?;
 
-        let report = store.provenance_report(10)?;
+        let report = store.provenance_report(10).await?;
         assert_eq!(report.total_entries, 2);
         assert_eq!(report.valid_hash_entries, 2);
         assert_eq!(report.valid_chain_entries, 2);
@@ -4608,17 +4836,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn register_skill_document_infers_variant_metadata() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn register_skill_document_infers_variant_metadata() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let skill_path = root.join("skills/generated/debug-rust-stack-overflow--async-runtime.md");
         fs::write(
             &skill_path,
             "# Rust async debugging\nUse tokio console for async stack inspection.\n",
         )?;
 
-        let record = store.register_skill_document(&skill_path)?;
+        let record = store.register_skill_document(&skill_path).await?;
 
         assert_eq!(record.skill_name, "debug-rust-stack-overflow");
         assert_eq!(record.variant_name, "async-runtime");
@@ -4629,10 +4857,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let canonical = root.join("skills/generated/build-pipeline.md");
         let frontend = root.join("skills/generated/build-pipeline--frontend.md");
         fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
@@ -4641,14 +4869,14 @@ mod tests {
             "# Frontend build pipeline\nUse react build checks.\n",
         )?;
 
-        let canonical_record = store.register_skill_document(&canonical)?;
-        let frontend_record = store.register_skill_document(&frontend)?;
+        let canonical_record = store.register_skill_document(&canonical).await?;
+        let frontend_record = store.register_skill_document(&frontend).await?;
         let resolved = store
             .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
             .expect("variant should resolve");
         assert_eq!(resolved.variant_id, frontend_record.variant_id);
 
-        store.record_skill_variant_use(&frontend_record.variant_id, Some(true))?;
+        store.record_skill_variant_use(&frontend_record.variant_id, Some(true)).await?;
         let refreshed = store
             .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
             .expect("variant should still resolve");
@@ -4660,17 +4888,17 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn skill_variant_consultation_settlement_updates_outcomes_once() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn skill_variant_consultation_settlement_updates_outcomes_once() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let frontend = root.join("skills/generated/build-pipeline--frontend.md");
         fs::write(
             &frontend,
             "# Frontend build pipeline\nUse react build checks.\n",
         )?;
 
-        let frontend_record = store.register_skill_document(&frontend)?;
+        let frontend_record = store.register_skill_document(&frontend).await?;
         let tags = vec!["frontend".to_string()];
         store.record_skill_variant_consultation(&SkillVariantConsultationRecord {
             usage_id: "usage-1",
@@ -4680,14 +4908,14 @@ mod tests {
             goal_run_id: Some("goal-1"),
             context_tags: &tags,
             consulted_at: 100,
-        })?;
+        }).await?;
 
         let pending = store.settle_skill_variant_usage(
             Some("thread-1"),
             Some("task-1"),
             Some("goal-1"),
             "success",
-        )?;
+        ).await?;
         assert_eq!(pending, 1);
         assert_eq!(
             store.settle_skill_variant_usage(
@@ -4695,7 +4923,7 @@ mod tests {
                 Some("task-1"),
                 Some("goal-1"),
                 "success",
-            )?,
+            ).await?,
             0
         );
 
@@ -4710,34 +4938,38 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn rebalance_skill_variants_archives_weak_variant() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn rebalance_skill_variants_archives_weak_variant() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let canonical = root.join("skills/generated/build-pipeline.md");
         let weak = root.join("skills/generated/build-pipeline--legacy.md");
         fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
         fs::write(&weak, "# Legacy build pipeline\nOld slow workflow.\n")?;
 
-        let canonical_record = store.register_skill_document(&canonical)?;
-        let weak_record = store.register_skill_document(&weak)?;
-        let connection = Connection::open(&store.db_path)?;
-        connection.execute(
-            "UPDATE skill_variants SET use_count = 4, success_count = 0, failure_count = 4, last_used_at = ?2 WHERE variant_id = ?1",
-            params![weak_record.variant_id, now_ts() as i64],
-        )?;
-        connection.execute(
-            "UPDATE skill_variants SET use_count = 4, success_count = 3, failure_count = 1, last_used_at = ?2 WHERE variant_id = ?1",
-            params![canonical_record.variant_id, now_ts() as i64],
-        )?;
+        let canonical_record = store.register_skill_document(&canonical).await?;
+        let weak_record = store.register_skill_document(&weak).await?;
+        let wv = weak_record.variant_id.clone();
+        let cv = canonical_record.variant_id.clone();
+        store.conn.call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 4, success_count = 0, failure_count = 4, last_used_at = ?2 WHERE variant_id = ?1",
+                params![wv, now_ts() as i64],
+            )?;
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 4, success_count = 3, failure_count = 1, last_used_at = ?2 WHERE variant_id = ?1",
+                params![cv, now_ts() as i64],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let variants = store.rebalance_skill_variants("build-pipeline")?;
+        let variants = store.rebalance_skill_variants("build-pipeline").await?;
         let weak_variant = variants
             .iter()
             .find(|variant| variant.variant_id == weak_record.variant_id)
             .expect("weak variant should exist");
         let resolved = store
-            .resolve_skill_variant("build-pipeline", &["legacy".to_string()])?
+            .resolve_skill_variant("build-pipeline", &["legacy".to_string()]).await?
             .expect("canonical should still resolve");
 
         assert_eq!(weak_variant.status, "archived");
@@ -4747,10 +4979,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn rebalance_skill_variants_promotes_strong_variant() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn rebalance_skill_variants_promotes_strong_variant() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let canonical = root.join("skills/generated/build-pipeline.md");
         let frontend = root.join("skills/generated/build-pipeline--frontend.md");
         fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
@@ -4759,19 +4991,23 @@ mod tests {
             "# Frontend build pipeline\nUse react build checks.\n",
         )?;
 
-        let canonical_record = store.register_skill_document(&canonical)?;
-        let frontend_record = store.register_skill_document(&frontend)?;
-        let connection = Connection::open(&store.db_path)?;
-        connection.execute(
-            "UPDATE skill_variants SET use_count = 5, success_count = 2, failure_count = 3, last_used_at = ?2 WHERE variant_id = ?1",
-            params![canonical_record.variant_id, now_ts() as i64],
-        )?;
-        connection.execute(
-            "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, last_used_at = ?2 WHERE variant_id = ?1",
-            params![frontend_record.variant_id, now_ts() as i64],
-        )?;
+        let canonical_record = store.register_skill_document(&canonical).await?;
+        let frontend_record = store.register_skill_document(&frontend).await?;
+        let cv = canonical_record.variant_id.clone();
+        let fv = frontend_record.variant_id.clone();
+        store.conn.call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 5, success_count = 2, failure_count = 3, last_used_at = ?2 WHERE variant_id = ?1",
+                params![cv, now_ts() as i64],
+            )?;
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, last_used_at = ?2 WHERE variant_id = ?1",
+                params![fv, now_ts() as i64],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let variants = store.rebalance_skill_variants("build-pipeline")?;
+        let variants = store.rebalance_skill_variants("build-pipeline").await?;
         let promoted = variants
             .iter()
             .find(|variant| variant.variant_id == frontend_record.variant_id)
@@ -4781,7 +5017,7 @@ mod tests {
             .find(|variant| variant.variant_id == canonical_record.variant_id)
             .expect("canonical variant should exist");
         let resolved = store
-            .resolve_skill_variant("build-pipeline", &[])?
+            .resolve_skill_variant("build-pipeline", &[]).await?
             .expect("promoted variant should resolve");
 
         assert_eq!(promoted.status, "promoted-to-canonical");
@@ -4792,14 +5028,14 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn successful_context_mismatch_branches_new_variant() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn successful_context_mismatch_branches_new_variant() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let canonical = root.join("skills/generated/build-pipeline.md");
         fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
 
-        let canonical_record = store.register_skill_document(&canonical)?;
+        let canonical_record = store.register_skill_document(&canonical).await?;
         let branch_tags = vec![
             "rust".to_string(),
             "frontend".to_string(),
@@ -4816,16 +5052,16 @@ mod tests {
                 goal_run_id: Some("goal-1"),
                 context_tags: &branch_tags,
                 consulted_at: 100 + index,
-            })?;
+            }).await?;
             store.settle_skill_variant_usage(
                 Some("thread-1"),
                 Some(&task_id),
                 Some("goal-1"),
                 "success",
-            )?;
+            ).await?;
         }
 
-        let variants = store.list_skill_variants(Some("build-pipeline"), 10)?;
+        let variants = store.list_skill_variants(Some("build-pipeline"), 10).await?;
         let branched = variants
             .iter()
             .find(|variant| {
@@ -4843,10 +5079,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn stable_variant_merges_back_into_canonical() -> Result<()> {
-        let (store, root) = make_test_store()?;
-        store.init_schema()?;
+    #[tokio::test]
+    async fn stable_variant_merges_back_into_canonical() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
         let canonical = root.join("skills/generated/build-pipeline.md");
         let frontend = root.join("skills/generated/build-pipeline--frontend.md");
         fs::write(
@@ -4858,22 +5094,26 @@ mod tests {
             "# Build pipeline (frontend)\n\n> Auto-branched from `generated/build-pipeline.md` (variant `canonical`) after 4 successful consultations in contexts: frontend, rust.\n\n## When To Use\nUse this variant when the workspace context includes: frontend, rust.\n\n## How\nRun cargo build.\n",
         )?;
 
-        let canonical_record = store.register_skill_document(&canonical)?;
-        let frontend_record = store.register_skill_document(&frontend)?;
-        let connection = Connection::open(&store.db_path)?;
-        connection.execute(
-            "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, parent_variant_id = ?2, last_used_at = ?3 WHERE variant_id = ?1",
-            params![frontend_record.variant_id, canonical_record.variant_id, now_ts() as i64],
-        )?;
+        let canonical_record = store.register_skill_document(&canonical).await?;
+        let frontend_record = store.register_skill_document(&frontend).await?;
+        let fv = frontend_record.variant_id.clone();
+        let cv = canonical_record.variant_id.clone();
+        store.conn.call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, parent_variant_id = ?2, last_used_at = ?3 WHERE variant_id = ?1",
+                params![fv, cv, now_ts() as i64],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let variants = store.maybe_merge_skill_variants("build-pipeline")?;
+        let variants = store.maybe_merge_skill_variants("build-pipeline").await?;
         let merged = variants
             .iter()
             .find(|variant| variant.variant_id == frontend_record.variant_id)
             .expect("frontend variant should still exist after merge");
         let canonical_content = fs::read_to_string(&canonical)?;
         let resolved = store
-            .resolve_skill_variant("build-pipeline", &["frontend".to_string()])?
+            .resolve_skill_variant("build-pipeline", &["frontend".to_string()]).await?
             .expect("canonical should resolve once branch is merged");
 
         assert_eq!(merged.status, "merged");
@@ -4901,32 +5141,100 @@ mod tests {
 
     /// FOUN-01: WAL journal mode is active after HistoryStore construction.
     #[tokio::test]
-    async fn wal_mode_enabled() {
-        // After migration: create store, query pragma journal_mode, assert "wal"
-        todo!("Implement after tokio-rusqlite migration")
+    async fn wal_mode_enabled() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        let mode: String = store.conn.call(|conn| {
+            conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .map_err(Into::into)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(mode.to_lowercase(), "wal");
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     /// FOUN-06: All 5 WAL pragmas are applied on connection open.
     #[tokio::test]
-    async fn wal_pragmas_applied() {
-        // After migration: create store, query each pragma, assert expected values
-        // journal_mode=wal, synchronous=1 (NORMAL), foreign_keys=1 (ON),
-        // wal_autocheckpoint=1000, busy_timeout=5000
-        todo!("Implement after tokio-rusqlite migration")
+    async fn wal_pragmas_applied() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        let pragmas = store.conn.call(|conn| {
+            let journal_mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+            let synchronous: i64 = conn.query_row("PRAGMA synchronous", [], |row| row.get(0))?;
+            let foreign_keys: i64 = conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+            let wal_autocheckpoint: i64 = conn.query_row("PRAGMA wal_autocheckpoint", [], |row| row.get(0))?;
+            let busy_timeout: i64 = conn.query_row("PRAGMA busy_timeout", [], |row| row.get(0))?;
+            Ok((journal_mode, synchronous, foreign_keys, wal_autocheckpoint, busy_timeout))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(pragmas.0.to_lowercase(), "wal");
+        assert_eq!(pragmas.1, 1); // NORMAL
+        assert_eq!(pragmas.2, 1); // ON
+        assert_eq!(pragmas.3, 1000);
+        assert_eq!(pragmas.4, 5000);
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     /// FOUN-02: HistoryStore can perform a basic async roundtrip through .call().
     #[tokio::test]
-    async fn async_connection_roundtrip() {
-        // After migration: create store, insert a row via .call(), read it back, assert match
-        todo!("Implement after tokio-rusqlite migration")
+    async fn async_connection_roundtrip() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        let thread = AgentDbThread {
+            id: "test-thread-1".to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "Test Thread".to_string(),
+            created_at: 1000,
+            updated_at: 1000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        };
+        store.create_thread(&thread).await?;
+        let loaded = store.get_thread("test-thread-1").await?;
+        assert!(loaded.is_some());
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.title, "Test Thread");
+        assert_eq!(loaded.agent_name, Some("test-agent".to_string()));
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     /// FOUN-01 + FOUN-02: Concurrent reads and writes do not produce "database is locked" errors.
     #[tokio::test]
-    async fn concurrent_read_write() {
-        // After migration: clone the HistoryStore, spawn multiple tokio tasks that
-        // read and write concurrently, assert no errors
-        todo!("Implement after tokio-rusqlite migration")
+    async fn concurrent_read_write() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let store_clone = store.clone();
+            handles.push(tokio::spawn(async move {
+                let thread = AgentDbThread {
+                    id: format!("concurrent-thread-{i}"),
+                    workspace_id: None,
+                    surface_id: None,
+                    pane_id: None,
+                    agent_name: Some("test-agent".to_string()),
+                    title: format!("Concurrent Thread {i}"),
+                    created_at: 1000 + i as i64,
+                    updated_at: 1000 + i as i64,
+                    message_count: 0,
+                    total_tokens: 0,
+                    last_preview: String::new(),
+                    metadata_json: None,
+                };
+                store_clone.create_thread(&thread).await?;
+                let loaded = store_clone.list_threads().await?;
+                assert!(!loaded.is_empty());
+                Ok::<(), anyhow::Error>(())
+            }));
+        }
+        for handle in handles {
+            handle.await??;
+        }
+        let all_threads = store.list_threads().await?;
+        assert_eq!(all_threads.len(), 8);
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 }
