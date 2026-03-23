@@ -489,33 +489,51 @@ impl AgentEngine {
         let mut incoming = Vec::new();
 
         if !gw.config.telegram_token.is_empty() {
-            let telegram_msgs = gateway::poll_telegram(gw).await;
-            if !telegram_msgs.is_empty() {
-                tracing::info!(
-                    count = telegram_msgs.len(),
-                    "gateway: telegram messages received"
-                );
+            match gateway::poll_telegram(gw).await {
+                Ok(telegram_msgs) => {
+                    if !telegram_msgs.is_empty() {
+                        tracing::info!(
+                            count = telegram_msgs.len(),
+                            "gateway: telegram messages received"
+                        );
+                    }
+                    incoming.extend(telegram_msgs);
+                }
+                Err(e) => {
+                    tracing::warn!("gateway: telegram poll error: {e}");
+                }
             }
-            incoming.extend(telegram_msgs);
         }
 
         if !slack_channels.is_empty() && !gw.config.slack_token.is_empty() {
-            let slack_msgs = gateway::poll_slack(gw, &slack_channels).await;
-            if !slack_msgs.is_empty() {
-                tracing::info!(count = slack_msgs.len(), "gateway: slack messages received");
+            match gateway::poll_slack(gw, &slack_channels).await {
+                Ok(slack_msgs) => {
+                    if !slack_msgs.is_empty() {
+                        tracing::info!(count = slack_msgs.len(), "gateway: slack messages received");
+                    }
+                    incoming.extend(slack_msgs);
+                }
+                Err(e) => {
+                    tracing::warn!("gateway: slack poll error: {e}");
+                }
             }
-            incoming.extend(slack_msgs);
         }
 
         if !discord_channels.is_empty() && !gw.config.discord_token.is_empty() {
-            let discord_msgs = gateway::poll_discord(gw, &discord_channels).await;
-            if !discord_msgs.is_empty() {
-                tracing::info!(
-                    count = discord_msgs.len(),
-                    "gateway: discord messages received"
-                );
+            match gateway::poll_discord(gw, &discord_channels).await {
+                Ok(discord_msgs) => {
+                    if !discord_msgs.is_empty() {
+                        tracing::info!(
+                            count = discord_msgs.len(),
+                            "gateway: discord messages received"
+                        );
+                    }
+                    incoming.extend(discord_msgs);
+                }
+                Err(e) => {
+                    tracing::warn!("gateway: discord poll error: {e}");
+                }
             }
-            incoming.extend(discord_msgs);
         }
 
         // Drop the mutex before processing (send_message needs it indirectly)
