@@ -173,7 +173,13 @@ Plans:
   3. Unix users can install via `curl -fsSL https://tamux.dev/install.sh | sh`
   4. Windows users can install via a PowerShell installer script
   5. First run automatically spawns the daemon, opens the default client, and starts concierge onboarding
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Thin npm wrapper package with postinstall binary downloader and bin launcher
+- [ ] 09-02-PLAN.md — GitLab CI release pipeline with multi-platform build matrix and release automation
+- [ ] 09-03-PLAN.md — Unix install script (install.sh) and PowerShell installer (install.ps1)
+- [ ] 09-04-PLAN.md — First-run setup wizard with provider configuration and daemon auto-start
 
 ### Phase 10: Progressive UX
 **Goal**: The interface reveals depth as the user grows — newcomers see simplicity, power users see the full system
@@ -204,5 +210,5 @@ Note: Phases 8 and 9 can execute in parallel with phases 2-7 (they only depend o
 | 6. Skill Discovery | 0/3 | Not started | - |
 | 7. Community Skills | 1/3 | In Progress | - |
 | 8. Gateway Completion | 0/4 | Not started | - |
-| 9. Distribution | 0/? | Not started | - |
+| 9. Distribution | 0/4 | Not started | - |
 | 10. Progressive UX | 0/? | Not started | - |
