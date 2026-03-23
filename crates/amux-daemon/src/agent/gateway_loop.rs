@@ -1,6 +1,8 @@
 //! Gateway initialization, background run loop, and platform message polling.
 
+use super::heartbeat::is_peak_activity_hour;
 use super::*;
+use chrono::Timelike;
 
 impl AgentEngine {
     /// Initialize gateway connections for receiving messages.
@@ -225,6 +227,10 @@ impl AgentEngine {
                 })
         };
 
+        // Ephemeral heartbeat cycle counter for priority-weight gating (per D-06).
+        // Resets on daemon restart (Open Question 2: ephemeral is sufficient).
+        let mut heartbeat_cycle_count: u64 = 0;
+
         tracing::info!(
             task_poll_secs = config.task_poll_interval_secs,
             heartbeat_cron = %heartbeat_cron_expr,
@@ -240,9 +246,47 @@ impl AgentEngine {
                     }
                 }
                 _ = tokio::time::sleep_until(next_heartbeat) => {
-                    if !self.is_quiet_hours().await {
-                        if let Err(e) = self.run_structured_heartbeat().await {
-                            tracing::error!("agent heartbeat error: {e}");
+                    heartbeat_cycle_count += 1;
+                    let is_quiet = self.is_quiet_hours().await;
+                    if !is_quiet {
+                        let config_snap = self.config.read().await.clone();
+                        let model = self.operator_model.read().await;
+                        let current_hour = chrono::Utc::now().hour() as u8;
+                        let session_count = model.session_rhythm.session_count;
+
+                        // Cold start protection (Pitfall 1): skip adaptive scheduling
+                        // until enough sessions have been observed.
+                        let in_peak = if session_count < 5 {
+                            true // Treat all hours as peak during cold start
+                        } else {
+                            is_peak_activity_hour(
+                                current_hour,
+                                &model.session_rhythm.peak_activity_hours_utc,
+                                &model.session_rhythm.smoothed_activity_histogram,
+                                config_snap.ema_activity_threshold,
+                            )
+                        };
+                        drop(model); // Release read lock before heartbeat execution
+
+                        if in_peak {
+                            // Full frequency: run heartbeat normally during peak activity
+                            if let Err(e) = self.run_structured_heartbeat_adaptive(heartbeat_cycle_count).await {
+                                tracing::error!("agent heartbeat error: {e}");
+                            }
+                        } else {
+                            // Reduced frequency: skip cycles during low-activity periods (per D-03)
+                            let skip_factor = config_snap.low_activity_frequency_factor;
+                            if skip_factor == 0 || heartbeat_cycle_count % skip_factor == 0 {
+                                if let Err(e) = self.run_structured_heartbeat_adaptive(heartbeat_cycle_count).await {
+                                    tracing::error!("agent heartbeat error: {e}");
+                                }
+                            } else {
+                                tracing::debug!(
+                                    cycle = heartbeat_cycle_count,
+                                    skip_factor = skip_factor,
+                                    "heartbeat skipped (low-activity period)"
+                                );
+                            }
                         }
                     } else {
                         tracing::debug!("heartbeat suppressed (quiet hours/DND)");

@@ -190,9 +190,19 @@ impl AgentEngine {
         resolve_cron_from_config(&config)
     }
 
-    /// Run the structured heartbeat: gather all checks, synthesize via LLM, broadcast and persist.
-    /// Per D-01, D-09, D-10, D-11, D-12, D-14, BEAT-02, BEAT-03, BEAT-04, BEAT-08.
+    /// Run the structured heartbeat (backward-compatible wrapper).
+    /// Delegates to `run_structured_heartbeat_adaptive(0)` so existing callers
+    /// (tests, legacy code paths) continue to work without changes.
     pub(super) async fn run_structured_heartbeat(&self) -> Result<()> {
+        self.run_structured_heartbeat_adaptive(0).await
+    }
+
+    /// Run the structured heartbeat with activity-aware priority gating and
+    /// learned weight updates. `cycle_count` drives `should_run_check` modular
+    /// gating: weight 1.0 = every cycle, 0.5 = every 2nd, etc.
+    ///
+    /// Per D-01, D-04, D-06, D-09, D-10, D-11, D-12, D-14, BEAT-02 through BEAT-08.
+    pub(super) async fn run_structured_heartbeat_adaptive(&self, cycle_count: u64) -> Result<()> {
         let start = std::time::Instant::now();
         let cycle_id = uuid::Uuid::new_v4().to_string();
         let now = now_millis();
@@ -490,6 +500,20 @@ impl AgentEngine {
             }
         }
         self.persist_heartbeat().await;
+
+        // --- Phase 8: Update EMA smoothed activity histogram (per D-02, BEAT-06) ---
+        {
+            let config_snap = self.config.read().await;
+            let alpha = config_snap.ema_alpha;
+            drop(config_snap);
+            let mut model = self.operator_model.write().await;
+            let new_smoothed = smooth_activity_histogram(
+                &model.session_rhythm.smoothed_activity_histogram,
+                &model.session_rhythm.activity_hour_histogram,
+                alpha,
+            );
+            model.session_rhythm.smoothed_activity_histogram = new_smoothed;
+        }
 
         tracing::info!(
             cycle_id = %cycle_id,
