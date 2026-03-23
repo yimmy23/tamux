@@ -99,7 +99,7 @@ export interface PaneInfo {
 // ---------------------------------------------------------------------------
 // Notifications (OSC 9, 99, 777)
 // ---------------------------------------------------------------------------
-export type NotificationSource = "osc9" | "osc99" | "osc777" | "cli" | "system" | "approval";
+export type NotificationSource = "osc9" | "osc99" | "osc777" | "cli" | "system" | "approval" | "heartbeat";
 
 export interface TerminalNotification {
   id: NotificationId;

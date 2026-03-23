@@ -19,6 +19,7 @@ import { prepareOpenAIRequest, sendChatCompletion } from "./lib/agentClient";
 import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./lib/agentTools";
 import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
 import { ConciergeToast } from "./components/ConciergeToast";
+import { useNotificationStore } from "./lib/notificationStore";
 
 const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
 
@@ -142,6 +143,23 @@ export default function App() {
       if (event?.type === "concierge_welcome") {
         console.log("[concierge] ConciergeWelcome event! content length:", event.content?.length, "actions:", event.actions?.length);
         applyConciergeWelcome(event);
+      }
+      if (event?.type === "heartbeat_digest" && event.actionable === true) {
+        const items = Array.isArray(event.items) ? event.items : [];
+        if (items.length > 0) {
+          const body = items
+            .sort((a: any, b: any) => (a.priority ?? 99) - (b.priority ?? 99))
+            .map(
+              (item: any, i: number) =>
+                `[${i + 1}] ${item.title ?? "Unknown"}${item.suggestion ? " \u2014 " + item.suggestion : ""}`,
+            )
+            .join("\n");
+          useNotificationStore.getState().addNotification({
+            title: event.digest || "Heartbeat: items need attention",
+            body,
+            source: "heartbeat",
+          });
+        }
       }
     });
 
