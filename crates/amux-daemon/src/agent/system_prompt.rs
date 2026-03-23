@@ -12,6 +12,7 @@ pub(super) fn build_system_prompt(
     operator_model_summary: Option<&str>,
     operational_context: Option<&str>,
     causal_guidance: Option<&str>,
+    learned_patterns: Option<&str>,
 ) -> String {
     let mut prompt = String::new();
     let memory_path = data_dir.join("MEMORY.md");
@@ -111,6 +112,15 @@ pub(super) fn build_system_prompt(
         prompt.push_str(causal_guidance);
     }
 
+    // D-08: Inject learned patterns from HeuristicStore
+    if let Some(patterns) = learned_patterns {
+        if !patterns.is_empty() {
+            prompt.push_str("\n\n## Learned Patterns\n");
+            prompt.push_str("These patterns were learned from successful past executions. Use them as guidance, not hard rules:\n");
+            prompt.push_str(patterns);
+        }
+    }
+
     prompt.push_str(
         "\n\n## Terminal Session Discipline\n\
          - Before running file or command actions, call `list_terminals` to discover current session IDs and CWD.\n\
@@ -138,6 +148,50 @@ pub(super) fn build_system_prompt(
     super::task_prompt::append_sub_agent_registry(&mut prompt, sub_agents);
 
     prompt
+}
+
+/// Build the "Learned Patterns" section content from reliable heuristics.
+/// Only includes heuristics with usage_count >= 5 and effectiveness >= 0.6.
+/// Per D-08: hybrid heuristic influence via system prompt injection.
+pub(super) fn build_learned_patterns_section(
+    heuristic_store: &super::learning::heuristics::HeuristicStore,
+) -> String {
+    let min_samples = 5u32;
+    let min_effectiveness = 0.6;
+
+    let reliable: Vec<_> = heuristic_store
+        .tool_heuristics
+        .iter()
+        .filter(|h| h.usage_count >= min_samples && h.effectiveness_score >= min_effectiveness)
+        .collect();
+
+    if reliable.is_empty() {
+        return String::new();
+    }
+
+    let mut section = String::new();
+    let mut by_task: std::collections::HashMap<&str, Vec<_>> = std::collections::HashMap::new();
+    for h in &reliable {
+        by_task.entry(h.task_type.as_str()).or_default().push(h);
+    }
+
+    let mut task_types: Vec<_> = by_task.keys().copied().collect();
+    task_types.sort();
+
+    for task_type in task_types {
+        let tools = &by_task[task_type];
+        section.push_str(&format!("\nFor '{}' tasks:\n", task_type));
+        for tool in tools {
+            section.push_str(&format!(
+                "- Prefer `{}` ({:.0}% effective, {} uses)\n",
+                tool.tool_name,
+                tool.effectiveness_score * 100.0,
+                tool.usage_count,
+            ));
+        }
+    }
+
+    section
 }
 
 pub(super) fn build_external_agent_prompt(

@@ -40,6 +40,48 @@ const ONECONTEXT_TOOL_TIMEOUT_SECS: u64 = 8;
 const SESSION_SEARCH_OUTPUT_MAX_CHARS: usize = 12_000;
 
 // ---------------------------------------------------------------------------
+// Tool reordering by learned heuristic effectiveness (D-08)
+// ---------------------------------------------------------------------------
+
+/// Reorder tools based on learned heuristic effectiveness for the current task type.
+/// Tools with higher effectiveness_score for this task_type are moved toward the front
+/// of the list, which influences LLM tool selection bias (models prefer earlier tools).
+/// Tools without heuristic data keep their original relative order.
+/// Per D-08: "ToolHeuristic.effectiveness_score modulates tool ranking in tool_executor.rs
+/// for known task types."
+pub fn reorder_tools_by_heuristics(
+    tools: &mut Vec<ToolDefinition>,
+    heuristic_store: &super::learning::heuristics::HeuristicStore,
+    task_type: &str,
+) {
+    if task_type.is_empty() {
+        return;
+    }
+
+    // Get effectiveness scores for tools relevant to this task type (min 5 samples)
+    let scores: std::collections::HashMap<String, f64> = heuristic_store
+        .tool_heuristics
+        .iter()
+        .filter(|h| h.task_type == task_type && h.usage_count >= 5)
+        .map(|h| (h.tool_name.clone(), h.effectiveness_score))
+        .collect();
+
+    if scores.is_empty() {
+        return;
+    }
+
+    // Stable sort: tools with heuristic scores go first (sorted by score desc),
+    // tools without scores keep their relative order after.
+    tools.sort_by(|a, b| {
+        let score_a = scores.get(&a.function.name).copied().unwrap_or(-1.0);
+        let score_b = scores.get(&b.function.name).copied().unwrap_or(-1.0);
+        score_b
+            .partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Tool definitions (OpenAI function calling schema)
 // ---------------------------------------------------------------------------
 

@@ -128,6 +128,12 @@ impl AgentEngine {
         let operator_model_summary = self.build_operator_model_prompt_summary().await;
         let operational_context = self.build_operational_context_summary().await;
         let causal_guidance = self.build_causal_guidance_summary().await;
+        // D-08: Build learned patterns from HeuristicStore for system prompt injection
+        let learned_patterns = {
+            let hs = self.heuristic_store.read().await;
+            let patterns = build_learned_patterns_section(&hs);
+            if patterns.is_empty() { None } else { Some(patterns) }
+        };
         let mut system_prompt = build_system_prompt(
             &config,
             &base_prompt,
@@ -137,6 +143,7 @@ impl AgentEngine {
             operator_model_summary.as_deref(),
             operational_context.as_deref(),
             causal_guidance.as_deref(),
+            learned_patterns.as_deref(),
         );
         drop(memory);
         if let Some(recall) = onecontext_bootstrap.as_deref() {
@@ -239,6 +246,15 @@ impl AgentEngine {
         if let Some(filter) = &task_tool_filter {
             tools = filter.filtered_tools(tools);
         }
+        // D-08 part 2: Reorder tools by learned heuristic effectiveness for this task type
+        if !task_type_for_trace.is_empty() {
+            let hs = self.heuristic_store.read().await;
+            super::tool_executor::reorder_tools_by_heuristics(
+                &mut tools,
+                &hs,
+                &task_type_for_trace,
+            );
+        }
         if let Some(task) = current_task_snapshot.as_ref() {
             self.ensure_subagent_runtime(task, Some(&tid)).await;
         }
@@ -310,6 +326,7 @@ impl AgentEngine {
                     operator_model_summary.as_deref(),
                     operational_context.as_deref(),
                     causal_guidance.as_deref(),
+                    learned_patterns.as_deref(),
                 );
                 drop(memory);
                 if let Some(recall) = onecontext_bootstrap.as_deref() {
