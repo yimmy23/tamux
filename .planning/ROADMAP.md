@@ -91,7 +91,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — Type contracts, config extensions, EMA pure functions, dismissal tracking schema, protocol messages
-- [ ] 04-02-PLAN.md — Activity-aware scheduling in gateway_loop, priority gating in heartbeat, AuditDismiss server handler
+- [x] 04-02-PLAN.md — Activity-aware scheduling in gateway_loop, priority gating in heartbeat, AuditDismiss server handler
 - [ ] 04-03-PLAN.md — M2 anticipatory merge into heartbeat synthesis, learning transparency templates, client dismiss UX
 
 ### Phase 5: Memory Consolidation

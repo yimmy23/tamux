@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-23T12:46:07.639Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-23T12:57:04.341Z"
 progress:
   total_phases: 10
   completed_phases: 3
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-23)
 ## Current Position
 
 Phase: 04 (adaptive-heartbeat) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Plan: 2 of 3
 | Phase 03 P03 | 5min | 2 tasks | 10 files |
 | Phase 03 P05 | 7min | 2 tasks | 6 files |
 | Phase 04 P01 | 9min | 2 tasks | 6 files |
+| Phase 04 P02 | 8min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Skipped duplicate AuditQuery handler (Plan 01 already added it); used humantime for timestamp formatting
 - [Phase 03]: EscalationCancel race condition: already-resolved returns success (not error) per Pitfall 6
 - [Phase 04]: EMA alpha default 0.3 for ~5-session adaptation; priority floor 0.1 per D-05; AuditDismiss stubbed for Plan 02 wiring
+- [Phase 04]: Action type keys use actual DB values (stale_todo, stuck_goal, etc.) for feedback loop queries
+- [Phase 04]: Decay rate 0.05 per dismissal, recovery rate 0.1 per acted-on; 7-day lookback window for feedback signals
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-23T12:46:07.637Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-23T12:57:04.339Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
