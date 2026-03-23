@@ -80,9 +80,9 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 
 ### Gateway Completion
 
-- [ ] **GATE-01**: Daemon-side Slack gateway: real `conversations.history` polling + `chat.postMessage` via reqwest (not stubs)
-- [ ] **GATE-02**: Daemon-side Discord gateway: real REST API message receive/send via reqwest (not stubs)
-- [ ] **GATE-03**: Daemon-side Telegram gateway: real `getUpdates` long-polling + `sendMessage` via reqwest (not stubs)
+- [x] **GATE-01**: Daemon-side Slack gateway: real `conversations.history` polling + `chat.postMessage` via reqwest (not stubs)
+- [x] **GATE-02**: Daemon-side Discord gateway: real REST API message receive/send via reqwest (not stubs)
+- [x] **GATE-03**: Daemon-side Telegram gateway: real `getUpdates` long-polling + `sendMessage` via reqwest (not stubs)
 - [x] **GATE-04**: Unified gateway config: single configuration surface for both daemon and Electron gateway paths
 - [x] **GATE-05**: Gateway health monitoring: detect disconnections, auto-reconnect, surface status to user
 - [ ] **GATE-06**: Gateway messages routed through heartbeat: unreplied messages surfaced as proactive items
@@ -191,9 +191,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DIST-03 | Phase 9 | Pending |
 | DIST-04 | Phase 9 | Pending |
 | DIST-05 | Phase 9 | Pending |
-| GATE-01 | Phase 8 | Pending |
-| GATE-02 | Phase 8 | Pending |
-| GATE-03 | Phase 8 | Pending |
+| GATE-01 | Phase 8 | Complete |
+| GATE-02 | Phase 8 | Complete |
+| GATE-03 | Phase 8 | Complete |
 | GATE-04 | Phase 8 | Complete |
 | GATE-05 | Phase 8 | Complete |
 | GATE-06 | Phase 8 | Pending |
