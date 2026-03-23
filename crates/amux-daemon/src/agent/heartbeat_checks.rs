@@ -112,26 +112,94 @@ impl AgentEngine {
         }
     }
 
-    /// Check for unreplied gateway messages. Per D-02/BEAT-02.
-    /// Phase 2 scope: check if gateway_threads exist with no recent agent response.
-    /// Full unreplied tracking deferred to Phase 8.
+    /// Check for unreplied gateway messages. Per D-02/BEAT-02/GATE-06.
+    ///
+    /// Compares `last_incoming_at` vs `last_response_at` per channel in GatewayState.
+    /// A channel is considered "unreplied" when:
+    /// 1. It has an incoming message timestamp newer than the last response timestamp
+    ///    (or no response at all), AND
+    /// 2. The incoming message is older than `threshold_hours` (prevents flagging
+    ///    messages that just arrived — gives the agent time to respond).
     pub(super) async fn check_unreplied_messages(
         &self,
-        _threshold_hours: u64,
+        threshold_hours: u64,
     ) -> HeartbeatCheckResult {
+        let now = now_millis();
+        let threshold_ms = threshold_hours * 3600 * 1000;
+
+        // Read gateway_threads for sender context (maps thread_id -> gateway channel key)
         let gateway_threads = self.gateway_threads.read().await;
-        // Phase 2: report active gateway threads count as awareness item.
-        // True unreplied detection requires response tracking (Phase 8).
-        let active_count = gateway_threads.len();
+
+        // Read gateway_state for last_incoming_at and last_response_at
+        let gw_lock = self.gateway_state.lock().await;
+
+        let mut unreplied: Vec<CheckDetail> = Vec::new();
+
+        if let Some(gw) = gw_lock.as_ref() {
+            for (channel_key, &incoming_at) in &gw.last_incoming_at {
+                // Check if we've responded after the incoming message
+                let responded = gw
+                    .last_response_at
+                    .get(channel_key)
+                    .map(|&resp_at| resp_at >= incoming_at)
+                    .unwrap_or(false);
+
+                if responded {
+                    continue;
+                }
+
+                // Check if the incoming message is old enough to flag
+                // (prevents flagging messages that just arrived)
+                let elapsed_ms = now.saturating_sub(incoming_at);
+                if elapsed_ms < threshold_ms {
+                    continue;
+                }
+
+                let age_h = elapsed_ms as f64 / 3_600_000.0;
+
+                // Try to find sender info from gateway_threads
+                let sender = gateway_threads
+                    .iter()
+                    .find(|(_, v)| v.as_str() == channel_key)
+                    .map(|(k, _)| k.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let severity = if age_h > (threshold_hours as f64 * 4.0) {
+                    CheckSeverity::High
+                } else if age_h > (threshold_hours as f64 * 2.0) {
+                    CheckSeverity::Medium
+                } else {
+                    CheckSeverity::Low
+                };
+
+                unreplied.push(CheckDetail {
+                    id: channel_key.clone(),
+                    label: format!("Unreplied message on {channel_key}"),
+                    age_hours: age_h,
+                    severity,
+                    context: format!(
+                        "Message from '{}' on {} unreplied for {:.1}h",
+                        sender, channel_key, age_h
+                    ),
+                });
+            }
+        }
+
+        drop(gw_lock);
+
         HeartbeatCheckResult {
             check_type: HeartbeatCheckType::UnrepliedGatewayMessages,
-            items_found: 0, // Conservative: no false positives until Phase 8
-            summary: if active_count == 0 {
-                "No active gateway conversations.".into()
+            items_found: unreplied.len(),
+            summary: if unreplied.is_empty() {
+                "No unreplied gateway messages.".into()
             } else {
-                format!("{} active gateway conversation(s)", active_count)
+                format!(
+                    "{} unreplied gateway conversation(s) for >{}h",
+                    unreplied.len(),
+                    threshold_hours
+                )
             },
-            details: vec![],
+            details: unreplied,
         }
     }
 
@@ -478,7 +546,7 @@ mod tests {
             HeartbeatCheckType::UnrepliedGatewayMessages
         );
         assert_eq!(result.items_found, 0);
-        assert!(result.summary.contains("No active gateway"));
+        assert!(result.summary.contains("No unreplied gateway"));
     }
 
     #[tokio::test]
