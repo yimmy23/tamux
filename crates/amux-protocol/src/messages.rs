@@ -478,14 +478,10 @@ pub enum ClientMessage {
     },
 
     /// Cancel active escalation and return control to user. Per D-13/TRNS-05.
-    EscalationCancel {
-        thread_id: String,
-    },
+    EscalationCancel { thread_id: String },
 
     /// Dismiss an audit entry (user feedback signal). Per BEAT-09/D-04.
-    AuditDismiss {
-        entry_id: String,
-    },
+    AuditDismiss { entry_id: String },
 
     /// List skill variants with optional status filter. Per SKIL-03/D-09.
     SkillList {
@@ -513,6 +509,33 @@ pub enum ClientMessage {
         identifier: String,
         /// Target status (e.g. "active").
         target_status: String,
+    },
+
+    /// Search the community skill registry. Per SKIL-07/D-07.
+    SkillSearch { query: String },
+
+    /// Import a community skill by name or URL. Per SKIL-07/D-07/D-08.
+    SkillImport {
+        /// Skill name from registry or direct URL.
+        source: String,
+        /// Override security warnings. Per D-05.
+        force: bool,
+    },
+
+    /// Export a local skill to a file. Per SKIL-10/D-11.
+    SkillExport {
+        /// Skill name or variant ID.
+        identifier: String,
+        /// Output format: "tamux" or "agentskills".
+        format: String,
+        /// Output directory path.
+        output_dir: String,
+    },
+
+    /// Publish a local skill to the community registry. Per SKIL-07/D-02.
+    SkillPublish {
+        /// Skill name or variant ID.
+        identifier: String,
     },
 }
 
@@ -867,21 +890,13 @@ pub enum DaemonMessage {
     },
 
     /// Escalation cancel result. Per D-13/TRNS-05.
-    EscalationCancelResult {
-        success: bool,
-        message: String,
-    },
+    EscalationCancelResult { success: bool, message: String },
 
     /// Audit dismiss result. Per BEAT-09/D-04.
-    AuditDismissResult {
-        success: bool,
-        message: String,
-    },
+    AuditDismissResult { success: bool, message: String },
 
     /// Response to SkillList -- list of skill variant records. Per SKIL-03/D-09.
-    SkillListResult {
-        variants: Vec<SkillVariantPublic>,
-    },
+    SkillListResult { variants: Vec<SkillVariantPublic> },
 
     /// Response to SkillInspect -- single skill detail with content. Per SKIL-03/D-09.
     SkillInspectResult {
@@ -890,10 +905,29 @@ pub enum DaemonMessage {
     },
 
     /// Response to SkillReject/SkillPromote. Per SKIL-03/D-09.
-    SkillActionResult {
+    SkillActionResult { success: bool, message: String },
+
+    /// Response to SkillSearch. Per SKIL-07/D-07.
+    SkillSearchResult { entries: Vec<CommunitySkillEntry> },
+
+    /// Response to SkillImport. Per SKIL-07/D-08/D-09.
+    SkillImportResult {
         success: bool,
         message: String,
+        variant_id: Option<String>,
+        scan_verdict: Option<String>,
+        findings_count: u32,
     },
+
+    /// Response to SkillExport. Per SKIL-10/D-11.
+    SkillExportResult {
+        success: bool,
+        message: String,
+        output_path: Option<String>,
+    },
+
+    /// Response to SkillPublish. Per SKIL-07/D-02.
+    SkillPublishResult { success: bool, message: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -939,6 +973,32 @@ pub struct SkillVariantPublic {
     pub context_tags: Vec<String>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+/// Community registry skill entry. Per SKIL-07/D-01.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommunitySkillEntry {
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub publisher_id: String,
+    pub publisher_verified: bool,
+    pub success_rate: f64,
+    pub use_count: u32,
+    pub content_hash: String,
+    pub tamux_version: String,
+    pub maturity_at_publish: String,
+    pub tags: Vec<String>,
+    pub published_at: u64,
+}
+
+/// Public scan report for IPC responses. Per SKIL-09/D-04.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScanReportPublic {
+    pub verdict: String,
+    pub findings_count: u32,
+    pub critical_count: u32,
+    pub suspicious_count: u32,
 }
 
 /// Metadata about a running session.
@@ -1317,6 +1377,32 @@ mod tests {
         }
     }
 
+    fn sample_community_skill_entry() -> CommunitySkillEntry {
+        CommunitySkillEntry {
+            name: "git-rebase-workflow".to_string(),
+            description: "Safely rebase a feature branch".to_string(),
+            version: "1.2.0".to_string(),
+            publisher_id: "abcd1234efgh5678".to_string(),
+            publisher_verified: true,
+            success_rate: 0.93,
+            use_count: 42,
+            content_hash: "d34db33f".to_string(),
+            tamux_version: "0.1.10".to_string(),
+            maturity_at_publish: "proven".to_string(),
+            tags: vec!["git".to_string(), "workflow".to_string()],
+            published_at: 1700001234,
+        }
+    }
+
+    fn sample_scan_report_public() -> ScanReportPublic {
+        ScanReportPublic {
+            verdict: "warn".to_string(),
+            findings_count: 3,
+            critical_count: 0,
+            suspicious_count: 3,
+        }
+    }
+
     // -----------------------------------------------------------------------
     // ClientMessage round-trips
     // -----------------------------------------------------------------------
@@ -1405,6 +1491,76 @@ mod tests {
         }
     }
 
+    #[test]
+    fn skill_search_bincode_roundtrip() {
+        let msg = ClientMessage::SkillSearch {
+            query: "git".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillSearch { query } => {
+                assert_eq!(query, "git");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_import_bincode_roundtrip() {
+        let msg = ClientMessage::SkillImport {
+            source: "https://registry.tamux.dev/skills/git.tar.gz".to_string(),
+            force: true,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillImport { source, force } => {
+                assert_eq!(source, "https://registry.tamux.dev/skills/git.tar.gz");
+                assert!(force);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_export_bincode_roundtrip() {
+        let msg = ClientMessage::SkillExport {
+            identifier: "test-skill".to_string(),
+            format: "agentskills".to_string(),
+            output_dir: "/tmp/export".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillExport {
+                identifier,
+                format,
+                output_dir,
+            } => {
+                assert_eq!(identifier, "test-skill");
+                assert_eq!(format, "agentskills");
+                assert_eq!(output_dir, "/tmp/export");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_publish_bincode_roundtrip() {
+        let msg = ClientMessage::SkillPublish {
+            identifier: "test-skill".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillPublish { identifier } => {
+                assert_eq!(identifier, "test-skill");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // DaemonMessage round-trips
     // -----------------------------------------------------------------------
@@ -1472,6 +1628,90 @@ mod tests {
         }
     }
 
+    #[test]
+    fn skill_search_result_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillSearchResult {
+            entries: vec![sample_community_skill_entry()],
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillSearchResult { entries } => {
+                assert_eq!(entries, vec![sample_community_skill_entry()]);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_import_result_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillImportResult {
+            success: true,
+            message: "imported".to_string(),
+            variant_id: Some("variant-1".to_string()),
+            scan_verdict: Some("warn".to_string()),
+            findings_count: 2,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillImportResult {
+                success,
+                message,
+                variant_id,
+                scan_verdict,
+                findings_count,
+            } => {
+                assert!(success);
+                assert_eq!(message, "imported");
+                assert_eq!(variant_id.as_deref(), Some("variant-1"));
+                assert_eq!(scan_verdict.as_deref(), Some("warn"));
+                assert_eq!(findings_count, 2);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_export_result_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillExportResult {
+            success: true,
+            message: "exported".to_string(),
+            output_path: Some("/tmp/export/skill.md".to_string()),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillExportResult {
+                success,
+                message,
+                output_path,
+            } => {
+                assert!(success);
+                assert_eq!(message, "exported");
+                assert_eq!(output_path.as_deref(), Some("/tmp/export/skill.md"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn skill_publish_result_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillPublishResult {
+            success: true,
+            message: "published".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillPublishResult { success, message } => {
+                assert!(success);
+                assert_eq!(message, "published");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // SkillVariantPublic serde
     // -----------------------------------------------------------------------
@@ -1482,5 +1722,21 @@ mod tests {
         let json = serde_json::to_string(&variant).unwrap();
         let decoded: SkillVariantPublic = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, variant);
+    }
+
+    #[test]
+    fn community_skill_entry_json_roundtrip() {
+        let entry = sample_community_skill_entry();
+        let json = serde_json::to_string(&entry).unwrap();
+        let decoded: CommunitySkillEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, entry);
+    }
+
+    #[test]
+    fn scan_report_public_json_roundtrip() {
+        let report = sample_scan_report_public();
+        let json = serde_json::to_string(&report).unwrap();
+        let decoded: ScanReportPublic = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, report);
     }
 }

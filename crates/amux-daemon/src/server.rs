@@ -2519,6 +2519,50 @@ where
                         framed.send(msg).await?;
                     }
                 }
+
+                ClientMessage::SkillSearch { query } => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: format!(
+                                "community skill search is not available yet: {query}"
+                            ),
+                        })
+                        .await?;
+                }
+
+                ClientMessage::SkillImport { source, force } => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: format!(
+                                "community skill import is not available yet: source={source}, force={force}"
+                            ),
+                        })
+                        .await?;
+                }
+
+                ClientMessage::SkillExport {
+                    identifier,
+                    format,
+                    output_dir,
+                } => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: format!(
+                                "community skill export is not available yet: identifier={identifier}, format={format}, output_dir={output_dir}"
+                            ),
+                        })
+                        .await?;
+                }
+
+                ClientMessage::SkillPublish { identifier } => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: format!(
+                                "community skill publish is not available yet: {identifier}"
+                            ),
+                        })
+                        .await?;
+                }
             }
         }
     }
