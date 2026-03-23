@@ -617,6 +617,75 @@ pub async fn send_skill_promote(identifier: &str, target_status: &str) -> Result
     }
 }
 
+pub async fn send_skill_search(query: &str) -> Result<Vec<amux_protocol::CommunitySkillEntry>> {
+    match roundtrip(ClientMessage::SkillSearch {
+        query: query.to_string(),
+    })
+    .await?
+    {
+        DaemonMessage::SkillSearchResult { entries } => Ok(entries),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_import(
+    source: &str,
+    force: bool,
+) -> Result<(bool, String, Option<String>, Option<String>, u32)> {
+    match roundtrip(ClientMessage::SkillImport {
+        source: source.to_string(),
+        force,
+        publisher_verified: false,
+    })
+    .await?
+    {
+        DaemonMessage::SkillImportResult {
+            success,
+            message,
+            variant_id,
+            scan_verdict,
+            findings_count,
+        } => Ok((success, message, variant_id, scan_verdict, findings_count)),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_export(
+    identifier: &str,
+    format: &str,
+    output_dir: &str,
+) -> Result<(bool, String, Option<String>)> {
+    match roundtrip(ClientMessage::SkillExport {
+        identifier: identifier.to_string(),
+        format: format.to_string(),
+        output_dir: output_dir.to_string(),
+    })
+    .await?
+    {
+        DaemonMessage::SkillExportResult {
+            success,
+            message,
+            output_path,
+        } => Ok((success, message, output_path)),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_publish(identifier: &str) -> Result<(bool, String)> {
+    match roundtrip(ClientMessage::SkillPublish {
+        identifier: identifier.to_string(),
+    })
+    .await?
+    {
+        DaemonMessage::SkillPublishResult { success, message } => Ok((success, message)),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
 pub async fn run_bridge(
     session: Option<String>,
     shell: Option<String>,
