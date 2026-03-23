@@ -1110,75 +1110,7 @@ impl AgentEngine {
     }
 
     pub(super) fn resolve_provider_config(&self, config: &AgentConfig) -> Result<ProviderConfig> {
-        // Check named providers first
-        if let Some(pc) = config.providers.get(&config.provider) {
-            let mut resolved = pc.clone();
-            // Fall back to provider definition defaults for base_url and model
-            if resolved.base_url.is_empty() {
-                resolved.base_url =
-                    get_provider_base_url(&config.provider, &resolved.model, &config.base_url);
-            }
-            if resolved.model.is_empty() {
-                if !config.model.is_empty() {
-                    resolved.model = config.model.clone();
-                } else if let Some(def) = get_provider_definition(&config.provider) {
-                    resolved.model = def.default_model.to_string();
-                }
-            }
-            if resolved.reasoning_effort.trim().is_empty() {
-                resolved.reasoning_effort = config.reasoning_effort.clone();
-            }
-            if resolved.assistant_id.trim().is_empty() {
-                resolved.assistant_id = config.assistant_id.clone();
-            }
-            if resolved.context_window_tokens == 0 {
-                resolved.context_window_tokens = config.context_window_tokens;
-            }
-            if !provider_supports_transport(&config.provider, resolved.api_transport) {
-                resolved.api_transport = default_api_transport_for_provider(&config.provider);
-            }
-            if config.provider == "openai"
-                && resolved.auth_source == crate::agent::types::AuthSource::ChatgptSubscription
-            {
-                resolved.api_transport = ApiTransport::Responses;
-            }
-            return Ok(resolved);
-        }
-
-        // Fall back to top-level config, filling in provider definition defaults
-        let base_url = get_provider_base_url(&config.provider, &config.model, &config.base_url);
-        if base_url.is_empty() {
-            anyhow::bail!(
-                "No base URL configured for provider '{}'. Configure in agent settings.",
-                config.provider
-            );
-        }
-
-        let model = if config.model.is_empty() {
-            get_provider_definition(&config.provider)
-                .map(|d| d.default_model.to_string())
-                .unwrap_or_default()
-        } else {
-            config.model.clone()
-        };
-
-        let api_transport = if provider_supports_transport(&config.provider, config.api_transport) {
-            config.api_transport
-        } else {
-            default_api_transport_for_provider(&config.provider)
-        };
-
-        Ok(ProviderConfig {
-            base_url,
-            model,
-            api_key: config.api_key.clone(),
-            assistant_id: config.assistant_id.clone(),
-            auth_source: config.auth_source,
-            api_transport,
-            reasoning_effort: config.reasoning_effort.clone(),
-            context_window_tokens: config.context_window_tokens,
-            response_schema: None,
-        })
+        resolve_active_provider_config(config)
     }
 
     /// Resolve provider config for a named sub-agent's provider.
@@ -1189,38 +1121,7 @@ impl AgentEngine {
         config: &AgentConfig,
         sub_agent_provider: &str,
     ) -> Result<ProviderConfig> {
-        if let Some(pc) = config.providers.get(sub_agent_provider) {
-            let mut resolved = pc.clone();
-            // Fall back to provider definition defaults for base_url and model
-            if resolved.base_url.is_empty() {
-                resolved.base_url = get_provider_base_url(sub_agent_provider, &resolved.model, "");
-            }
-            if resolved.model.is_empty() {
-                if let Some(def) = get_provider_definition(sub_agent_provider) {
-                    resolved.model = def.default_model.to_string();
-                }
-            }
-            if resolved.reasoning_effort.trim().is_empty() {
-                resolved.reasoning_effort = config.reasoning_effort.clone();
-            }
-            if resolved.context_window_tokens == 0 {
-                resolved.context_window_tokens = config.context_window_tokens;
-            }
-            if !provider_supports_transport(sub_agent_provider, resolved.api_transport) {
-                resolved.api_transport = default_api_transport_for_provider(sub_agent_provider);
-            }
-            return Ok(resolved);
-        }
-
-        // If the sub-agent provider matches the top-level, use normal resolution
-        if sub_agent_provider == config.provider {
-            return self.resolve_provider_config(config);
-        }
-
-        anyhow::bail!(
-            "No credentials configured for sub-agent provider '{}'. Log in via Auth settings.",
-            sub_agent_provider
-        )
+        resolve_provider_config_for(config, sub_agent_provider, None)
     }
 
     pub(super) async fn add_assistant_message(

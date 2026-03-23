@@ -806,8 +806,7 @@ where
                     thread_id,
                     message_ids,
                 } => {
-                    let id_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
-                    match agent.history.delete_messages(&thread_id, &id_refs) {
+                    match agent.delete_thread_messages(&thread_id, &message_ids).await {
                         Ok(deleted) => {
                             tracing::info!(
                                 thread_id = %thread_id,

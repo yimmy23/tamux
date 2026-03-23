@@ -1216,6 +1216,87 @@ fn messages_to_responses_input(messages: &[ApiMessage]) -> Vec<serde_json::Value
         .collect()
 }
 
+fn build_anthropic_message_content(message: &ApiMessage) -> serde_json::Value {
+    if message.role == "assistant" && message.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty()) {
+        let mut blocks = Vec::new();
+        if let ApiContent::Text(text) = &message.content {
+            if !text.is_empty() {
+                blocks.push(serde_json::json!({
+                    "type": "text",
+                    "text": text,
+                }));
+            }
+        }
+        if let Some(tool_calls) = &message.tool_calls {
+            for tool_call in tool_calls {
+                let input = serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments)
+                    .unwrap_or_else(|_| {
+                        serde_json::json!({
+                            "_raw_arguments": tool_call.function.arguments,
+                        })
+                    });
+                blocks.push(serde_json::json!({
+                    "type": "tool_use",
+                    "id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "input": input,
+                }));
+            }
+        }
+        serde_json::Value::Array(blocks)
+    } else {
+        match &message.content {
+            ApiContent::Text(text) => serde_json::json!(text),
+            ApiContent::Blocks(blocks) => serde_json::json!(blocks),
+        }
+    }
+}
+
+fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut index = 0usize;
+
+    while index < messages.len() {
+        let message = &messages[index];
+        if message.role == "tool" {
+            let mut blocks = Vec::new();
+            while index < messages.len() && messages[index].role == "tool" {
+                let tool_message = &messages[index];
+                if let Some(tool_use_id) = tool_message.tool_call_id.as_ref() {
+                    blocks.push(serde_json::json!({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": match &tool_message.content {
+                            ApiContent::Text(text) => serde_json::Value::String(text.clone()),
+                            ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
+                        }
+                    }));
+                }
+                index += 1;
+            }
+            if !blocks.is_empty() {
+                out.push(serde_json::json!({
+                    "role": "user",
+                    "content": blocks,
+                }));
+            }
+            continue;
+        }
+
+        let role = match message.role.as_str() {
+            "system" => "user",
+            other => other,
+        };
+        out.push(serde_json::json!({
+            "role": role,
+            "content": build_anthropic_message_content(message),
+        }));
+        index += 1;
+    }
+
+    out
+}
+
 async fn run_openai_responses(
     client: &reqwest::Client,
     provider: &str,
@@ -1796,67 +1877,7 @@ async fn run_anthropic(
     let url = format!("{}/v1/messages", config.base_url.trim_end_matches('/'));
 
     // Convert messages to Anthropic format
-    let anthropic_messages: Vec<serde_json::Value> = messages
-        .iter()
-        .map(|m| {
-            let role = match m.role.as_str() {
-                "tool" | "system" => "user",
-                r => r,
-            };
-
-            let content = if m.role == "tool" {
-                serde_json::json!([{
-                    "type": "tool_result",
-                    "tool_use_id": m.tool_call_id,
-                    "content": match &m.content {
-                        ApiContent::Text(t) => t.as_str(),
-                        _ => "",
-                    }
-                }])
-            } else if m.role == "assistant"
-                && m.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
-            {
-                let mut blocks = Vec::new();
-                if let ApiContent::Text(text) = &m.content {
-                    if !text.is_empty() {
-                        blocks.push(serde_json::json!({
-                            "type": "text",
-                            "text": text,
-                        }));
-                    }
-                }
-                if let Some(tool_calls) = &m.tool_calls {
-                    for tool_call in tool_calls {
-                        let input = serde_json::from_str::<serde_json::Value>(
-                            &tool_call.function.arguments,
-                        )
-                        .unwrap_or_else(|_| {
-                            serde_json::json!({
-                                "_raw_arguments": tool_call.function.arguments,
-                            })
-                        });
-                        blocks.push(serde_json::json!({
-                            "type": "tool_use",
-                            "id": tool_call.id,
-                            "name": tool_call.function.name,
-                            "input": input,
-                        }));
-                    }
-                }
-                serde_json::Value::Array(blocks)
-            } else {
-                match &m.content {
-                    ApiContent::Text(t) => serde_json::json!(t),
-                    ApiContent::Blocks(b) => serde_json::json!(b),
-                }
-            };
-
-            serde_json::json!({
-                "role": role,
-                "content": content,
-            })
-        })
-        .collect();
+    let anthropic_messages = build_anthropic_messages(messages);
 
     let mut body = serde_json::json!({
         "model": config.model,
@@ -2364,4 +2385,65 @@ pub async fn validate_provider_connection(
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anthropic_groups_consecutive_tool_results_into_one_user_message() {
+        let messages = vec![
+            ApiMessage {
+                role: "assistant".to_string(),
+                content: ApiContent::Text("Checking both".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: Some(vec![
+                    ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "list_files".to_string(),
+                            arguments: "{\"path\":\".\"}".to_string(),
+                        },
+                    },
+                    ApiToolCall {
+                        id: "call_2".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "read_file".to_string(),
+                            arguments: "{\"path\":\"README.md\"}".to_string(),
+                        },
+                    },
+                ]),
+            },
+            ApiMessage {
+                role: "tool".to_string(),
+                content: ApiContent::Text("file list".to_string()),
+                tool_call_id: Some("call_1".to_string()),
+                name: Some("list_files".to_string()),
+                tool_calls: None,
+            },
+            ApiMessage {
+                role: "tool".to_string(),
+                content: ApiContent::Text("readme contents".to_string()),
+                tool_call_id: Some("call_2".to_string()),
+                name: Some("read_file".to_string()),
+                tool_calls: None,
+            },
+        ];
+
+        let anthropic = build_anthropic_messages(&messages);
+        assert_eq!(anthropic.len(), 2);
+        assert_eq!(anthropic[0]["role"], "assistant");
+        assert_eq!(anthropic[1]["role"], "user");
+        let blocks = anthropic[1]["content"]
+            .as_array()
+            .expect("tool results should be grouped into one block array");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "tool_result");
+        assert_eq!(blocks[0]["tool_use_id"], "call_1");
+        assert_eq!(blocks[1]["tool_use_id"], "call_2");
+    }
 }

@@ -515,7 +515,10 @@ impl TuiModel {
             return;
         }
         let thread_id = thread.id.clone();
-        let msg_id = thread.messages[index].id.clone();
+        let msg_id = thread.messages[index]
+            .id
+            .clone()
+            .unwrap_or_else(|| format!("{}:{}", thread_id, index));
         thread.messages.remove(index);
 
         // Deselect after removal
@@ -523,12 +526,10 @@ impl TuiModel {
         self.status_line = format!("Deleted message {}", index + 1);
 
         // Persist to daemon
-        if let Some(id) = msg_id {
-            self.send_daemon_command(DaemonCommand::DeleteMessages {
-                thread_id,
-                message_ids: vec![id],
-            });
-        }
+        self.send_daemon_command(DaemonCommand::DeleteMessages {
+            thread_id,
+            message_ids: vec![msg_id],
+        });
     }
 
     pub(super) fn regenerate_from_message(&mut self, index: usize) {

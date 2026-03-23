@@ -1,6 +1,7 @@
 //! Concierge agent — proactive welcome greetings and lightweight ops assistant.
 
 use super::llm_client::{self, ApiContent, ApiMessage, RetryStrategy};
+use super::provider_resolution::resolve_provider_config_for;
 use super::types::*;
 use anyhow::Result;
 use futures::StreamExt;
@@ -679,45 +680,7 @@ fn resolve_concierge_provider(config: &AgentConfig) -> Result<ProviderConfig> {
         .provider
         .as_deref()
         .unwrap_or(&config.provider);
-    let model = config.concierge.model.as_deref().unwrap_or(&config.model);
-
-    // Check named providers first.
-    if let Some(pc) = config.providers.get(provider_id) {
-        let mut resolved = pc.clone();
-        if resolved.model.is_empty() {
-            resolved.model = model.to_string();
-        }
-        if !provider_supports_transport(provider_id, resolved.api_transport) {
-            resolved.api_transport = default_api_transport_for_provider(provider_id);
-        }
-        return Ok(resolved);
-    }
-
-    // Fall back to top-level config.
-    if config.base_url.is_empty() {
-        anyhow::bail!(
-            "No credentials configured for concierge provider '{}'. Set up in Auth settings.",
-            provider_id
-        );
-    }
-
-    let api_transport = if provider_supports_transport(provider_id, config.api_transport) {
-        config.api_transport
-    } else {
-        default_api_transport_for_provider(provider_id)
-    };
-
-    Ok(ProviderConfig {
-        base_url: config.base_url.clone(),
-        model: model.to_string(),
-        api_key: config.api_key.clone(),
-        assistant_id: config.assistant_id.clone(),
-        auth_source: config.auth_source,
-        api_transport,
-        reasoning_effort: config.reasoning_effort.clone(),
-        context_window_tokens: config.context_window_tokens,
-        response_schema: None,
-    })
+    resolve_provider_config_for(config, provider_id, config.concierge.model.as_deref())
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────
@@ -839,5 +802,47 @@ mod tests {
         let thread = guard.get(CONCIERGE_THREAD_ID).unwrap();
         assert_eq!(thread.messages.len(), 1);
         assert_eq!(thread.messages[0].content, "hello");
+    }
+
+    #[test]
+    fn resolve_concierge_provider_uses_shared_resolution_path() {
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.base_url = "https://api.openai.com/v1".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.reasoning_effort = "high".to_string();
+        config.context_window_tokens = 123_000;
+        config.assistant_id = "assistant-root".to_string();
+        config.concierge.provider = Some("alibaba-coding-plan".to_string());
+        config.concierge.model = Some("qwen3.5-plus".to_string());
+        config.providers.insert(
+            "alibaba-coding-plan".to_string(),
+            ProviderConfig {
+                base_url: String::new(),
+                model: String::new(),
+                api_key: "dashscope-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                context_window_tokens: 0,
+                reasoning_effort: String::new(),
+                response_schema: None,
+            },
+        );
+
+        let resolved = resolve_concierge_provider(&config).expect("concierge provider should resolve");
+        let shared = resolve_provider_config_for(
+            &config,
+            "alibaba-coding-plan",
+            Some("qwen3.5-plus"),
+        )
+        .expect("shared provider resolution should succeed");
+        assert_eq!(resolved.base_url, shared.base_url);
+        assert_eq!(resolved.model, shared.model);
+        assert_eq!(resolved.api_key, shared.api_key);
+        assert_eq!(resolved.reasoning_effort, shared.reasoning_effort);
+        assert_eq!(resolved.assistant_id, shared.assistant_id);
+        assert_eq!(resolved.context_window_tokens, shared.context_window_tokens);
+        assert_eq!(resolved.api_transport, shared.api_transport);
     }
 }

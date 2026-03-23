@@ -3,6 +3,49 @@
 use super::*;
 
 impl AgentEngine {
+    pub async fn delete_thread_messages(&self, thread_id: &str, message_ids: &[String]) -> Result<usize> {
+        if message_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let removed = {
+            let mut threads = self.threads.write().await;
+            if let Some(thread) = threads.get_mut(thread_id) {
+                let id_set: std::collections::HashSet<&str> =
+                    message_ids.iter().map(String::as_str).collect();
+                let before = thread.messages.len();
+                thread.messages = thread
+                    .messages
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .filter_map(|(index, message)| {
+                        let synthetic_id = format!("{thread_id}:{index}");
+                        (!id_set.contains(synthetic_id.as_str())).then_some(message)
+                    })
+                    .collect();
+                let removed = before.saturating_sub(thread.messages.len());
+                if removed > 0 {
+                    thread.updated_at = now_millis();
+                    thread.total_input_tokens = thread.messages.iter().map(|m| m.input_tokens).sum();
+                    thread.total_output_tokens =
+                        thread.messages.iter().map(|m| m.output_tokens).sum();
+                }
+                removed
+            } else {
+                0
+            }
+        };
+
+        if removed > 0 {
+            self.persist_thread_by_id(thread_id).await;
+            return Ok(removed);
+        }
+
+        let id_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
+        self.history.delete_messages(thread_id, &id_refs)
+    }
+
     pub async fn seed_thread_context(
         &self,
         thread_id: Option<&str>,
@@ -243,5 +286,65 @@ impl AgentEngine {
             backend_override,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn delete_thread_messages_updates_live_thread_and_persisted_history() {
+        let manager = SessionManager::new();
+        let root = tempdir().unwrap();
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path());
+        let thread_id = "thread_test";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Test".to_string(),
+                    created_at: 1,
+                    updated_at: 1,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("first", 1),
+                        AgentMessage::user("second", 2),
+                        AgentMessage::user("third", 3),
+                    ],
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        let deleted = engine
+            .delete_thread_messages(thread_id, &[format!("{thread_id}:1")])
+            .await
+            .expect("delete should succeed");
+        assert_eq!(deleted, 1);
+
+        let live = engine.threads.read().await;
+        let thread = live.get(thread_id).expect("thread should still exist");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].content, "first");
+        assert_eq!(thread.messages[1].content, "third");
+        drop(live);
+
+        let persisted = engine.history.list_messages(thread_id, Some(10)).unwrap();
+        assert_eq!(persisted.len(), 2);
+        assert_eq!(persisted[0].content, "first");
+        assert_eq!(persisted[1].content, "third");
     }
 }
