@@ -30,6 +30,7 @@ mod goal_llm;
 mod goal_parsing;
 mod goal_planner;
 mod heartbeat;
+mod heartbeat_checks;
 mod honcho;
 mod memory;
 mod memory_flush;
