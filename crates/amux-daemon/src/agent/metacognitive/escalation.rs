@@ -1,4 +1,9 @@
 //! Escalation pathways — graduated intervention from self-correction to external notification.
+//!
+//! This module provides pure data types and helper functions for escalation.
+//! The actual escalation transitions (evaluate + apply) happen in the AgentEngine
+//! call sites; this module provides `escalation_audit_data()` to build audit entries
+//! and event payloads that the AgentEngine can persist/broadcast.
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +23,18 @@ pub enum EscalationLevel {
     User,
     /// Level 3: External — notification via gateway, pause execution.
     External,
+}
+
+impl EscalationLevel {
+    /// Return the short label for this level (e.g. "L0", "L1", "L2", "L3").
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::SelfCorrection => "L0",
+            Self::SubAgent => "L1",
+            Self::User => "L2",
+            Self::External => "L3",
+        }
+    }
 }
 
 /// Tracks the current position within the escalation pathway together with
@@ -250,6 +267,90 @@ pub fn build_escalation_message(
                 goal_title, step_title, reason
             )
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Audit entry helper (per D-06/TRNS-05)
+// ---------------------------------------------------------------------------
+
+/// Data produced by `escalation_audit_data` for the AgentEngine to persist and broadcast.
+#[derive(Debug, Clone)]
+pub struct EscalationAuditData {
+    /// Unique ID for the audit entry.
+    pub audit_id: String,
+    /// Timestamp (epoch millis).
+    pub timestamp: u64,
+    /// Human-readable summary / explanation.
+    pub summary: String,
+    /// The from-level label (e.g. "L0").
+    pub from_label: String,
+    /// The to-level label (e.g. "L1").
+    pub to_label: String,
+    /// Reason for escalation.
+    pub reason: String,
+    /// Number of attempts at the from-level.
+    pub attempts: u32,
+    /// Serialized JSON with escalation details for raw_data_json.
+    pub raw_data_json: String,
+}
+
+/// Build audit entry data for an escalation level transition.
+///
+/// Called from AgentEngine integration code after `EscalationState::apply()` when
+/// `decision.should_escalate` is true. The returned `EscalationAuditData` contains
+/// all fields needed to create an `AuditEntryRow` and broadcast `EscalationUpdate` +
+/// `AuditAction` events.
+///
+/// Uses `generate_explanation("escalation", ...)` from the explanation module. When
+/// causal factors exceed the template threshold (> 2), falls back to a formatted string.
+pub fn escalation_audit_data(
+    from_level: &EscalationLevel,
+    to_level: &EscalationLevel,
+    reason: &str,
+    attempts: u32,
+    thread_id: Option<&str>,
+    causal_factors: &[serde_json::Value],
+    now: u64,
+) -> EscalationAuditData {
+    let from_label = from_level.as_label().to_string();
+    let to_label = to_level.as_label().to_string();
+
+    let data = serde_json::json!({
+        "from_level": from_label,
+        "to_level": to_label,
+        "reason": reason,
+        "causal_factors": causal_factors,
+        "thread_id": thread_id,
+        "attempts": attempts,
+    });
+
+    // generate_explanation for "escalation" returns NeedsLlm when factors > 2,
+    // Template otherwise. We need to import from the parent module.
+    let summary = {
+        let factors_count = causal_factors.len();
+        if factors_count > 2 {
+            // NeedsLlm case — use fallback template
+            format!(
+                "Escalating from {} to {}: {} ({} causal factors)",
+                from_label, to_label, reason, factors_count
+            )
+        } else {
+            format!("Escalating from {} to {}: {}", from_label, to_label, reason)
+        }
+    };
+
+    let raw_data_json = serde_json::to_string(&data).unwrap_or_default();
+
+    EscalationAuditData {
+        audit_id: format!("audit-esc-{}", uuid::Uuid::new_v4()),
+        timestamp: now,
+        summary,
+        from_label,
+        to_label,
+        reason: reason.to_string(),
+        attempts,
+        raw_data_json,
     }
 }
 
@@ -537,5 +638,77 @@ mod tests {
 
         assert_eq!(state.total_escalations, 3);
         assert_eq!(state.escalation_history.len(), 3);
+    }
+
+    // 17. EscalationLevel::as_label returns correct labels
+    #[test]
+    fn escalation_level_labels() {
+        assert_eq!(EscalationLevel::SelfCorrection.as_label(), "L0");
+        assert_eq!(EscalationLevel::SubAgent.as_label(), "L1");
+        assert_eq!(EscalationLevel::User.as_label(), "L2");
+        assert_eq!(EscalationLevel::External.as_label(), "L3");
+    }
+
+    // 18. escalation_audit_data produces correct simple summary
+    #[test]
+    fn escalation_audit_data_simple() {
+        let data = escalation_audit_data(
+            &EscalationLevel::SelfCorrection,
+            &EscalationLevel::SubAgent,
+            "timeout after 2 retries",
+            2,
+            Some("thread-1"),
+            &[serde_json::json!("factor1")],
+            5000,
+        );
+        assert!(data.audit_id.starts_with("audit-esc-"));
+        assert_eq!(data.timestamp, 5000);
+        assert_eq!(data.from_label, "L0");
+        assert_eq!(data.to_label, "L1");
+        assert!(data.summary.contains("L0"));
+        assert!(data.summary.contains("L1"));
+        assert!(data.summary.contains("timeout"));
+        assert_eq!(data.attempts, 2);
+    }
+
+    // 19. escalation_audit_data with many causal factors includes count
+    #[test]
+    fn escalation_audit_data_complex() {
+        let data = escalation_audit_data(
+            &EscalationLevel::SubAgent,
+            &EscalationLevel::User,
+            "multiple failures",
+            1,
+            None,
+            &[
+                serde_json::json!("f1"),
+                serde_json::json!("f2"),
+                serde_json::json!("f3"),
+            ],
+            6000,
+        );
+        assert!(data.summary.contains("3 causal factors"));
+        assert!(data.summary.contains("L1"));
+        assert!(data.summary.contains("L2"));
+    }
+
+    // 20. escalation_audit_data raw_data_json is valid JSON
+    #[test]
+    fn escalation_audit_data_raw_json_valid() {
+        let data = escalation_audit_data(
+            &EscalationLevel::User,
+            &EscalationLevel::External,
+            "user timeout",
+            0,
+            Some("t-42"),
+            &[],
+            7000,
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&data.raw_data_json).expect("valid JSON");
+        assert_eq!(parsed["from_level"], "L2");
+        assert_eq!(parsed["to_level"], "L3");
+        assert_eq!(parsed["reason"], "user timeout");
+        assert_eq!(parsed["thread_id"], "t-42");
     }
 }
