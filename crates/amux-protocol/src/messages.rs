@@ -476,6 +476,11 @@ pub enum ClientMessage {
         since: Option<u64>,
         limit: Option<usize>,
     },
+
+    /// Cancel active escalation and return control to user. Per D-13/TRNS-05.
+    EscalationCancel {
+        thread_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -826,6 +831,12 @@ pub enum DaemonMessage {
     AuditList {
         /// Serialized `Vec<AuditEntryPublic>` as JSON.
         entries_json: String,
+    },
+
+    /// Escalation cancel result. Per D-13/TRNS-05.
+    EscalationCancelResult {
+        success: bool,
+        message: String,
     },
 }
 

@@ -229,6 +229,44 @@ impl EscalationState {
         self.escalation_history.clear();
         self.started_at = now;
     }
+
+    /// Cancel active escalation and return control to user. Per D-13/TRNS-05.
+    ///
+    /// Returns `Ok(message)` on success describing what was cancelled.
+    /// Returns `Err` if there is no active escalation to cancel (at L0 with
+    /// zero total escalations).
+    ///
+    /// Race condition handling (Pitfall 6): if the escalation has already
+    /// resolved back to L0, this returns success with an informational message
+    /// rather than failing.
+    pub fn cancel_escalation(&mut self, now: u64) -> anyhow::Result<String> {
+        // Race condition: already at L0 with no history of escalation — nothing to cancel.
+        if self.current_level == EscalationLevel::SelfCorrection && self.total_escalations == 0 {
+            anyhow::bail!("No active escalation to cancel");
+        }
+
+        // Race condition: already resolved back to L0 — succeed gracefully.
+        if self.current_level == EscalationLevel::SelfCorrection {
+            return Ok("Escalation already resolved. You have control.".to_string());
+        }
+
+        let prev_level = self.current_level;
+        self.escalation_history.push(EscalationEvent {
+            level: prev_level,
+            reason: "User cancelled escalation (I'll handle this)".to_string(),
+            timestamp: now,
+            outcome: Some("cancelled_by_user".to_string()),
+        });
+
+        // Reset to L0 — user takes over.
+        self.current_level = EscalationLevel::SelfCorrection;
+        self.attempts_at_level = 0;
+
+        Ok(format!(
+            "Escalation cancelled at {}. You now have control.",
+            prev_level.as_label()
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -710,5 +748,77 @@ mod tests {
         assert_eq!(parsed["to_level"], "L3");
         assert_eq!(parsed["reason"], "user timeout");
         assert_eq!(parsed["thread_id"], "t-42");
+    }
+
+    // 21. cancel_escalation at L0 with no history fails
+    #[test]
+    fn cancel_escalation_no_active_fails() {
+        let mut state = EscalationState::new(1000);
+        let result = state.cancel_escalation(2000);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No active escalation"));
+    }
+
+    // 22. cancel_escalation at active level resets to L0
+    #[test]
+    fn cancel_escalation_resets_to_l0() {
+        let mut state = EscalationState::new(1000);
+        // Escalate to L1 first.
+        let decision = EscalationDecision {
+            should_escalate: true,
+            target_level: EscalationLevel::SubAgent,
+            reason: "test".into(),
+            message: None,
+        };
+        state.apply(&decision, 2000);
+        assert_eq!(state.current_level(), EscalationLevel::SubAgent);
+
+        let result = state.cancel_escalation(3000);
+        assert!(result.is_ok());
+        let msg = result.unwrap();
+        assert!(msg.contains("L1"));
+        assert!(msg.contains("cancelled"));
+        assert_eq!(state.current_level(), EscalationLevel::SelfCorrection);
+        assert_eq!(state.attempts_at_level, 0);
+        // History should include the cancel event.
+        let last = state.escalation_history.last().unwrap();
+        assert_eq!(last.outcome.as_deref(), Some("cancelled_by_user"));
+    }
+
+    // 23. cancel_escalation race condition: already resolved back to L0
+    #[test]
+    fn cancel_escalation_already_resolved() {
+        let mut state = EscalationState::new(1000);
+        // Escalate then reset (simulating resolution).
+        let decision = EscalationDecision {
+            should_escalate: true,
+            target_level: EscalationLevel::SubAgent,
+            reason: "test".into(),
+            message: None,
+        };
+        state.apply(&decision, 2000);
+        state.current_level = EscalationLevel::SelfCorrection;
+        state.attempts_at_level = 0;
+
+        let result = state.cancel_escalation(3000);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("already resolved"));
+    }
+
+    // 24. cancel_escalation at L2 includes correct label
+    #[test]
+    fn cancel_escalation_at_l2() {
+        let mut state = EscalationState::new(1000);
+        state.current_level = EscalationLevel::User;
+        state.total_escalations = 2;
+
+        let result = state.cancel_escalation(2000);
+        assert!(result.is_ok());
+        let msg = result.unwrap();
+        assert!(msg.contains("L2"));
+        assert_eq!(state.current_level(), EscalationLevel::SelfCorrection);
     }
 }

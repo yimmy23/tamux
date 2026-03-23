@@ -2226,6 +2226,76 @@ where
                         }
                     }
                 }
+
+                ClientMessage::EscalationCancel { thread_id } => {
+                    tracing::info!(thread_id = %thread_id, "escalation cancel requested by user (D-13)");
+
+                    // Create an audit entry for the cancellation.
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64;
+
+                    let audit_id = format!("audit-esc-cancel-{}", uuid::Uuid::new_v4());
+                    let summary = format!("User cancelled escalation for thread {thread_id}");
+
+                    let audit_entry = crate::history::AuditEntryRow {
+                        id: audit_id.clone(),
+                        timestamp: now_ms,
+                        action_type: "escalation".to_string(),
+                        summary: summary.clone(),
+                        explanation: Some(summary.clone()),
+                        confidence: None,
+                        confidence_band: None,
+                        causal_trace_id: None,
+                        thread_id: Some(thread_id.clone()),
+                        goal_run_id: None,
+                        task_id: None,
+                        raw_data_json: Some(serde_json::json!({
+                            "action": "cancel",
+                            "thread_id": thread_id,
+                            "outcome": "cancelled_by_user",
+                        }).to_string()),
+                    };
+
+                    if let Err(e) = agent.history.insert_action_audit(&audit_entry).await {
+                        tracing::warn!("failed to record escalation cancel audit: {e}");
+                    }
+
+                    // Broadcast EscalationUpdate event so all clients see the cancel.
+                    let _ = agent.event_tx.send(
+                        crate::agent::types::AgentEvent::EscalationUpdate {
+                            thread_id: thread_id.clone(),
+                            from_level: "unknown".to_string(),
+                            to_level: "L0".to_string(),
+                            reason: "User took over (I'll handle this)".to_string(),
+                            attempts: 0,
+                            audit_id: Some(audit_id.clone()),
+                        },
+                    );
+
+                    // Broadcast AuditAction event.
+                    let _ = agent.event_tx.send(
+                        crate::agent::types::AgentEvent::AuditAction {
+                            id: audit_id,
+                            timestamp: now_ms as u64,
+                            action_type: "escalation".to_string(),
+                            summary: summary.clone(),
+                            explanation: Some(summary.clone()),
+                            confidence: None,
+                            confidence_band: None,
+                            causal_trace_id: None,
+                            thread_id: Some(thread_id.clone()),
+                        },
+                    );
+
+                    framed
+                        .send(DaemonMessage::EscalationCancelResult {
+                            success: true,
+                            message: format!("Escalation cancelled for thread {thread_id}. You now have control."),
+                        })
+                        .await?;
+                }
             }
         }
     }
