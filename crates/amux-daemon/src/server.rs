@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 
 use amux_protocol::{ClientMessage, DaemonMessage};
@@ -10,6 +11,8 @@ use tokio::sync::broadcast;
 use tokio_util::codec::Framed;
 
 use crate::agent::AgentEngine;
+use crate::agent::skill_community::{export_skill, import_community_skill, prepare_publish, unpack_skill, ImportResult};
+use crate::agent::skill_registry::{to_community_entry, RegistryClient};
 use crate::session_manager::SessionManager;
 
 fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
@@ -2521,23 +2524,154 @@ where
                 }
 
                 ClientMessage::SkillSearch { query } => {
+                    let config = agent.config.read().await;
+                    let registry_url = config
+                        .extra
+                        .get("registry_url")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("https://registry.tamux.dev")
+                        .to_string();
+                    drop(config);
+
+                    let client = RegistryClient::new(registry_url, agent.history.data_dir());
+                    let entries: Vec<amux_protocol::CommunitySkillEntry> = match client.search(&query).await {
+                        Ok(entries) => entries
+                            .into_iter()
+                            .map(|entry| to_community_entry(&entry))
+                            .collect(),
+                        Err(_) => Vec::new(),
+                    };
                     framed
-                        .send(DaemonMessage::Error {
-                            message: format!(
-                                "community skill search is not available yet: {query}"
-                            ),
-                        })
+                        .send(DaemonMessage::SkillSearchResult { entries })
                         .await?;
                 }
 
-                ClientMessage::SkillImport { source, force } => {
-                    framed
-                        .send(DaemonMessage::Error {
-                            message: format!(
-                                "community skill import is not available yet: source={source}, force={force}"
-                            ),
-                        })
-                        .await?;
+                ClientMessage::SkillImport {
+                    source,
+                    force,
+                    publisher_verified,
+                } => {
+                    let config = agent.config.read().await;
+                    let registry_url = config
+                        .extra
+                        .get("registry_url")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("https://registry.tamux.dev")
+                        .to_string();
+                    drop(config);
+
+                    let client = RegistryClient::new(registry_url, agent.history.data_dir());
+                    let whitelist = vec![
+                        "read_file".to_string(),
+                        "write_file".to_string(),
+                        "list_files".to_string(),
+                        "create_directory".to_string(),
+                        "search_history".to_string(),
+                    ];
+                    let skills_root = agent.history.data_dir().join("skills");
+
+                    let import_result: Result<(String, String), anyhow::Error> = async {
+                        if source.starts_with("http://") || source.starts_with("https://") {
+                            let archive_name = source
+                                .rsplit('/')
+                                .next()
+                                .unwrap_or("community-skill.tar.gz")
+                                .trim_end_matches(".tar.gz")
+                                .to_string();
+                            let archive_path = client.fetch_skill(&archive_name).await?;
+                            let extract_dir = std::env::temp_dir().join(format!(
+                                "tamux-community-import-{}-{}",
+                                archive_name,
+                                uuid::Uuid::new_v4()
+                            ));
+                            if extract_dir.exists() {
+                                let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+                            }
+                            tokio::fs::create_dir_all(&extract_dir).await?;
+                            unpack_skill(&archive_path, &extract_dir)?;
+                            let skill_path = extract_dir.join("SKILL.md");
+                            let content = tokio::fs::read_to_string(&skill_path).await?;
+                            Ok((archive_name, content))
+                        } else {
+                            let archive_path = client.fetch_skill(&source).await?;
+                            let extract_dir = std::env::temp_dir().join(format!(
+                                "tamux-community-import-{}-{}",
+                                source,
+                                uuid::Uuid::new_v4()
+                            ));
+                            if extract_dir.exists() {
+                                let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+                            }
+                            tokio::fs::create_dir_all(&extract_dir).await?;
+                            unpack_skill(&archive_path, &extract_dir)?;
+                            let skill_path = extract_dir.join("SKILL.md");
+                            let content = tokio::fs::read_to_string(&skill_path).await?;
+                            Ok((source.clone(), content))
+                        }
+                    }
+                    .await;
+
+                    let msg = match import_result {
+                        Ok((skill_name, content)) => match import_community_skill(
+                            &agent.history,
+                            &content,
+                            &skill_name,
+                            &source,
+                            &whitelist,
+                            force,
+                            publisher_verified,
+                            &skills_root,
+                        )
+                        .await
+                        {
+                            Ok(ImportResult::Success {
+                                variant_id,
+                                scan_verdict,
+                            }) => DaemonMessage::SkillImportResult {
+                                success: true,
+                                message: format!("Imported community skill '{skill_name}' as draft."),
+                                variant_id: Some(variant_id),
+                                scan_verdict: Some(scan_verdict),
+                                findings_count: 0,
+                            },
+                            Ok(ImportResult::Blocked {
+                                report_summary,
+                                findings_count,
+                            }) => DaemonMessage::SkillImportResult {
+                                success: false,
+                                message: report_summary,
+                                variant_id: None,
+                                scan_verdict: Some("block".to_string()),
+                                findings_count,
+                            },
+                            Ok(ImportResult::NeedsForce {
+                                report_summary,
+                                findings_count,
+                            }) => DaemonMessage::SkillImportResult {
+                                success: false,
+                                message: report_summary,
+                                variant_id: None,
+                                scan_verdict: Some("warn".to_string()),
+                                findings_count,
+                            },
+                            Err(e) => DaemonMessage::SkillImportResult {
+                                success: false,
+                                message: format!("community skill import failed: {e}"),
+                                variant_id: None,
+                                scan_verdict: None,
+                                findings_count: 0,
+                            },
+                        },
+                        Err(e) => DaemonMessage::SkillImportResult {
+                            success: false,
+                            message: format!("community skill fetch failed: {e}"),
+                            variant_id: None,
+                            scan_verdict: None,
+                            findings_count: 0,
+                        },
+                    };
+
+                    framed.send(msg).await?;
                 }
 
                 ClientMessage::SkillExport {
@@ -2545,23 +2679,112 @@ where
                     format,
                     output_dir,
                 } => {
-                    framed
-                        .send(DaemonMessage::Error {
-                            message: format!(
-                                "community skill export is not available yet: identifier={identifier}, format={format}, output_dir={output_dir}"
-                            ),
-                        })
-                        .await?;
+                    let variant = match agent.history.get_skill_variant(&identifier).await {
+                        Ok(Some(v)) => Some(v),
+                        _ => match agent.history.list_skill_variants(Some(&identifier), 1).await {
+                            Ok(variants) => variants.into_iter().next(),
+                            Err(_) => None,
+                        },
+                    };
+
+                    let msg = if let Some(v) = variant {
+                        let skill_path = agent.history.data_dir().join("skills").join(&v.relative_path);
+                        match tokio::fs::read_to_string(&skill_path).await {
+                            Ok(content) => match export_skill(
+                                &content,
+                                &format,
+                                Path::new(&output_dir),
+                                &v.skill_name,
+                            ) {
+                                Ok(path) => DaemonMessage::SkillExportResult {
+                                    success: true,
+                                    message: format!("Exported skill '{}' to {}.", v.skill_name, path),
+                                    output_path: Some(path),
+                                },
+                                Err(e) => DaemonMessage::SkillExportResult {
+                                    success: false,
+                                    message: format!("community skill export failed: {e}"),
+                                    output_path: None,
+                                },
+                            },
+                            Err(e) => DaemonMessage::SkillExportResult {
+                                success: false,
+                                message: format!("failed to read skill for export: {e}"),
+                                output_path: None,
+                            },
+                        }
+                    } else {
+                        DaemonMessage::SkillExportResult {
+                            success: false,
+                            message: format!("Skill not found: {identifier}"),
+                            output_path: None,
+                        }
+                    };
+                    framed.send(msg).await?;
                 }
 
                 ClientMessage::SkillPublish { identifier } => {
-                    framed
-                        .send(DaemonMessage::Error {
-                            message: format!(
-                                "community skill publish is not available yet: {identifier}"
-                            ),
-                        })
-                        .await?;
+                    let variant = match agent.history.get_skill_variant(&identifier).await {
+                        Ok(Some(v)) => Some(v),
+                        _ => match agent.history.list_skill_variants(Some(&identifier), 1).await {
+                            Ok(variants) => variants.into_iter().next(),
+                            Err(_) => None,
+                        },
+                    };
+
+                    let msg = if let Some(v) = variant {
+                        if v.status != "proven" && v.status != "canonical" {
+                            DaemonMessage::SkillPublishResult {
+                                success: false,
+                                message: format!(
+                                    "Only proven or canonical skills can be published; '{}' is {}.",
+                                    v.skill_name, v.status
+                                ),
+                            }
+                        } else {
+                            let config = agent.config.read().await;
+                            let registry_url = config
+                                .extra
+                                .get("registry_url")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("https://registry.tamux.dev")
+                                .to_string();
+                            drop(config);
+
+                            let skill_dir = agent
+                                .history
+                                .data_dir()
+                                .join("skills")
+                                .join(Path::new(&v.relative_path).parent().unwrap_or(Path::new(".")));
+                            let machine_id = agent.history.data_dir().to_string_lossy().to_string();
+                            match prepare_publish(&skill_dir, &v, &machine_id) {
+                                Ok((tarball, metadata)) => {
+                                    let client = RegistryClient::new(registry_url, agent.history.data_dir());
+                                    match client.publish_skill(&tarball, &metadata).await {
+                                        Ok(()) => DaemonMessage::SkillPublishResult {
+                                            success: true,
+                                            message: format!("Published skill '{}'.", v.skill_name),
+                                        },
+                                        Err(e) => DaemonMessage::SkillPublishResult {
+                                            success: false,
+                                            message: format!("community skill publish failed: {e}"),
+                                        },
+                                    }
+                                }
+                                Err(e) => DaemonMessage::SkillPublishResult {
+                                    success: false,
+                                    message: format!("failed to prepare skill publish: {e}"),
+                                },
+                            }
+                        }
+                    } else {
+                        DaemonMessage::SkillPublishResult {
+                            success: false,
+                            message: format!("Skill not found: {identifier}"),
+                        }
+                    };
+
+                    framed.send(msg).await?;
                 }
             }
         }
