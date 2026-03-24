@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Plugin Ecosystem
 status: Ready to execute
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-03-24T22:07:54.402Z"
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-03-24T22:15:11.148Z"
 progress:
   total_phases: 20
   completed_phases: 11
   total_plans: 54
-  completed_plans: 48
+  completed_plans: 49
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-24)
 ## Current Position
 
 Phase: 16 (plugin-settings-ui) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Plan: 2 of 3
 | Phase 15 P01 | 4min | 2 tasks | 4 files |
 | Phase 15 P02 | 4min | 2 tasks | 4 files |
 | Phase 16 P01 | 7min | 2 tasks | 9 files |
+| Phase 16 P02 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -195,6 +196,8 @@ Recent decisions affecting current work:
 - [Phase 16]: Base64 encoding for secret values as placeholder until Phase 18 AES-256-GCM encryption
 - [Phase 16]: HEAD request probe with 5s timeout for connectivity testing; 401/403 treated as success
 - [Phase 16]: Secret masking at PluginManager layer; persistence returns raw decoded values for daemon use
+- [Phase 16]: Save-on-blur for text/password/number via wrapper div onBlur; immediate for toggle/select
+- [Phase 16]: Auth status hardcoded to not_configured in Phase 16; real OAuth wiring deferred to Phase 18
 
 ### Pending Todos
 
@@ -208,6 +211,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T22:07:54.399Z
-Stopped at: Completed 16-01-PLAN.md
+Last session: 2026-03-24T22:15:11.146Z
+Stopped at: Completed 16-02-PLAN.md
 Resume file: None

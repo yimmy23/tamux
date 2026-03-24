@@ -116,13 +116,13 @@ Requirements for the "Plugin Ecosystem" milestone. Each maps to roadmap phases 1
 
 ### Plugin Settings UI
 
-- [ ] **PSET-01**: Plugins tab in Electron settings renders installed plugins list with enable/disable toggle
+- [x] **PSET-01**: Plugins tab in Electron settings renders installed plugins list with enable/disable toggle
 - [ ] **PSET-02**: Plugins tab in TUI settings renders installed plugins list with enable/disable toggle
-- [ ] **PSET-03**: Plugin settings form dynamically generated from manifest `settings` schema in both TUI and Electron
+- [x] **PSET-03**: Plugin settings form dynamically generated from manifest `settings` schema in both TUI and Electron
 - [x] **PSET-04**: Secret settings fields masked in UI and stored encrypted
 - [x] **PSET-05**: "Test Connection" button validates plugin API connectivity using configured credentials
 - [x] **PSET-06**: Plugin settings persisted in daemon SQLite, retrieved via IPC (single source of truth for both UIs)
-- [ ] **PSET-07**: OAuth-enabled plugins show "Connect" / "Connected" / "Reconnect" button in settings
+- [x] **PSET-07**: OAuth-enabled plugins show "Connect" / "Connected" / "Reconnect" button in settings
 
 ### API Proxy
 
@@ -305,13 +305,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-06 | Phase 15 | Complete |
 | INST-07 | Phase 15 | Complete |
 | INST-08 | Phase 15 | Complete |
-| PSET-01 | Phase 16 | Pending |
+| PSET-01 | Phase 16 | Complete |
 | PSET-02 | Phase 16 | Pending |
-| PSET-03 | Phase 16 | Pending |
+| PSET-03 | Phase 16 | Complete |
 | PSET-04 | Phase 16 | Complete |
 | PSET-05 | Phase 16 | Complete |
 | PSET-06 | Phase 16 | Complete |
-| PSET-07 | Phase 16 | Pending |
+| PSET-07 | Phase 16 | Complete |
 | APRX-01 | Phase 17 | Pending |
 | APRX-02 | Phase 17 | Pending |
 | APRX-03 | Phase 17 | Pending |
