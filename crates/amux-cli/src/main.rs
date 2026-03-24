@@ -6,6 +6,21 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+/// Find a binary by checking the same directory as the current executable first,
+/// then falling back to the bare name (which uses PATH lookup).
+fn find_sibling_binary(name: &str) -> std::path::PathBuf {
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            let sibling = dir.join(name);
+            if sibling.exists() {
+                return sibling;
+            }
+        }
+    }
+    // Fall back to bare name -- OS will search PATH
+    std::path::PathBuf::from(name)
+}
+
 fn truncate_for_display(value: &str, max_chars: usize) -> String {
     let truncated: String = value.chars().take(max_chars).collect();
     if value.chars().count() > max_chars {
@@ -24,11 +39,21 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Launch the terminal UI.
+    Tui,
+
+    /// Launch the desktop GUI (Electron).
+    Gui,
+
+    /// Show agent statistics (alias for status).
+    Stats,
+
     /// List all running sessions.
     #[command(alias = "ls")]
     List,
 
     /// Spawn a new terminal session.
+    #[command(hide = true)]
     New {
         /// Shell to use (default: system shell).
         #[arg(short, long)]
@@ -42,6 +67,7 @@ enum Commands {
     },
 
     /// Attach to an existing session.
+    #[command(hide = true)]
     Attach {
         /// Session ID.
         id: String,
@@ -80,6 +106,7 @@ enum Commands {
     },
 
     /// Scrub sensitive data from stdin or a string.
+    #[command(hide = true)]
     Scrub {
         /// Text to scrub (reads from stdin if not provided).
         text: Option<String>,
@@ -294,6 +321,57 @@ async fn main() -> Result<()> {
     let command = cli.command.unwrap(); // Safe: we handled None above
 
     match command {
+        Commands::Tui => {
+            let binary = find_sibling_binary("tamux-tui");
+            let status = std::process::Command::new(&binary).status();
+            match status {
+                Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+                Err(e) => {
+                    eprintln!("Error: could not launch tamux-tui: {e}");
+                    eprintln!("Install it or ensure it is on your PATH.");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Commands::Gui => {
+            // Try TAMUX_GUI_PATH env var first
+            let gui_binary = std::env::var("TAMUX_GUI_PATH")
+                .map(std::path::PathBuf::from)
+                .ok()
+                .filter(|p| p.exists())
+                .unwrap_or_else(|| find_sibling_binary("tamux-desktop"));
+
+            let result = std::process::Command::new(&gui_binary).spawn();
+            match result {
+                Ok(_child) => {
+                    println!("Launched tamux desktop GUI.");
+                }
+                Err(_) => {
+                    // Platform-specific fallback
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = std::process::Command::new("open")
+                            .arg("-a")
+                            .arg("tamux")
+                            .status()
+                            .map_err(|e| {
+                                eprintln!("Error: could not launch tamux GUI: {e}");
+                                eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
+                                std::process::exit(1);
+                            });
+                        println!("Launched tamux desktop GUI.");
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        eprintln!("Error: could not launch tamux desktop GUI.");
+                        eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+
         Commands::List => {
             let sessions = client::list_sessions().await?;
             if sessions.is_empty() {
@@ -530,7 +608,7 @@ async fn main() -> Result<()> {
             }
         },
 
-        Commands::Status => {
+        Commands::Status | Commands::Stats => {
             let status = client::send_status_query().await?;
             println!("Agent Status");
             println!("============");
@@ -746,8 +824,8 @@ fn print_audit_row(entry: &amux_protocol::AuditEntryPublic) {
         _ => String::new(),
     };
     println!(
-        "[{}] [{}]{} {}",
-        ts, entry.action_type, confidence_tag, entry.summary
+        "{} [{}] [{}]{} {}",
+        entry.id, ts, entry.action_type, confidence_tag, entry.summary
     );
 }
 
