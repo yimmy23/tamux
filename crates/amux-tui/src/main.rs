@@ -293,6 +293,38 @@ fn start_daemon_bridge(
                             DaemonCommand::AuditDismiss { entry_id } => {
                                 let _ = client.dismiss_audit_entry(entry_id);
                             }
+                            // Plugin commands (Plan 16-03)
+                            DaemonCommand::PluginList => {
+                                let _ = client.plugin_list();
+                            }
+                            DaemonCommand::PluginGet(name) => {
+                                let _ = client.plugin_get(name);
+                            }
+                            DaemonCommand::PluginEnable(name) => {
+                                let _ = client.plugin_enable(name);
+                            }
+                            DaemonCommand::PluginDisable(name) => {
+                                let _ = client.plugin_disable(name);
+                            }
+                            DaemonCommand::PluginGetSettings(name) => {
+                                let _ = client.plugin_get_settings(name);
+                            }
+                            DaemonCommand::PluginUpdateSetting {
+                                plugin_name,
+                                key,
+                                value,
+                                is_secret,
+                            } => {
+                                let _ = client.plugin_update_setting(
+                                    plugin_name,
+                                    key,
+                                    value,
+                                    is_secret,
+                                );
+                            }
+                            DaemonCommand::PluginTestConnection(name) => {
+                                let _ = client.plugin_test_connection(name);
+                            }
                         }
                     }
                 }

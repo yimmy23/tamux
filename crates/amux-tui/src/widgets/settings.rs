@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
-use crate::state::settings::{SettingsState, SettingsTab};
+use crate::state::settings::{PluginSettingsState, SettingsState, SettingsTab};
 use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::message::wrap_text;
@@ -108,6 +108,7 @@ pub fn render(
     subagents: &SubAgentsState,
     concierge: &ConciergeState,
     tier: &crate::state::tier::TierState,
+    plugin_settings: &PluginSettingsState,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -172,6 +173,7 @@ pub fn render(
         subagents,
         concierge,
         tier,
+        plugin_settings,
         theme,
     );
     let paragraph = Paragraph::new(content_lines);
@@ -727,6 +729,7 @@ fn render_tab_content<'a>(
     subagents: &'a SubAgentsState,
     concierge: &'a ConciergeState,
     tier: &crate::state::tier::TierState,
+    plugin_settings: &PluginSettingsState,
     theme: &ThemeTokens,
 ) -> Vec<Line<'a>> {
     match settings.active_tab() {
@@ -741,16 +744,7 @@ fn render_tab_content<'a>(
         SettingsTab::Concierge => render_concierge_tab(settings, concierge, theme),
         SettingsTab::Features => render_features_tab(settings, config, tier, theme),
         SettingsTab::Advanced => render_advanced_tab(settings, config, theme),
-        SettingsTab::Plugins => {
-            // Stub: full rendering added in Task 2 via render_plugins_tab
-            vec![
-                Line::raw(""),
-                Line::from(Span::styled(
-                    "  No plugins. Run `tamux plugin add <name>` to install.",
-                    theme.fg_dim,
-                )),
-            ]
-        }
+        SettingsTab::Plugins => render_plugins_tab(settings, plugin_settings, content_width, theme),
     }
 }
 
@@ -3066,6 +3060,203 @@ fn render_agent_tab<'a>(
             Span::styled("Backend           ", theme.fg_dim),
             Span::styled("daemon", value_style),
         ]));
+    }
+
+    lines
+}
+
+fn render_plugins_tab<'a>(
+    settings: &'a SettingsState,
+    plugin_state: &PluginSettingsState,
+    _content_width: u16,
+    theme: &ThemeTokens,
+) -> Vec<Line<'a>> {
+    let mut lines = Vec::new();
+
+    if plugin_state.list_mode {
+        // ── List mode ──────────────────────────────────────────────
+        lines.push(Line::raw(""));
+        lines.push(Line::from(Span::styled("  Plugins", theme.fg_active)));
+        lines.push(Line::from(Span::styled(
+            "  Manage installed plugins and their settings.",
+            theme.fg_dim,
+        )));
+        lines.push(Line::raw(""));
+
+        if plugin_state.plugins.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "  No plugins. Run `tamux plugin add <name>` to install.",
+                theme.fg_dim,
+            )));
+            return lines;
+        }
+
+        for (i, plugin) in plugin_state.plugins.iter().enumerate() {
+            let is_selected = i == plugin_state.selected_index;
+            let marker = if is_selected { "> " } else { "  " };
+            let checkbox = if plugin.enabled { "[x]" } else { "[ ]" };
+            let auth_status = if plugin.has_auth {
+                // Abbreviated per TUI copywriting contract
+                "OK"
+            } else {
+                "N/A"
+            };
+            let name_style = if is_selected {
+                theme.accent_primary
+            } else if plugin.enabled {
+                theme.fg_active
+            } else {
+                theme.fg_dim
+            };
+            let meta_style = theme.fg_dim;
+
+            lines.push(Line::from(vec![
+                Span::styled(marker, if is_selected { theme.accent_primary } else { theme.fg_dim }),
+                Span::styled(format!("{} ", checkbox), if plugin.enabled { theme.accent_primary } else { meta_style }),
+                Span::styled(plugin.name.clone(), name_style),
+                Span::styled(format!("  v{}", plugin.version), meta_style),
+                Span::styled(format!("  {}", auth_status), meta_style),
+            ]));
+        }
+    } else {
+        // ── Detail mode ────────────────────────────────────────────
+        let Some(plugin) = plugin_state.selected_plugin() else {
+            lines.push(Line::from(Span::styled(
+                "  No plugin selected.",
+                theme.fg_dim,
+            )));
+            return lines;
+        };
+
+        lines.push(Line::raw(""));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {} v{}", plugin.name, plugin.version), theme.fg_active),
+            Span::styled("  [Esc] Back", theme.fg_dim),
+        ]));
+        if let Some(ref desc) = plugin.description {
+            lines.push(Line::from(Span::styled(
+                format!("  {}", desc),
+                theme.fg_dim,
+            )));
+        }
+        lines.push(Line::raw(""));
+
+        // Settings fields
+        for (i, field) in plugin_state.schema_fields.iter().enumerate() {
+            let is_active = !plugin_state.list_mode
+                && i == plugin_state.detail_cursor;
+            let marker = if is_active { "> " } else { "  " };
+            let required_mark = if field.required { " *" } else { "" };
+            let label = if field.label.is_empty() {
+                field.key.clone()
+            } else {
+                field.label.clone()
+            };
+
+            let value = if settings.is_editing()
+                && settings.editing_field() == Some(&field.key)
+            {
+                if field.secret {
+                    render_edit_buffer_with_cursor(
+                        settings.edit_buffer(),
+                        settings.edit_cursor(),
+                    )
+                } else {
+                    render_edit_buffer_with_cursor(
+                        settings.edit_buffer(),
+                        settings.edit_cursor(),
+                    )
+                }
+            } else if field.secret {
+                let raw = plugin_state.value_for_key(&field.key).unwrap_or("");
+                if raw.is_empty() {
+                    "(not set)".to_string()
+                } else {
+                    "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string()
+                }
+            } else {
+                plugin_state
+                    .value_for_key(&field.key)
+                    .unwrap_or("(not set)")
+                    .to_string()
+            };
+
+            let marker_style = if is_active {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            };
+            let value_style = if is_active {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(format!("{:<18}{}", format!("{}{}", label, required_mark), " "), theme.fg_dim),
+                Span::styled(value, value_style),
+            ]));
+        }
+
+        // Action buttons
+        let action_offset = plugin_state.schema_fields.len();
+        if plugin.has_api {
+            let btn_idx = action_offset;
+            let is_active = plugin_state.detail_cursor == btn_idx;
+            let marker = if is_active { "> " } else { "  " };
+            let marker_style = if is_active {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            };
+            lines.push(Line::raw(""));
+            lines.push(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(
+                    "[Test Connection]",
+                    if is_active {
+                        theme.accent_primary
+                    } else {
+                        theme.fg_active
+                    },
+                ),
+            ]));
+            // Show test result if available
+            if let Some((success, ref msg)) = plugin_state.test_result {
+                let result_style = if success {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::Red)
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("    {}", msg),
+                    result_style,
+                )));
+            }
+        }
+        if plugin.has_auth {
+            let btn_idx = action_offset
+                + if plugin.has_api { 1 } else { 0 };
+            let is_active = plugin_state.detail_cursor == btn_idx;
+            let marker = if is_active { "> " } else { "  " };
+            let marker_style = if is_active {
+                theme.accent_primary
+            } else {
+                theme.fg_dim
+            };
+            lines.push(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(
+                    "[Connect]",
+                    if is_active {
+                        theme.accent_primary
+                    } else {
+                        theme.fg_active
+                    },
+                ),
+            ]));
+        }
     }
 
     lines

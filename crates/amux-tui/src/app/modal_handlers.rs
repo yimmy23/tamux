@@ -347,6 +347,11 @@ impl TuiModel {
                         return false;
                     }
                 }
+                SettingsTab::Plugins => {
+                    if self.handle_plugins_settings_key(code) {
+                        return false;
+                    }
+                }
                 _ => {}
             }
 
@@ -365,6 +370,9 @@ impl TuiModel {
                         self.send_daemon_command(DaemonCommand::ListSubAgents);
                     } else if matches!(next_tab, SettingsTab::Concierge) {
                         self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                    } else if matches!(next_tab, SettingsTab::Plugins) {
+                        self.plugin_settings.list_mode = true;
+                        self.send_daemon_command(DaemonCommand::PluginList);
                     }
                     return false;
                 }
@@ -382,6 +390,9 @@ impl TuiModel {
                         self.send_daemon_command(DaemonCommand::ListSubAgents);
                     } else if matches!(prev_tab, SettingsTab::Concierge) {
                         self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+                    } else if matches!(prev_tab, SettingsTab::Plugins) {
+                        self.plugin_settings.list_mode = true;
+                        self.send_daemon_command(DaemonCommand::PluginList);
                     }
                     return false;
                 }

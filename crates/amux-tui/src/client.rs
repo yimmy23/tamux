@@ -174,6 +174,26 @@ pub enum ClientEvent {
         new_tier: String,
     },
 
+    // Plugin settings events (Plan 16-03)
+    PluginList(Vec<amux_protocol::PluginInfo>),
+    PluginGet {
+        plugin: Option<amux_protocol::PluginInfo>,
+        settings_schema: Option<String>,
+    },
+    PluginSettings {
+        plugin_name: String,
+        settings: Vec<(String, String, bool)>,
+    },
+    PluginTestConnection {
+        plugin_name: String,
+        success: bool,
+        message: String,
+    },
+    PluginAction {
+        success: bool,
+        message: String,
+    },
+
     Error(String),
 }
 
@@ -696,6 +716,50 @@ impl DaemonClient {
                     }
                     Err(err) => warn!("Failed to parse concierge config response: {}", err),
                 }
+            }
+            // Plugin response handlers (Plan 16-03)
+            DaemonMessage::PluginListResult { plugins } => {
+                let _ = event_tx.send(ClientEvent::PluginList(plugins)).await;
+            }
+            DaemonMessage::PluginGetResult {
+                plugin,
+                settings_schema,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginGet {
+                        plugin,
+                        settings_schema,
+                    })
+                    .await;
+            }
+            DaemonMessage::PluginSettingsResult {
+                plugin_name,
+                settings,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginSettings {
+                        plugin_name,
+                        settings,
+                    })
+                    .await;
+            }
+            DaemonMessage::PluginTestConnectionResult {
+                plugin_name,
+                success,
+                message,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginTestConnection {
+                        plugin_name,
+                        success,
+                        message,
+                    })
+                    .await;
+            }
+            DaemonMessage::PluginActionResult { success, message } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginAction { success, message })
+                    .await;
             }
             DaemonMessage::Error { message } => {
                 let _ = event_tx.send(ClientEvent::Error(message)).await;

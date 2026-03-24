@@ -253,6 +253,7 @@ impl TuiModel {
                         &self.subagents,
                         &self.concierge,
                         &self.tier,
+                        &self.plugin_settings,
                         &self.theme,
                     );
                 }

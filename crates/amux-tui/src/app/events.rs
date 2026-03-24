@@ -562,6 +562,93 @@ impl TuiModel {
                     .reduce(crate::state::ConciergeAction::WelcomeDismissed);
                 self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
             }
+            // Plugin settings events (Plan 16-03)
+            ClientEvent::PluginList(plugins) => {
+                self.plugin_settings.plugins = plugins
+                    .iter()
+                    .map(|p| crate::state::settings::PluginListItem {
+                        name: p.name.clone(),
+                        version: p.version.clone(),
+                        enabled: p.enabled,
+                        has_api: p.has_api,
+                        has_auth: p.has_auth,
+                        settings_count: p.settings_count,
+                        description: p.description.clone(),
+                        install_source: p.install_source.clone(),
+                    })
+                    .collect();
+                self.plugin_settings.loading = false;
+            }
+            ClientEvent::PluginGet {
+                plugin: _,
+                settings_schema,
+            } => {
+                if let Some(schema_json) = settings_schema {
+                    if let Ok(map) = serde_json::from_str::<
+                        serde_json::Map<String, serde_json::Value>,
+                    >(&schema_json)
+                    {
+                        self.plugin_settings.schema_fields = map
+                            .into_iter()
+                            .map(|(key, val)| crate::state::settings::PluginSchemaField {
+                                key,
+                                field_type: val
+                                    .get("type")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("string")
+                                    .to_string(),
+                                label: val
+                                    .get("label")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                required: val
+                                    .get("required")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
+                                secret: val
+                                    .get("secret")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false),
+                                options: val.get("options").and_then(|v| v.as_array()).map(
+                                    |arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                            .collect()
+                                    },
+                                ),
+                                description: val
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string()),
+                            })
+                            .collect();
+                    }
+                }
+            }
+            ClientEvent::PluginSettings {
+                plugin_name: _,
+                settings,
+            } => {
+                self.plugin_settings.settings_values = settings;
+            }
+            ClientEvent::PluginTestConnection {
+                plugin_name: _,
+                success,
+                message,
+            } => {
+                self.plugin_settings.test_result = Some((success, message));
+            }
+            ClientEvent::PluginAction { success, message } => {
+                if success {
+                    // Refresh plugin list on successful action (enable/disable/update)
+                    if self.settings.active_tab() == settings::SettingsTab::Plugins {
+                        self.send_daemon_command(DaemonCommand::PluginList);
+                    }
+                } else {
+                    self.status_line = format!("Plugin error: {}", message);
+                }
+            }
             ClientEvent::Error(message) => {
                 let busy = self.assistant_busy();
                 if busy {

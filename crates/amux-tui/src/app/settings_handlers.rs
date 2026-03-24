@@ -1600,6 +1600,170 @@ impl TuiModel {
         }
     }
 
+    // ── Plugin settings handlers (Plan 16-03) ────────────────────────────────
+
+    pub(super) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
+        if self.plugin_settings.list_mode {
+            // List mode navigation
+            match code {
+                KeyCode::Down => {
+                    let count = self.plugin_settings.plugins.len();
+                    if count > 0 {
+                        self.plugin_settings.selected_index =
+                            (self.plugin_settings.selected_index + 1).min(count - 1);
+                    }
+                    return true;
+                }
+                KeyCode::Up => {
+                    self.plugin_settings.selected_index =
+                        self.plugin_settings.selected_index.saturating_sub(1);
+                    return true;
+                }
+                KeyCode::Enter => {
+                    // Switch to detail mode for selected plugin
+                    if let Some(plugin) = self.plugin_settings.selected_plugin() {
+                        let name = plugin.name.clone();
+                        self.plugin_settings.list_mode = false;
+                        self.plugin_settings.detail_cursor = 0;
+                        self.plugin_settings.test_result = None;
+                        self.plugin_settings.schema_fields.clear();
+                        self.plugin_settings.settings_values.clear();
+                        self.send_daemon_command(DaemonCommand::PluginGet(name.clone()));
+                        self.send_daemon_command(DaemonCommand::PluginGetSettings(name));
+                    }
+                    return true;
+                }
+                KeyCode::Char(' ') => {
+                    // Toggle enable/disable
+                    if let Some(plugin) = self.plugin_settings.selected_plugin() {
+                        let name = plugin.name.clone();
+                        if plugin.enabled {
+                            self.send_daemon_command(DaemonCommand::PluginDisable(name));
+                        } else {
+                            self.send_daemon_command(DaemonCommand::PluginEnable(name));
+                        }
+                    }
+                    return true;
+                }
+                _ => {}
+            }
+        } else {
+            // Detail mode navigation
+            if self.settings.is_editing() {
+                // Standard editing keys are handled by the base settings reducer
+                match code {
+                    KeyCode::Enter => {
+                        // Confirm edit and save to daemon
+                        let value = self.settings.edit_buffer().to_string();
+                        if let Some(field_key) = self.settings.editing_field().map(str::to_string) {
+                            if let Some(plugin) = self.plugin_settings.selected_plugin() {
+                                let is_secret = self
+                                    .plugin_settings
+                                    .schema_fields
+                                    .iter()
+                                    .find(|f| f.key == field_key)
+                                    .map_or(false, |f| f.secret);
+                                self.send_daemon_command(DaemonCommand::PluginUpdateSetting {
+                                    plugin_name: plugin.name.clone(),
+                                    key: field_key,
+                                    value,
+                                    is_secret,
+                                });
+                            }
+                        }
+                        self.settings.reduce(SettingsAction::ConfirmEdit);
+                        return true;
+                    }
+                    KeyCode::Esc => {
+                        self.settings.reduce(SettingsAction::CancelEdit);
+                        return true;
+                    }
+                    _ => return false, // Let base handler deal with InsertChar, Backspace, etc.
+                }
+            }
+
+            match code {
+                KeyCode::Down => {
+                    let count = self.plugin_settings.detail_field_count();
+                    if count > 0 {
+                        self.plugin_settings.detail_cursor =
+                            (self.plugin_settings.detail_cursor + 1).min(count - 1);
+                    }
+                    return true;
+                }
+                KeyCode::Up => {
+                    self.plugin_settings.detail_cursor =
+                        self.plugin_settings.detail_cursor.saturating_sub(1);
+                    return true;
+                }
+                KeyCode::Enter => {
+                    let cursor = self.plugin_settings.detail_cursor;
+                    let field_count = self.plugin_settings.schema_fields.len();
+                    if cursor < field_count {
+                        // Edit a settings field
+                        let field = &self.plugin_settings.schema_fields[cursor];
+                        let key = field.key.clone();
+                        let current_value = self
+                            .plugin_settings
+                            .value_for_key(&key)
+                            .unwrap_or("")
+                            .to_string();
+                        if field.field_type == "boolean" {
+                            // Toggle boolean fields directly
+                            let new_val = if current_value == "true" {
+                                "false"
+                            } else {
+                                "true"
+                            };
+                            if let Some(plugin) = self.plugin_settings.selected_plugin() {
+                                self.send_daemon_command(DaemonCommand::PluginUpdateSetting {
+                                    plugin_name: plugin.name.clone(),
+                                    key,
+                                    value: new_val.to_string(),
+                                    is_secret: false,
+                                });
+                            }
+                        } else {
+                            // Start editing
+                            self.settings.start_editing(&key, &current_value);
+                        }
+                    } else {
+                        // Action button pressed
+                        let action_offset = field_count;
+                        let has_api = self
+                            .plugin_settings
+                            .selected_plugin()
+                            .map_or(false, |p| p.has_api);
+                        if has_api && cursor == action_offset {
+                            // Test Connection
+                            let name = self
+                                .plugin_settings
+                                .selected_plugin()
+                                .map(|p| p.name.clone());
+                            if let Some(name) = name {
+                                self.plugin_settings.test_result = None;
+                                self.send_daemon_command(
+                                    DaemonCommand::PluginTestConnection(name),
+                                );
+                            }
+                        }
+                        // Connect button: no-op in TUI (would require browser open)
+                    }
+                    return true;
+                }
+                KeyCode::Esc => {
+                    // Return to list mode
+                    self.plugin_settings.list_mode = true;
+                    self.plugin_settings.detail_cursor = 0;
+                    self.settings.reduce(SettingsAction::CancelEdit);
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub(super) fn settings_field_click_uses_toggle(&self) -> bool {
         matches!(
             self.settings.current_field_name(),

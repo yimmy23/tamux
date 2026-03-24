@@ -105,6 +105,19 @@ pub enum DaemonCommand {
     AuditDismiss {
         entry_id: String,
     },
+    // Plugin commands (Plan 16-03)
+    PluginList,
+    PluginGet(String),
+    PluginEnable(String),
+    PluginDisable(String),
+    PluginGetSettings(String),
+    PluginUpdateSetting {
+        plugin_name: String,
+        key: String,
+        value: String,
+        is_secret: bool,
+    },
+    PluginTestConnection(String),
 }
 
 // ── Placeholder sub-action enums ──────────────────────────────────────────────
