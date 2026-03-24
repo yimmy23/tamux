@@ -450,6 +450,7 @@ mod tests {
             learned_check_weights: RwLock::new(HashMap::new()),
             heuristic_store: RwLock::new(super::learning::heuristics::HeuristicStore::default()),
             pattern_store: RwLock::new(super::learning::patterns::PatternStore::default()),
+            disclosure_queue: RwLock::new(super::capability_tier::DisclosureQueue::default()),
         })
     }
 
