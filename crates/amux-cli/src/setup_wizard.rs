@@ -509,6 +509,50 @@ pub async fn run_setup_wizard() -> Result<()> {
     let mut api_key_saved = String::new();
     if is_local_provider(&provider_id) {
         println!("Local provider -- no API key needed.");
+    } else if selected_provider.authenticated {
+        // Provider already has a key — ask whether to replace
+        println!(
+            "{} is already authenticated.",
+            provider_name.clone().bold()
+        );
+        let replace_idx = select_list(
+            "Replace API key?",
+            &[("No, keep existing key", ""), ("Yes, enter a new key", "")],
+            false,
+            0,
+        )?
+        .unwrap_or(0);
+        if replace_idx == 0 {
+            // Keep existing — skip to connectivity test
+            println!("Keeping existing API key.");
+            api_key_saved = "(existing)".to_string();
+        } else {
+            let api_key = text_input(
+                &format!("Enter new API key for {provider_name}"),
+                "",
+                true,
+            )?
+            .unwrap_or_default();
+            if !api_key.is_empty() {
+                api_key_saved = api_key.clone();
+                for (key, val) in [
+                    ("provider", serde_json::to_string(&provider_id).unwrap_or_default()),
+                    ("api_key", serde_json::to_string(&api_key).unwrap_or_default()),
+                ] {
+                    wizard_send(
+                        &mut framed,
+                        ClientMessage::AgentSetConfigItem {
+                            key_path: key.to_string(),
+                            value_json: val,
+                        },
+                    )
+                    .await
+                    .with_context(|| format!("Failed to set {key}"))?;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                println!("API key updated.");
+            }
+        }
     } else {
         let api_key = text_input(
             &format!("Enter API key for {provider_name}"),
@@ -522,115 +566,80 @@ pub async fn run_setup_wizard() -> Result<()> {
         } else {
             api_key_saved = api_key.clone();
 
-            // Send provider config via IPC using AgentSetConfigItem (the actual protocol message)
-            // Set provider
-            wizard_send(
-                &mut framed,
-                ClientMessage::AgentSetConfigItem {
-                    key_path: "provider".to_string(),
-                    value_json: serde_json::to_string(&provider_id)
-                        .unwrap_or_else(|_| format!("\"{}\"", provider_id)),
-                },
-            )
-            .await
-            .context("Failed to set provider")?;
-            // Consume response
-            let _ = wizard_recv(&mut framed).await;
-
-            // Set api_key
-            wizard_send(
-                &mut framed,
-                ClientMessage::AgentSetConfigItem {
-                    key_path: "api_key".to_string(),
-                    value_json: serde_json::to_string(&api_key)
-                        .unwrap_or_else(|_| format!("\"{}\"", api_key)),
-                },
-            )
-            .await
-            .context("Failed to set API key")?;
-            let _ = wizard_recv(&mut framed).await;
-
-            // Set base_url if not default
-            if !base_url.is_empty() {
+            // Send provider config via AgentSetConfigItem (fire-and-forget — daemon
+            // sends NO response on success, only DaemonMessage::Error on failure).
+            for (key, val) in [
+                ("provider", serde_json::to_string(&provider_id).unwrap_or_default()),
+                ("api_key", serde_json::to_string(&api_key).unwrap_or_default()),
+                ("base_url", serde_json::to_string(&base_url).unwrap_or_default()),
+                ("model", serde_json::to_string(&default_model).unwrap_or_default()),
+            ] {
                 wizard_send(
                     &mut framed,
                     ClientMessage::AgentSetConfigItem {
-                        key_path: "base_url".to_string(),
-                        value_json: serde_json::to_string(&base_url)
-                            .unwrap_or_else(|_| format!("\"{}\"", base_url)),
+                        key_path: key.to_string(),
+                        value_json: val,
                     },
                 )
                 .await
-                .context("Failed to set base_url")?;
-                let _ = wizard_recv(&mut framed).await;
+                .with_context(|| format!("Failed to set {key}"))?;
             }
-
-            // Set model
-            if !default_model.is_empty() {
-                wizard_send(
-                    &mut framed,
-                    ClientMessage::AgentSetConfigItem {
-                        key_path: "model".to_string(),
-                        value_json: serde_json::to_string(&default_model)
-                            .unwrap_or_else(|_| format!("\"{}\"", default_model)),
-                    },
-                )
-                .await
-                .context("Failed to set model")?;
-                let _ = wizard_recv(&mut framed).await;
-            }
+            // Brief pause to let daemon process all config items
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
             println!("API key saved.");
+        }
+    }
 
-            println!();
+    // Connectivity test — runs for ALL non-local providers (existing or new key)
+    // AgentValidateProvider resolves credentials from daemon config if api_key is empty
+    if !is_local_provider(&provider_id) && !api_key_saved.is_empty() {
+        println!();
+        println!("Testing connection to {provider_name}...");
+        wizard_send(
+            &mut framed,
+            ClientMessage::AgentValidateProvider {
+                provider_id: provider_id.clone(),
+                base_url: String::new(),   // daemon resolves from config
+                api_key: String::new(),     // daemon resolves from config
+                auth_source: auth_source.clone(),
+            },
+        )
+        .await
+        .context("Failed to send connectivity test")?;
 
-            // Connectivity test (required per D-08)
-            println!("Testing connection to {provider_name}...");
-            wizard_send(
-                &mut framed,
-                ClientMessage::AgentValidateProvider {
-                    provider_id: provider_id.clone(),
-                    base_url: base_url.clone(),
-                    api_key,
-                    auth_source: auth_source.clone(),
-                },
-            )
-            .await
-            .context("Failed to send connectivity test")?;
-
-            match wizard_recv(&mut framed).await? {
-                DaemonMessage::AgentProviderValidation {
-                    valid, error, ..
-                } => {
-                    if valid {
+        match wizard_recv(&mut framed).await? {
+            DaemonMessage::AgentProviderValidation {
+                valid, error, ..
+            } => {
+                if valid {
+                    println!(
+                        "{}",
+                        "Connection successful!".with(style::Color::Green)
+                    );
+                } else if let Some(ref err) = error {
+                    if err.contains("401") || err.contains("403") {
                         println!(
-                            "{}",
-                            "Connection successful!".with(style::Color::Green)
+                            "API key was rejected. You can update it later with `tamux setup`."
                         );
-                    } else if let Some(ref err) = error {
-                        if err.contains("401") || err.contains("403") {
-                            println!(
-                                "API key was rejected. You can update it later with `tamux setup`."
-                            );
-                        } else {
-                            println!(
-                                "Could not reach provider: {err}. You can fix this later with `tamux setup`."
-                            );
-                        }
                     } else {
                         println!(
-                            "Validation returned invalid with no error detail. You can retry with `tamux setup`."
+                            "Could not reach provider: {err}. You can fix this later with `tamux setup`."
                         );
                     }
-                }
-                DaemonMessage::AgentError { message } => {
+                } else {
                     println!(
-                        "Could not validate provider: {message}. You can fix this later with `tamux setup`."
+                        "Validation returned invalid with no error detail. You can retry with `tamux setup`."
                     );
                 }
-                _ => {
-                    println!("Unexpected response during connectivity test.");
-                }
+            }
+            DaemonMessage::AgentError { message } => {
+                println!(
+                    "Could not validate provider: {message}. You can fix this later with `tamux setup`."
+                );
+            }
+            _ => {
+                println!("Unexpected response during connectivity test.");
             }
         }
     }
