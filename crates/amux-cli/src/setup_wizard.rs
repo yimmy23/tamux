@@ -131,8 +131,9 @@ fn select_list(
     allow_esc: bool,
     default_index: usize,
 ) -> Result<Option<usize>> {
-    use crossterm::cursor;
+    use crossterm::{cursor, execute, queue};
 
+    let mut stdout = io::stdout();
     let mut selected: usize = default_index.min(items.len().saturating_sub(1));
 
     terminal::enable_raw_mode().context("Failed to enable raw mode")?;
@@ -140,56 +141,50 @@ fn select_list(
     // Helper to clean up raw mode on any exit path
     let result = (|| -> Result<Option<usize>> {
         loop {
-            // Clear and render
-            // Move cursor to start of list area and clear
-            print!("\r");
-            // Print title
-            print!(
-                "{}{}",
+            // Clear from cursor down and render using execute!/queue! for Windows compat
+            queue!(
+                stdout,
                 style::SetForegroundColor(style::Color::White),
-                style::SetAttribute(style::Attribute::Bold)
-            );
-            print!("{title}");
-            println!(
-                "{}{}",
+                style::SetAttribute(style::Attribute::Bold),
+                style::Print(title),
                 style::SetAttribute(style::Attribute::Reset),
-                style::SetForegroundColor(style::Color::Reset)
-            );
-            println!();
+                style::SetForegroundColor(style::Color::Reset),
+                style::Print("\r\n\r\n"),
+            )?;
 
             for (i, (label, desc)) in items.iter().enumerate() {
                 if i == selected {
-                    print!(
-                        "  {} {} ",
+                    let mut line = format!("  > {label}");
+                    if !desc.is_empty() {
+                        line.push_str(&format!(" ({desc})"));
+                    }
+                    queue!(
+                        stdout,
                         style::SetForegroundColor(style::Color::Green),
-                        ">".bold()
-                    );
-                    print!("{}", label.bold());
-                    if !desc.is_empty() {
-                        print!(" {}", style::SetForegroundColor(style::Color::DarkGrey));
-                        print!("({desc})");
-                    }
-                    println!(
-                        "{}",
-                        style::SetForegroundColor(style::Color::Reset)
-                    );
+                        style::SetAttribute(style::Attribute::Bold),
+                        style::Print(&line),
+                        style::SetAttribute(style::Attribute::Reset),
+                        style::SetForegroundColor(style::Color::Reset),
+                        style::Print("\r\n"),
+                    )?;
                 } else {
-                    print!("    ");
-                    print!(
-                        "{}{}",
-                        style::SetForegroundColor(style::Color::Grey),
-                        label
-                    );
+                    let mut line = format!("    {label}");
                     if !desc.is_empty() {
-                        print!(" ({desc})");
+                        line.push_str(&format!(" ({desc})"));
                     }
-                    println!("{}", style::SetForegroundColor(style::Color::Reset));
+                    queue!(
+                        stdout,
+                        style::SetForegroundColor(style::Color::Grey),
+                        style::Print(&line),
+                        style::SetForegroundColor(style::Color::Reset),
+                        style::Print("\r\n"),
+                    )?;
                 }
             }
 
-            io::stdout().flush()?;
+            stdout.flush()?;
 
-            // Read key
+            // Read key (blocking — runs on tokio blocking thread via spawn_blocking caller)
             if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
                 match code {
                     KeyCode::Up => {
@@ -206,9 +201,18 @@ fn select_list(
                         }
                     }
                     KeyCode::Enter => {
+                        // Print final selection and exit
+                        execute!(
+                            stdout,
+                            style::SetForegroundColor(style::Color::Reset),
+                        )?;
                         return Ok(Some(selected));
                     }
                     KeyCode::Esc if allow_esc => {
+                        execute!(
+                            stdout,
+                            style::SetForegroundColor(style::Color::Reset),
+                        )?;
                         return Ok(None);
                     }
                     KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -218,14 +222,13 @@ fn select_list(
                 }
             }
 
-            // Move cursor up to redraw (title + blank line + items)
+            // Move cursor up to redraw (title + blank line + items) using execute! for Windows
             let lines_to_clear = items.len() + 2;
-            print!(
-                "{}",
-                cursor::MoveUp(lines_to_clear as u16)
-            );
-            // Clear from cursor to end of screen
-            print!("{}", terminal::Clear(terminal::ClearType::FromCursorDown));
+            execute!(
+                stdout,
+                cursor::MoveUp(lines_to_clear as u16),
+                terminal::Clear(terminal::ClearType::FromCursorDown),
+            )?;
         }
     })();
 
@@ -241,12 +244,14 @@ fn select_list(
 /// Interactive text input with optional masking.
 /// Returns `Some(text)` on Enter, `None` on Esc.
 fn text_input(prompt_text: &str, default: &str, masked: bool) -> Result<Option<String>> {
+    use crossterm::execute;
+
+    let mut stdout = io::stdout();
     if !default.is_empty() {
-        print!("{prompt_text} [{default}]: ");
+        execute!(stdout, style::Print(format!("{prompt_text} [{default}]: ")))?;
     } else {
-        print!("{prompt_text}: ");
+        execute!(stdout, style::Print(format!("{prompt_text}: ")))?;
     }
-    io::stdout().flush()?;
 
     terminal::enable_raw_mode().context("Failed to enable raw mode for input")?;
 
@@ -256,7 +261,7 @@ fn text_input(prompt_text: &str, default: &str, masked: bool) -> Result<Option<S
             if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
                 match code {
                     KeyCode::Enter => {
-                        println!();
+                        execute!(stdout, style::Print("\r\n"))?;
                         let value = if input.is_empty() && !default.is_empty() {
                             default.to_string()
                         } else {
@@ -265,13 +270,12 @@ fn text_input(prompt_text: &str, default: &str, masked: bool) -> Result<Option<S
                         return Ok(Some(value));
                     }
                     KeyCode::Esc => {
-                        println!();
+                        execute!(stdout, style::Print("\r\n"))?;
                         return Ok(None);
                     }
                     KeyCode::Backspace => {
                         if input.pop().is_some() {
-                            print!("\x08 \x08");
-                            io::stdout().flush()?;
+                            execute!(stdout, style::Print("\x08 \x08"))?;
                         }
                     }
                     KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -280,11 +284,10 @@ fn text_input(prompt_text: &str, default: &str, masked: bool) -> Result<Option<S
                     KeyCode::Char(c) => {
                         input.push(c);
                         if masked {
-                            print!("*");
+                            execute!(stdout, style::Print("*"))?;
                         } else {
-                            print!("{c}");
+                            execute!(stdout, style::Print(format!("{c}")))?;
                         }
-                        io::stdout().flush()?;
                     }
                     _ => {}
                 }
