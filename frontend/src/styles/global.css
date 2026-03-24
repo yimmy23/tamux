@@ -227,37 +227,6 @@
   --risk-critical-solid: #ef4444;
 
   /* ═══════════════════════════════════════════════════════════════════════
-   * PRIMITIVE BRIDGE TOKENS
-   * Stable aliases for the shared ui/ primitive layer
-   * ═══════════════════════════════════════════════════════════════════════ */
-
-  --background: var(--bg-primary);
-  --foreground: var(--text-primary);
-  --card: var(--bg-secondary);
-  --card-foreground: var(--text-primary);
-  --popover: var(--bg-secondary);
-  --popover-foreground: var(--text-primary);
-  --muted: var(--bg-tertiary);
-  --muted-foreground: var(--text-secondary);
-  --secondary: var(--bg-surface);
-  --secondary-hover: var(--bg-elevated);
-  --secondary-foreground: var(--text-primary);
-  --primary: var(--accent);
-  --primary-foreground: var(--text-on-accent);
-  --destructive: var(--danger);
-  --destructive-foreground: var(--text-primary);
-  --input: var(--bg-secondary);
-  --input-hover: var(--bg-tertiary);
-  --input-foreground: var(--text-primary);
-  --overlay: var(--bg-overlay);
-  --ring: var(--border-focus);
-  --accent-border: color-mix(in srgb, var(--accent) 28%, transparent);
-  --success-border: color-mix(in srgb, var(--success) 28%, transparent);
-  --warning-border: color-mix(in srgb, var(--warning) 28%, transparent);
-  --danger-border: color-mix(in srgb, var(--danger) 28%, transparent);
-  --info-border: color-mix(in srgb, var(--info) 28%, transparent);
-
-  /* ═══════════════════════════════════════════════════════════════════════
    * TYPOGRAPHY
    * Font families, sizes, weights, and line heights
    * ═══════════════════════════════════════════════════════════════════════ */
@@ -545,16 +514,50 @@ select {
 
 button {
   cursor: pointer;
-  background: none;
   border: none;
+  background: none;
+  transition: 
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+input,
+textarea,
+select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-base);
+  transition: 
+    border-color var(--transition-fast), 
+    box-shadow var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-tertiary);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  background: var(--bg-tertiary);
 }
 
 input::placeholder,
@@ -923,6 +926,100 @@ textarea::placeholder {
 
 .amux-glass-panel--light {
   background: var(--bg-secondary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * BUTTON VARIANTS
+ * ───────────────────────────────────────────────────────────────────────── */
+.amux-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.amux-btn--primary {
+  background: var(--accent-soft);
+  border: 1px solid rgba(94, 231, 223, 0.2);
+  color: var(--accent);
+}
+
+.amux-btn--primary:hover {
+  background: rgba(94, 231, 223, 0.18);
+  border-color: var(--accent);
+}
+
+.amux-btn--secondary {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.amux-btn--secondary:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.amux-btn--ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+}
+
+.amux-btn--ghost:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.amux-btn--agent {
+  background: var(--agent-soft);
+  border: 1px solid var(--agent-border);
+  color: var(--agent);
+}
+
+.amux-btn--agent:hover {
+  background: rgba(100, 181, 246, 0.18);
+  border-color: var(--agent);
+}
+
+.amux-btn--human {
+  background: var(--human-soft);
+  border: 1px solid var(--human-border);
+  color: var(--human);
+}
+
+.amux-btn--human:hover {
+  background: rgba(74, 222, 128, 0.18);
+  border-color: var(--human);
+}
+
+.amux-btn--danger {
+  background: var(--danger-soft);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  color: var(--danger);
+}
+
+.amux-btn--danger:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: var(--danger);
+}
+
+/* Button sizes */
+.amux-btn--sm {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.amux-btn--lg {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

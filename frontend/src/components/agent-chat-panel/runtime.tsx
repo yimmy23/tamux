@@ -925,7 +925,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 });
                 // Use daemonTid if available, otherwise pass local threadId so
                 // the daemon uses the same ID — prevents duplicate threads in SQLite.
-                await amux.agentSendMessage!(daemonTid || threadId, text, preferredSessionId, contextMessages);
+                await amux.agentSendMessage(daemonTid || threadId, text, preferredSessionId, contextMessages);
             })();
             return;
         }
@@ -1532,20 +1532,8 @@ export function AgentChatPanelHeader() {
                             </button>
                         )}
                         <span
-                            style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "var(--space-2)",
-                                padding: "var(--space-1) var(--space-3)",
-                                borderRadius: "var(--radius-full)",
-                                border: "1px solid var(--mission-border)",
-                                background: "var(--mission-soft)",
-                                color: "var(--mission)",
-                                fontSize: "var(--text-xs)",
-                                fontWeight: 700,
-                                letterSpacing: "0.08em",
-                                textTransform: "uppercase",
-                            }}
+                            className="amux-agent-indicator"
+                            style={{ background: "var(--mission-soft)", borderColor: "var(--mission-glow)", color: "var(--mission)" }}
                         >
                             Mission Console
                         </span>

@@ -1,9 +1,11 @@
 import type { AgentProviderConfig, AgentSettings } from "./agentStore";
 import { getEffectiveContextWindow } from "./agentStore";
-import { getBridge } from "./bridge";
 
 export function getAgentBridge() {
-  return getBridge();
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return (window as any).tamux ?? (window as any).amux;
 }
 
 export function resolveDaemonBackend(

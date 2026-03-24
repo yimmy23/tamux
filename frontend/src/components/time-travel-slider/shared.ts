@@ -15,8 +15,8 @@ export type TimeTravelSliderProps = {
 };
 
 export const closeBtnStyle: CSSProperties = {
-    background: "var(--surface-subtle)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
     color: "var(--text-secondary)",
     cursor: "pointer",
     fontSize: 13,
@@ -26,8 +26,8 @@ export const closeBtnStyle: CSSProperties = {
 };
 
 export const actionBtnStyle: CSSProperties = {
-    background: "var(--surface-soft)",
-    border: "1px solid var(--border-strong)",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
     color: "var(--text-primary)",
     borderRadius: 0,
     padding: "6px 14px",

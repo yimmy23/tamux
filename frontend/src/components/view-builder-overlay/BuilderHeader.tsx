@@ -13,7 +13,7 @@ export function BuilderHeader({
 }) {
     return (
         <>
-            <div style={{ padding: 16, borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ padding: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", justifyContent: "space-between", gap: 12 }}>
                 <div>
                     <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)" }}>
                         Builder Mode
@@ -21,15 +21,15 @@ export function BuilderHeader({
                     <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700 }}>
                         {activeViewId ?? "No active view"}
                     </div>
-                    <div style={{ marginTop: 6, fontSize: 12, color: isDirty ? "var(--warning)" : "var(--text-muted)" }}>
+                    <div style={{ marginTop: 6, fontSize: 12, color: isDirty ? "#ffd166" : "var(--text-muted)" }}>
                         {isDirty ? "Unsaved changes" : "Synced with disk"}
                     </div>
                 </div>
                 <button
                     onClick={stopEditing}
                     style={{
-                        border: "1px solid var(--border-strong)",
-                        background: "var(--surface-soft)",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        background: "rgba(255,255,255,0.05)",
                         color: "var(--text-primary)",
                         borderRadius: 10,
                         padding: "8px 12px",

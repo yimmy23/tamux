@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { getBridge } from "@/lib/bridge";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
-import { Badge, Button, Card, CardContent } from "../ui";
-import { ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextAreaInput, TextInput, Toggle } from "./shared";
+import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function AgentTab({
     settings, updateSetting, resetSettings,
@@ -73,7 +71,7 @@ export function AgentTab({
             return;
         }
 
-        const amux = getBridge();
+        const amux = (window as any).amux || (window as any).tamux;
         if (!amux?.openAICodexAuthStatus) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
@@ -101,7 +99,7 @@ export function AgentTab({
         }
 
         const timer = window.setInterval(() => {
-            const amux = getBridge();
+            const amux = (window as any).amux || (window as any).tamux;
             if (!amux?.openAICodexAuthStatus) {
                 return;
             }
@@ -117,7 +115,7 @@ export function AgentTab({
     }, [subscriptionAuthUrl]);
 
     const triggerSubscriptionAuth = async () => {
-        const amux = getBridge();
+        const amux = (window as any).amux || (window as any).tamux;
         if (!amux?.openAICodexAuthLogin) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
@@ -140,7 +138,7 @@ export function AgentTab({
     };
 
     const clearSubscriptionAuth = async () => {
-        const amux = getBridge();
+        const amux = (window as any).amux || (window as any).tamux;
         if (!amux?.openAICodexAuthLogout) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
@@ -159,65 +157,72 @@ export function AgentTab({
     };
 
     return (
-        <div className="grid gap-[var(--space-4)]">
-            <Card>
-                <CardContent className="flex flex-wrap items-center gap-[var(--space-2)] p-[var(--space-3)]">
-                    <span
-                        className={providerAuthenticated
-                            ? "h-[8px] w-[8px] rounded-full bg-[#4ade80]"
-                            : "h-[8px] w-[8px] rounded-full bg-[#6b7280]"}
-                    />
-                    <span className="text-[var(--text-sm)] font-semibold">
-                        Active: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
-                    </span>
-                    <Badge variant="accent">{providerConfig.model || "No model"}</Badge>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", { detail: { tab: "auth" } }));
-                            window.dispatchEvent(new CustomEvent("amux-open-settings-tab", { detail: { tab: "auth" } }));
-                        }}
-                        className="ml-auto"
-                    >
-                        Manage Auth
-                    </Button>
-                </CardContent>
-            </Card>
+        <>
+            <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 14,
+                padding: "8px 12px",
+                border: "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(18, 33, 47, 0.5)",
+            }}>
+                <span style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: providerAuthenticated ? "#4ade80" : "#6b7280",
+                }} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>
+                    Active: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
+                </span>
+                <span style={{
+                    fontSize: 10,
+                    color: "var(--text-secondary)",
+                    background: "rgba(255,255,255,0.05)",
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                }}>
+                    {providerConfig.model || "No model"}
+                </span>
+                <button
+                    onClick={() => {
+                        window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", { detail: { tab: "auth" } }));
+                        window.dispatchEvent(new CustomEvent("amux-open-settings-tab", { detail: { tab: "auth" } }));
+                    }}
+                    style={{ ...smallBtnStyle, fontSize: 10, marginLeft: "auto" }}
+                >
+                    Manage Auth
+                </button>
+            </div>
             <Section title="General">
                 <SettingRow label="Enable Agent">
                     <Toggle value={settings.enabled} onChange={(value) => updateSetting("enabled", value)} />
                 </SettingRow>
                 <SettingRow label="Agent Backend">
-                    <SelectInput
-                        value={settings.agent_backend}
-                        onChange={(value) =>
-                            updateSetting("agent_backend", value as "daemon" | "openclaw" | "hermes" | "legacy")
-                        }
-                        options={[
-                            { value: "daemon", label: "tamux" },
-                            { value: "openclaw", label: "OpenClaw" },
-                            { value: "hermes", label: "Hermes" },
-                            { value: "legacy", label: "Legacy Fallback" },
-                        ]}
-                    />
+                    <select value={settings.agent_backend}
+                        onChange={(e) => updateSetting("agent_backend", e.target.value as "daemon" | "openclaw" | "hermes" | "legacy")}
+                        style={inputStyle}>
+                        <option value="daemon">tamux</option>
+                        <option value="openclaw">OpenClaw</option>
+                        <option value="hermes">Hermes</option>
+                        <option value="legacy">Legacy Fallback</option>
+                    </select>
                 </SettingRow>
                 {settings.agent_backend === "legacy" ? (
-                    <div className="mb-[var(--space-2)] mt-[var(--space-1)] text-[var(--text-xs)] leading-relaxed text-[var(--text-secondary)]">
+                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                         Legacy now acts as a frontend-only fallback when the desktop daemon bridge is unavailable. When the bridge is present, chat and goal runs still use the daemon stack so memory, goals, and self-orchestrating capabilities stay consistent.
                     </div>
                 ) : null}
                 {(settings.agent_backend === "openclaw" || settings.agent_backend === "hermes") ? (
-                    <div className="mb-[var(--space-2)] mt-[var(--space-1)] text-[var(--text-xs)] leading-relaxed text-[var(--text-secondary)]">
+                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                         <strong>{settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"}</strong> will handle LLM inference, tools, memory, and gateway connections using its own infrastructure.
                         {settings.agent_backend === "hermes" ? (
                             <span> Config: <code>~/.hermes/config.yaml</code></span>
                         ) : (
                             <span> Config: <code>~/.openclaw/openclaw.json</code></span>
                         )}
-                        <div className="mt-[var(--space-2)] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)]/60 px-[var(--space-2)] py-[var(--space-2)]">
+                        <div style={{ marginTop: 6, padding: "4px 6px", background: "var(--bg-secondary)", borderRadius: 3 }}>
                             <strong>tamux tools:</strong> Add <code>tamux-mcp</code> to {settings.agent_backend === "hermes" ? "Hermes" : "OpenClaw"}'s MCP config for terminal session access, command execution, history search, and more.
-                            <div className="mt-[var(--space-1)] font-mono text-[10px] text-[var(--text-muted)]">
+                            <div style={{ marginTop: 3, fontFamily: "monospace", fontSize: 10 }}>
                                 {`{"mcpServers": {"tamux": {"command": "tamux-mcp"}}}`}
                             </div>
                         </div>
@@ -230,12 +235,10 @@ export function AgentTab({
                     <TextInput value={settings.handler} onChange={(value) => updateSetting("handler", value)} />
                 </SettingRow>
                 <SettingRow label="System Prompt">
-                    <TextAreaInput
-                        value={settings.system_prompt}
-                        onChange={(value) => updateSetting("system_prompt", value)}
+                    <textarea value={settings.system_prompt}
+                        onChange={(event) => updateSetting("system_prompt", event.target.value)}
                         rows={4}
-                        className="max-w-[32rem]"
-                    />
+                        style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }} />
                 </SettingRow>
             </Section>
 
@@ -247,36 +250,44 @@ export function AgentTab({
                             onChange={(value) => updateSetting("active_provider", value as AgentProviderId)} />
                     </SettingRow>
 
-                    <div className="my-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+                    <div style={{ marginTop: 6, marginBottom: 6, fontSize: 11, color: "var(--text-secondary)" }}>
                         {providerOptions.find((provider) => provider.id === settings.active_provider)?.label}
                     </div>
 
                     {showUrlEditor ? (
                         <SettingRow label="Base URL">
-                            <div className="flex items-center gap-[var(--space-2)]">
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                 <TextInput value={providerConfig.base_url}
                                     onChange={(value) => updateSetting(settings.active_provider, { ...providerConfig, base_url: value })}
                                     placeholder={providerDef?.defaultBaseUrl} />
                                 {!isCustomProvider && (
-                                    <Button variant="outline" size="sm" onClick={() => {
+                                    <button type="button" onClick={() => {
                                         updateSetting(settings.active_provider, { ...providerConfig, base_url: "" });
                                         setUseCustomUrl(false);
-                                    }} title="Reset to predefined default">
+                                    }} style={smallBtnStyle} title="Reset to predefined default">
                                         Reset
-                                    </Button>
+                                    </button>
                                 )}
                             </div>
                         </SettingRow>
                     ) : (
                         <SettingRow label="Base URL">
-                            <div className="flex items-center gap-[var(--space-2)]">
-                                <span className="flex-1 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)]/50 px-[var(--space-3)] py-[var(--space-2)] font-mono text-[var(--text-xs)] text-[var(--text-muted)]">
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{
+                                    fontSize: 11,
+                                    fontFamily: "var(--font-mono)",
+                                    color: "var(--text-muted)",
+                                    background: "var(--bg-surface)",
+                                    padding: "3px 8px",
+                                    border: "1px solid var(--border)",
+                                    flex: 1,
+                                }}>
                                     {providerDef?.defaultBaseUrl || "(none)"}
                                 </span>
                                 {!isCustomProvider && (
-                                    <Button variant="outline" size="sm" onClick={() => setUseCustomUrl(true)}>
+                                    <button type="button" onClick={() => setUseCustomUrl(true)} style={smallBtnStyle}>
                                         Override
-                                    </Button>
+                                    </button>
                                 )}
                             </div>
                         </SettingRow>
@@ -298,16 +309,16 @@ export function AgentTab({
                     </SettingRow>
                     {providerApiType === "openai" ? (
                         <SettingRow label="Auth">
-                            <SelectInput
+                            <select
                                 value={providerConfig.auth_source}
-                                onChange={(value) => updateSetting(settings.active_provider, {
+                                onChange={(e) => updateSetting(settings.active_provider, {
                                     ...providerConfig,
-                                    auth_source: supportedAuthSources.includes(value as any)
-                                      ? value as AgentProviderConfig["auth_source"]
+                                    auth_source: supportedAuthSources.includes(e.target.value as any)
+                                      ? e.target.value as AgentProviderConfig["auth_source"]
                                       : getDefaultAuthSource(settings.active_provider),
                                     model: (() => {
-                                        const nextAuthSource = supportedAuthSources.includes(value as any)
-                                          ? value as AgentProviderConfig["auth_source"]
+                                        const nextAuthSource = supportedAuthSources.includes(e.target.value as any)
+                                          ? e.target.value as AgentProviderConfig["auth_source"]
                                           : getDefaultAuthSource(settings.active_provider);
                                         const supportedModels = getProviderModels(settings.active_provider, nextAuthSource);
                                         return supportedModels.some((entry) => entry.id === providerConfig.model)
@@ -315,37 +326,40 @@ export function AgentTab({
                                           : getDefaultModelForProvider(settings.active_provider, nextAuthSource);
                                     })(),
                                 })}
-                                options={supportedAuthSources.map((source) => ({
-                                    value: source,
-                                    label: source === "chatgpt_subscription" ? "ChatGPT Subscription" : "API Key",
-                                }))}
-                            />
+                                style={inputStyle}
+                            >
+                                {supportedAuthSources.map((source) => (
+                                    <option key={source} value={source}>
+                                        {source === "chatgpt_subscription" ? "ChatGPT Subscription" : "API Key"}
+                                    </option>
+                                ))}
+                            </select>
                         </SettingRow>
                     ) : null}
-                    <div className="mb-[var(--space-2)] mt-[2px] text-[var(--text-xs)] leading-relaxed text-[var(--text-secondary)]">
+                    <div style={{ marginTop: 2, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                         Credentials are managed in the <strong>Auth</strong> tab. Keep provider selection, model, base URL, and transport here.
                     </div>
                     {settings.active_provider === "openai" && providerConfig.auth_source === "chatgpt_subscription" ? (
                         <SettingRow label="ChatGPT Auth">
-                            <div className="grid w-full gap-[var(--space-2)]">
-                                <div className="flex items-center justify-end gap-[var(--space-2)]">
-                                    <span className={subscriptionAuthStatus?.available ? "text-[var(--success)] text-[var(--text-xs)]" : "text-[var(--text-secondary)] text-[var(--text-xs)]"}>
+                            <div style={{ display: "grid", gap: 6, width: "100%" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                                    <span style={{ fontSize: 11, color: subscriptionAuthStatus?.available ? "var(--success, #6ee7b7)" : "var(--text-secondary)" }}>
                                         {subscriptionAuthStatus?.available
                                             ? `Connected (${subscriptionAuthStatus.source || subscriptionAuthStatus.authMode || "tamux"})`
                                             : subscriptionAuthStatus?.error || "No ChatGPT subscription auth found"}
                                     </span>
                                     {subscriptionAuthStatus?.available ? (
-                                        <Button variant="outline" size="sm" onClick={clearSubscriptionAuth} disabled={subscriptionAuthBusy}>
+                                        <button type="button" onClick={clearSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
                                             {subscriptionAuthBusy ? "Working..." : "Logout"}
-                                        </Button>
+                                        </button>
                                     ) : (
-                                        <Button variant="outline" size="sm" onClick={triggerSubscriptionAuth} disabled={subscriptionAuthBusy}>
+                                        <button type="button" onClick={triggerSubscriptionAuth} style={smallBtnStyle} disabled={subscriptionAuthBusy}>
                                             {subscriptionAuthBusy ? "Preparing..." : "Login"}
-                                        </Button>
+                                        </button>
                                     )}
                                 </div>
                                 {subscriptionAuthUrl ? (
-                                    <div className="grid justify-items-end gap-[var(--space-2)]">
+                                    <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
                                         <a
                                             href={subscriptionAuthUrl}
                                             target="_blank"
@@ -354,37 +368,37 @@ export function AgentTab({
                                                 event.preventDefault();
                                                 openSubscriptionAuthUrl(subscriptionAuthUrl);
                                             }}
-                                            className="break-all text-right text-[var(--text-xs)] text-[var(--accent)]"
+                                            style={{ fontSize: 11, color: "var(--accent, #60a5fa)", wordBreak: "break-all", textAlign: "right" }}
                                         >
                                             {subscriptionAuthUrl}
                                         </a>
-                                        <div className="flex gap-[var(--space-2)]">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                            <button
+                                                type="button"
                                                 onClick={() => openSubscriptionAuthUrl(subscriptionAuthUrl)}
+                                                style={smallBtnStyle}
                                             >
                                                 Open Browser
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
+                                            </button>
+                                            <button
+                                                type="button"
                                                 onClick={() => {
-                                                    const amux = getBridge();
+                                                    const amux = (window as any).amux || (window as any).tamux;
                                                     if (amux?.writeClipboardText) {
                                                         void amux.writeClipboardText(subscriptionAuthUrl);
                                                         return;
                                                     }
                                                     void navigator.clipboard?.writeText(subscriptionAuthUrl).catch(() => {});
                                                 }}
+                                                style={smallBtnStyle}
                                             >
                                                 Copy Link
-                                            </Button>
+                                            </button>
                                         </div>
                                     </div>
                                 ) : null}
                                 {subscriptionAuthUrl ? (
-                                    <div className="text-right text-[var(--text-xs)] text-[var(--text-secondary)]">
+                                    <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "right" }}>
                                         Open the link above and complete ChatGPT authentication. This row updates automatically after the callback returns.
                                     </div>
                                 ) : null}
@@ -393,23 +407,26 @@ export function AgentTab({
                     ) : null}
                     {providerApiType === "openai" ? (
                         <SettingRow label="API Transport">
-                            <SelectInput
+                            <select
                                 value={providerConfig.api_transport}
-                                onChange={(value) => updateSetting(settings.active_provider, {
+                                onChange={(e) => updateSetting(settings.active_provider, {
                                     ...providerConfig,
-                                    api_transport: supportedTransports.includes(value as any)
-                                      ? (value as AgentProviderConfig["api_transport"])
+                                    api_transport: supportedTransports.includes(e.target.value as any)
+                                      ? (e.target.value as AgentProviderConfig["api_transport"])
                                       : getDefaultApiTransport(settings.active_provider),
                                 })}
-                                options={supportedTransports.map((transport) => ({
-                                    value: transport,
-                                    label: transport === "native_assistant"
-                                        ? "Native Assistant"
-                                        : transport === "responses"
+                                style={inputStyle}
+                            >
+                                {supportedTransports.map((transport) => (
+                                    <option key={transport} value={transport}>
+                                        {transport === "native_assistant"
+                                          ? "Native Assistant"
+                                          : transport === "responses"
                                             ? "Responses"
-                                            : "Legacy Chat Completions",
-                                }))}
-                            />
+                                            : "Legacy Chat Completions"}
+                                    </option>
+                                ))}
+                            </select>
                         </SettingRow>
                     ) : null}
                     {providerConfig.api_transport === "native_assistant" ? (
@@ -437,24 +454,31 @@ export function AgentTab({
                                 })}
                             />
                         ) : (
-                            <span className="min-w-[7.5rem] rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--muted)]/50 px-[var(--space-3)] py-[var(--space-2)] text-right font-mono text-[var(--text-xs)] text-[var(--text-muted)]">
+                            <span style={{
+                                fontSize: 11,
+                                fontFamily: "var(--font-mono)",
+                                color: "var(--text-muted)",
+                                background: "var(--bg-surface)",
+                                padding: "3px 8px",
+                                border: "1px solid var(--border)",
+                                minWidth: 120,
+                                textAlign: "right",
+                            }}>
                                 {effectiveContextWindow.toLocaleString()} tok
                             </span>
                         )}
                     </SettingRow>
                     <SettingRow label="Reasoning Effort">
-                        <SelectInput
-                            value={settings.reasoning_effort}
-                            onChange={(value) => updateSetting("reasoning_effort", value as AgentSettings["reasoning_effort"])}
-                            options={[
-                                { value: "none", label: "None" },
-                                { value: "minimal", label: "Minimal" },
-                                { value: "low", label: "Low" },
-                                { value: "medium", label: "Medium" },
-                                { value: "high", label: "High" },
-                                { value: "xhigh", label: "Extra High" },
-                            ]}
-                        />
+                        <select value={settings.reasoning_effort}
+                            onChange={(e) => updateSetting("reasoning_effort", e.target.value as AgentSettings["reasoning_effort"])}
+                            style={inputStyle}>
+                            <option value="none">None</option>
+                            <option value="minimal">Minimal</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="xhigh">Extra High</option>
+                        </select>
                     </SettingRow>
                 </Section>
             ) : null}
@@ -578,16 +602,14 @@ export function AgentTab({
                     <Toggle value={settings.collaboration_enabled} onChange={(value) => updateSetting("collaboration_enabled", value)} />
                 </SettingRow>
                 <SettingRow label="Compliance Mode">
-                    <SelectInput
-                        value={settings.compliance_mode}
-                        onChange={(value) => updateSetting("compliance_mode", value as AgentSettings["compliance_mode"])}
-                        options={[
-                            { value: "standard", label: "Standard" },
-                            { value: "soc2", label: "SOC 2" },
-                            { value: "hipaa", label: "HIPAA" },
-                            { value: "fedramp", label: "FedRAMP" },
-                        ]}
-                    />
+                    <select value={settings.compliance_mode}
+                        onChange={(e) => updateSetting("compliance_mode", e.target.value as AgentSettings["compliance_mode"])}
+                        style={inputStyle}>
+                        <option value="standard">Standard</option>
+                        <option value="soc2">SOC 2</option>
+                        <option value="hipaa">HIPAA</option>
+                        <option value="fedramp">FedRAMP</option>
+                    </select>
                 </SettingRow>
                 <SettingRow label="Retention Days">
                     <NumberInput value={settings.compliance_retention_days} min={1} max={3650}
@@ -646,11 +668,9 @@ export function AgentTab({
                 </SettingRow>
             </Section>
 
-            <div className="mt-[var(--space-3)]">
-                <Button variant="outline" size="sm" onClick={resetSettings}>
-                    Reset Agent Settings
-                </Button>
+            <div style={{ marginTop: 12 }}>
+                <button onClick={resetSettings} style={addBtnStyle}>Reset Agent Settings</button>
             </div>
-        </div>
+        </>
     );
 }

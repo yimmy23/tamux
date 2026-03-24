@@ -148,8 +148,8 @@ function TreeNodeView({
                     marginLeft: depth * 14,
                     padding: "7px 10px",
                     borderRadius: 10,
-                    border: isSelected ? "1px solid var(--surface-highlight-accent-border)" : "1px solid var(--border)",
-                    background: isSelected ? "var(--surface-highlight-accent-soft)" : "var(--surface-muted)",
+                    border: isSelected ? "1px solid rgba(109, 197, 255, 0.7)" : "1px solid rgba(255,255,255,0.08)",
+                    background: isSelected ? "rgba(109, 197, 255, 0.14)" : "rgba(255,255,255,0.03)",
                     color: "var(--text-primary)",
                     textAlign: "left",
                     cursor: "pointer",
@@ -158,12 +158,12 @@ function TreeNodeView({
                 }}
             >
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{componentType}</span>
-                {referencedBlock ? <span style={{ fontSize: 11, color: "var(--accent-hover)" }}>uses {node.use}</span> : null}
+                {referencedBlock ? <span style={{ fontSize: 11, color: "#9bd1ff" }}>uses {node.use}</span> : null}
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{nodeId}</span>
             </button>
             {canExpandReference && referencedBlock ? (
                 <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ marginLeft: (depth + 1) * 14, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--accent-hover)" }}>
+                    <div style={{ marginLeft: (depth + 1) * 14, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9bd1ff" }}>
                         Referenced Block
                     </div>
                     <TreeNodeView

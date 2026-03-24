@@ -1,5 +1,4 @@
 import { allLeafIds, findLeaf } from "./bspTree";
-import { getBridge } from "./bridge";
 import type { Workspace } from "./types";
 import { useWorkspaceStore } from "./workspaceStore";
 
@@ -10,6 +9,10 @@ export type AgentWorkspaceProvision = {
     sessionId: string | null;
     cwd: string | null;
 };
+
+function getBridge(): AmuxBridge | null {
+    return (window as any).tamux ?? (window as any).amux ?? null;
+}
 
 function findWorkspaceById(workspaceId: string): Workspace | null {
     return useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId) ?? null;

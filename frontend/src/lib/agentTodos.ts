@@ -1,5 +1,8 @@
 import type { AgentTodoItem } from "./agentStore";
-import { getBridge } from "./bridge";
+
+function getBridge(): AmuxBridge | null {
+  return (window as any).tamux ?? (window as any).amux ?? null;
+}
 
 function normalizeTodo(raw: unknown, index: number): AgentTodoItem | null {
   const item = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;

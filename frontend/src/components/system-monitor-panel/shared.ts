@@ -68,8 +68,8 @@ export function formatUptime(totalSeconds: number) {
 }
 
 export const panelButtonStyle: CSSProperties = {
-    background: "var(--surface-subtle)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
     color: "var(--text-secondary)",
     cursor: "pointer",
     fontSize: 13,
@@ -80,9 +80,9 @@ export const panelButtonStyle: CSSProperties = {
 export const fieldStyle: CSSProperties = {
     width: "100%",
     padding: "10px 12px",
-    background: "var(--input)",
-    border: "1px solid var(--border)",
-    color: "var(--input-foreground)",
+    background: "rgba(18, 33, 47, 0.8)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "var(--text-primary)",
     fontSize: 13,
     outline: "none",
     borderRadius: 0,

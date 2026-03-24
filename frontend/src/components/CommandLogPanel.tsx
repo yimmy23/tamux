@@ -1,5 +1,4 @@
 import { useMemo, useState, type CSSProperties } from "react";
-import { cn, overlayClassName, panelSurfaceClassName } from "./ui";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useCommandLogStore } from "../lib/commandLogStore";
 import { getTerminalController } from "../lib/terminalRegistry";
@@ -90,19 +89,33 @@ export function CommandLogPanel({ style, className }: CommandLogPanelProps = {})
   return (
     <div
       onClick={toggle}
-      style={style}
-      className={cn(
-        overlayClassName,
-        "fixed inset-0 z-[930] flex items-start justify-center px-[2vw] py-[4vh]",
-        className
-      )}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(3,8,14,0.72)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        padding: "4vh 2vw",
+        zIndex: 930,
+        backdropFilter: "none",
+        ...(style ?? {}),
+      }}
+      className={className}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={cn(
-          panelSurfaceClassName,
-          "flex max-h-[88vh] w-[min(1380px,96vw)] flex-col overflow-hidden rounded-[var(--radius-xl)] border-[var(--border-strong)] bg-[var(--card)]"
-        )}
+        style={{
+          background: "var(--bg-primary)",
+          border: "1px solid var(--glass-border)",
+          borderRadius: 0,
+          width: "min(1380px, 96vw)",
+          maxHeight: "88vh",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+        className="amux-shell-card"
       >
         <CommandLogHeader
           visibleCount={filteredEntries.length}
@@ -133,7 +146,7 @@ export function CommandLogPanel({ style, className }: CommandLogPanelProps = {})
           close={toggle}
         />
 
-        <div className="min-h-0 flex-1 overflow-auto bg-[var(--panel)]/35">
+        <div style={{ flex: 1, overflow: "auto" }}>
           <CommandLogTable
             entries={filteredEntries}
             workspaceLabels={workspaceLabels}

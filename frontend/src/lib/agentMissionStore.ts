@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { useAgentStore } from "./agentStore";
-import { getBridge } from "./bridge";
 import { useSettingsStore } from "./settingsStore";
 import type { AmuxSettings } from "./types";
 import { readPersistedJson, readPersistedText, scheduleTextWrite } from "./persistence";
@@ -168,7 +167,7 @@ let contextId = 0;
 let approvalId = 0;
 
 function getMissionDbApi(): MissionDbApi | null {
-    const api = getBridge();
+    const api = (window as any).tamux ?? (window as any).amux;
     if (!api) return null;
     return api as MissionDbApi;
 }
@@ -877,7 +876,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
 
     resolveApproval: (id, status) => {
         // Send approval decision to daemon via IPC
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (amux?.agentResolveTaskApproval) {
             const decision = status === "denied" ? "deny" : status === "approved-session" ? "approve-session" : "approve-once";
             amux.agentResolveTaskApproval(id, decision).catch(() => {});

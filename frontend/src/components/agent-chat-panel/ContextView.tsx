@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { getBridge } from "@/lib/bridge";
 import { fetchThreadWorkContext, type ThreadWorkContext } from "../../lib/agentWorkContext";
 import { shortenHomePath } from "../../lib/workspaceStore";
 import { ActionButton, ContextCard, MetricRibbon, SectionTitle, inputStyle, memoryAreaStyle } from "./shared";
@@ -54,7 +53,7 @@ export function ContextView(props: ContextViewProps) {
     }, [props.activeThreadId]);
 
     useEffect(() => {
-        const bridge = getBridge();
+        const bridge = (window as any).tamux ?? (window as any).amux;
         const activeThreadId = props.activeThreadId;
         if (!activeThreadId || !bridge?.onAgentEvent) {
             return;

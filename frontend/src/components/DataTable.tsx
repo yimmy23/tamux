@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { autoParse, type ParsedData } from "../lib/dataParser";
-import { Input } from "./ui";
 
 interface DataTableProps {
   /** Raw text data (CSV, TSV, or JSON array) */
@@ -46,7 +45,7 @@ export function DataTable({ data, maxRows = 200 }: DataTableProps) {
 
   if (!parsed || parsed.headers.length === 0) {
     return (
-      <div className="p-[var(--space-4)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+      <div style={{ padding: 16, color: "var(--text-secondary)", fontSize: "var(--text-xs)" }}>
         Unable to parse structured data from this output.
       </div>
     );
@@ -67,12 +66,22 @@ export function DataTable({ data, maxRows = 200 }: DataTableProps) {
     <div style={{ display: "grid", gap: 8, height: "100%" }}>
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px" }}>
-        <Input
+        <input
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter rows..."
-          className="h-8 w-[200px] text-[var(--text-xs)]"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+            color: "var(--text-primary)",
+            fontSize: "var(--text-xs)",
+            padding: "4px 8px",
+            fontFamily: "inherit",
+            outline: "none",
+            width: 200,
+          }}
         />
         <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
           {filtered.length} of {parsed.rows.length} rows
@@ -117,7 +126,7 @@ export function DataTable({ data, maxRows = 200 }: DataTableProps) {
               <tr
                 key={ri}
                 style={{
-                  background: ri % 2 === 0 ? "transparent" : "var(--surface-muted)",
+                  background: ri % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)",
                 }}
               >
                 {parsed.headers.map((_, ci) => (
@@ -150,7 +159,7 @@ const thStyle: React.CSSProperties = {
 
 const tdStyle: React.CSSProperties = {
   padding: "4px 10px",
-  borderBottom: "1px solid var(--border-subtle)",
+  borderBottom: "1px solid rgba(255,255,255,0.03)",
   color: "var(--text-primary)",
   whiteSpace: "pre-wrap",
   wordBreak: "break-word",

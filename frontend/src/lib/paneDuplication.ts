@@ -1,5 +1,4 @@
 import type { OperationalEvent } from "./agentMissionStore";
-import { getBridge } from "./bridge";
 import { encodeTextToBase64, stripAnsi } from "../components/terminal-pane/utils";
 
 function cleanCommand(value: string): string {
@@ -100,7 +99,7 @@ export function queuePaneBootstrapCommand(paneId: string, command: string): void
   let attempts = 10;
 
   const sendAttempt = async () => {
-    const bridge = getBridge();
+    const bridge = (window as any).tamux ?? (window as any).amux;
     if (!bridge?.sendTerminalInput) {
       return;
     }
@@ -137,7 +136,7 @@ export async function cloneSessionForDuplication(
     rows?: number;
   },
 ): Promise<{ sessionId: string; activeCommand: string | null } | null> {
-  const bridge = getBridge();
+  const bridge = (window as any).tamux ?? (window as any).amux;
   if (!bridge?.cloneTerminalSession) {
     return null;
   }

@@ -1,9 +1,9 @@
 export function SharedCursor({ mode }: { mode: "idle" | "human" | "agent" | "approval" }) {
     const palette = {
-        idle: { label: "Idle", color: "var(--text-secondary)" },
-        human: { label: "Human", color: "var(--success)" },
-        agent: { label: "Agent", color: "var(--accent)" },
-        approval: { label: "Approval", color: "var(--warning)" },
+        idle: { label: "Idle", color: "var(--text-secondary)", glow: "rgba(166, 173, 200, 0.18)" },
+        human: { label: "Human", color: "var(--success)", glow: "rgba(166, 227, 161, 0.22)" },
+        agent: { label: "Agent", color: "var(--accent)", glow: "rgba(137, 180, 250, 0.22)" },
+        approval: { label: "Approval", color: "var(--warning)", glow: "rgba(249, 226, 175, 0.22)" },
     }[mode];
 
     return (
@@ -18,8 +18,8 @@ export function SharedCursor({ mode }: { mode: "idle" | "human" | "agent" | "app
                 gap: 8,
                 padding: "6px 10px",
                 borderRadius: 0,
-                border: "1px solid var(--border)",
-                background: "var(--surface-overlay-panel)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(10, 15, 24, 0.72)",
                 backdropFilter: "none",
                 boxShadow: "none",
             }}

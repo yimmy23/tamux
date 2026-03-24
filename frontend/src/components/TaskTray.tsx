@@ -1,5 +1,4 @@
 import { useEffect, useRef, useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
-import { getBridge } from "@/lib/bridge";
 import {
     fetchAgentTasks,
     formatTaskStatus,
@@ -217,7 +216,7 @@ export function TaskTrayButton() {
 
 function TaskDetail({ task, onCancelled }: { task: AgentQueueTask; onCancelled: () => void }) {
     const color = taskStatusColor(task.status);
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     const canCancel = task.status === "queued" || task.status === "in_progress" || task.status === "blocked" || task.status === "failed_analyzing";
     const logs = [...(task.logs ?? [])].slice(-6).reverse();
 

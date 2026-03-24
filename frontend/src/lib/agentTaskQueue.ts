@@ -1,5 +1,3 @@
-import { getBridge } from "./bridge";
-
 export type AgentTaskStatus =
     | "queued"
     | "in_progress"
@@ -61,7 +59,7 @@ export interface AgentQueueTask {
 }
 
 export async function fetchAgentTasks(): Promise<AgentQueueTask[]> {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.agentListTasks) {
         return [];
     }

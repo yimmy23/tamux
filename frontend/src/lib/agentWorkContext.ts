@@ -1,5 +1,3 @@
-import { getBridge } from "./bridge";
-
 export interface WorkContextEntry {
   path: string;
   previousPath?: string | null;
@@ -24,6 +22,10 @@ export interface FilePreviewPayload {
   content: string;
   truncated: boolean;
   isText: boolean;
+}
+
+function getBridge(): AmuxBridge | null {
+  return (window as any).tamux ?? (window as any).amux ?? null;
 }
 
 function normalizeEntry(raw: unknown): WorkContextEntry | null {

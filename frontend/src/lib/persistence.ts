@@ -1,5 +1,3 @@
-import { getBridge } from "./bridge";
-
 type PendingWrite = {
     relativePath: string;
     kind: "json" | "text" | "delete";
@@ -8,6 +6,11 @@ type PendingWrite = {
 };
 
 const pendingWrites = new Map<string, PendingWrite>();
+
+function getBridge(): AmuxBridge | undefined {
+    if (typeof window === "undefined") return undefined;
+    return window.tamux ?? window.amux;
+}
 
 function writeKey(kind: PendingWrite["kind"], relativePath: string): string {
     return `${kind}:${relativePath}`;

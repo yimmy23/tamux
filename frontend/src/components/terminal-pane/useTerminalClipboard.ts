@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import type { MutableRefObject } from "react";
 import type { Terminal } from "@xterm/xterm";
-import { getBridge } from "@/lib/bridge";
 
 export function useTerminalClipboard({
     termRef,
@@ -11,7 +10,7 @@ export function useTerminalClipboard({
     sendTextInput: (text: string, options?: { bracketed?: boolean; trackHistory?: boolean }) => Promise<boolean>;
 }) {
     const writeClipboardText = useCallback(async (text: string) => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (amux?.writeClipboardText) {
             await amux.writeClipboardText(text);
             return;
@@ -23,7 +22,7 @@ export function useTerminalClipboard({
     }, []);
 
     const readClipboardText = useCallback(async (): Promise<string> => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (amux?.readClipboardText) {
             return (await amux.readClipboardText()) ?? "";
         }

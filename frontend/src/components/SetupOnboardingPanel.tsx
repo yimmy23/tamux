@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { cn, overlayClassName, panelSurfaceClassName } from "./ui/shared";
 
 const SETUP_PANEL_STATE_KEY = "tamux-setup-onboarding-state-v1";
 const SETUP_PANEL_VERSION = "1";
@@ -100,9 +99,11 @@ export function SetupOnboardingPanel() {
 
   return (
     <div
-      className={overlayClassName}
       style={{
+        position: "fixed",
+        inset: 0,
         zIndex: 4100,
+        background: "rgba(3, 8, 16, 0.76)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -110,16 +111,16 @@ export function SetupOnboardingPanel() {
       }}
     >
       <div
-        className={cn(panelSurfaceClassName, "overflow-hidden")}
         style={{
           width: "min(980px, 96vw)",
           maxHeight: "90vh",
           overflow: "auto",
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "linear-gradient(180deg, rgba(10, 17, 28, 0.98), rgba(10, 16, 24, 0.96))",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
           padding: 20,
           display: "grid",
           gap: 14,
-          background: "var(--surface-panel-blend)",
-          boxShadow: "var(--shadow-lg)",
         }}
       >
         <div style={{ display: "grid", gap: 4 }}>
@@ -137,16 +138,7 @@ export function SetupOnboardingPanel() {
         ) : null}
 
         {error ? (
-          <div
-            style={{
-              border: "1px solid var(--danger-border)",
-              borderRadius: "var(--radius-md)",
-              padding: 10,
-              fontSize: 13,
-              color: "var(--danger)",
-              background: "var(--danger-soft)",
-            }}
-          >
+          <div style={{ border: "1px solid rgba(255,0,0,0.35)", padding: 10, fontSize: 13, color: "#ffb4b4" }}>
             Setup check failed: {error}
           </div>
         ) : null}
@@ -159,16 +151,7 @@ export function SetupOnboardingPanel() {
               <InfoCard label="Data Directory" value={report.dataDir} />
             </div>
 
-            <div
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-lg)",
-                padding: 12,
-                display: "grid",
-                gap: 10,
-                background: "var(--bg-secondary)",
-              }}
-            >
+            <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 12, display: "grid", gap: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>
                 Required runtime dependencies ({report.required.length})
               </div>
@@ -181,17 +164,16 @@ export function SetupOnboardingPanel() {
                 <div
                   key={dep.name}
                   style={{
-                    border: `1px solid ${dep.found ? "var(--success-border)" : "var(--warning-border)"}`,
-                    borderRadius: "var(--radius-md)",
+                    border: "1px solid rgba(255,255,255,0.07)",
                     padding: 10,
                     display: "grid",
                     gap: 6,
-                    background: dep.found ? "var(--success-soft)" : "var(--warning-soft)",
+                    background: dep.found ? "rgba(38, 94, 48, 0.24)" : "rgba(109, 57, 26, 0.26)",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <span style={{ fontWeight: 700 }}>{dep.label}</span>
-                    <span style={{ color: dep.found ? "var(--success)" : "var(--warning)", fontSize: 12 }}>
+                    <span style={{ color: dep.found ? "#8ff0a4" : "#ffd59e", fontSize: 12 }}>
                       {dep.found ? "installed" : "missing"}
                     </span>
                   </div>
@@ -236,16 +218,7 @@ export function SetupOnboardingPanel() {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        padding: 10,
-        display: "grid",
-        gap: 4,
-        background: "var(--bg-secondary)",
-      }}
-    >
+    <div style={{ border: "1px solid rgba(255,255,255,0.09)", padding: 10, display: "grid", gap: 4 }}>
       <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-secondary)" }}>{label}</span>
       <code style={{ fontSize: 12 }}>{value}</code>
     </div>
@@ -253,12 +226,10 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 }
 
 const actionButtonStyle: CSSProperties = {
-  border: "1px solid var(--border)",
-  background: "var(--bg-secondary)",
+  border: "1px solid rgba(255,255,255,0.2)",
+  background: "rgba(255,255,255,0.06)",
   color: "var(--text-primary)",
-  borderRadius: "var(--radius-md)",
   padding: "8px 12px",
   cursor: "pointer",
   fontSize: 12,
-  transition: "background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast)",
 };

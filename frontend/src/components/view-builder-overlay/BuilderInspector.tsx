@@ -120,8 +120,8 @@ function InspectorField({
                 style={{
                     width: "100%",
                     borderRadius: 10,
-                    border: "1px solid var(--border)",
-                    background: "var(--surface-subtle)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.04)",
                     color: "var(--text-primary)",
                     padding: "8px 10px",
                 }}

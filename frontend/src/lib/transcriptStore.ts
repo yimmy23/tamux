@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { getBridge } from "./bridge";
 import { TranscriptEntry, TranscriptReason, WorkspaceId, SurfaceId, PaneId } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import {
@@ -21,7 +20,7 @@ type TranscriptDbApi = {
 };
 
 function getTranscriptDbApi(): TranscriptDbApi | null {
-  const api = getBridge();
+  const api = (window as any).tamux ?? (window as any).amux;
   if (!api) return null;
   return api as TranscriptDbApi;
 }

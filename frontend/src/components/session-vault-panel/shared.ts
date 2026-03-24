@@ -79,8 +79,8 @@ export function formatBytes(bytes: number): string {
 }
 
 export const hdrBtn: CSSProperties = {
-    background: "var(--surface-subtle)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
     color: "var(--text-secondary)",
     cursor: "pointer",
     fontSize: 13,
@@ -91,9 +91,9 @@ export const hdrBtn: CSSProperties = {
 export const filterInputStyle: CSSProperties = {
     width: "100%",
     padding: "10px 12px",
-    background: "var(--input)",
-    border: "1px solid var(--border)",
-    color: "var(--input-foreground)",
+    background: "rgba(18, 33, 47, 0.8)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "var(--text-primary)",
     fontSize: 13,
     fontFamily: "inherit",
     outline: "none",
@@ -101,8 +101,8 @@ export const filterInputStyle: CSSProperties = {
 };
 
 export const modeBtnStyle: CSSProperties = {
-    background: "var(--surface-subtle)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
     color: "var(--text-secondary)",
     borderRadius: 0,
     padding: "7px 12px",
@@ -112,7 +112,7 @@ export const modeBtnStyle: CSSProperties = {
 
 export const activeModeBtnStyle: CSSProperties = {
     color: "var(--text-primary)",
-    borderColor: "var(--accent-border)",
+    borderColor: "rgba(137, 180, 250, 0.36)",
     background: "var(--bg-secondary)",
 };
 
@@ -124,7 +124,7 @@ export const timelineCardStyle: CSSProperties = {
     gap: 6,
     textAlign: "left",
     borderRadius: 0,
-    border: "1px solid var(--border)",
+    border: "1px solid rgba(255,255,255,0.08)",
     background: "var(--bg-secondary)",
     color: "var(--text-primary)",
     flexShrink: 0,
@@ -150,8 +150,8 @@ export const timelineBodyStyle: CSSProperties = {
 };
 
 export const miniActionBtnStyle: CSSProperties = {
-    background: "var(--surface-soft)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.08)",
     color: "var(--text-primary)",
     borderRadius: 0,
     padding: "6px 9px",
@@ -164,8 +164,8 @@ export const timelineRowStyle: CSSProperties = {
     gap: 12,
     padding: 14,
     borderRadius: 0,
-    border: "1px solid var(--border)",
-    background: "var(--surface-muted)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)",
     alignItems: "stretch",
 };
 

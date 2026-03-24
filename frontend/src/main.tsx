@@ -13,7 +13,6 @@ import { hydrateFileManagerStore } from "./lib/fileManagerStore";
 import { hydrateCDUIPreference, isCDUIEnabled } from "./lib/cduiMode";
 import { hydrateSnippetStore } from "./lib/snippetStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
-import "./styles/tailwind.css";
 import "./styles/global.css";
 
 const renderRoot = (useCDUI: boolean): void => {

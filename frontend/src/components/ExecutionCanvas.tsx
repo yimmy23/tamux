@@ -19,7 +19,6 @@ import { useCommandLogStore } from "../lib/commandLogStore";
 import { useGraphStore } from "../lib/graphStore";
 import { ToolNode } from "./graph/ToolNode";
 import { DataFlowEdge } from "./graph/DataFlowEdge";
-import { cn, overlayClassName, panelSurfaceClassName } from "./ui/shared";
 
 const nodeTypes: NodeTypes = { toolNode: ToolNode };
 const edgeTypes: EdgeTypes = { dataFlowEdge: DataFlowEdge };
@@ -84,29 +83,33 @@ export function ExecutionCanvas({ style, className }: ExecutionCanvasProps = {})
       onClick={toggleCanvas}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
-      className={cn(overlayClassName, className)}
       style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(3,8,14,0.72)",
         display: "flex",
         alignItems: "flex-start",
         justifyContent: "center",
         padding: "4vh 2vw",
         zIndex: 940,
+        backdropFilter: "none",
         ...(style ?? {}),
       }}
+      className={className}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={panelSurfaceClassName}
         style={{
+          background: "var(--bg-primary)",
+          border: "1px solid var(--glass-border)",
+          borderRadius: 0,
           width: "min(1500px, 96vw)",
           height: "min(900px, 88vh)",
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
-          borderRadius: "var(--radius-xl)",
-          background: "var(--surface-panel-blend)",
-          boxShadow: "var(--shadow-lg)",
         }}
+        className="amux-shell-card"
       >
         {/* Header */}
         <div
@@ -115,12 +118,11 @@ export function ExecutionCanvas({ style, className }: ExecutionCanvasProps = {})
             justifyContent: "space-between",
             alignItems: "center",
             padding: "16px 20px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-secondary)",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
           }}
         >
           <div style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: "var(--text-xs)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--agent)" }}>
+            <span className="amux-panel-title" style={{ color: "var(--agent)" }}>
               Execution Graph
             </span>
             <span style={{ fontSize: 20, fontWeight: 800 }}>Infinite Canvas</span>
@@ -177,27 +179,25 @@ export function ExecutionCanvas({ style, className }: ExecutionCanvasProps = {})
                 variant={BackgroundVariant.Dots}
                 gap={20}
                 size={1}
-                color="var(--glass-border)"
+                color="rgba(255,255,255,0.04)"
               />
               <Controls
                 position="bottom-left"
                 style={{
-                  background: "var(--bg-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  boxShadow: "var(--shadow-sm)",
+                  background: "rgba(14, 24, 35, 0.9)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: 0,
                 }}
               />
               <MiniMap
                 position="bottom-right"
                 style={{
-                  background: "var(--bg-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  boxShadow: "var(--shadow-sm)",
+                  background: "rgba(14, 24, 35, 0.9)",
+                  border: "1px solid var(--glass-border)",
+                  borderRadius: 0,
                 }}
                 nodeColor={() => "var(--accent)"}
-                maskColor="var(--overlay)"
+                maskColor="rgba(0, 0, 0, 0.5)"
               />
             </ReactFlow>
           )}
@@ -212,9 +212,9 @@ function MetricChip({ label, value }: { label: string; value: number }) {
     <div
       style={{
         padding: "4px 10px",
-        borderRadius: "var(--radius-full)",
-        border: "1px solid var(--border)",
-        background: "var(--bg-tertiary)",
+        borderRadius: 0,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
         fontSize: 11,
         display: "flex",
         gap: 6,
@@ -228,12 +228,12 @@ function MetricChip({ label, value }: { label: string; value: number }) {
 }
 
 const closeBtnStyle: React.CSSProperties = {
-  background: "var(--bg-tertiary)",
-  border: "1px solid var(--border)",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.08)",
   color: "var(--text-secondary)",
   cursor: "pointer",
   fontSize: 14,
   padding: "6px 10px",
-  borderRadius: 999,
+  borderRadius: 0,
   lineHeight: 1,
 };

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { getBridge } from "@/lib/bridge";
 import { allLeafIds, findLeaf } from "../../lib/bspTree";
 import {
     controlGoalRun,
@@ -191,7 +190,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     const [historyMinApprovals, setHistoryMinApprovals] = useState(0);
     const [historyMinDurationMinutes, setHistoryMinDurationMinutes] = useState(0);
 
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     const goalRunsSupported = goalRunSupportAvailable();
     const activeWorkspace = useWorkspaceStore((state) => state.activeWorkspace());
     const createThread = useAgentStore((state) => state.createThread);
@@ -227,7 +226,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
         if (!amux?.agentHeartbeatGetItems) return;
         try {
             const result = await amux.agentHeartbeatGetItems();
-            setHeartbeatItems(Array.isArray(result) ? result as HeartbeatItem[] : []);
+            setHeartbeatItems(Array.isArray(result) ? result : []);
         } catch {
             /* silent */
         }
@@ -1008,7 +1007,7 @@ function TodoSnapshotList({ items }: { items: TodoItem[] }) {
                             gap: "var(--space-2)",
                             padding: "6px 8px",
                             borderRadius: "var(--radius-sm)",
-                            background: "var(--bg-tertiary)",
+                            background: "rgba(255,255,255,0.03)",
                         }}
                     >
                         <span
@@ -1317,7 +1316,7 @@ function TaskCodePreview({
     const [error, setError] = useState<string | null>(null);
     const codingTask = taskLooksLikeCoding(task);
     const threadId = task.thread_id || null;
-    const bridge = getBridge();
+    const bridge = (window as any).tamux ?? (window as any).amux;
     const selectedEntry = useMemo(
         () => context.entries.find((entry) => entry.path === selectedPath) ?? null,
         [context.entries, selectedPath],

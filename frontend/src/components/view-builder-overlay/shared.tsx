@@ -12,10 +12,10 @@ export const overlayShellStyle: CSSProperties = {
     overflow: "auto",
     zIndex: 5000,
     borderRadius: 16,
-    border: "1px solid var(--border-strong)",
-    background: "var(--surface-overlay-panel)",
-    boxShadow: "var(--shadow-xl)",
-    backdropFilter: "blur(var(--panel-blur))",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(10, 14, 24, 0.92)",
+    boxShadow: "0 24px 70px rgba(0,0,0,0.45)",
+    backdropFilter: "blur(20px)",
     color: "var(--text-primary)",
 };
 
@@ -27,10 +27,10 @@ export const sectionTitleStyle: CSSProperties = {
 };
 
 export const sectionCardStyle: CSSProperties = {
-    border: "1px solid var(--border)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 12,
     padding: 12,
-    background: "var(--surface-muted)",
+    background: "rgba(255,255,255,0.03)",
 };
 
 export function findNodeById(document: ViewDocument, nodeId: string): UIViewNode | null {
@@ -108,8 +108,8 @@ export function stringValue(value: unknown): string {
 
 export function chipButtonStyle(active: boolean) {
     return {
-        border: active ? "1px solid var(--surface-highlight-accent-border)" : "1px solid var(--border-strong)",
-        background: active ? "var(--surface-highlight-accent)" : "var(--surface-soft)",
+        border: active ? "1px solid rgba(109, 197, 255, 0.7)" : "1px solid rgba(255,255,255,0.12)",
+        background: active ? "rgba(109, 197, 255, 0.16)" : "rgba(255,255,255,0.05)",
         color: "var(--text-primary)",
         borderRadius: 999,
         padding: "6px 10px",
@@ -120,8 +120,8 @@ export function chipButtonStyle(active: boolean) {
 
 export function actionButtonStyle(variant: "primary" | "secondary") {
     return {
-        border: `1px solid ${variant === "primary" ? "var(--accent-border)" : "var(--border-strong)"}`,
-        background: variant === "primary" ? "var(--accent-soft)" : "var(--surface-soft)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        background: variant === "primary" ? "rgba(109, 197, 255, 0.18)" : "rgba(255,255,255,0.05)",
         color: "var(--text-primary)",
         borderRadius: 10,
         padding: "10px 12px",

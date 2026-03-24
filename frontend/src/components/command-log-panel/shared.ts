@@ -44,8 +44,8 @@ export function filterCommandEntries(entries: CommandLogEntry[], filters: Comman
 }
 
 export const hdrBtn: CSSProperties = {
-    background: "var(--surface-subtle)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
     color: "var(--text-secondary)",
     cursor: "pointer",
     fontSize: 13,
@@ -56,9 +56,9 @@ export const hdrBtn: CSSProperties = {
 export const filterInputStyle: CSSProperties = {
     width: "100%",
     padding: "10px 12px",
-    background: "var(--input)",
-    border: "1px solid var(--border)",
-    color: "var(--input-foreground)",
+    background: "rgba(18, 33, 47, 0.8)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "var(--text-primary)",
     fontSize: 13,
     fontFamily: "inherit",
     outline: "none",
@@ -66,8 +66,8 @@ export const filterInputStyle: CSSProperties = {
 };
 
 export const actionBtn: CSSProperties = {
-    background: "var(--surface-subtle)",
-    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 0,
     color: "var(--text-secondary)",
     cursor: "pointer",

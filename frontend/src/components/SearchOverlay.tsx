@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { clearTerminalSearch, searchTerminal, type TerminalSearchOptions } from "../lib/terminalRegistry";
-import { Card, Separator } from "./ui";
 import { SearchOverlayControls } from "./search-overlay/SearchOverlayControls";
 import { SearchOverlayHeader } from "./search-overlay/SearchOverlayHeader";
 import { SearchOverlayStatus } from "./search-overlay/SearchOverlayStatus";
@@ -63,6 +62,7 @@ export function SearchOverlay({ style, className }: SearchOverlayProps = {}) {
   }, [activePaneId, open]);
 
   if (!open) return null;
+  const rootClassName = className ? `amux-shell-card ${className}` : "amux-shell-card";
   const clearAndClose = () => {
     clearTerminalSearch(activePaneId);
     toggle();
@@ -84,25 +84,26 @@ export function SearchOverlay({ style, className }: SearchOverlayProps = {}) {
   };
 
   return (
-    <Card
+    <div
       style={{
         position: "absolute",
         top: 14,
         right: 16,
         zIndex: 100,
+        display: "grid",
+        gap: 8,
         minWidth: 320,
+        background: "var(--bg-secondary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: 0,
+        padding: "10px 12px",
         ...(style ?? {}),
       }}
-      className={[
-        "amux-shell-card grid gap-[var(--space-3)] p-[var(--space-3)]",
-        className ?? "",
-      ].join(" ")}
+      className={rootClassName}
     >
       <SearchOverlayHeader query={query} matchCount={matchCount} currentIndex={currentIndex} />
-      <Separator />
       <SearchOverlayControls inputRef={inputRef} actions={actions} />
-      <Separator />
       <SearchOverlayStatus activePaneId={activePaneId} />
-    </Card>
+    </div>
   );
 }
