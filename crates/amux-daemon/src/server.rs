@@ -2156,10 +2156,12 @@ where
                     tracing::info!("server: received AgentRequestConciergeWelcome");
 
                     // If first-time user (onboarding not completed), deliver tier-adapted onboarding
-                    let tier = agent.compute_current_tier().await;
-                    let onboarding_done = {
+                    let (onboarding_done, tier) = {
                         let cfg = agent.config.read().await;
-                        cfg.tier.as_ref().map(|t| t.onboarding_completed).unwrap_or(false)
+                        let done = cfg.tier.onboarding_completed;
+                        let t = cfg.tier.user_self_assessment
+                            .unwrap_or(crate::agent::capability_tier::CapabilityTier::Newcomer);
+                        (done, t)
                     };
                     if !onboarding_done {
                         if let Err(e) = agent.concierge.deliver_onboarding(tier).await {
