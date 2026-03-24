@@ -272,6 +272,80 @@ impl PluginManager {
         Ok(())
     }
 
+    /// Get settings for a plugin. Masks secret values for display. Per PSET-04/PSET-06.
+    pub async fn get_settings(&self, name: &str) -> Vec<(String, String, bool)> {
+        match self.persistence.get_settings(name).await {
+            Ok(settings) => settings
+                .into_iter()
+                .map(|(k, v, secret)| {
+                    if secret {
+                        (k, "********".to_string(), true)
+                    } else {
+                        (k, v, false)
+                    }
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!(plugin = %name, error = %e, "failed to get plugin settings");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Update a single setting value. Per PSET-06/D-06.
+    pub async fn update_setting(
+        &self,
+        plugin_name: &str,
+        key: &str,
+        value: &str,
+        is_secret: bool,
+    ) -> Result<()> {
+        self.persistence
+            .upsert_setting(plugin_name, key, value, is_secret)
+            .await
+    }
+
+    /// Test connectivity by making a HEAD request to the plugin's first API endpoint.
+    /// Per PSET-05/D-10. Returns (success, message).
+    pub async fn test_connection(&self, name: &str) -> (bool, String) {
+        let plugins = self.plugins.read().await;
+        let Some(plugin) = plugins.get(name) else {
+            return (false, format!("Plugin '{}' not found", name));
+        };
+        let Some(api) = &plugin.manifest.api else {
+            return (false, "Plugin has no API section".to_string());
+        };
+        let base_url = match &api.base_url {
+            Some(url) => url.clone(),
+            None => return (false, "Plugin has no base_url".to_string()),
+        };
+        // Use first endpoint or just probe base_url
+        let test_url = if let Some((_name, endpoint)) = api.endpoints.iter().next() {
+            format!("{}{}", base_url.trim_end_matches('/'), endpoint.path)
+        } else {
+            base_url
+        };
+        // Make a lightweight HTTP probe with 5s timeout
+        match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+        {
+            Ok(client) => match client.head(&test_url).send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() || status == 401 || status == 403 {
+                        // 401/403 means server is reachable but auth needed -- that's OK for connectivity test
+                        (true, "Connection successful".to_string())
+                    } else {
+                        (false, format!("Server returned {}", status))
+                    }
+                }
+                Err(e) => (false, format!("Connection failed: {}", e)),
+            },
+            Err(e) => (false, format!("HTTP client error: {}", e)),
+        }
+    }
+
     /// Get the plugins directory path.
     pub fn plugins_dir(&self) -> &std::path::Path {
         &self.plugins_dir

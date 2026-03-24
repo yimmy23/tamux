@@ -155,6 +155,75 @@ impl PluginPersistence {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    /// Get all settings for a plugin. Returns (key, value, is_secret) tuples.
+    /// Secret values are base64-decoded before returning. Per PSET-06.
+    pub async fn get_settings(&self, plugin_name: &str) -> Result<Vec<(String, String, bool)>> {
+        let plugin_name = plugin_name.to_string();
+        self.history
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT key, value, is_secret FROM plugin_settings WHERE plugin_name = ?1 ORDER BY key ASC",
+                )?;
+                let rows = stmt.query_map(params![plugin_name], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)? != 0,
+                    ))
+                })?;
+                let mut settings = Vec::new();
+                for row in rows {
+                    let (key, raw_value, is_secret) = row?;
+                    let value = if is_secret {
+                        // Decode base64 for secret values
+                        use base64::Engine;
+                        match base64::engine::general_purpose::STANDARD.decode(&raw_value) {
+                            Ok(bytes) => String::from_utf8(bytes).unwrap_or(raw_value),
+                            Err(_) => raw_value, // Fallback: return as-is if not valid base64
+                        }
+                    } else {
+                        raw_value
+                    };
+                    settings.push((key, value, is_secret));
+                }
+                Ok(settings)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Upsert a single plugin setting. Per PSET-06/D-06.
+    /// Secret values are base64-encoded before storage (placeholder for Phase 18 AES encryption).
+    pub async fn upsert_setting(
+        &self,
+        plugin_name: &str,
+        key: &str,
+        value: &str,
+        is_secret: bool,
+    ) -> Result<()> {
+        let plugin_name = plugin_name.to_string();
+        let key = key.to_string();
+        let stored_value = if is_secret {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(value.as_bytes())
+        } else {
+            value.to_string()
+        };
+        let is_secret_i64 = is_secret as i64;
+        self.history
+            .conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO plugin_settings (plugin_name, key, value, is_secret) VALUES (?1, ?2, ?3, ?4)",
+                    params![plugin_name, key, stored_value, is_secret_i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// Remove plugins not in the provided set (stale record reconciliation per Pitfall 6).
     /// Returns the number of rows deleted.
     pub async fn remove_stale_plugins(&self, active_names: &[String]) -> Result<u64> {
@@ -324,6 +393,105 @@ mod tests {
         // Removing again should return false
         let existed_again = persistence.remove_plugin("doomed-plugin").await.unwrap();
         assert!(!existed_again);
+    }
+
+    #[tokio::test]
+    async fn plugin_persist_get_settings_empty() {
+        let history = make_test_history().await;
+        let persistence = PluginPersistence::new(history);
+        let settings = persistence.get_settings("nonexistent").await.unwrap();
+        assert!(settings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn plugin_persist_upsert_then_get_settings() {
+        let history = make_test_history().await;
+        let persistence = PluginPersistence::new(history);
+
+        // Need a plugin record first for FK
+        let record = sample_record("test-plugin");
+        persistence.upsert_plugin(&record).await.unwrap();
+
+        persistence
+            .upsert_setting("test-plugin", "api_key", "my-secret", true)
+            .await
+            .unwrap();
+        persistence
+            .upsert_setting("test-plugin", "base_url", "https://api.example.com", false)
+            .await
+            .unwrap();
+
+        let settings = persistence.get_settings("test-plugin").await.unwrap();
+        assert_eq!(settings.len(), 2);
+
+        // Sorted by key ASC
+        assert_eq!(settings[0].0, "api_key");
+        assert_eq!(settings[0].1, "my-secret"); // decoded from base64
+        assert!(settings[0].2); // is_secret
+
+        assert_eq!(settings[1].0, "base_url");
+        assert_eq!(settings[1].1, "https://api.example.com");
+        assert!(!settings[1].2);
+    }
+
+    #[tokio::test]
+    async fn plugin_persist_upsert_updates_existing() {
+        let history = make_test_history().await;
+        let persistence = PluginPersistence::new(history);
+
+        let record = sample_record("test-plugin");
+        persistence.upsert_plugin(&record).await.unwrap();
+
+        persistence
+            .upsert_setting("test-plugin", "api_key", "old-value", false)
+            .await
+            .unwrap();
+        persistence
+            .upsert_setting("test-plugin", "api_key", "new-value", false)
+            .await
+            .unwrap();
+
+        let settings = persistence.get_settings("test-plugin").await.unwrap();
+        assert_eq!(settings.len(), 1);
+        assert_eq!(settings[0].1, "new-value");
+    }
+
+    #[tokio::test]
+    async fn plugin_persist_secret_values_are_base64_encoded() {
+        let history = make_test_history().await;
+        let persistence = PluginPersistence::new(history);
+
+        let record = sample_record("test-plugin");
+        persistence.upsert_plugin(&record).await.unwrap();
+
+        persistence
+            .upsert_setting("test-plugin", "secret_key", "super-secret-123", true)
+            .await
+            .unwrap();
+
+        // Verify the raw value in DB is base64-encoded
+        let raw = persistence
+            .history
+            .conn
+            .call(|conn| {
+                let value: String = conn.query_row(
+                    "SELECT value FROM plugin_settings WHERE plugin_name = ?1 AND key = ?2",
+                    rusqlite::params!["test-plugin", "secret_key"],
+                    |row| row.get(0),
+                )?;
+                Ok(value)
+            })
+            .await
+            .unwrap();
+
+        use base64::Engine;
+        let expected_b64 =
+            base64::engine::general_purpose::STANDARD.encode("super-secret-123".as_bytes());
+        assert_eq!(raw, expected_b64);
+
+        // But get_settings returns decoded value
+        let settings = persistence.get_settings("test-plugin").await.unwrap();
+        assert_eq!(settings[0].1, "super-secret-123");
     }
 
     #[tokio::test]

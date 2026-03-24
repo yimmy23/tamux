@@ -570,6 +570,20 @@ pub enum ClientMessage {
 
     /// Uninstall a plugin: deregister from SQLite and memory. Per INST-04/D-06.
     PluginUninstall { name: String },
+
+    /// Get all settings for a plugin. Per PSET-06.
+    PluginGetSettings { name: String },
+
+    /// Update a single plugin setting. Per PSET-06/D-06.
+    PluginUpdateSettings {
+        plugin_name: String,
+        key: String,
+        value: String,
+        is_secret: bool,
+    },
+
+    /// Test plugin API connectivity. Per PSET-05/D-10.
+    PluginTestConnection { name: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -996,6 +1010,20 @@ pub enum DaemonMessage {
 
     /// Response to PluginEnable/PluginDisable. Per PLUG-09.
     PluginActionResult { success: bool, message: String },
+
+    /// Response to PluginGetSettings. Per PSET-06.
+    PluginSettingsResult {
+        plugin_name: String,
+        /// Key-value pairs. Secret values are masked with "********".
+        settings: Vec<(String, String, bool)>, // (key, value, is_secret)
+    },
+
+    /// Response to PluginTestConnection. Per PSET-05/D-10.
+    PluginTestConnectionResult {
+        plugin_name: String,
+        success: bool,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -2078,6 +2106,113 @@ mod tests {
             DaemonMessage::PluginActionResult { success, message } => {
                 assert!(success);
                 assert_eq!(message, "ok");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_get_settings_bincode_roundtrip() {
+        let msg = ClientMessage::PluginGetSettings {
+            name: "gmail".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginGetSettings { name } => {
+                assert_eq!(name, "gmail");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_update_settings_bincode_roundtrip() {
+        let msg = ClientMessage::PluginUpdateSettings {
+            plugin_name: "gmail".into(),
+            key: "api_key".into(),
+            value: "secret123".into(),
+            is_secret: true,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginUpdateSettings {
+                plugin_name,
+                key,
+                value,
+                is_secret,
+            } => {
+                assert_eq!(plugin_name, "gmail");
+                assert_eq!(key, "api_key");
+                assert_eq!(value, "secret123");
+                assert!(is_secret);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_test_connection_bincode_roundtrip() {
+        let msg = ClientMessage::PluginTestConnection {
+            name: "gmail".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginTestConnection { name } => {
+                assert_eq!(name, "gmail");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_settings_result_bincode_roundtrip() {
+        let msg = DaemonMessage::PluginSettingsResult {
+            plugin_name: "gmail".into(),
+            settings: vec![
+                ("api_key".into(), "********".into(), true),
+                ("base_url".into(), "https://api.gmail.com".into(), false),
+            ],
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::PluginSettingsResult {
+                plugin_name,
+                settings,
+            } => {
+                assert_eq!(plugin_name, "gmail");
+                assert_eq!(settings.len(), 2);
+                assert_eq!(settings[0], ("api_key".into(), "********".into(), true));
+                assert_eq!(
+                    settings[1],
+                    ("base_url".into(), "https://api.gmail.com".into(), false)
+                );
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_test_connection_result_bincode_roundtrip() {
+        let msg = DaemonMessage::PluginTestConnectionResult {
+            plugin_name: "gmail".into(),
+            success: true,
+            message: "Connection successful".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::PluginTestConnectionResult {
+                plugin_name,
+                success,
+                message,
+            } => {
+                assert_eq!(plugin_name, "gmail");
+                assert!(success);
+                assert_eq!(message, "Connection successful");
             }
             other => panic!("unexpected variant: {:?}", other),
         }

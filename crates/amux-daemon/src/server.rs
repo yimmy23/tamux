@@ -2912,6 +2912,50 @@ where
                         .send(DaemonMessage::PluginActionResult { success, message })
                         .await?;
                 }
+
+                // Plugin settings operations (Plan 16-01).
+                ClientMessage::PluginGetSettings { name } => {
+                    let settings = plugin_manager.get_settings(&name).await;
+                    framed
+                        .send(DaemonMessage::PluginSettingsResult {
+                            plugin_name: name,
+                            settings,
+                        })
+                        .await?;
+                }
+                ClientMessage::PluginUpdateSettings {
+                    plugin_name,
+                    key,
+                    value,
+                    is_secret,
+                } => {
+                    let result = plugin_manager
+                        .update_setting(&plugin_name, &key, &value, is_secret)
+                        .await;
+                    let (success, message) = match result {
+                        Ok(()) => (
+                            true,
+                            format!(
+                                "Setting '{}' updated for plugin '{}'",
+                                key, plugin_name
+                            ),
+                        ),
+                        Err(e) => (false, format!("Failed to update setting: {}", e)),
+                    };
+                    framed
+                        .send(DaemonMessage::PluginActionResult { success, message })
+                        .await?;
+                }
+                ClientMessage::PluginTestConnection { name } => {
+                    let (success, message) = plugin_manager.test_connection(&name).await;
+                    framed
+                        .send(DaemonMessage::PluginTestConnectionResult {
+                            plugin_name: name,
+                            success,
+                            message,
+                        })
+                        .await?;
+                }
             }
         }
     }
