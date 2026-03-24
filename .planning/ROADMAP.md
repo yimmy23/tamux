@@ -311,10 +311,15 @@ Plans:
   2. TUI settings panel has a "Plugins" tab listing installed plugins with enable/disable toggle
   3. Selecting a plugin renders its settings form dynamically from manifest schema
   4. Secret fields are masked in UI, encrypted in storage
-  5. Settings changes flow from UI → IPC → daemon SQLite (single source of truth)
+  5. Settings changes flow from UI -> IPC -> daemon SQLite (single source of truth)
   6. OAuth-enabled plugins show "Connect" / "Connected" / "Reconnect" button
-**Plans:** TBD
+**Plans:** 3 plans
 **UI hint**: yes
+
+Plans:
+- [ ] 16-01-PLAN.md — IPC protocol messages, daemon persistence/handlers, agent bridge, Electron/TUI client methods
+- [ ] 16-02-PLAN.md — Electron PluginsTab: pluginStore, dynamic settings form, auth badges, test connection
+- [ ] 16-03-PLAN.md — TUI Plugins tab: SettingsTab::Plugins, render_plugins_tab widget, settings_handlers wiring
 
 ### Phase 17: API Proxy Layer
 **Goal**: Daemon proxies HTTP requests for plugins per their API contract definitions, with template rendering and security protections
@@ -400,8 +405,8 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | 13. TUI UX Fixes | 3/3 | Complete | 2026-03-24 |
 | **v2.0** | | | |
 | 14. Plugin Manifest & Loader | 2/2 | Complete    | 2026-03-24 |
-| 15. Plugin CLI & Install | 2/2 | Complete   | 2026-03-24 |
-| 16. Plugin Settings UI | 0/? | Not started | - |
+| 15. Plugin CLI & Install | 2/2 | Complete    | 2026-03-24 |
+| 16. Plugin Settings UI | 0/3 | Not started | - |
 | 17. API Proxy Layer | 0/? | Not started | - |
 | 18. OAuth2 Flow | 0/? | Not started | - |
 | 19. Plugin Skills & Commands | 0/? | Not started | - |
