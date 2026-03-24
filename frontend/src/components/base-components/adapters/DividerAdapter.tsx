@@ -17,7 +17,7 @@ export function DividerAdapter(props: ViewProps) {
     builderMeta,
     content: (
       <Separator
-        className={cn("bg-[var(--border-subtle)]", componentProps.className)}
+        className={cn("bg-[var(--border-subtle)]", className, componentProps.className)}
         style={componentProps.style}
       />
     ),
