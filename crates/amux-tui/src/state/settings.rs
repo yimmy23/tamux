@@ -15,6 +15,7 @@ pub enum SettingsTab {
     Concierge,
     Features,
     Advanced,
+    Plugins,
 }
 
 impl SettingsTab {
@@ -30,6 +31,7 @@ impl SettingsTab {
         SettingsTab::Concierge,
         SettingsTab::Features,
         SettingsTab::Advanced,
+        SettingsTab::Plugins,
     ];
 
     pub fn all() -> &'static [SettingsTab] {
@@ -352,6 +354,11 @@ impl SettingsState {
                 15 => "snapshot_stats",
                 _ => "",
             },
+            SettingsTab::Plugins => {
+                // In list mode, field_cursor indexes into plugin list.
+                // In detail mode, field_cursor indexes into schema fields + actions.
+                "plugin_field"
+            }
         }
     }
 
@@ -369,6 +376,7 @@ impl SettingsState {
             SettingsTab::Concierge => 4,
             SettingsTab::Features => 14,
             SettingsTab::Advanced => 16,
+            SettingsTab::Plugins => 1,
         }
     }
 
@@ -528,6 +536,109 @@ impl Default for SettingsState {
     }
 }
 
+// ── PluginSettingsState ──────────────────────────────────────────────────────
+
+/// State for the Plugins settings tab. Stored separately from SettingsState
+/// because plugin data is dynamic (varies by installed plugins).
+#[derive(Debug, Clone)]
+pub struct PluginSettingsState {
+    /// List of installed plugins (from daemon PluginListResult).
+    pub plugins: Vec<PluginListItem>,
+    /// Index of selected plugin in the list.
+    pub selected_index: usize,
+    /// Settings schema fields for the selected plugin (parsed from manifest JSON).
+    pub schema_fields: Vec<PluginSchemaField>,
+    /// Current setting values for the selected plugin (from daemon).
+    pub settings_values: Vec<(String, String, bool)>, // (key, value, is_secret)
+    /// Whether we're in plugin list mode (true) or plugin detail mode (false).
+    pub list_mode: bool,
+    /// Test connection result message (None = not tested yet).
+    pub test_result: Option<(bool, String)>,
+    /// Loading flag.
+    pub loading: bool,
+    /// Field cursor in detail mode (indexes into schema_fields + action buttons).
+    pub detail_cursor: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginListItem {
+    pub name: String,
+    pub version: String,
+    pub enabled: bool,
+    pub has_api: bool,
+    pub has_auth: bool,
+    pub settings_count: u32,
+    pub description: Option<String>,
+    pub install_source: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginSchemaField {
+    pub key: String,
+    pub field_type: String,
+    pub label: String,
+    pub required: bool,
+    pub secret: bool,
+    pub options: Option<Vec<String>>,
+    pub description: Option<String>,
+}
+
+impl PluginSettingsState {
+    pub fn new() -> Self {
+        Self {
+            plugins: Vec::new(),
+            selected_index: 0,
+            schema_fields: Vec::new(),
+            settings_values: Vec::new(),
+            list_mode: true,
+            test_result: None,
+            loading: false,
+            detail_cursor: 0,
+        }
+    }
+
+    pub fn selected_plugin(&self) -> Option<&PluginListItem> {
+        self.plugins.get(self.selected_index)
+    }
+
+    /// field_count in detail mode = number of schema fields + action buttons
+    pub fn detail_field_count(&self) -> usize {
+        self.schema_fields.len()
+            + if self.selected_plugin().map_or(false, |p| p.has_api) {
+                1
+            } else {
+                0
+            } // test connection
+            + if self.selected_plugin().map_or(false, |p| p.has_auth) {
+                1
+            } else {
+                0
+            } // connect button
+    }
+
+    /// Get the current value for a schema field key.
+    pub fn value_for_key(&self, key: &str) -> Option<&str> {
+        self.settings_values
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .map(|(_, v, _)| v.as_str())
+    }
+
+    /// Check if a key is a secret field.
+    pub fn is_key_secret(&self, key: &str) -> bool {
+        self.settings_values
+            .iter()
+            .find(|(k, _, _)| k == key)
+            .map_or(false, |(_, _, is_secret)| *is_secret)
+    }
+}
+
+impl Default for PluginSettingsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -666,8 +777,8 @@ mod tests {
     }
 
     #[test]
-    fn all_tabs_covers_eleven_variants() {
-        assert_eq!(SettingsTab::all().len(), 11);
+    fn all_tabs_covers_twelve_variants() {
+        assert_eq!(SettingsTab::all().len(), 12);
     }
 
     #[test]
@@ -910,6 +1021,8 @@ mod tests {
         assert_eq!(state.field_count(), 14); // tier, security, heartbeat (5), memory (3), skills (2), check toggles (4 already counted)
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
         assert_eq!(state.field_count(), 16); // managed execution + advanced + snapshot fields
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
+        assert_eq!(state.field_count(), 1); // plugin list with dynamic fields handled externally
     }
 
     #[test]
@@ -929,6 +1042,43 @@ mod tests {
         assert_eq!(state.current_field_name(), "search_max_results");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "search_timeout");
+    }
+
+    #[test]
+    fn current_field_name_plugins_tab() {
+        let mut state = SettingsState::new();
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
+        assert_eq!(state.current_field_name(), "plugin_field");
+    }
+
+    #[test]
+    fn plugin_settings_state_defaults() {
+        let ps = PluginSettingsState::new();
+        assert!(ps.plugins.is_empty());
+        assert_eq!(ps.selected_index, 0);
+        assert!(ps.list_mode);
+        assert!(ps.test_result.is_none());
+        assert!(!ps.loading);
+        assert_eq!(ps.detail_field_count(), 0);
+        assert!(ps.selected_plugin().is_none());
+    }
+
+    #[test]
+    fn plugin_settings_state_selected_plugin() {
+        let mut ps = PluginSettingsState::new();
+        ps.plugins.push(PluginListItem {
+            name: "test-plugin".to_string(),
+            version: "1.0.0".to_string(),
+            enabled: true,
+            has_api: true,
+            has_auth: false,
+            settings_count: 2,
+            description: Some("A test plugin".to_string()),
+            install_source: "npm".to_string(),
+        });
+        assert_eq!(ps.selected_plugin().unwrap().name, "test-plugin");
+        // detail_field_count: 0 schema fields + 1 (has_api) + 0 (no has_auth) = 1
+        assert_eq!(ps.detail_field_count(), 1);
     }
 
     #[test]

@@ -45,8 +45,8 @@ pub enum SubAgentTabAction {
     Toggle,
 }
 
-const TAB_LABELS: [&str; 11] = [
-    "Auth", "Prov", "Tools", "Search", "Chat", "GW", "Agent", "Sub", "Con", "Feat", "Adv",
+const TAB_LABELS: [&str; 12] = [
+    "Auth", "Prov", "Tools", "Search", "Chat", "GW", "Agent", "Sub", "Con", "Feat", "Adv", "Plug",
 ];
 const TAB_DIVIDER: &str = " | ";
 
@@ -148,6 +148,7 @@ pub fn render(
         SettingsTab::Concierge => 8,
         SettingsTab::Features => 9,
         SettingsTab::Advanced => 10,
+        SettingsTab::Plugins => 11,
     };
     let tabs = visible_tabs(chunks[0], tab_index);
     frame.render_widget(
@@ -288,6 +289,7 @@ fn active_tab_index(tab: SettingsTab) -> usize {
         SettingsTab::Concierge => 8,
         SettingsTab::Features => 9,
         SettingsTab::Advanced => 10,
+        SettingsTab::Plugins => 11,
     }
 }
 
@@ -471,6 +473,7 @@ fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usi
             "feat_skill_promotion_threshold" => Some((25, 20)),
             _ => None,
         },
+        SettingsTab::Plugins => None,
     }
 }
 
@@ -595,6 +598,7 @@ fn settings_row_hit(
             24 => Some((13, None)),
             _ => None,
         },
+        SettingsTab::Plugins => None, // Plugin tab uses external navigation via PluginSettingsState
     }
 }
 
@@ -737,6 +741,16 @@ fn render_tab_content<'a>(
         SettingsTab::Concierge => render_concierge_tab(settings, concierge, theme),
         SettingsTab::Features => render_features_tab(settings, config, tier, theme),
         SettingsTab::Advanced => render_advanced_tab(settings, config, theme),
+        SettingsTab::Plugins => {
+            // Stub: full rendering added in Task 2 via render_plugins_tab
+            vec![
+                Line::raw(""),
+                Line::from(Span::styled(
+                    "  No plugins. Run `tamux plugin add <name>` to install.",
+                    theme.fg_dim,
+                )),
+            ]
+        }
     }
 }
 
