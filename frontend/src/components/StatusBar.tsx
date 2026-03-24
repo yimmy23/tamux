@@ -5,6 +5,8 @@ import { useNotificationStore } from "../lib/notificationStore";
 import { useSettingsStore } from "../lib/settingsStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
+import { useStatusStore } from "../lib/statusStore";
+import { useTierStore } from "../lib/tierStore";
 import { InlineSystemMonitor } from "./status-bar/InlineSystemMonitor";
 import { StatusBarMissionStats } from "./status-bar/StatusBarMissionStats";
 import { StatusIndicator } from "./status-bar/StatusPrimitives";
@@ -23,6 +25,10 @@ export function StatusBar() {
   const snapshotBackend = useSettingsStore((s) => s.settings.snapshotBackend);
   const gatewayEnabled = useAgentStore((s) => s.agentSettings.gateway_enabled);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const activity = useStatusStore((s) => s.activity);
+  const providerHealth = useStatusStore((s) => s.providerHealth);
+  const recentActions = useStatusStore((s) => s.recentActions);
+  const currentTier = useTierStore((s) => s.currentTier);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
   const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
@@ -67,6 +73,29 @@ export function StatusBar() {
           >
             {ws.name}
           </span>
+        )}
+
+        {currentTier !== "newcomer" && (
+          <Badge variant="default" className="px-[var(--space-2)] py-[2px] text-[var(--text-xs)] capitalize opacity-80">
+            {currentTier.replace("_", " ")}
+          </Badge>
+        )}
+
+        {activity !== "idle" && (
+          <StatusIndicator
+            label={
+              activity === "thinking" ? "thinking" :
+              activity === "executing_tool" ? "running tool" :
+              activity === "waiting_for_approval" ? "needs approval" :
+              activity === "running_goal" || activity === "goal_running" ? "running goal" :
+              activity
+            }
+            status={
+              activity === "waiting_for_approval" ? "warning" :
+              activity === "thinking" || activity === "executing_tool" ? "success" :
+              "neutral"
+            }
+          />
         )}
 
         {surface && (
@@ -114,6 +143,13 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-[var(--space-2)]">
+        {providerHealth.some((p) => !p.canExecute) && (
+          <StatusIndicator
+            label={`${providerHealth.filter((p) => !p.canExecute).length} provider(s) tripped`}
+            status="warning"
+          />
+        )}
+
         <StatusBarMissionStats
           pendingApprovals={pendingApprovals}
           traceCount={traceCount}
@@ -130,6 +166,17 @@ export function StatusBar() {
         <Separator orientation="vertical" className="h-4 bg-[var(--border)]" />
 
         <InlineSystemMonitor />
+
+        {recentActions.length > 0 && (
+          <span
+            className="cursor-default text-[var(--text-xs)] text-[var(--text-secondary)]"
+            title={recentActions.slice(0, 3).map((a) => `${a.actionType}: ${a.summary}`).join("\n")}
+          >
+            {recentActions[0].summary.length > 30
+              ? recentActions[0].summary.slice(0, 27) + "..."
+              : recentActions[0].summary}
+          </span>
+        )}
 
         <Button
           type="button"
