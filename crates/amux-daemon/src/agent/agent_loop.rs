@@ -1267,3 +1267,73 @@ impl AgentEngine {
         self.persist_thread_by_id(thread_id).await;
     }
 }
+
+/// Parse a plugin command from user input.
+///
+/// A plugin command starts with `/`, contains a `.` before any space
+/// (e.g., `/gmail-calendar.inbox`, `/weather.forecast London`).
+///
+/// Returns `Some((command_key, args))` where `command_key` is the `/plugin.command`
+/// portion and `args` is the remaining text after the command.
+/// Returns `None` if the input is not a plugin command.
+pub(super) fn parse_plugin_command(content: &str) -> Option<(&str, &str)> {
+    let trimmed = content.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+
+    // Find the first space (if any) to separate command from args
+    let (command_part, args) = match trimmed.find(' ') {
+        Some(pos) => (&trimmed[..pos], trimmed[pos..].trim_start()),
+        None => (trimmed, ""),
+    };
+
+    // Command part must contain a dot (plugin.command separator)
+    if !command_part.contains('.') {
+        return None;
+    }
+
+    Some((command_part, args))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_plugin_command_basic() {
+        let result = parse_plugin_command("/gmail-calendar.inbox");
+        assert_eq!(result, Some(("/gmail-calendar.inbox", "")));
+    }
+
+    #[test]
+    fn parse_plugin_command_with_args() {
+        let result = parse_plugin_command("/gmail-calendar.inbox check today");
+        assert_eq!(result, Some(("/gmail-calendar.inbox", "check today")));
+    }
+
+    #[test]
+    fn parse_plugin_command_regular_message() {
+        let result = parse_plugin_command("regular message");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_plugin_command_no_dot() {
+        // /help has no dot separator -- not a plugin command
+        let result = parse_plugin_command("/help");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_plugin_command_with_whitespace() {
+        let result = parse_plugin_command("  /weather.forecast London  ");
+        assert_eq!(result, Some(("/weather.forecast", "London")));
+    }
+
+    #[test]
+    fn parse_plugin_command_slash_no_dot_with_args() {
+        let result = parse_plugin_command("/help me please");
+        assert_eq!(result, None);
+    }
+}
