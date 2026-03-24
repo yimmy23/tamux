@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useKeybindStore } from "../lib/keybindStore";
 import { useNotificationStore } from "../lib/notificationStore";
 import { useWorkspaceStore } from "../lib/workspaceStore";
-import { Badge, Button, Separator, cn } from "./ui";
 
 type TitleMenuItem = {
   id: string;
@@ -190,29 +189,55 @@ export function TitleBar() {
 
   return (
     <div
-      className="flex h-[var(--title-bar-height)] shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-[var(--space-3)] pl-[var(--space-4)] select-none"
-      style={{ WebkitAppRegion: "drag" } as CSSProperties}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        height: "var(--title-bar-height)",
+        background: "var(--bg-secondary)",
+        borderBottom: "1px solid var(--border)",
+        WebkitAppRegion: "drag",
+        flexShrink: 0,
+        padding: "0 var(--space-3) 0 var(--space-4)",
+        userSelect: "none",
+      } as React.CSSProperties}
     >
-      <div className="flex items-center gap-[var(--space-3)] text-[var(--text-sm)] font-semibold">
-        <div className="flex flex-col gap-px">
-          <span className="text-[var(--text-xs)] font-bold uppercase tracking-[0.15em] text-[var(--mission)]">Tamux</span>
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">agentic runtime</span>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", fontSize: "var(--text-sm)", fontWeight: 600 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <span
+            style={{
+              color: "var(--mission)",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              fontSize: "var(--text-xs)",
+              fontWeight: 700,
+            }}
+          >
+            Tamux
+          </span>
+          <span style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)" }}>agentic runtime</span>
         </div>
 
         {workspace && (
-          <div className="flex items-center gap-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
-            <Badge variant="default" className="max-w-[14rem] truncate" style={{ color: workspace.accentColor }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+            <span className="amux-chip" style={{ color: workspace.accentColor }}>
               {workspace.name}
-              {surface && <span className="text-[var(--text-muted)]">/{surface.name}</span>}
-            </Badge>
+              {surface && <span style={{ color: "var(--text-muted)" }}>/{surface.name}</span>}
+            </span>
 
-            <Badge variant="default">provider {active_provider}</Badge>
+            <span className="amux-chip">provider {active_provider}</span>
 
-            <Badge variant={approvalCount > 0 ? "approval" : "success"}>
+            <span
+              className="amux-chip"
+              style={{
+                color: approvalCount > 0 ? "var(--approval)" : "var(--success)",
+                background: approvalCount > 0 ? "var(--approval-soft)" : "var(--success-soft)",
+              }}
+            >
               {approvalCount > 0 ? `${approvalCount} approvals` : "safe lane"}
-            </Badge>
+            </span>
 
-            <Badge variant="default">trace {traceCount}</Badge>
+            <span className="amux-chip">trace {traceCount}</span>
           </div>
         )}
       </div>
@@ -220,45 +245,79 @@ export function TitleBar() {
       {platform === "linux" ? (
         <div
           ref={menuBarRef}
-          className="relative flex items-stretch gap-[2px]"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+          style={{ display: "flex", alignItems: "stretch", gap: 2, WebkitAppRegion: "no-drag", position: "relative" } as React.CSSProperties}
         >
           {linuxMenus.map((menu) => (
-            <div key={menu.id} className="relative">
-              <Button
+            <div key={menu.id} style={{ position: "relative" }}>
+              <button
                 type="button"
                 onClick={() => setOpenMenuId((current) => (current === menu.id ? null : menu.id))}
-                variant={openMenuId === menu.id ? "secondary" : "ghost"}
-                size="sm"
-                className={cn(
-                  "mt-[6px] h-7 rounded-[var(--radius-md)] px-[var(--space-3)] text-[var(--text-xs)] font-semibold tracking-[0.03em]",
-                  openMenuId === menu.id && "border-[var(--mission-border)] bg-[var(--mission-soft)] text-[var(--text-primary)]"
-                )}
+                style={{
+                  height: 28,
+                  marginTop: 6,
+                  padding: "0 var(--space-3)",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid",
+                  borderColor: openMenuId === menu.id ? "var(--mission-border)" : "transparent",
+                  background: openMenuId === menu.id ? "var(--mission-soft)" : "transparent",
+                  color: openMenuId === menu.id ? "var(--text-primary)" : "var(--text-secondary)",
+                  fontSize: "var(--text-xs)",
+                  fontWeight: 600,
+                  letterSpacing: "0.03em",
+                }}
               >
                 {menu.label}
-              </Button>
+              </button>
 
               {openMenuId === menu.id ? (
                 <div
-                  className="absolute left-0 top-[calc(100%+8px)] z-40 grid min-w-[15rem] gap-[2px] rounded-[var(--radius-lg)] border border-[var(--glass-border)] bg-[rgba(15,18,32,0.98)] p-[var(--space-2)] shadow-[0_18px_48px_rgba(0,0,0,0.35)]"
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    left: 0,
+                    minWidth: 240,
+                    padding: "var(--space-2)",
+                    borderRadius: "var(--radius-lg)",
+                    border: "1px solid var(--glass-border)",
+                    background: "rgba(15, 18, 32, 0.98)",
+                    boxShadow: "0 18px 48px rgba(0, 0, 0, 0.35)",
+                    display: "grid",
+                    gap: 2,
+                    zIndex: 40,
+                  }}
                 >
                   {menu.items.map((item) => (
-                    <Button
+                    <button
                       key={item.id}
                       type="button"
                       onClick={() => {
                         setOpenMenuId(null);
                         item.onSelect();
                       }}
-                      variant={item.tone === "agent" ? "agent" : "ghost"}
-                      size="sm"
-                      className="w-full justify-between rounded-[var(--radius-md)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)]"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "var(--space-3)",
+                        width: "100%",
+                        padding: "var(--space-2) var(--space-3)",
+                        borderRadius: "var(--radius-md)",
+                        background: item.tone === "agent" ? "var(--agent-soft)" : "transparent",
+                        color: item.tone === "agent" ? "var(--agent)" : "var(--text-primary)",
+                        textAlign: "left",
+                      }}
+                      onMouseEnter={(event) => {
+                        event.currentTarget.style.background = item.tone === "agent" ? "rgba(130, 170, 255, 0.2)" : "var(--bg-tertiary)";
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.background = item.tone === "agent" ? "var(--agent-soft)" : "transparent";
+                      }}
                     >
-                      <span>{item.label}</span>
-                      <span className="whitespace-nowrap text-[var(--text-xs)] text-[var(--text-muted)]">
+                      <span style={{ fontSize: "var(--text-sm)" }}>{item.label}</span>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                         {item.shortcut ?? ""}
                       </span>
-                    </Button>
+                    </button>
                   ))}
                 </div>
               ) : null}
@@ -266,7 +325,7 @@ export function TitleBar() {
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-[var(--space-1)]" style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <ActionPill label="Mission" onClick={toggleAgentPanel} tone="agent" />
           <ActionPill label="Monitor" onClick={toggleSystemMonitor} />
           <ActionPill label="Palette" onClick={toggleCommandPalette} />
@@ -276,27 +335,52 @@ export function TitleBar() {
         </div>
       )}
 
-      <div className="flex items-center gap-[var(--space-2)]" style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>
-        <Button
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <button
           type="button"
           onClick={toggleNotificationPanel}
           title={unreadNotifications > 0 ? `${unreadNotifications} unread notification(s)` : "Open notifications"}
-          variant={notificationPanelOpen || unreadNotifications > 0 ? "outline" : "ghost"}
-          size="sm"
-          className={cn(
-            "h-7 gap-[6px] rounded-[var(--radius-md)] px-2 text-[var(--text-xs)] font-bold",
-            notificationPanelOpen && "border-[var(--mission-border)] bg-[var(--mission-soft)] text-[var(--text-primary)]",
-            !notificationPanelOpen && unreadNotifications > 0 && "border-[var(--approval-border)] bg-[var(--approval-soft)] text-[var(--approval)]"
-          )}
+          style={{
+            border: "1px solid",
+            borderColor: unreadNotifications > 0 ? "var(--approval-border)" : "var(--glass-border)",
+            background: notificationPanelOpen
+              ? "var(--mission-soft)"
+              : unreadNotifications > 0
+                ? "var(--approval-soft)"
+                : "transparent",
+            color: unreadNotifications > 0 ? "var(--approval)" : "var(--text-secondary)",
+            borderRadius: "var(--radius-md)",
+            height: 28,
+            minWidth: unreadNotifications > 0 ? 40 : 32,
+            padding: "0 8px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            fontSize: "var(--text-xs)",
+            fontWeight: 700,
+            cursor: "pointer",
+            position: "relative",
+          }}
         >
-          <span className="tracking-[0.06em]">NTF</span>
+          <span style={{ letterSpacing: "0.06em" }}>NTF</span>
           {unreadNotifications > 0 ? (
-            <Badge variant="approval" className="min-w-4 px-1 py-0 text-[10px] font-extrabold leading-4 text-[var(--bg-primary)]">
+            <span
+              style={{
+                minWidth: 16,
+                lineHeight: "16px",
+                padding: "0 4px",
+                borderRadius: "var(--radius-full)",
+                background: "var(--approval)",
+                color: "var(--bg-primary)",
+                fontSize: 10,
+                fontWeight: 800,
+              }}
+            >
               {unreadNotifications > 99 ? "99+" : unreadNotifications}
-            </Badge>
+            </span>
           ) : null}
-        </Button>
-        <Separator orientation="vertical" className="h-4 bg-[var(--border)]" />
+        </button>
         <WindowButton label="─" onClick={() => amux.windowMinimize()} />
         <WindowButton label={maximized ? "❐" : "□"} onClick={() => amux.windowMaximize()} />
         <WindowButton label="✕" onClick={() => amux.windowClose()} isClose />
@@ -307,14 +391,30 @@ export function TitleBar() {
 
 function ActionPill({ label, onClick, tone = "default" }: { label: string; onClick: () => void; tone?: "default" | "agent" }) {
   return (
-    <Button
+    <button
       onClick={onClick}
-      variant={tone === "agent" ? "agent" : "ghost"}
-      size="sm"
-      className="h-7 rounded-full px-[var(--space-2)] text-[var(--text-xs)]"
+      style={{
+        border: "1px solid",
+        borderColor: tone === "agent" ? "var(--agent-soft)" : "var(--glass-border)",
+        background: tone === "agent" ? "var(--agent-soft)" : "transparent",
+        color: tone === "agent" ? "var(--agent)" : "var(--text-secondary)",
+        borderRadius: "var(--radius-full)",
+        padding: "var(--space-1) var(--space-2)",
+        fontSize: "var(--text-xs)",
+        cursor: "pointer",
+        transition: "all var(--transition-fast)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = tone === "agent" ? "rgba(130, 170, 255, 0.2)" : "var(--bg-tertiary)";
+        e.currentTarget.style.color = "var(--text-primary)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = tone === "agent" ? "var(--agent-soft)" : "transparent";
+        e.currentTarget.style.color = tone === "agent" ? "var(--agent)" : "var(--text-secondary)";
+      }}
     >
       {label}
-    </Button>
+    </button>
   );
 }
 
@@ -322,10 +422,29 @@ function WindowButton({ label, onClick, isClose }: { label: string; onClick: () 
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "flex h-[var(--title-bar-height)] w-11 items-center justify-center border-none bg-transparent font-inherit text-[var(--text-sm)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]",
-        isClose && "hover:bg-[var(--danger)] hover:text-white"
-      )}
+      style={{
+        width: 44,
+        height: "var(--title-bar-height)",
+        border: "none",
+        background: "transparent",
+        color: "var(--text-muted)",
+        cursor: "pointer",
+        fontSize: "var(--text-sm)",
+        fontFamily: "inherit",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 0,
+        transition: "all var(--transition-fast)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = isClose ? "var(--danger)" : "var(--bg-tertiary)";
+        e.currentTarget.style.color = isClose ? "#fff" : "var(--text-primary)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = "var(--text-muted)";
+      }}
     >
       {label}
     </button>

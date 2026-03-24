@@ -59,8 +59,8 @@ export function useEditableShellState({
         }
 
         return {
-            boxShadow: "0 0 0 1px var(--accent-border), 0 0 0 3px rgba(34, 211, 238, 0.18)",
-            borderRadius: "var(--radius-lg)",
+            boxShadow: "0 0 0 2px rgba(109, 197, 255, 0.85)",
+            borderRadius: 12,
         };
     }, [isSelected]);
 

@@ -143,14 +143,3 @@ export const renderEditableWrapper = ({
         </EditableShell>
     );
 };
-
-export type SplitViewPropsResult<T extends object = Record<string, unknown>> = Omit<
-    ReturnType<typeof splitViewProps>,
-    "componentProps"
-> & {
-    componentProps: T;
-};
-
-export const splitTypedViewProps = <T extends object = Record<string, unknown>>(
-    props: ViewProps,
-): SplitViewPropsResult<T> => splitViewProps(props) as SplitViewPropsResult<T>;

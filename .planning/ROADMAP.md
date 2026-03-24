@@ -395,7 +395,7 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | 12. CLI Polish | 2/2 | Complete | 2026-03-24 |
 | 13. TUI UX Fixes | 3/3 | Complete | 2026-03-24 |
 | **v2.0** | | | |
-| 14. Plugin Manifest & Loader | 2/2 | Complete   | 2026-03-24 |
+| 14. Plugin Manifest & Loader | 2/2 | Complete    | 2026-03-24 |
 | 15. Plugin CLI & Install | 0/? | Not started | - |
 | 16. Plugin Settings UI | 0/? | Not started | - |
 | 17. API Proxy Layer | 0/? | Not started | - |

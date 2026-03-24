@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from "react";
-import { getBridge } from "@/lib/bridge";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -34,7 +33,6 @@ import { registerTerminalController, type TerminalSendOptions } from "../lib/ter
 import { allLeafIds, findLeaf } from "../lib/bspTree";
 import { getEffectiveTheme } from "../lib/themes";
 import { SharedCursor } from "./SharedCursor";
-import { cn, panelSurfaceClassName } from "./ui";
 import {
   cloneSessionForDuplication,
   queuePaneBootstrapCommand,
@@ -336,7 +334,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
   ) => {
     if (!text) return false;
 
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!sessionReadyRef.current) return false;
 
     if (options?.execute && options?.managed !== false) {
@@ -443,7 +441,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
 
   const sendResize = useCallback(() => {
     const term = termRef.current;
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!term || !amux?.resizeTerminalSession) return;
     void amux.resizeTerminalSession(paneId, term.cols, term.rows);
   }, [paneId]);
@@ -451,8 +449,8 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
   const nudgeTerminalRepaint = useCallback(() => {
     if (repaintNudgedRef.current) return;
     const term = termRef.current;
-    const resizeFn = getBridge()?.resizeTerminalSession;
-    if (!term || !resizeFn) return;
+    const amux = (window as any).tamux ?? (window as any).amux;
+    if (!term || !amux?.resizeTerminalSession) return;
     if (term.cols < 2 || term.rows < 2) return;
 
     repaintNudgedRef.current = true;
@@ -460,9 +458,9 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
     const originalRows = term.rows;
     const bumpedCols = Math.min(512, originalCols + 1);
 
-    void resizeFn(paneId, bumpedCols, originalRows);
+    void amux.resizeTerminalSession(paneId, bumpedCols, originalRows);
     window.setTimeout(() => {
-      void resizeFn(paneId, originalCols, originalRows);
+      void amux.resizeTerminalSession(paneId, originalCols, originalRows);
     }, 40);
   }, [paneId]);
 
@@ -561,7 +559,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
   useEffect(() => {
     if (resolvedApprovals.length === 0) return;
 
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     const pendingId = pendingApprovalIdRef.current;
     if (!pendingId) return;
     const approval = resolvedApprovals.find((entry) => entry.id === pendingId) ?? resolvedApprovals[0];
@@ -583,7 +581,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
 
   useEffect(() => {
     let disposed = false;
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
 
     void amux?.getPlatform?.().then((value: string) => {
       if (!disposed && typeof value === "string" && value) {
@@ -799,10 +797,10 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
           regex: searchOptions?.regex ?? false,
           caseSensitive: searchOptions?.caseSensitive ?? false,
           decorations: {
-            activeMatchBackground: themeColors.yellow,
-            matchBackground: themeColors.selectionBg,
-            matchOverviewRuler: themeColors.selectionBg,
-            activeMatchColorOverviewRuler: themeColors.yellow,
+            activeMatchBackground: "#f59e0b",
+            matchBackground: "rgba(245, 158, 11, 0.28)",
+            matchOverviewRuler: "rgba(245, 158, 11, 0.45)",
+            activeMatchColorOverviewRuler: "#f59e0b",
           },
         };
 
@@ -845,31 +843,31 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
         searchAddon.clearDecorations();
       },
       searchHistory: async (query, limit = 8) => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.searchManagedHistory || !sessionReadyRef.current) return false;
         await amux.searchManagedHistory(paneId, query, limit);
         return true;
       },
       generateSkill: async (query, title) => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.generateManagedSkill || !sessionReadyRef.current) return false;
         await amux.generateManagedSkill(paneId, query ?? null, title ?? null);
         return true;
       },
       findSymbol: async (workspaceRoot, symbol, limit = 16) => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.findManagedSymbol || !sessionReadyRef.current) return false;
         await amux.findManagedSymbol(paneId, workspaceRoot, symbol, limit);
         return true;
       },
       listSnapshots: async (workspaceId) => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.listSnapshots || !sessionReadyRef.current) return false;
         await amux.listSnapshots(paneId, workspaceId ?? null);
         return true;
       },
       restoreSnapshot: async (snapshotId) => {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         if (!amux?.restoreSnapshot || !sessionReadyRef.current) return false;
         await amux.restoreSnapshot(paneId, snapshotId);
         return true;
@@ -979,7 +977,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
 
     void (async () => {
       try {
-        const amux = getBridge();
+        const amux = (window as any).tamux ?? (window as any).amux;
         const unsubscribe = amux?.onTerminalEvent?.((event: any) => {
           if (event?.paneId !== paneId || cancelled) return;
 
@@ -1395,7 +1393,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
     })();
 
     term.onData((data) => {
-      const amux = getBridge();
+      const amux = (window as any).tamux ?? (window as any).amux;
       if (!amux?.sendTerminalInput || !sessionReadyRef.current) return;
 
       if (pendingInlineApprovalPromptRef.current) {
@@ -1529,7 +1527,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
       if (event.key === "Escape") hideContextMenu();
     };
 
-    const appCommandUnsubscribe = (getBridge())?.onAppCommand?.((command: string) => {
+    const appCommandUnsubscribe = ((window as any).tamux ?? (window as any).amux)?.onAppCommand?.((command: string) => {
       if (useWorkspaceStore.getState().activePaneId() !== paneId) return;
 
       switch (command) {
@@ -1727,7 +1725,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
     captureTranscript,
     paneId,
     sendRawFormFeed: (currentPaneId) => {
-      void ((getBridge())?.sendTerminalInput?.(currentPaneId, encodeTextToBase64("\f")));
+      void (((window as any).tamux ?? (window as any).amux)?.sendTerminalInput?.(currentPaneId, encodeTextToBase64("\f")));
     },
     toggleSearch,
   });
@@ -1737,11 +1735,15 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
       ref={wrapperRef}
       onClick={handleFocus}
       tabIndex={-1}
-      className={cn(
-        panelSurfaceClassName,
-        "relative h-full w-full overflow-hidden bg-[var(--bg-primary)] outline-none"
-      )}
-      style={{ padding: `${Math.max(12, settings.padding)}px` }}
+      style={{
+        width: "100%",
+        height: "100%",
+        background: "var(--bg-primary)",
+        padding: `${Math.max(12, settings.padding)}px`,
+        position: "relative",
+        outline: "none",
+        overflow: "hidden",
+      }}
     >
       {hideHeader ? null : (
         <TerminalPaneHeader
@@ -1753,7 +1755,7 @@ export function TerminalPane({ paneId, sessionId, hideHeader }: TerminalPaneProp
         />
       )}
 
-      <div ref={containerRef} className="w-full" style={{ height: hideHeader ? "100%" : "calc(100% - 36px)" }} />
+      <div ref={containerRef} style={{ width: "100%", height: hideHeader ? "100%" : "calc(100% - 36px)" }} />
       <SharedCursor mode={sharedCursorMode} />
 
       <TerminalContextMenu

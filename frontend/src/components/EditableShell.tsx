@@ -1,27 +1,10 @@
 import { useMemo, useRef, useState } from "react";
-import { cn } from "./ui/shared";
 import type React from "react";
 import type { UINodeBuilderMeta } from "../schemas/uiSchema";
 import { EditableShellChrome } from "./editable-shell/EditableShellChrome";
 import { normalizeWrapperStyle } from "./editable-shell/styleNormalizers";
 import { useEditableShellDragDrop } from "./editable-shell/useEditableShellDragDrop";
 import { useEditableShellState } from "./editable-shell/useEditableShellState";
-
-interface ResizeHandleProps {
-    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-    className?: string;
-    style?: React.CSSProperties;
-}
-
-function ResizeHandle({ onPointerDown, className, style }: ResizeHandleProps) {
-    return (
-        <div
-            onPointerDown={onPointerDown}
-            className={cn("absolute z-20 opacity-80 transition-opacity hover:opacity-100", className)}
-            style={style}
-        />
-    );
-}
 
 interface EditableShellProps {
     style?: React.CSSProperties;
@@ -271,7 +254,7 @@ export function EditableShell({
             style={{
                 ...resolvedWrapperStyle,
                 ...selectionStyle,
-                ...(dropActive ? { boxShadow: "0 0 0 2px var(--mission-border) inset" } : {}),
+                ...(dropActive ? { boxShadow: "0 0 0 2px rgba(129, 230, 217, 0.85) inset" } : {}),
             }}
             className={className}
             onClickCapture={handleSelect}
@@ -286,62 +269,76 @@ export function EditableShell({
                 <>
                     {resolvedResizeAxis !== "vertical" ? (
                         <>
-                            <ResizeHandle
+                            <div
                                 onPointerDown={handleResizeStart("horizontal", "start")}
-                                className="left-0 top-0 cursor-col-resize"
                                 style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
                                     width: horizontalHandleThickness,
                                     height: resolvedResizeAxis === "horizontal" ? "100%" : `calc(100% - ${cornerHandleSize}px)`,
-                                    background:
-                                        "linear-gradient(90deg, var(--accent-soft), var(--accent-border), transparent)",
+                                    cursor: "col-resize",
+                                    zIndex: 20,
+                                    background: "linear-gradient(90deg, rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.45), transparent)",
                                 }}
                             />
-                            <ResizeHandle
+                            <div
                                 onPointerDown={handleResizeStart("horizontal", "end")}
-                                className="right-0 top-0 cursor-col-resize"
                                 style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    right: 0,
                                     width: horizontalHandleThickness,
                                     height: resolvedResizeAxis === "horizontal" ? "100%" : `calc(100% - ${cornerHandleSize}px)`,
-                                    background:
-                                        "linear-gradient(90deg, transparent, var(--accent-border), var(--accent-soft))",
+                                    cursor: "col-resize",
+                                    zIndex: 20,
+                                    background: "linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.45), rgba(148, 163, 184, 0.2))",
                                 }}
                             />
                         </>
                     ) : null}
                     {resolvedResizeAxis !== "horizontal" ? (
                         <>
-                            <ResizeHandle
+                            <div
                                 onPointerDown={handleResizeStart("vertical", "end", "start")}
-                                className="left-0 top-0 cursor-row-resize"
                                 style={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
                                     width: resolvedResizeAxis === "vertical" ? "100%" : `calc(100% - ${cornerHandleSize}px)`,
                                     height: verticalHandleThickness,
-                                    background:
-                                        "linear-gradient(180deg, var(--accent-soft), var(--accent-border), transparent)",
+                                    cursor: "row-resize",
+                                    zIndex: 20,
+                                    background: "linear-gradient(180deg, rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.45), transparent)",
                                 }}
                             />
-                            <ResizeHandle
+                            <div
                                 onPointerDown={handleResizeStart("vertical", "end", "end")}
-                                className="bottom-0 left-0 cursor-row-resize"
                                 style={{
+                                    position: "absolute",
+                                    left: 0,
+                                    bottom: 0,
                                     width: resolvedResizeAxis === "vertical" ? "100%" : `calc(100% - ${cornerHandleSize}px)`,
                                     height: verticalHandleThickness,
-                                    background:
-                                        "linear-gradient(180deg, transparent, var(--accent-border), var(--accent-soft))",
+                                    cursor: "row-resize",
+                                    zIndex: 20,
+                                    background: "linear-gradient(180deg, transparent, rgba(148, 163, 184, 0.45), rgba(148, 163, 184, 0.2))",
                                 }}
                             />
                         </>
                     ) : null}
                     {resolvedResizeAxis === "both" ? (
-                        <ResizeHandle
+                        <div
                             onPointerDown={handleResizeStart("both", "end", "end")}
-                            className="bottom-0 right-0 cursor-nwse-resize"
                             style={{
+                                position: "absolute",
+                                right: 0,
+                                bottom: 0,
                                 width: cornerHandleSize,
                                 height: cornerHandleSize,
+                                cursor: "nwse-resize",
                                 zIndex: 21,
-                                background:
-                                    "linear-gradient(135deg, transparent 0 35%, var(--accent-border) 35% 45%, transparent 45% 55%, var(--accent-border) 55% 65%, transparent 65% 100%)",
+                                background: "linear-gradient(135deg, transparent 0 35%, rgba(148, 163, 184, 0.65) 35% 45%, transparent 45% 55%, rgba(148, 163, 184, 0.65) 55% 65%, transparent 65% 100%)",
                             }}
                         />
                     ) : null}

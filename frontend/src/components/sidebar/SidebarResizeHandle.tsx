@@ -1,8 +1,17 @@
 export function SidebarResizeHandle() {
-  return (
-    <div
-      data-sidebar-resize-handle="true"
-      className="absolute right-0 top-0 z-20 h-full w-2 cursor-col-resize bg-[var(--resize-handle-gradient)] transition-opacity hover:opacity-100"
-    />
-  );
+    return (
+        <div
+            data-sidebar-resize-handle="true"
+            style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                width: 8,
+                height: "100%",
+                cursor: "col-resize",
+                zIndex: 20,
+                background: "linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.35), transparent)",
+            }}
+        />
+    );
 }

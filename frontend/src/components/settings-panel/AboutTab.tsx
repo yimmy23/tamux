@@ -29,7 +29,7 @@ export function AboutTab() {
         const separator = dataDir.includes("\\") ? "\\" : "/";
         setViewsPathLabel(`${dataDir}${separator}views`);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const applyRuntimeMode = () => {
@@ -57,7 +57,7 @@ export function AboutTab() {
                 Reload into the YAML-driven experience or switch back to the legacy UI. Views are read from {viewsPathLabel}.
               </span>
             </div>
-            <Button variant={cduiEnabled ? "primary" : "outline"} size="sm" onClick={() => setCduiEnabledState((value) => !value)}>
+            <Button variant={cduiEnabled ? "primary" : "outline"} size="sm" onClick={() => { setCduiEnabledState((value) => !value); setCDUIEnabled(!cduiEnabled); }}>
               {cduiEnabled ? "Enabled" : "Disabled"}
             </Button>
           </div>

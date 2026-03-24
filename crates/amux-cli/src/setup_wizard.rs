@@ -67,13 +67,9 @@ async fn wizard_send(
 async fn wizard_recv(
     framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
 ) -> Result<DaemonMessage> {
-    let result = framed.next().await;
-    match &result {
-        Some(Ok(msg)) => eprintln!("[wizard-debug] recv OK: {:?}", std::mem::discriminant(msg)),
-        Some(Err(e)) => eprintln!("[wizard-debug] recv ERR: {e}"),
-        None => eprintln!("[wizard-debug] recv NONE (stream closed)"),
-    }
-    result
+    framed
+        .next()
+        .await
         .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))?
         .map_err(Into::into)
 }
@@ -409,13 +405,12 @@ fn default_security_index(tier: &str) -> usize {
 
 /// Returns whether a given tier should see a specific optional step.
 /// Steps: "model", "web_search", "gateway", "data_dir"
+/// Whether a first-time setup step auto-shows the advanced picker for this tier.
+/// Only used for model selection on first-time setup (Familiar+ get the picker,
+/// newcomers get the default silently). Web search and gateway are shown to all tiers.
 fn tier_shows_step(tier: &str, step: &str) -> bool {
     match step {
-        "model" | "web_search" | "data_dir" => {
-            matches!(tier, "familiar" | "power_user" | "expert")
-        }
-        "gateway" => matches!(tier, "power_user" | "expert"),
-        // security is shown to all tiers, not gated
+        "model" | "data_dir" => matches!(tier, "familiar" | "power_user" | "expert"),
         _ => false,
     }
 }
@@ -671,9 +666,173 @@ pub async fn run_setup_wizard() -> Result<()> {
         }
     }
 
-    // Connectivity test — runs for ALL non-local providers (existing or new key).
-    // Uses the MAIN wizard IPC connection. Prior AgentSetConfigItem calls are fire-and-forget
-    // (no response on success, DaemonMessage::Error on failure) — the validate loop skips those.
+    println!();
+
+    // Set as active provider
+    wizard_send(
+        &mut framed,
+        ClientMessage::AgentSetConfigItem {
+            key_path: "/provider".to_string(),
+            value_json: format!("\"{}\"", provider_id),
+        },
+    )
+    .await
+    .context("Failed to set active provider")?;
+
+    // Track summary info for final message
+    let mut summary_model: Option<String> = None;
+    let mut summary_web_search: Option<String> = None;
+    let mut summary_gateway: Option<String> = None;
+
+    // ----- Step 5: Model selection (all tiers) -----
+    println!();
+
+    // Check if a model is already configured
+    let existing_model = read_config_key("model").await;
+    let user_wants_replace = if let Some(ref model) = existing_model {
+        println!(
+            "Model is already configured ({}).",
+            model.clone().bold()
+        );
+        match select_list(
+            "Replace model?",
+            &[("No, keep existing model", ""), ("Yes, choose a new model", "")],
+            false,
+            0,
+        )? {
+            Some(1) => true,
+            _ => {
+                println!("Keeping existing model.");
+                summary_model = Some(model.clone());
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // Show model picker when: user explicitly chose to replace, OR first-time setup for Familiar+ tier.
+    let show_model_picker = user_wants_replace
+        || (existing_model.is_none() && tier_shows_step(&tier_string, "model"));
+
+    if show_model_picker {
+        println!("Fetching available models...");
+
+        wizard_send(
+            &mut framed,
+            ClientMessage::AgentFetchModels {
+                provider_id: provider_id.clone(),
+                base_url: base_url.clone(),
+                api_key: api_key_saved.clone(),
+            },
+        )
+        .await
+        .context("Failed to fetch models")?;
+
+        match wizard_recv(&mut framed).await? {
+            DaemonMessage::AgentModelsResponse { models_json } => {
+                let models: Vec<String> =
+                    serde_json::from_str(&models_json).unwrap_or_default();
+
+                if !models.is_empty() {
+                    let model_items: Vec<(&str, &str)> = models
+                        .iter()
+                        .map(|m| (m.as_str(), ""))
+                        .collect();
+
+                    match select_list("Select default model:", &model_items, true, 0)? {
+                        Some(idx) => {
+                            let chosen_model = &models[idx];
+                            wizard_send(
+                                &mut framed,
+                                ClientMessage::AgentSetConfigItem {
+                                    key_path: "/model".to_string(),
+                                    value_json: format!("\"{}\"", chosen_model),
+                                },
+                            )
+                            .await
+                            .context("Failed to set model")?;
+                            summary_model = Some(chosen_model.clone());
+                        }
+                        None => {
+                            println!("Skipped -- using default model.");
+                        }
+                    }
+                } else {
+                    let fallback_default = if default_model.is_empty() {
+                        ""
+                    } else {
+                        &default_model
+                    };
+                    match text_input("Enter model name (or Esc to skip)", fallback_default, false)?
+                    {
+                        Some(m) if !m.is_empty() => {
+                            wizard_send(
+                                &mut framed,
+                                ClientMessage::AgentSetConfigItem {
+                                    key_path: "/model".to_string(),
+                                    value_json: format!("\"{}\"", m),
+                                },
+                            )
+                            .await
+                            .context("Failed to set model")?;
+                            summary_model = Some(m);
+                        }
+                        _ => {
+                            println!("Skipped -- using default model.");
+                        }
+                    }
+                }
+            }
+            DaemonMessage::AgentError { message } => {
+                println!("Could not fetch models: {message}");
+                let fallback_default = if default_model.is_empty() {
+                    ""
+                } else {
+                    &default_model
+                };
+                match text_input("Enter model name (or Esc to skip)", fallback_default, false)? {
+                    Some(m) if !m.is_empty() => {
+                        wizard_send(
+                            &mut framed,
+                            ClientMessage::AgentSetConfigItem {
+                                key_path: "/model".to_string(),
+                                value_json: format!("\"{}\"", m),
+                            },
+                        )
+                        .await
+                        .context("Failed to set model")?;
+                        summary_model = Some(m);
+                    }
+                    _ => {
+                        println!("Skipped -- using default model.");
+                    }
+                }
+            }
+            _ => {
+                println!("Unexpected response fetching models.");
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    } else if existing_model.is_none() && !default_model.is_empty() {
+        // First-time newcomer: set default model silently
+        wizard_send(
+            &mut framed,
+            ClientMessage::AgentSetConfigItem {
+                key_path: "/model".to_string(),
+                value_json: format!("\"{}\"", default_model),
+            },
+        )
+        .await
+        .context("Failed to set default model")?;
+        summary_model = Some(default_model.clone());
+    }
+
+    // Brief pause for daemon to process
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Connectivity test — runs after provider, API key, and model are all configured.
     if !is_local_provider(&provider_id) && !api_key_saved.is_empty() {
         println!();
         println!("Testing connection to {provider_name}...");
@@ -693,35 +852,6 @@ pub async fn run_setup_wizard() -> Result<()> {
             }
         }
     }
-
-    println!();
-
-    // Set as active provider
-    wizard_send(
-        &mut framed,
-        ClientMessage::AgentSetConfigItem {
-            key_path: "/provider".to_string(),
-            value_json: format!("\"{}\"", provider_id),
-        },
-    )
-    .await
-    .context("Failed to set active provider")?;
-
-    // Set default model from provider definition
-    if !default_model.is_empty() {
-        wizard_send(
-            &mut framed,
-            ClientMessage::AgentSetConfigItem {
-                key_path: "/model".to_string(),
-                value_json: format!("\"{}\"", default_model),
-            },
-        )
-        .await
-        .context("Failed to set default model")?;
-    }
-
-    // Brief pause for daemon to process
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // ----- Security preference step (per D-10, D-11) -- all tiers -----
     println!();
@@ -756,131 +886,8 @@ pub async fn run_setup_wizard() -> Result<()> {
     // Brief pause for daemon to process
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    // Track summary info for final message
-    let mut summary_model: Option<String> = None;
-    let mut summary_web_search: Option<String> = None;
-    let mut summary_gateway: Option<String> = None;
-
-    // ----- Optional step: Model selection (Familiar+ per D-08 item 1) -----
-    if tier_shows_step(&tier_string, "model") {
-        println!();
-        println!("Fetching available models...");
-
-        wizard_send(
-            &mut framed,
-            ClientMessage::AgentFetchModels {
-                provider_id: provider_id.clone(),
-                base_url: base_url.clone(),
-                api_key: api_key_saved.clone(),
-            },
-        )
-        .await
-        .context("Failed to fetch models")?;
-
-        match wizard_recv(&mut framed).await? {
-            DaemonMessage::AgentModelsResponse { models_json } => {
-                let models: Vec<String> =
-                    serde_json::from_str(&models_json).unwrap_or_default();
-
-                if !models.is_empty() {
-                    let model_items: Vec<(&str, &str)> = models
-                        .iter()
-                        .map(|m| (m.as_str(), ""))
-                        .collect();
-
-                    match select_list(
-                        "Select default model:",
-                        &model_items,
-                        true,
-                        0,
-                    )? {
-                        Some(idx) => {
-                            let chosen_model = &models[idx];
-                            wizard_send(
-                                &mut framed,
-                                ClientMessage::AgentSetConfigItem {
-                                    key_path: "/model".to_string(),
-                                    value_json: format!("\"{}\"", chosen_model),
-                                },
-                            )
-                            .await
-                            .context("Failed to set model")?;
-                            summary_model = Some(chosen_model.clone());
-                        }
-                        None => {
-                            println!("Skipped -- using default model.");
-                        }
-                    }
-                } else {
-                    // Empty model list -- offer manual entry
-                    let fallback_default = if default_model.is_empty() {
-                        ""
-                    } else {
-                        &default_model
-                    };
-                    match text_input(
-                        "Enter model name (or Esc to skip)",
-                        fallback_default,
-                        false,
-                    )? {
-                        Some(m) if !m.is_empty() => {
-                            wizard_send(
-                                &mut framed,
-                                ClientMessage::AgentSetConfigItem {
-                                    key_path: "/model".to_string(),
-                                    value_json: format!("\"{}\"", m),
-                                },
-                            )
-                            .await
-                            .context("Failed to set model")?;
-                            summary_model = Some(m);
-                        }
-                        _ => {
-                            println!("Skipped -- using default model.");
-                        }
-                    }
-                }
-            }
-            DaemonMessage::AgentError { message } => {
-                println!("Could not fetch models: {message}");
-                // Offer manual entry as fallback
-                let fallback_default = if default_model.is_empty() {
-                    ""
-                } else {
-                    &default_model
-                };
-                match text_input(
-                    "Enter model name (or Esc to skip)",
-                    fallback_default,
-                    false,
-                )? {
-                    Some(m) if !m.is_empty() => {
-                        wizard_send(
-                            &mut framed,
-                            ClientMessage::AgentSetConfigItem {
-                                key_path: "/model".to_string(),
-                                value_json: format!("\"{}\"", m),
-                            },
-                        )
-                        .await
-                        .context("Failed to set model")?;
-                        summary_model = Some(m);
-                    }
-                    _ => {
-                        println!("Skipped -- using default model.");
-                    }
-                }
-            }
-            _ => {
-                println!("Unexpected response fetching models.");
-            }
-        }
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    // ----- Optional step: Web search API key (Familiar+ per D-08 item 2) -----
-    if tier_shows_step(&tier_string, "web_search") {
+    // ----- Optional step: Web search API key -----
+    {
         println!();
 
         // Check if any web search key is already configured
@@ -970,8 +977,8 @@ pub async fn run_setup_wizard() -> Result<()> {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    // ----- Optional step: Gateway setup (Power User/Expert per D-09) -----
-    if tier_shows_step(&tier_string, "gateway") {
+    // ----- Optional step: Gateway setup -----
+    {
         println!();
 
         // Check if any gateway is already configured
@@ -1164,29 +1171,15 @@ mod tests {
 
     #[test]
     fn test_tier_shows_optional_steps() {
-        // Newcomer sees nothing optional
+        // Newcomer: no auto-picker for model on first-time setup
         assert!(!tier_shows_step("newcomer", "model"));
-        assert!(!tier_shows_step("newcomer", "web_search"));
-        assert!(!tier_shows_step("newcomer", "gateway"));
         assert!(!tier_shows_step("newcomer", "data_dir"));
 
-        // Familiar sees model, web_search, data_dir but NOT gateway
+        // Familiar+: auto-show model picker on first-time setup
         assert!(tier_shows_step("familiar", "model"));
-        assert!(tier_shows_step("familiar", "web_search"));
-        assert!(!tier_shows_step("familiar", "gateway"));
         assert!(tier_shows_step("familiar", "data_dir"));
-
-        // Power user sees everything including gateway
         assert!(tier_shows_step("power_user", "model"));
-        assert!(tier_shows_step("power_user", "web_search"));
-        assert!(tier_shows_step("power_user", "gateway"));
-        assert!(tier_shows_step("power_user", "data_dir"));
-
-        // Expert sees everything including gateway
         assert!(tier_shows_step("expert", "model"));
-        assert!(tier_shows_step("expert", "web_search"));
-        assert!(tier_shows_step("expert", "gateway"));
-        assert!(tier_shows_step("expert", "data_dir"));
     }
 
     #[test]

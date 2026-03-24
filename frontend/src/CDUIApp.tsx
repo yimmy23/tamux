@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getBridge } from "@/lib/bridge";
 import { AppContext, defaultAppState } from "./context/AppContext";
 import { ViewBuilderOverlay } from "./components/ViewBuilderOverlay";
 import { LoadingState } from "./components/LoadingState";
@@ -21,8 +20,6 @@ import { registerCodingAgentsPlugin } from "./plugins/coding-agents/registerPlug
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
 import { ConciergeToast } from "./components/ConciergeToast";
 import { useAgentStore } from "./lib/agentStore";
-import { Badge } from "./components/ui/Badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/Card";
 
 const EMBEDDED_VIEW_IDS = new Set([
   "search-overlay",
@@ -102,7 +99,7 @@ const CDUIApp = () => {
   }, [reloadViews]);
 
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.onAgentEvent) {
       console.warn("[concierge] no onAgentEvent bridge available in CDUIApp");
       return;
@@ -256,26 +253,7 @@ const CDUIApp = () => {
   }, [activeViewId, draftDocuments, isEditMode, views]);
 
   if (error) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-          background: "radial-gradient(circle at top, rgba(34, 211, 238, 0.08), transparent 34%), var(--bg-primary)",
-        }}
-      >
-        <Card className="w-full max-w-xl border-[var(--danger-border)] bg-[var(--card)]">
-          <CardHeader>
-            <Badge variant="danger" className="w-fit">CDUI load error</Badge>
-            <CardTitle>Unable to load the CDUI stack</CardTitle>
-            <CardDescription className="text-[var(--danger)]">{error}</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
+    return <div style={{ color: "red", padding: 16 }}>{error}</div>;
   }
 
   if (!views || !renderedViews) {
@@ -290,22 +268,48 @@ const CDUIApp = () => {
           background: "radial-gradient(circle at top, rgba(34, 211, 238, 0.08), transparent 34%), var(--bg-primary)",
         }}
       >
-        <Card className="w-full max-w-[820px]">
-          <CardHeader className="items-center text-center">
-            <Badge variant="accent" className="w-fit">CDUI bootstrap</Badge>
-            <CardTitle>Loading CDUI…</CardTitle>
-            <CardDescription>Registering components, commands, and plugin surfaces.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid justify-items-center gap-[var(--space-5)]">
-            <pre
-              className="m-0 w-full overflow-x-auto rounded-[var(--radius-xl)] border border-[var(--glass-border)] bg-[linear-gradient(180deg,rgba(15,21,32,0.96),rgba(10,15,24,0.98))] px-[28px] py-[24px] text-left text-[clamp(10px,1.25vw,14px)] leading-[1.3] text-[var(--text-primary)]"
-              style={{ fontFamily: "var(--font-mono)" }}
+        <div
+          style={{
+            display: "grid",
+            justifyItems: "center",
+            gap: 20,
+            width: "min(100%, 820px)",
+          }}
+        >
+          <pre
+            style={{
+              margin: 0,
+              padding: "24px 28px",
+              maxWidth: "100%",
+              overflowX: "auto",
+              borderRadius: "var(--radius-xl)",
+              border: "1px solid var(--glass-border)",
+              background: "linear-gradient(180deg, rgba(15, 21, 32, 0.96), rgba(10, 15, 24, 0.98))",
+              boxShadow: "0 24px 80px rgba(0, 0, 0, 0.36)",
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "clamp(10px, 1.25vw, 14px)",
+              lineHeight: 1.3,
+              textAlign: "left",
+            }}
+          >
+            {TAMUX_LOADING_MARK}
+          </pre>
+
+          <div style={{ display: "grid", justifyItems: "center", gap: 8 }}>
+            <LoadingState variant="spinner" size={22} />
+            <div
+              style={{
+                fontSize: "var(--text-sm)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--text-secondary)",
+              }}
             >
-              {TAMUX_LOADING_MARK}
-            </pre>
-            <LoadingState variant="spinner" size={22} label="Loading CDUI..." />
-          </CardContent>
-        </Card>
+              Loading CDUI...
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

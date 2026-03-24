@@ -206,9 +206,7 @@ export function WebBrowserPanel({ style, className, enableInternalResize = false
                         height: "100%",
                         cursor: "col-resize",
                         zIndex: 30,
-                        background: "var(--accent-soft)",
-                        borderRight: "1px solid var(--accent-border)",
-                        opacity: 0.55,
+                        background: "linear-gradient(90deg, rgba(148, 163, 184, 0.28), rgba(148, 163, 184, 0.5), transparent)",
                     }}
                 />
             ) : null}

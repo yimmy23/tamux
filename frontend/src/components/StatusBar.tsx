@@ -5,13 +5,11 @@ import { useNotificationStore } from "../lib/notificationStore";
 import { useSettingsStore } from "../lib/settingsStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
-import { useStatusStore } from "../lib/statusStore";
-import { useTierStore } from "../lib/tierStore";
 import { InlineSystemMonitor } from "./status-bar/InlineSystemMonitor";
 import { StatusBarMissionStats } from "./status-bar/StatusBarMissionStats";
 import { StatusIndicator } from "./status-bar/StatusPrimitives";
 import { TaskTrayButton } from "./TaskTray";
-import { Badge, Button, Separator } from "./ui";
+import { dividerStyle, statusBarRootStyle } from "./status-bar/shared";
 
 export function StatusBar() {
   const ws = useWorkspaceStore((s) => s.activeWorkspace());
@@ -25,10 +23,6 @@ export function StatusBar() {
   const snapshotBackend = useSettingsStore((s) => s.settings.snapshotBackend);
   const gatewayEnabled = useAgentStore((s) => s.agentSettings.gateway_enabled);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
-  const activity = useStatusStore((s) => s.activity);
-  const providerHealth = useStatusStore((s) => s.providerHealth);
-  const recentActions = useStatusStore((s) => s.recentActions);
-  const currentTier = useTierStore((s) => s.currentTier);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
   const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
@@ -59,55 +53,34 @@ export function StatusBar() {
   const paneCount = surface ? allLeafIds(surface.layout).length : 0;
 
   return (
-    <div className="flex h-[var(--status-bar-height)] shrink-0 items-center justify-between border-t border-[var(--border)] bg-[var(--bg-secondary)] px-[var(--space-4)] text-[var(--text-xs)] text-[var(--text-secondary)]">
-      <div className="flex min-w-0 items-center gap-[var(--space-3)]">
+    <div style={statusBarRootStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", minWidth: 0 }}>
         <StatusIndicator
           label={daemonConnected ? "daemon online" : "daemon offline"}
           status={daemonConnected ? "success" : "neutral"}
         />
 
         {ws && (
-          <span
-            className="text-[var(--text-sm)] font-semibold tracking-[0.02em]"
-            style={{ color: ws.accentColor }}
-          >
+          <span style={{
+            color: ws.accentColor,
+            fontWeight: 600,
+            letterSpacing: "0.02em",
+            fontSize: "var(--text-sm)"
+          }}>
             {ws.name}
           </span>
         )}
 
-        {currentTier !== "newcomer" && (
-          <Badge variant="default" className="px-[var(--space-2)] py-[2px] text-[var(--text-xs)] capitalize opacity-80">
-            {currentTier.replace("_", " ")}
-          </Badge>
-        )}
-
-        {activity !== "idle" && (
-          <StatusIndicator
-            label={
-              activity === "thinking" ? "thinking" :
-              activity === "executing_tool" ? "running tool" :
-              activity === "waiting_for_approval" ? "needs approval" :
-              activity === "running_goal" || activity === "goal_running" ? "running goal" :
-              activity
-            }
-            status={
-              activity === "waiting_for_approval" ? "warning" :
-              activity === "thinking" || activity === "executing_tool" ? "success" :
-              "neutral"
-            }
-          />
-        )}
-
         {surface && (
-          <span className="text-[var(--text-muted)]">
+          <span style={{ color: "var(--text-muted)" }}>
             {surface.name} · {paneCount} pane{paneCount !== 1 ? "s" : ""}
           </span>
         )}
 
         {activePaneId && (
-          <Badge variant="default" className="amux-code max-w-[12rem] truncate px-[var(--space-2)] py-[2px] opacity-80">
+          <span className="amux-code" style={{ color: "var(--text-muted)", opacity: 0.7 }}>
             {activePaneId}
-          </Badge>
+          </span>
         )}
 
         {zoomedPaneId && (
@@ -127,29 +100,22 @@ export function StatusBar() {
         )}
 
         {ws?.gitBranch && (
-          <Badge variant="default" className="gap-[var(--space-1)] px-[var(--space-2)] py-[2px] opacity-80">
+          <span style={{ opacity: 0.8 }}>
             ⎇ {ws.gitBranch}
             {ws.gitDirty && (
-              <span className="ml-[2px] text-[var(--warning)]">●</span>
+              <span style={{ color: "var(--warning)", marginLeft: 2 }}>●</span>
             )}
-          </Badge>
+          </span>
         )}
 
         {ws && ws.listeningPorts.length > 0 && (
-          <Badge variant="default" className="px-[var(--space-2)] py-[2px] opacity-70">
+          <span style={{ opacity: 0.7 }}>
             :{ws.listeningPorts.join(",")}
-          </Badge>
+          </span>
         )}
       </div>
 
-      <div className="flex items-center gap-[var(--space-2)]">
-        {providerHealth.some((p) => !p.canExecute) && (
-          <StatusIndicator
-            label={`${providerHealth.filter((p) => !p.canExecute).length} provider(s) tripped`}
-            status="warning"
-          />
-        )}
-
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
         <StatusBarMissionStats
           pendingApprovals={pendingApprovals}
           traceCount={traceCount}
@@ -159,43 +125,44 @@ export function StatusBar() {
           snapshotCount={snapshots.length}
         />
 
-        <Separator orientation="vertical" className="h-4 bg-[var(--border)]" />
+        <div style={dividerStyle} />
 
         <TaskTrayButton />
 
-        <Separator orientation="vertical" className="h-4 bg-[var(--border)]" />
+        <div style={dividerStyle} />
 
         <InlineSystemMonitor />
 
-        {recentActions.length > 0 && (
-          <span
-            className="cursor-default text-[var(--text-xs)] text-[var(--text-secondary)]"
-            title={recentActions.slice(0, 3).map((a) => `${a.actionType}: ${a.summary}`).join("\n")}
-          >
-            {recentActions[0].summary.length > 30
-              ? recentActions[0].summary.slice(0, 27) + "..."
-              : recentActions[0].summary}
-          </span>
-        )}
-
-        <Button
+        <button
           type="button"
           onClick={toggleNotificationPanel}
           title="Open notifications"
-          variant={unreadCount > 0 ? "outline" : "ghost"}
-          size="sm"
-          className={unreadCount > 0 ? "border-[var(--approval-border)] bg-[var(--approval-soft)] text-[var(--warning)]" : ""}
+          style={{
+            border: "1px solid var(--glass-border)",
+            background: unreadCount > 0 ? "var(--approval-soft)" : "transparent",
+            color: unreadCount > 0 ? "var(--warning)" : "var(--text-secondary)",
+            fontSize: "var(--text-xs)",
+            fontWeight: 700,
+            padding: "3px 8px",
+            cursor: "pointer",
+          }}
         >
           Alerts {unreadCount > 0 ? `(${unreadCount})` : ""}
-        </Button>
+        </button>
 
         {unreadCount > 0 && (
-          <span className="ml-[var(--space-2)] text-[var(--text-sm)] text-[var(--accent)]">
+          <span
+            style={{
+              color: "var(--accent)",
+              marginLeft: "var(--space-2)",
+              fontSize: "var(--text-sm)",
+            }}
+          >
             {unreadCount}
           </span>
         )}
 
-        <span className="ml-[var(--space-3)] text-[var(--text-xs)] uppercase tracking-[0.1em] text-[var(--text-muted)]">
+        <span style={{ marginLeft: "var(--space-3)", fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
           {themeName}
         </span>
       </div>

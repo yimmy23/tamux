@@ -4,7 +4,7 @@
 
 tamux is a daemon-first, self-orchestrating AI agent runtime that lives on your machine, remembers everything it learns, ships work while you sleep, and gets smarter every day. It's a local desktop application (Electron + TUI + CLI) powered by a Rust daemon that owns all state — threads, tasks, goal runs, memory, telemetry, and terminal sessions. Multiple clients (desktop GUI, terminal UI, CLI, MCP server, chat gateways) connect to the same daemon, so long-running work survives UI disconnects and can be reattached from any surface.
 
-tamux is not a chatbot wrapper. It is the most architecturally deep open-source agent runtime in existence — 4-layer self-orchestration, genetic skill evolution, sub-agent management, crash-recoverable goal runs, WORM audit trails, and an operator model that learns how you work. The next milestone is about making that depth *felt* — turning infrastructure into experience.
+tamux is not a chatbot wrapper. It is the most architecturally deep open-source agent runtime in existence — 4-layer self-orchestration, genetic skill evolution, sub-agent management, crash-recoverable goal runs, WORM audit trails, and an operator model that learns how you work. The next milestone makes tamux community-friendly — a declarative plugin ecosystem where anyone can extend the agent with JSON manifests, installable via CLI or npm.
 
 ## Core Value
 
@@ -54,48 +54,77 @@ These capabilities exist in the codebase today and are relied upon:
 - ✓ SQLite persistence + file-based storage (intentional split) — existing
 - ✓ Binary-framed IPC protocol shared across all Rust crates — existing
 - ✓ 376 unit tests across self-orchestrating agent modules — existing
+- ✓ Configurable heartbeat loop with cron scheduling, check framework, client delivery — v1.0 Phase 2
+- ✓ Heartbeat-driven TODO monitoring: stale tasks, stuck goal runs, unreplied messages — v1.0 Phase 2
+- ✓ M2 Anticipatory Runtime wired into heartbeat cycle (morning brief, stuck hints) — v1.0 Phase 4
+- ✓ Operator-aware scheduling: learned activity patterns, proactive timing — v1.0 Phase 4
+- ✓ Heartbeat learns check priorities from operator model patterns — v1.0 Phase 4
+- ✓ Memory consolidation during idle: trace review, MEMORY.md update, fact decay — v1.0 Phase 5
+- ✓ Automatic heuristic promotion from successful tool sequences — v1.0 Phase 5
+- ✓ Proactive memory refinement: reorganize and compress for signal density — v1.0 Phase 5
+- ✓ Cross-session context continuity: seamless thread resumption after restart — v1.0 Phase 5
+- ✓ Automatic skill drafting from novel problem-solving trajectories — v1.0 Phase 6
+- ✓ Skill maturity lifecycle: Draft → Testing → Active → Proven → Canonical — v1.0 Phase 6
+- ✓ Skill discovery feed: surface new/promoted skills in conversation — v1.0 Phase 6
+- ✓ Circuit breaker wired into LLM call path — v1.0 Phase 1
+- ✓ SQLite WAL mode, shared HistoryStore via Arc — v1.0 Phase 1
+- ✓ Daemon-side gateway: Slack, Discord, Telegram — v1.0 Phase 8
+- ✓ Configurable broadcast channel capacity for high-throughput PTY — v1.0 Phase 1
+- ✓ Clear status visibility: user always knows what agent is doing — v1.0 Phase 3
+- ✓ Transparent autonomy: every action has explanation surface — v1.0 Phase 3
+- ✓ Community skill import with security scanning — v1.0 Phase 7
+- ✓ Progressive UX with capability tiers — v1.0 Phase 10
+- ✓ Setup wizard with IPC-based config — v1.0 Phase 11
+- ✓ CLI polish: launch commands, settings subcommand — v1.0 Phase 12
+- ✓ TUI UX: concierge in conversation, tier/feature settings — v1.0 Phase 13
+- ✓ Declarative plugin manifest format (JSON) with versioned schema — v2.0 Phase 14
+- ✓ Plugin loader: daemon reads manifests from `~/.tamux/plugins/`, validates, registers — v2.0 Phase 14
+- ✓ Plugin IPC messages for list/get/enable/disable operations — v2.0 Phase 14
+- ✓ SQLite persistence for plugins, plugin settings, and plugin credentials — v2.0 Phase 14
 
 ### Active
 
-These are what we're building next — the "living agent" milestone:
+**v2.0: Plugin Ecosystem**
 
-**Alive: Proactive Heartbeat & Anticipatory Surface**
-- [x] Configurable heartbeat loop that wakes the agent at intervals to check work, repos, messages — Validated in Phase 2: Core Heartbeat
-- [x] Heartbeat-driven TODO monitoring: detect stale tasks, stuck goal runs, unreplied gateway messages — Validated in Phase 2: Core Heartbeat
-- [x] Wire M2 Anticipatory Runtime outputs (morning brief, stuck hints, hydration) into heartbeat cycle — Validated in Phase 4: Adaptive Heartbeat
-- [x] Operator-aware scheduling: learn when the user is active, surface proactive items at the right time — Validated in Phase 4: Adaptive Heartbeat
-- [x] Heartbeat learns what to check based on operator model patterns (not a static checklist) — Validated in Phase 4: Adaptive Heartbeat
+**Plugin System Core**
+- [ ] API proxy layer: daemon proxies HTTP requests per plugin API contracts with transformation templates
+- [ ] OAuth2 flow support: authorization code + token refresh for plugins requiring authenticated APIs
+- [ ] Plugin settings storage: per-plugin config persisted in daemon, accessible via IPC
+- [ ] Plugin command registration: slash commands and CLI subcommands declared in manifest
 
-**Remembers: Memory Consolidation & Idle Learning**
-- [x] Memory consolidation during idle heartbeat ticks: review traces, update MEMORY.md, decay stale facts — Validated in Phase 5: Memory Consolidation
-- [x] Automatic promotion of successful tool sequences into learned heuristics during idle time — Validated in Phase 5: Memory Consolidation
-- [x] Proactive memory refinement: reorganize and compress memory blocks for higher signal density — Validated in Phase 5: Memory Consolidation
-- [x] Cross-session context continuity: seamless thread resumption after daemon restart — Validated in Phase 5: Memory Consolidation (gap closure 05-05)
+**Plugin Distribution & Install**
+- [ ] `tamux plugin install <source>` CLI command (npm package, GitHub repo, or local path)
+- [ ] `tamux plugin uninstall <name>` cleanup with config removal
+- [ ] `tamux plugin list` show installed plugins with status
+- [ ] npm/npx distribution: plugins publishable as npm packages with standard structure
+- [ ] GitHub distribution: install directly from repo URL
 
-**Grows: Automatic Skill Discovery & Ecosystem**
-- [x] Automatic skill drafting: when agent solves a novel problem (high complexity, eventual success), draft a candidate skill — Validated in Phase 6: Skill Discovery
-- [x] Skill maturity lifecycle: Draft → Testing → Active → Proven → Canonical — Validated in Phase 6: Skill Discovery
-- [x] Skill discovery feed: surface new/promoted skills to the user naturally in conversation — Validated in Phase 6: Skill Discovery
+**Plugin UI Surfaces**
+- [ ] Plugins settings tab in Electron: render plugin config fields from manifest
+- [ ] Plugins settings tab in TUI: render plugin config fields from manifest
+- [ ] Plugin command palette integration: plugin commands appear alongside built-in commands
+
+**Plugin Skill Bundling**
+- [ ] Plugins can bundle YAML skills that reference plugin API contracts
+- [ ] Bundled skills auto-registered on plugin install, removed on uninstall
+- [ ] Agent discovers plugin capabilities through standard skill system
+
+**Validation: Gmail/Calendar Plugin**
+- [ ] Gmail plugin manifest: read inbox, search, send (via Gmail REST API)
+- [ ] Calendar plugin manifest: list events, create events (via Google Calendar API)
+- [ ] Google OAuth2 flow working end-to-end through daemon proxy
+- [ ] Agent answers "what's on my calendar today?" using plugin skills
+- [ ] Plugin installable from npm, configurable in Plugins tab
+
+**Carried Forward (from v1.0)**
 - [ ] Community skill registry: publish, subscribe, discover skills with provenance metadata
-
-**Understands: Living Project Model**
-- [ ] Continuous project understanding: not a static codebase map but a living model that evolves with changes
-- [ ] Intent inference: when user says "fix the auth bug," agent should know which one from context + traces + operator model
-- [ ] Contextual tool selection: use learned heuristics to pick optimal tools for task type without exploring
-
-**Ships: Production Hardening**
-- [x] Wire circuit breaker into LLM call path — Validated in Phase 1: Production Foundation
-- [x] Enable WAL mode for SQLite, share HistoryStore via Arc — Validated in Phase 1: Production Foundation
-- [x] Complete daemon-side gateway implementations (currently stubs in amux-gateway crate) — Validated in Phase 8: Gateway Completion
-- [x] Increase broadcast channel capacity for high-throughput PTY sessions — Validated in Phase 1: Production Foundation
-
-**Feels Simple: User Experience**
-- [ ] Zero-friction first run: single binary or `npx` install that handles daemon + client setup
-- [ ] Concierge onboarding: guided first experience that explains what the agent can do
-- [x] Clear status visibility: user always knows what the agent is doing, why, and what it learned — Validated in Phase 3: Transparent Autonomy
-- [x] Transparent autonomy: every autonomous action has a simple explanation surface ("I did X because Y") — Validated in Phase 3: Transparent Autonomy
-- [ ] Graceful complexity disclosure: start simple, reveal depth as the user grows with the agent
-- [ ] Unified bridge helper: replace 39 `(window as any).tamux` casts with typed `getBridge()` accessor
+- [ ] Continuous project understanding: living model that evolves with changes
+- [ ] Intent inference: agent knows which bug from context + traces + operator model
+- [ ] Contextual tool selection: learned heuristics for optimal tool picks
+- [ ] Zero-friction first run: single binary or `npx` install
+- [ ] Concierge onboarding: guided first experience
+- [ ] Graceful complexity disclosure: reveal depth as user grows
+- [ ] Unified bridge helper: replace `(window as any).tamux` casts
 
 ### Out of Scope
 
@@ -105,6 +134,19 @@ These are what we're building next — the "living agent" milestone:
 - Multi-user/multi-tenant — single-operator desktop tool; auth complexity not justified
 - Real-time collaborative editing — the agent collaborates with the operator, not multiple humans simultaneously
 - Browser extension — not an IDE plugin or browser copilot; it's a standalone runtime
+
+## Current Milestone: v2.0 Plugin Ecosystem
+
+**Goal:** Community-friendly declarative plugin system — anyone can extend tamux with JSON manifests that declare commands, settings, API contracts, and bundled skills. Plugins install via CLI/npm and work across TUI and Electron.
+
+**Target features:**
+- Declarative plugin manifest format (JSON) with versioned schema
+- Daemon API proxy layer with transformation templates and OAuth2 support
+- Plugin install/uninstall/list CLI commands
+- Plugins settings tab in both TUI and Electron (rendered from manifest)
+- Plugin command registration and skill bundling
+- npm and GitHub distribution
+- Gmail/Calendar integration as validation plugin (proves full loop)
 
 ## Context
 
@@ -175,4 +217,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-24 after Phase 9 (Distribution) completion*
+*Last updated: 2026-03-24 after Phase 14 (Plugin Manifest & Loader) completion*

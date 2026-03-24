@@ -1,5 +1,4 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
-import { getBridge } from "@/lib/bridge";
 import { LayoutContainer } from "./components/LayoutContainer";
 import { SurfaceTabBar } from "./components/SurfaceTabBar";
 import { StatusBar } from "./components/StatusBar";
@@ -20,10 +19,8 @@ import { prepareOpenAIRequest, sendChatCompletion } from "./lib/agentClient";
 import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./lib/agentTools";
 import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
 import { ConciergeToast } from "./components/ConciergeToast";
-import { Badge, Button } from "./components/ui";
 import { useNotificationStore } from "./lib/notificationStore";
 import { useAuditStore } from "./lib/auditStore";
-import { useTierStore, type CapabilityTier } from "./lib/tierStore";
 
 const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
 
@@ -126,7 +123,7 @@ export default function App() {
   // This runs in App (always mounted) because runtime.tsx (chat panel)
   // may not be open when the app loads.
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.onAgentEvent) {
       console.warn("[concierge] no onAgentEvent bridge available");
       return;
@@ -202,15 +199,6 @@ export default function App() {
           auditId: event.audit_id ?? null,
         });
       }
-      // Tier changed events (Phase 10 - Progressive UX)
-      if (event?.type === "tier_changed" || event?.type === "tier-changed") {
-        const data = event.data ?? event;
-        const newTier = (data.new_tier ?? data.newTier) as string | undefined;
-        const validTiers: CapabilityTier[] = ["newcomer", "familiar", "power_user", "expert"];
-        if (newTier && validTiers.includes(newTier as CapabilityTier)) {
-          useTierStore.getState().setTier(newTier as CapabilityTier);
-        }
-      }
     });
 
     void useAgentStore.getState().refreshConciergeConfig?.();
@@ -266,7 +254,7 @@ export default function App() {
       )
     );
 
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     void amux?.setWindowOpacity?.(settings.opacity);
   }, [
     settings.themeName,
@@ -279,7 +267,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.onAppCommand) return;
 
     return amux.onAppCommand((command: string) => {
@@ -378,7 +366,7 @@ export default function App() {
     text: string;
     replyTarget: string;
   }) => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     const gatewaySettings = useAgentStore.getState().agentSettings;
     const agentState = useAgentStore.getState();
 
@@ -802,7 +790,7 @@ export default function App() {
   }, [persistGatewayThreadMap]);
 
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.ensureSlackConnected || !amux?.onSlackMessage) return;
     if (!agentSettings.gateway_enabled || !agentSettings.slack_token) return;
 
@@ -832,7 +820,7 @@ export default function App() {
   }, [handleInboundGatewayMessage, agentSettings.gateway_enabled, agentSettings.slack_token]);
 
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.ensureTelegramConnected || !amux?.onTelegramMessage) return;
     if (!agentSettings.gateway_enabled || !agentSettings.telegram_token) return;
 
@@ -860,7 +848,7 @@ export default function App() {
   }, [handleInboundGatewayMessage, agentSettings.gateway_enabled, agentSettings.telegram_token]);
 
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.ensureDiscordConnected || !amux?.onDiscordMessage) return;
     if (!agentSettings.gateway_enabled || !agentSettings.discord_token) return;
 
@@ -888,7 +876,7 @@ export default function App() {
   }, [handleInboundGatewayMessage, agentSettings.discord_token, agentSettings.gateway_enabled]);
 
   useEffect(() => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.onWhatsAppMessage || !amux?.whatsappStatus) return;
     if (!agentSettings.gateway_enabled) return;
 
@@ -917,11 +905,18 @@ export default function App() {
 
   return (
     <div
-      className="flex h-full w-full flex-col overflow-hidden bg-[var(--bg-void)]"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        width: "100%",
+        height: "100%",
+        background: "var(--bg-void)",
+        overflow: "hidden",
+      }}
     >
       <TitleBar />
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, gap: 0, padding: 0 }}>
         <MissionDeck
           workspaceName={activeWorkspace?.name ?? "No workspace"}
           surfaceName={activeSurface?.name ?? "No surface"}
@@ -938,11 +933,19 @@ export default function App() {
 
         <SurfaceTabBar />
 
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div style={{ flex: 1, display: "flex", overflow: "hidden", gap: 0, minHeight: 0, minWidth: 0 }}>
           {sidebarVisible && <Sidebar />}
 
           <div
-            className="amux-shell-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              minWidth: 0,
+              minHeight: 0,
+            }}
+            className="amux-shell-card"
           >
             <LayoutContainer />
 
@@ -1013,65 +1016,96 @@ function MissionDeck({
   return (
     <div
       className="amux-shell-card"
-      style={{ flexShrink: 0 }}
+      style={{
+        flexShrink: 0,
+        padding: "6px 10px",
+        minHeight: 52,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "var(--space-2)",
+        overflowX: "auto",
+      }}
     >
-      <div className="flex min-h-[52px] items-center justify-between gap-[var(--space-3)] overflow-x-auto px-[10px] py-[6px]">
-        <div className="flex min-w-0 items-center gap-[var(--space-2)]">
-          <Badge variant="mission" className="text-[10px] uppercase tracking-[0.08em]">
-            Mission
-          </Badge>
-          <span
-            className="max-w-[240px] truncate text-[var(--text-sm)] font-semibold"
-            title={`${workspaceName} - ${surfaceName}`}
-          >
-            {workspaceName}
-          </span>
-          <span className="whitespace-nowrap text-[var(--text-xs)] text-[var(--text-muted)]">
-            {surfaceName}
-          </span>
-          <Badge variant="default" className="text-[10px]">
-            provider {providerText}
-          </Badge>
-        </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          minWidth: 0,
+        }}
+      >
+        <span className="amux-agent-indicator" style={{ fontSize: 10, padding: "2px 8px" }}>Mission</span>
+        <span
+          style={{
+            fontSize: "var(--text-sm)",
+            fontWeight: 600,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 240,
+          }}
+          title={`${workspaceName} - ${surfaceName}`}
+        >
+          {workspaceName}
+        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)", whiteSpace: "nowrap" }}>
+          {surfaceName}
+        </span>
+        <span className="amux-chip" style={{ fontSize: 10, padding: "2px 6px" }}>
+          provider {providerText}
+        </span>
+      </div>
 
-        <div className="flex items-center gap-[var(--space-2)] whitespace-nowrap">
-          <Badge variant={approvalCount > 0 ? "approval" : "default"} className="text-[10px]">
-            approvals {approvalCount}
-          </Badge>
-          <Badge variant="reasoning" className="text-[10px]">
-            trace {traceCount}
-          </Badge>
-          <Badge variant="agent" className="text-[10px]">
-            ops {opsCount}
-          </Badge>
-          <Badge variant="timeline" className="text-[10px]">
-            recall {historyHitsCount + symbolHitsCount}
-          </Badge>
-          <Badge variant="default" className="text-[10px]">
-            snapshots {snapshotCount}
-          </Badge>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", whiteSpace: "nowrap" }}>
+        <span className="amux-chip amux-chip--approval" style={{ fontSize: 10, padding: "2px 6px" }}>
+          approvals {approvalCount}
+        </span>
+        <span className="amux-chip" style={{ fontSize: 10, padding: "2px 6px", color: "var(--reasoning)" }}>
+          trace {traceCount}
+        </span>
+        <span className="amux-chip" style={{ fontSize: 10, padding: "2px 6px", color: "var(--agent)" }}>
+          ops {opsCount}
+        </span>
+        <span className="amux-chip" style={{ fontSize: 10, padding: "2px 6px", color: "var(--timeline)" }}>
+          recall {historyHitsCount + symbolHitsCount}
+        </span>
+        <span className="amux-chip" style={{ fontSize: 10, padding: "2px 6px" }}>
+          snapshots {snapshotCount}
+        </span>
+      </div>
 
-        <div className="flex items-center gap-[var(--space-1)] whitespace-nowrap">
-          <Button
-            type="button"
-            onClick={onOpenMission}
-            variant="primary"
-            size="sm"
-            className="h-7 text-[11px]"
-          >
-            Mission
-          </Button>
-          <Button
-            type="button"
-            onClick={onOpenVault}
-            variant="secondary"
-            size="sm"
-            className="h-7 text-[11px]"
-          >
-            Vault
-          </Button>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", whiteSpace: "nowrap" }}>
+        <button
+          type="button"
+          onClick={onOpenMission}
+          style={{
+            padding: "4px 8px",
+            border: "1px solid var(--accent-soft)",
+            background: "var(--accent-soft)",
+            color: "var(--accent)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          Mission
+        </button>
+        <button
+          type="button"
+          onClick={onOpenVault}
+          style={{
+            padding: "4px 8px",
+            border: "1px solid var(--border)",
+            background: "transparent",
+            color: "var(--text-secondary)",
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: "pointer",
+          }}
+        >
+          Vault
+        </button>
       </div>
     </div>
   );

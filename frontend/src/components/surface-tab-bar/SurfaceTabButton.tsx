@@ -1,24 +1,30 @@
 import type { ReactNode } from "react";
-import { Button } from "../ui";
+import { actionButtonBaseStyle } from "./shared";
 
 export function ActionButton({
-  title,
-  onClick,
-  children,
+    title,
+    onClick,
+    children,
 }: {
-  title: string;
-  onClick: () => void;
-  children: ReactNode;
+    title: string;
+    onClick: () => void;
+    children: ReactNode;
 }) {
-  return (
-    <Button
-      onClick={onClick}
-      title={title}
-      variant="ghost"
-      size="sm"
-      className="h-7 min-w-7 rounded-[var(--radius-sm)] px-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-muted)] hover:bg-[var(--muted)] hover:text-[var(--text-primary)]"
-    >
-      {children}
-    </Button>
-  );
+    return (
+        <button
+            onClick={onClick}
+            title={title}
+            style={actionButtonBaseStyle}
+            onMouseEnter={(event) => {
+                event.currentTarget.style.background = "var(--bg-tertiary)";
+                event.currentTarget.style.color = "var(--text-primary)";
+            }}
+            onMouseLeave={(event) => {
+                event.currentTarget.style.background = "transparent";
+                event.currentTarget.style.color = "var(--text-muted)";
+            }}
+        >
+            {children}
+        </button>
+    );
 }

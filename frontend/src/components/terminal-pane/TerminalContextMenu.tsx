@@ -1,65 +1,87 @@
-import { cn, popoverSurfaceClassName } from "../ui";
-
 export interface TerminalContextMenuItem {
-  label?: string;
-  shortcut?: string;
-  disabled?: boolean;
-  danger?: boolean;
-  separator?: boolean;
-  action?: () => void;
+    label?: string;
+    shortcut?: string;
+    disabled?: boolean;
+    danger?: boolean;
+    separator?: boolean;
+    action?: () => void;
 }
 
 export function TerminalContextMenu({
-  visible,
-  x,
-  y,
-  items,
-  hideContextMenu,
+    visible,
+    x,
+    y,
+    items,
+    hideContextMenu,
 }: {
-  visible: boolean;
-  x: number;
-  y: number;
-  items: TerminalContextMenuItem[];
-  hideContextMenu: () => void;
+    visible: boolean;
+    x: number;
+    y: number;
+    items: TerminalContextMenuItem[];
+    hideContextMenu: () => void;
 }) {
-  if (!visible) {
-    return null;
-  }
+    if (!visible) {
+        return null;
+    }
 
-  return (
-    <div
-      onPointerDown={(event) => event.stopPropagation()}
-      className={cn(popoverSurfaceClassName, "absolute z-[4000] w-[220px] p-[var(--space-1)]")}
-      style={{ top: y, left: x }}
-    >
-      {items.map((item, index) => {
-        if (item.separator) {
-          return <div key={`separator-${index}`} className="my-[var(--space-1)] h-px bg-[var(--border-subtle)]" />;
-        }
-
-        return (
-          <button
-            key={item.label}
-            type="button"
-            disabled={item.disabled}
-            onClick={() => {
-              hideContextMenu();
-              item.action?.();
+    return (
+        <div
+            onPointerDown={(event) => event.stopPropagation()}
+            style={{
+                position: "absolute",
+                top: y,
+                left: x,
+                width: 220,
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border)",
+                boxShadow: "var(--shadow-sm)",
+                borderRadius: 0,
+                padding: 6,
+                zIndex: 4000,
             }}
-            className={cn(
-              "flex w-full items-center justify-between rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[9px] transition-colors",
-              item.disabled
-                ? "cursor-not-allowed text-[var(--text-muted)] opacity-50"
-                : item.danger
-                  ? "text-[var(--danger)] hover:bg-[var(--danger-soft)]"
-                  : "text-[var(--text-primary)] hover:bg-[var(--muted)]"
-            )}
-          >
-            <span>{item.label}</span>
-            <span className="text-[9px] text-[var(--text-muted)]">{item.shortcut ?? ""}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
+        >
+            {items.map((item, index) => {
+                if (item.separator) {
+                    return (
+                        <div
+                            key={`separator-${index}`}
+                            style={{
+                                height: 1,
+                                margin: "6px 4px",
+                                background: "var(--bg-secondary)",
+                            }}
+                        />
+                    );
+                }
+
+                return (
+                    <button
+                        key={item.label}
+                        type="button"
+                        disabled={item.disabled}
+                        onClick={() => {
+                            hideContextMenu();
+                            item.action?.();
+                        }}
+                        style={{
+                            width: "100%",
+                            border: 0,
+                            background: "transparent",
+                            color: item.danger ? "#ef4444" : item.disabled ? "#6b6b85" : "#e2e2e9",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            borderRadius: 0,
+                            padding: "8px 10px",
+                            fontSize: 9,
+                            cursor: item.disabled ? "not-allowed" : "pointer",
+                        }}
+                    >
+                        <span>{item.label}</span>
+                        <span style={{ color: "#8f8fa8", fontSize: 9 }}>{item.shortcut ?? ""}</span>
+                    </button>
+                );
+            })}
+        </div>
+    );
 }

@@ -8,13 +8,11 @@
 
 import { useWorkspaceStore } from "./workspaceStore";
 import { allLeafIds, findLeaf } from "./bspTree";
-import { getBridge } from "./bridge";
 import { getTerminalController, getTerminalSnapshot } from "./terminalRegistry";
 import { getBrowserController } from "./browserRegistry";
 import { getCanvasBrowserController } from "./canvasBrowserRegistry";
 import { assessCommandRisk } from "./agentMissionStore";
 import { useAgentStore } from "./agentStore";
-import { useSettingsStore } from "./settingsStore";
 import { resolveSnippetTemplate, useSnippetStore } from "./snippetStore";
 import { queryHonchoMemory } from "./honchoClient";
 import { executePluginAssistantTool, listPluginAssistantTools } from "../plugins/assistantToolRegistry";
@@ -849,7 +847,7 @@ async function executeGatewayMessage(
   callId: string, name: string, platform: string, target: string, message: string,
 ): Promise<ToolResult> {
   // Gateway messages go through the amux-gateway daemon
-  const amux = getBridge();
+  const amux = (window as any).tamux ?? (window as any).amux;
   if (!amux?.executeManagedCommand) {
     return {
       toolCallId: callId, name,
@@ -868,7 +866,7 @@ async function executeGatewayMessage(
     });
     return {
       toolCallId: callId, name,
-      content: (typeof result === "object" && result?.output) || `Message sent to ${platform} ${target}`,
+      content: result?.output || `Message sent to ${platform} ${target}`,
     };
   } catch {
     // Fallback: the gateway may not be connected yet, queue the intent
@@ -884,7 +882,7 @@ async function executeDiscordMessage(
 ): Promise<ToolResult> {
   const settings = useAgentStore.getState().agentSettings;
   const token = settings.discord_token;
-  const amux = getBridge();
+  const amux = (window as any).tamux ?? (window as any).amux;
 
   if (!token) {
     return {
@@ -968,7 +966,7 @@ async function executeDiscordMessage(
 async function executeWhatsAppMessage(
   callId: string, name: string, phone: string, message: string,
 ): Promise<ToolResult> {
-  const amux = getBridge();
+  const amux = (window as any).tamux ?? (window as any).amux;
   if (!amux?.whatsappSend) {
     return {
       toolCallId: callId, name,
@@ -1091,7 +1089,7 @@ function createManagedCommandAwaiter(
   let cancel = () => { };
 
   const promise = new Promise<ManagedAwaitResult>((resolve) => {
-    const amux = getBridge();
+    const amux = (window as any).tamux ?? (window as any).amux;
     if (!amux?.onTerminalEvent) {
       resolve({ status: "timeout" });
       return;
@@ -1661,7 +1659,7 @@ async function executeBrowserScreenshot(callId: string, name: string): Promise<T
   }
 
   const shot = await browser.captureScreenshot();
-  const amux = getBridge();
+  const amux = (window as any).tamux ?? (window as any).amux;
   if (!amux?.saveVisionScreenshot) {
     return { toolCallId: callId, name, content: "Error: Vision screenshot persistence is not available in this environment." };
   }
@@ -1674,7 +1672,7 @@ async function executeBrowserScreenshot(callId: string, name: string): Promise<T
   return {
     toolCallId: callId,
     name,
-    content: `Screenshot saved: ${saved.path}\nExpiresAt: ${saved.expiresAt ? new Date(saved.expiresAt).toISOString() : "unknown"}\nPage: ${shot.title || "(untitled)"}\nURL: ${shot.url}`,
+    content: `Screenshot saved: ${saved.path}\nExpiresAt: ${new Date(saved.expiresAt).toISOString()}\nPage: ${shot.title || "(untitled)"}\nURL: ${shot.url}`,
   };
 }
 
@@ -1950,7 +1948,7 @@ async function executeReadTerminalContent(
 async function executeTerminalCommand(
   callId: string, name: string, command: string, paneId?: string,
 ): Promise<ToolResult> {
-  const amux = getBridge();
+  const amux = (window as any).tamux ?? (window as any).amux;
   if (!amux?.sendTerminalInput && !amux?.executeManagedCommand) {
     return { toolCallId: callId, name, content: "Error: Terminal bridge not available." };
   }
@@ -2049,7 +2047,7 @@ async function executeTerminalCommand(
 async function executeGetSystemInfo(
   callId: string, name: string,
 ): Promise<ToolResult> {
-  const amux = getBridge();
+  const amux = (window as any).tamux ?? (window as any).amux;
   if (!amux?.getSystemMonitorSnapshot) {
     return { toolCallId: callId, name, content: "Error: System monitor not available." };
   }

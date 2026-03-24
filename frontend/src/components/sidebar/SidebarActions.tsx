@@ -1,67 +1,78 @@
-import { Badge, Button, cn } from "../ui";
-
 export function SidebarActions({
-  workspacesCount,
-  toggleAgentPanel,
-  toggleSystemMonitor,
-  toggleCommandPalette,
-  toggleSearch,
-  toggleCommandHistory,
-  toggleCommandLog,
-  toggleFileManager,
-  toggleSessionVault,
-  toggleSettings,
+    workspacesCount,
+    toggleAgentPanel,
+    toggleSystemMonitor,
+    toggleCommandPalette,
+    toggleSearch,
+    toggleCommandHistory,
+    toggleCommandLog,
+    toggleFileManager,
+    toggleSessionVault,
+    toggleSettings,
 }: {
-  workspacesCount: number;
-  toggleAgentPanel: () => void;
-  toggleSystemMonitor: () => void;
-  toggleCommandPalette: () => void;
-  toggleSearch: () => void;
-  toggleCommandHistory: () => void;
-  toggleCommandLog: () => void;
-  toggleFileManager: () => void;
-  toggleSessionVault: () => void;
-  toggleSettings: () => void;
+    workspacesCount: number;
+    toggleAgentPanel: () => void;
+    toggleSystemMonitor: () => void;
+    toggleCommandPalette: () => void;
+    toggleSearch: () => void;
+    toggleCommandHistory: () => void;
+    toggleCommandLog: () => void;
+    toggleFileManager: () => void;
+    toggleSessionVault: () => void;
+    toggleSettings: () => void;
 }) {
-  const actions = [
-    { label: "Mission", onClick: toggleAgentPanel, accent: true },
-    { label: "Monitor", onClick: toggleSystemMonitor },
-    { label: "Palette", onClick: toggleCommandPalette },
-    { label: "Search", onClick: toggleSearch },
-    { label: "History", onClick: toggleCommandHistory },
-    { label: "Logs", onClick: toggleCommandLog },
-    { label: "Files", onClick: toggleFileManager, accent: true },
-    { label: "Vault", onClick: toggleSessionVault },
-    { label: "Settings", onClick: toggleSettings },
-  ];
+    const actions = [
+        { label: "Mission", onClick: toggleAgentPanel, accent: true },
+        { label: "Monitor", onClick: toggleSystemMonitor },
+        { label: "Palette", onClick: toggleCommandPalette },
+        { label: "Search", onClick: toggleSearch },
+        { label: "History", onClick: toggleCommandHistory },
+        { label: "Logs", onClick: toggleCommandLog },
+        { label: "Files", onClick: toggleFileManager, accent: true },
+        { label: "Vault", onClick: toggleSessionVault },
+        { label: "Settings", onClick: toggleSettings },
+    ];
 
-  return (
-    <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="grid grid-cols-3 gap-[var(--space-2)] p-[var(--space-3)]">
-        {actions.map((item) => (
-          <Button
-            key={item.label}
-            variant={item.accent ? "agent" : "secondary"}
-            size="sm"
-            className={cn(
-              "h-auto min-h-[2.5rem] flex-col gap-[2px] px-[var(--space-2)] py-[var(--space-2)] text-center text-[9px] font-semibold uppercase tracking-[0.08em]",
-              !item.accent && "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-            )}
-            onClick={(event) => {
-              event.stopPropagation();
-              item.onClick();
-            }}
-            title={item.label}
-          >
-            {item.label}
-          </Button>
-        ))}
-      </div>
-      <div className="flex justify-center px-[var(--space-4)] pb-[var(--space-3)]">
-        <Badge variant="default" className="text-[var(--text-muted)]">
-          {workspacesCount} workspace{workspacesCount !== 1 ? "s" : ""}
-        </Badge>
-      </div>
-    </div>
-  );
+    return (
+        <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(48px, 1fr))", gap: 2, padding: "var(--space-2) var(--space-3)" }}>
+                {actions.map((item) => (
+                    <button
+                        key={item.label}
+                        onClick={(e) => { e.stopPropagation(); item.onClick(); }}
+                        title={item.label}
+                        style={{
+                            background: item.accent ? "rgba(59, 130, 246, 0.08)" : "var(--bg-surface)",
+                            border: "1px solid",
+                            borderColor: item.accent ? "rgba(59, 130, 246, 0.2)" : "var(--glass-border)",
+                            color: item.accent ? "var(--agent)" : "var(--text-muted)",
+                            cursor: "pointer",
+                            fontSize: 9,
+                            fontWeight: 600,
+                            padding: "4px 2px",
+                            borderRadius: "var(--radius-sm)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                            transition: "all var(--transition-fast)",
+                            lineHeight: 1.2,
+                            textAlign: "center",
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = item.accent ? "rgba(59, 130, 246, 0.15)" : "rgba(255,255,255,0.06)";
+                            e.currentTarget.style.color = item.accent ? "var(--agent)" : "var(--text-primary)";
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = item.accent ? "rgba(59, 130, 246, 0.08)" : "var(--bg-surface)";
+                            e.currentTarget.style.color = item.accent ? "var(--agent)" : "var(--text-muted)";
+                        }}
+                    >
+                        {item.label}
+                    </button>
+                ))}
+            </div>
+            <div style={{ padding: "var(--space-2) var(--space-4)", fontSize: "var(--text-xs)", color: "var(--text-muted)", textAlign: "center" }}>
+                {workspacesCount} workspace{workspacesCount !== 1 ? "s" : ""}
+            </div>
+        </div>
+    );
 }

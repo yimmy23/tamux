@@ -20,35 +20,20 @@ import { ProviderAuthTab } from "./settings-panel/ProviderAuthTab";
 import { SubAgentsTab } from "./settings-panel/SubAgentsTab";
 import { ConciergeSection } from "./settings-panel/ConciergeSection";
 import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  ScrollArea,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  cn,
-} from "./ui";
+  headerBtnStyle,
+} from "./settings-panel/shared";
 
-type SettingsTab =
-  | "appearance"
-  | "terminal"
-  | "behavior"
-  | "auth"
-  | "agent"
-  | "concierge"
-  | "subagents"
-  | "gateway"
-  | "keyboard"
-  | "about";
+type SettingsTab = "appearance" | "terminal" | "behavior" | "auth" | "agent" | "concierge" | "subagents" | "gateway" | "keyboard" | "about";
 
 type SettingsPanelProps = {
   style?: CSSProperties;
   className?: string;
 };
 
+/**
+ * Full settings panel matching tamux-windows SettingsWindow.
+ * 6 sections: Appearance, Terminal, Behavior, Agent, Keyboard, About.
+ */
 export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
   const open = useWorkspaceStore((s) => s.settingsOpen);
   const toggle = useWorkspaceStore((s) => s.toggleSettings);
@@ -77,18 +62,18 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
 
   useEffect(() => {
     if (open && systemFonts.length === 0) {
+      // Load system fonts via Electron IPC
       if (typeof window !== "undefined" && ("tamux" in window || "amux" in window)) {
         const bridge = (window as any).tamux ?? (window as any).amux;
         bridge.getSystemFonts().then((fonts: string[]) => {
           setSystemFonts(fonts);
         });
-        bridge
-          .getAvailableShells?.()
-          .then((shells: { name: string; path: string; args?: string }[]) => setAvailableShells(shells))
-          .catch(() => {});
+        bridge.getAvailableShells?.().then(
+          (shells: { name: string; path: string; args?: string }[]) => setAvailableShells(shells),
+        ).catch(() => {});
       }
     }
-  }, [open, systemFonts.length]);
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -101,7 +86,9 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     void refreshAgentSettingsFromDaemon().then((ok) => {
       if (!ok) return;
       const latestAgentSettings = useAgentStore.getState().agentSettings;
-      lastDaemonConfigJsonRef.current = JSON.stringify(buildDaemonAgentConfig(latestAgentSettings));
+      lastDaemonConfigJsonRef.current = JSON.stringify(
+        buildDaemonAgentConfig(latestAgentSettings),
+      );
     });
   }, [open, refreshAgentSettingsFromDaemon]);
 
@@ -122,19 +109,27 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
       markAgentSettingsSynced();
       return;
     }
-    void Promise.all(changes.map(({ keyPath, value }) => bridge.agentSetConfigItem?.(keyPath, value)))
-      .then(() => {
-        lastDaemonConfigJsonRef.current = nextConfigJson;
-        markAgentSettingsSynced();
-      })
-      .catch(() => {});
-  }, [open, settings, agentSettings, agentSettingsHydrated, markAgentSettingsSynced]);
+    void Promise.all(
+      changes.map(({ keyPath, value }) => bridge.agentSetConfigItem?.(keyPath, value)),
+    ).then(() => {
+      lastDaemonConfigJsonRef.current = nextConfigJson;
+      markAgentSettingsSynced();
+    }).catch(() => {});
+  }, [
+    open,
+    settings,
+    agentSettings,
+    agentSettingsHydrated,
+    markAgentSettingsSynced,
+    settings,
+  ]);
 
   useEffect(() => {
     const handleOpenTab = (event: Event) => {
       const customEvent = event as CustomEvent<{ tab?: SettingsTab }>;
       const requestedTab = customEvent.detail?.tab;
       if (!requestedTab) return;
+
       if (["appearance", "terminal", "behavior", "auth", "agent", "concierge", "subagents", "gateway", "keyboard", "about"].includes(requestedTab)) {
         setTab(requestedTab);
       }
@@ -165,162 +160,133 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
 
   return (
     <div
-      className={cn(isFullscreen && "backdrop-blur-[var(--panel-blur)]", className)}
       style={{
         ...(isFullscreen
           ? {
-              position: "fixed",
-              inset: 0,
-              zIndex: 3600,
-              width: "100vw",
-              height: "100vh",
-              padding: "var(--space-4)",
-              background: "var(--overlay)",
-            }
+            position: "fixed" as const,
+            inset: 0,
+            zIndex: 3600,
+            width: "100vw",
+            height: "100vh",
+            borderRadius: 0,
+          }
           : {
-              width: 720,
-              minWidth: 420,
-              maxWidth: 1100,
-              height: "100%",
-              resize: "horizontal",
-              overflow: "hidden",
-            }),
+            width: 720,
+            minWidth: 420,
+            maxWidth: 1100,
+            height: "100%",
+            resize: "horizontal" as const,
+          }),
+        display: "flex",
+        flexDirection: "column",
+        padding: "20px",
+        background: "rgba(0,0,0,0.8)",
+        border: "1px solid var(--border)",
+        borderRadius: isFullscreen ? 0 : "var(--radius-xl)",
+        overflow: "hidden",
         ...(style ?? {}),
       }}
+      className={className}
     >
-      <Card
-        className={cn(
-          "flex h-full min-h-0 flex-col overflow-hidden border-[var(--border-strong)] bg-[var(--bg-primary)]",
-          isFullscreen ? "rounded-[var(--radius-2xl)] shadow-[var(--shadow-lg)]" : "rounded-[var(--radius-xl)]"
-        )}
+      <div
+        style={{
+          background: "var(--bg-primary)",
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          height: "100%",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
       >
-        <div className="border-b border-[var(--border)] bg-[linear-gradient(180deg,var(--card),color-mix(in_srgb,var(--card)_88%,transparent))] p-[var(--space-5)]">
-          <div className="flex flex-wrap items-start justify-between gap-[var(--space-4)]">
-            <div className="grid gap-[var(--space-2)]">
-              <div className="flex flex-wrap items-center gap-[var(--space-2)]">
-                <Badge variant="mission">Operator Configuration</Badge>
-                <Badge variant="accent">Redesign Surface</Badge>
-              </div>
-              <div className="grid gap-[var(--space-1)]">
-                <h2 className="text-[clamp(1.5rem,2vw,2rem)] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
-                  Mission Runtime Settings
-                </h2>
-                <p className="max-w-[70ch] text-[var(--text-sm)] leading-6 text-[var(--text-secondary)]">
-                  Tune visual hierarchy, terminal execution, providers, bindings, and runtime ergonomics from one control plane.
-                </p>
-              </div>
+        <div style={{
+          display: "grid", gap: 14,
+          padding: "18px 22px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)",
+        }}>
+          <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 16 }}>
+            <div style={{ display: "grid", gap: 6 }}>
+              <span className="amux-panel-title" style={{ color: "var(--mission)" }}>Operator Configuration</span>
+              <span style={{ fontSize: 22, fontWeight: 800 }}>Mission Runtime Settings</span>
+              <span style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                Tune visual hierarchy, terminal execution, providers, bindings, and runtime ergonomics from one control plane.
+              </span>
             </div>
-            <div className="flex flex-wrap gap-[var(--space-2)]">
-              <Button variant="outline" size="sm" onClick={() => setIsFullscreen((prev) => !prev)}>
-                {isFullscreen ? "Window" : "Fullscreen"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  resetSettings();
-                  resetAgentSettings();
-                }}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => setIsFullscreen((prev) => !prev)}
+                style={headerBtnStyle}
+                title={isFullscreen ? "Switch to resizable window" : "Expand fullscreen"}
               >
-                Reset
-              </Button>
-              <Button variant="ghost" size="sm" onClick={toggle} aria-label="Close settings">
-                ✕
-              </Button>
+                {isFullscreen ? "Window" : "Fullscreen"}
+              </button>
+              <button onClick={() => { resetSettings(); resetAgentSettings(); }} style={headerBtnStyle} title="Reset all">Reset</button>
+              <button onClick={toggle} style={headerBtnStyle}>✕</button>
             </div>
           </div>
-          <div className="mt-[var(--space-4)] grid gap-[var(--space-3)] md:grid-cols-4">
-            <SettingsMetric label="Theme" value={settings.themeName} tone="accent" />
-            <SettingsMetric label="Provider" value={agentSettings.active_provider} tone="agent" />
-            <SettingsMetric
-              label="Approvals"
-              value={String(approvals.filter((entry) => entry.status === "pending").length)}
-              tone="warning"
-            />
-            <SettingsMetric label="Snapshots" value={String(snapshots.length)} tone="timeline" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+            <SettingsMetric label="Theme" value={settings.themeName} />
+            <SettingsMetric label="Provider" value={agentSettings.active_provider} />
+            <SettingsMetric label="Approvals" value={String(approvals.filter((entry) => entry.status === "pending").length)} />
+            <SettingsMetric label="Snapshots" value={String(snapshots.length)} />
           </div>
         </div>
 
-        <Tabs value={tab} onValueChange={(value) => setTab(value as SettingsTab)} className="flex min-h-0 flex-1 flex-col">
-          <div className="border-b border-[var(--border)] px-[var(--space-4)] py-[var(--space-3)]">
-            <ScrollArea className="w-full whitespace-nowrap">
-              <TabsList className="w-max min-w-full justify-start rounded-[var(--radius-lg)] bg-[var(--muted)]/80">
-                {tabs.map((t) => (
-                  <TabsTrigger key={t.id} value={t.id} className="min-w-[7rem]">
-                    {t.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </ScrollArea>
-          </div>
+        <div style={{
+          display: "flex", borderBottom: "1px solid rgba(255,255,255,0.08)", padding: "0 16px",
+          gap: 0, overflow: "auto",
+        }}>
+          {tabs.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              background: tab === t.id ? "rgba(97, 197, 255, 0.1)" : "none", border: "none", borderBottom: tab === t.id ? "2px solid var(--accent)" : "2px solid transparent",
+              color: tab === t.id ? "var(--text-primary)" : "var(--text-secondary)",
+              padding: "12px 14px", fontSize: 12, cursor: "pointer", fontWeight: tab === t.id ? 700 : 500,
+              fontFamily: "inherit", whiteSpace: "nowrap",
+            }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-          <ScrollArea className="flex-1">
-            <CardContent className="p-[var(--space-5)]">
-              <TabsContent value="appearance">
-                <AppearanceTab settings={settings} updateSetting={updateSetting} systemFonts={systemFonts} />
-              </TabsContent>
-              <TabsContent value="terminal">
-                <TerminalTab
-                  settings={settings}
-                  updateSetting={updateSetting}
-                  availableShells={availableShells}
-                  profiles={profiles}
-                  addProfile={addProfile}
-                  removeProfile={removeProfile}
-                  updateProfile={updateProfile}
-                  setDefaultProfile={setDefaultProfile}
-                />
-              </TabsContent>
-              <TabsContent value="behavior">
-                <BehaviorTab settings={settings} updateSetting={updateSetting} />
-              </TabsContent>
-              <TabsContent value="auth">
-                <ProviderAuthTab />
-              </TabsContent>
-              <TabsContent value="agent">
-                <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
-              </TabsContent>
-              <TabsContent value="concierge">
-                <ConciergeSection />
-              </TabsContent>
-              <TabsContent value="subagents">
-                <SubAgentsTab />
-              </TabsContent>
-              <TabsContent value="gateway">
-                <GatewayTab settings={agentSettings} updateSetting={updateAgentSetting} />
-              </TabsContent>
-              <TabsContent value="keyboard">
-                <KeyboardTab />
-              </TabsContent>
-              <TabsContent value="about">
-                <AboutTab />
-              </TabsContent>
-            </CardContent>
-          </ScrollArea>
-        </Tabs>
-      </Card>
+        <div style={{ flex: 1, overflow: "auto", padding: "18px 22px" }}>
+          {tab === "appearance" && (
+            <AppearanceTab settings={settings} updateSetting={updateSetting} systemFonts={systemFonts} />
+          )}
+          {tab === "terminal" && (
+            <TerminalTab
+              settings={settings}
+              updateSetting={updateSetting}
+              availableShells={availableShells}
+              profiles={profiles}
+              addProfile={addProfile}
+              removeProfile={removeProfile}
+              updateProfile={updateProfile}
+              setDefaultProfile={setDefaultProfile}
+            />
+          )}
+          {tab === "behavior" && (
+            <BehaviorTab settings={settings} updateSetting={updateSetting} />
+          )}
+          {tab === "auth" && <ProviderAuthTab />}
+          {tab === "agent" && (
+            <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
+          )}
+          {tab === "concierge" && <ConciergeSection />}
+          {tab === "subagents" && <SubAgentsTab />}
+          {tab === "gateway" && (
+            <GatewayTab settings={agentSettings} updateSetting={updateAgentSetting} />
+          )}
+          {tab === "keyboard" && <KeyboardTab />}
+          {tab === "about" && <AboutTab />}
+        </div>
+      </div>
     </div>
   );
 }
 
-function SettingsMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "accent" | "agent" | "warning" | "timeline";
-}) {
+function SettingsMetric({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="border-[var(--border)] bg-[var(--bg-secondary)]/70 shadow-none">
-      <CardContent className="grid gap-[var(--space-1)] p-[var(--space-3)]">
-        <div className="flex items-center justify-between gap-[var(--space-2)]">
-          <span className="text-[var(--text-xs)] uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</span>
-          <Badge variant={tone}>{label}</Badge>
-        </div>
-        <span className="truncate text-[var(--text-lg)] font-semibold text-[var(--text-primary)]">{value}</span>
-      </CardContent>
-    </Card>
+    <div style={{ borderRadius: 0, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.06)", background: "rgba(18, 33, 47, 0.8)", display: "grid", gap: 4 }}>
+      <span className="amux-panel-title">{label}</span>
+      <span style={{ fontSize: 15, fontWeight: 700 }}>{value}</span>
+    </div>
   );
 }

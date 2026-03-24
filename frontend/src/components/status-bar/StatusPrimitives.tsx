@@ -1,52 +1,67 @@
-import { Badge, Button, cn } from "../ui";
-
 export function StatusIndicator({ label, status }: { label: string; status: "success" | "warning" | "neutral" }) {
-  const colors = {
-    success: "bg-[var(--success)]",
-    warning: "bg-[var(--warning)]",
-    neutral: "bg-[var(--text-muted)]",
-  }[status];
+    const colors = {
+        success: { dot: "var(--success)" },
+        warning: { dot: "var(--warning)" },
+        neutral: { dot: "var(--text-muted)" },
+    }[status];
 
-  return (
-    <div className="inline-flex items-center gap-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
-      <span className={cn("h-1.5 w-1.5 rounded-full", colors)} />
-      <span>{label}</span>
-    </div>
-  );
+    return (
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
+            <span
+                style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: colors.dot,
+                }}
+            />
+            <span>{label}</span>
+        </div>
+    );
 }
 
 export function StatusBadge({
-  label,
-  tone,
-  onClick,
+    label,
+    tone,
+    onClick,
 }: {
-  label: string;
-  tone: "success" | "warning" | "agent" | "neutral";
-  onClick?: () => void;
+    label: string;
+    tone: "success" | "warning" | "agent" | "neutral";
+    onClick?: () => void;
 }) {
-  const variant = {
-    success: "success",
-    warning: "warning",
-    agent: "agent",
-    neutral: "default",
-  } as const;
+    const colors = {
+        success: { bg: "var(--success-soft)", text: "var(--success)", border: "rgba(74, 222, 128, 0.2)" },
+        warning: { bg: "var(--warning-soft)", text: "var(--warning)", border: "rgba(251, 191, 36, 0.2)" },
+        agent: { bg: "var(--agent-soft)", text: "var(--agent)", border: "rgba(130, 170, 255, 0.2)" },
+        neutral: { bg: "var(--bg-tertiary)", text: "var(--text-muted)", border: "var(--glass-border)" },
+    }[tone];
 
-  if (onClick) {
     return (
-      <Button
-        variant={tone === "agent" ? "agent" : tone === "warning" ? "outline" : "secondary"}
-        size="sm"
-        className="h-6 rounded-full px-[var(--space-2)] text-[var(--text-xs)]"
-        onClick={onClick}
-      >
-        {label}
-      </Button>
+        <span
+            onClick={onClick}
+            style={{
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "var(--space-1) var(--space-2)",
+                borderRadius: "var(--radius-full)",
+                border: `1px solid ${colors.border}`,
+                background: colors.bg,
+                color: colors.text,
+                fontSize: "var(--text-xs)",
+                fontWeight: 500,
+                cursor: onClick ? "pointer" : "default",
+                transition: "all var(--transition-fast)",
+            }}
+            onMouseEnter={(event) => {
+                if (onClick) {
+                    event.currentTarget.style.opacity = "0.8";
+                }
+            }}
+            onMouseLeave={(event) => {
+                event.currentTarget.style.opacity = "1";
+            }}
+        >
+            {label}
+        </span>
     );
-  }
-
-  return (
-    <Badge variant={variant[tone]} className="px-[var(--space-2)] py-[2px] text-[var(--text-xs)]">
-      {label}
-    </Badge>
-  );
 }

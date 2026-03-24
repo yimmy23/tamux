@@ -12,12 +12,9 @@ import { hydrateTranscriptStore } from "./lib/transcriptStore";
 import { hydrateFileManagerStore } from "./lib/fileManagerStore";
 import { hydrateCDUIPreference, isCDUIEnabled } from "./lib/cduiMode";
 import { hydrateSnippetStore } from "./lib/snippetStore";
-import { hydrateStatusStore } from "./lib/statusStore";
-import { hydrateTierStore } from "./lib/tierStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
 import "./styles/tailwind.css";
 import "./styles/global.css";
-import "./styles/legacy-catalog.css";
 
 const renderRoot = (useCDUI: boolean): void => {
   ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -41,11 +38,7 @@ async function bootstrap() {
     hydrateTranscriptStore(),
     hydrateFileManagerStore(),
     hydrateSnippetStore(),
-    hydrateTierStore(),
   ]);
-
-  // Start status polling after stores are hydrated (non-blocking)
-  hydrateStatusStore();
 
   const useCDUI = isCDUIEnabled();
 

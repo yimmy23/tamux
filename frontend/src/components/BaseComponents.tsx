@@ -33,53 +33,241 @@ import {
   WebBrowserPanelLazy,
 } from "./base-components/lazyComponents";
 import { MissionDeck } from "./base-components/MissionDeck";
-import {
-  ButtonAdapter,
-  ContainerAdapter,
-  DividerAdapter,
-  HeaderAdapter,
-  InputAdapter,
-  SelectAdapter,
-  SpacerAdapter,
-  TextAdapter,
-  TextAreaAdapter,
-} from "./base-components/adapters";
 import { renderEditableWrapper, splitViewProps } from "./base-components/propUtils";
-import type { UnknownProps, ViewProps } from "./base-components/shared";
+import type {
+  ButtonProps,
+  HeaderProps,
+  InputProps,
+  SelectProps,
+  SpacerProps,
+  TextAreaProps,
+  TextProps,
+  UnknownProps,
+  ViewProps,
+} from "./base-components/shared";
+import { executeCommand } from "../registry/commandRegistry";
+import { useViewBuilderStore } from "../lib/viewBuilderStore";
 import { useWorkspaceStore } from "../lib/workspaceStore";
-import { Badge } from "./ui/Badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/Card";
 
 export { AppRuntimeBridge } from "./base-components/AppRuntimeBridge";
 export { MissionDeck } from "./base-components/MissionDeck";
 export { ViewMount } from "./base-components/ViewMount";
 
-export const Container = ContainerAdapter;
-export const Header = HeaderAdapter;
-export const Text = TextAdapter;
-export const Button = ButtonAdapter;
-export const Input = InputAdapter;
-export const TextArea = TextAreaAdapter;
-export const Select = SelectAdapter;
-export const Divider = DividerAdapter;
-export const Spacer = SpacerAdapter;
+export const Container: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, resizable, resizeAxis, minWidth, minHeight, maxWidth, maxHeight, builderMeta } = splitViewProps(props);
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    resizable,
+    resizeAxis,
+    minWidth,
+    minHeight,
+    maxWidth,
+    maxHeight,
+    builderMeta,
+    content: null,
+  });
+};
+
+export const Header: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, resizable, resizeAxis, minWidth, minHeight, maxWidth, maxHeight, builderMeta, componentProps } = splitViewProps(props);
+  const { title, description } = componentProps as HeaderProps;
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    resizable,
+    resizeAxis,
+    minWidth,
+    minHeight,
+    maxWidth,
+    maxHeight,
+    builderMeta,
+    content: (
+      <div>
+        <h1>{title}</h1>
+        {description ? <p>{description}</p> : null}
+      </div>
+    ),
+  });
+};
+
+export const Text: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta, componentProps } = splitViewProps(props);
+  const { value, as = "span" } = componentProps as TextProps;
+  const Tag = as as React.ElementType;
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: <Tag>{value}</Tag>,
+  });
+};
+
+export const Button: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta, componentProps } = splitViewProps(props);
+  const isEditMode = useViewBuilderStore((state) => state.isEditMode);
+  const { label, command, variant = "primary" } = componentProps as ButtonProps;
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: (
+      <button
+        type="button"
+        className={`btn-${variant}`}
+        onClick={() => {
+          if (!isEditMode && command) {
+            void executeCommand(command);
+          }
+        }}
+      >
+        {label}
+      </button>
+    ),
+  });
+};
+
+export const Input: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta, componentProps } = splitViewProps(props);
+  const isEditMode = useViewBuilderStore((state) => state.isEditMode);
+  const { placeholder, type = "text", name, command } = componentProps as InputProps;
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: (
+      <input
+        type={type}
+        placeholder={placeholder}
+        name={name}
+        onBlur={() => {
+          if (!isEditMode && command) {
+            void executeCommand(command);
+          }
+        }}
+      />
+    ),
+  });
+};
+
+export const TextArea: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta, componentProps } = splitViewProps(props);
+  const isEditMode = useViewBuilderStore((state) => state.isEditMode);
+  const { placeholder, name, rows = 4, command, defaultValue } = componentProps as TextAreaProps;
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: (
+      <textarea
+        placeholder={placeholder}
+        name={name}
+        rows={rows}
+        defaultValue={defaultValue}
+        onBlur={() => {
+          if (!isEditMode && command) {
+            void executeCommand(command);
+          }
+        }}
+      />
+    ),
+  });
+};
+
+export const Select: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta, componentProps } = splitViewProps(props);
+  const isEditMode = useViewBuilderStore((state) => state.isEditMode);
+  const { name, value, options = [], command } = componentProps as SelectProps;
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: (
+      <select
+        name={name}
+        defaultValue={value}
+        onChange={() => {
+          if (!isEditMode && command) {
+            void executeCommand(command);
+          }
+        }}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    ),
+  });
+};
+
+export const Divider: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta } = splitViewProps(props);
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: <div className={["amux-divider", "amux-divider--subtle"].concat(className ? [className] : []).join(" ")} />,
+  });
+};
+
+export const Spacer: React.FC<ViewProps> = (props) => {
+  const { style, className, children, visible, hidden, builderMeta, componentProps } = splitViewProps(props);
+  const { size = 16 } = componentProps as SpacerProps;
+
+  return renderEditableWrapper({
+    style: {
+      width: size,
+      height: size,
+      flexShrink: 0,
+      ...(style ?? {}),
+    },
+    className,
+    children,
+    visible,
+    hidden,
+    builderMeta,
+    content: null,
+  });
+};
 
 export const UnknownComponent: React.FC<UnknownProps> = ({ type }) => (
-  <Card className="max-w-md border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger)]">
-    <CardHeader className="gap-[var(--space-2)]">
-      <Badge variant="danger" className="w-fit">
-        Unknown component
-      </Badge>
-      <CardTitle className="text-[var(--text-base)]">Renderer fallback</CardTitle>
-      <CardDescription className="text-[var(--danger)]">
-        Unknown Component: {type ?? "(missing type)"}
-      </CardDescription>
-    </CardHeader>
-    <CardContent className="pt-0 text-[var(--text-sm)] text-[var(--danger)]">
-      This view still mounted, but its registered component export could not be resolved.
-    </CardContent>
-  </Card>
+  <div style={{ color: "red", border: "1px solid red", padding: "10px" }}>
+    Unknown Component: {type ?? "(missing type)"}
+  </div>
 );
+
 
 export const TitleBar: React.FC<ViewProps> = (props) => {
   const { style, className, children, visible, hidden, resizable, resizeAxis, minWidth, minHeight, maxWidth, maxHeight, builderMeta, componentProps } = splitViewProps(props);
@@ -471,7 +659,7 @@ export const AgentChatDockShell: React.FC<ViewProps> = (props) => {
             height: "100%",
             cursor: "col-resize",
             zIndex: 20,
-            background: "var(--resize-handle-gradient)",
+            background: "linear-gradient(90deg, rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.45), transparent)",
           }}
         />
       </div>
