@@ -18,7 +18,6 @@ import { useSettingsStore } from "./settingsStore";
 import { resolveSnippetTemplate, useSnippetStore } from "./snippetStore";
 import { queryHonchoMemory } from "./honchoClient";
 import { executePluginAssistantTool, listPluginAssistantTools } from "../plugins/assistantToolRegistry";
-import { useSettingsStore } from "./settingsStore";
 
 // ---------------------------------------------------------------------------
 // Tool schema (OpenAI function calling format)
