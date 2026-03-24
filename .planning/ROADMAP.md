@@ -363,7 +363,11 @@ Plans:
   3. Skills can reference plugin API endpoints (e.g., `plugin:gmail-calendar:list_events`)
   4. Plugin commands registered as namespaced slash commands (`/pluginname.command`)
   5. Agent discovers plugin skills through standard skill system (no special awareness needed)
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — Skill bundling module, command registry, IPC messages, and agent command dispatch
+- [ ] 19-02-PLAN.md — CLI plugin commands subcommand and agent system prompt plugin skills awareness
 
 ### Phase 20: Gmail/Calendar Validation Plugin
 **Goal**: A real Gmail/Calendar plugin that proves the entire plugin ecosystem works end-to-end — from install to agent answering "what's on my calendar?"
@@ -413,5 +417,5 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | 16. Plugin Settings UI | 3/3 | Complete    | 2026-03-24 |
 | 17. API Proxy Layer | 0/2 | Planned | - |
 | 18. OAuth2 Flow | 0/? | Not started | - |
-| 19. Plugin Skills & Commands | 0/? | Not started | - |
+| 19. Plugin Skills & Commands | 0/2 | Planned | - |
 | 20. Gmail/Calendar Validation | 0/? | Not started | - |
