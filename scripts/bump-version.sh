@@ -11,6 +11,7 @@
 # Files updated:
 #   - Cargo.toml                  (workspace version)
 #   - frontend/package.json       (npm version + triggers lock update)
+#   - npm-package/package.json    (npm wrapper package version)
 #   - frontend/src/components/settings-panel/AboutTab.tsx
 #   - frontend/src/plugins/coding-agents/registerPlugin.ts
 #   - frontend/src/plugins/ai-training/registerPlugin.ts
@@ -101,6 +102,13 @@ bump_file "Cargo.toml" \
 # Frontend package.json (version field only — lock updates via npm)
 # ---------------------------------------------------------------------------
 bump_file "frontend/package.json" \
+  "\"version\": \"$CURRENT\"" \
+  "\"version\": \"$NEXT\""
+
+# ---------------------------------------------------------------------------
+# npm wrapper package
+# ---------------------------------------------------------------------------
+bump_file "npm-package/package.json" \
   "\"version\": \"$CURRENT\"" \
   "\"version\": \"$NEXT\""
 
