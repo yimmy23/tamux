@@ -60,22 +60,22 @@ These capabilities exist in the codebase today and are relied upon:
 These are what we're building next — the "living agent" milestone:
 
 **Alive: Proactive Heartbeat & Anticipatory Surface**
-- [ ] Configurable heartbeat loop that wakes the agent at intervals to check work, repos, messages
-- [ ] Heartbeat-driven TODO monitoring: detect stale tasks, stuck goal runs, unreplied gateway messages
-- [ ] Wire M2 Anticipatory Runtime outputs (morning brief, stuck hints, hydration) into heartbeat cycle
-- [ ] Operator-aware scheduling: learn when the user is active, surface proactive items at the right time
-- [ ] Heartbeat learns what to check based on operator model patterns (not a static checklist)
+- [x] Configurable heartbeat loop that wakes the agent at intervals to check work, repos, messages — Validated in Phase 2: Core Heartbeat
+- [x] Heartbeat-driven TODO monitoring: detect stale tasks, stuck goal runs, unreplied gateway messages — Validated in Phase 2: Core Heartbeat
+- [x] Wire M2 Anticipatory Runtime outputs (morning brief, stuck hints, hydration) into heartbeat cycle — Validated in Phase 4: Adaptive Heartbeat
+- [x] Operator-aware scheduling: learn when the user is active, surface proactive items at the right time — Validated in Phase 4: Adaptive Heartbeat
+- [x] Heartbeat learns what to check based on operator model patterns (not a static checklist) — Validated in Phase 4: Adaptive Heartbeat
 
 **Remembers: Memory Consolidation & Idle Learning**
-- [ ] Memory consolidation during idle heartbeat ticks: review traces, update MEMORY.md, decay stale facts
-- [ ] Automatic promotion of successful tool sequences into learned heuristics during idle time
-- [ ] Proactive memory refinement: reorganize and compress memory blocks for higher signal density
-- [ ] Cross-session context continuity: seamless thread resumption after daemon restart
+- [x] Memory consolidation during idle heartbeat ticks: review traces, update MEMORY.md, decay stale facts — Validated in Phase 5: Memory Consolidation
+- [x] Automatic promotion of successful tool sequences into learned heuristics during idle time — Validated in Phase 5: Memory Consolidation
+- [x] Proactive memory refinement: reorganize and compress memory blocks for higher signal density — Validated in Phase 5: Memory Consolidation
+- [x] Cross-session context continuity: seamless thread resumption after daemon restart — Validated in Phase 5: Memory Consolidation (gap closure 05-05)
 
 **Grows: Automatic Skill Discovery & Ecosystem**
-- [ ] Automatic skill drafting: when agent solves a novel problem (high complexity, eventual success), draft a candidate skill
-- [ ] Skill maturity lifecycle: Draft → Testing → Active → Proven → Canonical
-- [ ] Skill discovery feed: surface new/promoted skills to the user naturally in conversation
+- [x] Automatic skill drafting: when agent solves a novel problem (high complexity, eventual success), draft a candidate skill — Validated in Phase 6: Skill Discovery
+- [x] Skill maturity lifecycle: Draft → Testing → Active → Proven → Canonical — Validated in Phase 6: Skill Discovery
+- [x] Skill discovery feed: surface new/promoted skills to the user naturally in conversation — Validated in Phase 6: Skill Discovery
 - [ ] Community skill registry: publish, subscribe, discover skills with provenance metadata
 
 **Understands: Living Project Model**
@@ -84,16 +84,16 @@ These are what we're building next — the "living agent" milestone:
 - [ ] Contextual tool selection: use learned heuristics to pick optimal tools for task type without exploring
 
 **Ships: Production Hardening**
-- [ ] Wire circuit breaker into LLM call path (infrastructure exists, not connected)
-- [ ] Enable WAL mode for SQLite, share HistoryStore via Arc (eliminate connection contention)
-- [ ] Complete daemon-side gateway implementations (currently stubs in amux-gateway crate)
-- [ ] Increase broadcast channel capacity for high-throughput PTY sessions
+- [x] Wire circuit breaker into LLM call path — Validated in Phase 1: Production Foundation
+- [x] Enable WAL mode for SQLite, share HistoryStore via Arc — Validated in Phase 1: Production Foundation
+- [x] Complete daemon-side gateway implementations (currently stubs in amux-gateway crate) — Validated in Phase 8: Gateway Completion
+- [x] Increase broadcast channel capacity for high-throughput PTY sessions — Validated in Phase 1: Production Foundation
 
 **Feels Simple: User Experience**
 - [ ] Zero-friction first run: single binary or `npx` install that handles daemon + client setup
 - [ ] Concierge onboarding: guided first experience that explains what the agent can do
-- [ ] Clear status visibility: user always knows what the agent is doing, why, and what it learned
-- [ ] Transparent autonomy: every autonomous action has a simple explanation surface ("I did X because Y")
+- [x] Clear status visibility: user always knows what the agent is doing, why, and what it learned — Validated in Phase 3: Transparent Autonomy
+- [x] Transparent autonomy: every autonomous action has a simple explanation surface ("I did X because Y") — Validated in Phase 3: Transparent Autonomy
 - [ ] Graceful complexity disclosure: start simple, reveal depth as the user grows with the agent
 - [ ] Unified bridge helper: replace 39 `(window as any).tamux` casts with typed `getBridge()` accessor
 
@@ -175,4 +175,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-23 after initialization*
+*Last updated: 2026-03-24 after Phase 9 (Distribution) completion*
