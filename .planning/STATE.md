@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Plugin Ecosystem
-status: Ready to execute
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-03-24T20:57:52.596Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-03-24T21:05:30.261Z"
 progress:
   total_phases: 20
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 51
-  completed_plans: 46
+  completed_plans: 47
 ---
 
 # Project State
@@ -94,6 +94,7 @@ Plan: 2 of 2
 | Phase 14 P01 | 7min | 2 tasks | 7 files |
 | Phase 14 P02 | 8min | 2 tasks | 5 files |
 | Phase 15 P01 | 4min | 2 tasks | 4 files |
+| Phase 15 P02 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -188,6 +189,8 @@ Recent decisions affecting current work:
 - [Phase 14]: PluginManager reads from SQLite for list_plugins (not just in-memory) to reflect IPC-toggled enabled state
 - [Phase 14]: Settings schema extracted from manifest_json as standalone JSON for future dynamic form rendering
 - [Phase 15]: Combined Tasks 1+2 into single commit due to Rust exhaustive match; conflict detection uses in-memory map for loaded state; re-install skips conflict check for same-named plugins
+- [Phase 15]: reqwest::blocking::Client for GitHub tarball download to avoid block_on panic inside tokio runtime
+- [Phase 15]: Two-step install: files first then IPC; failed registration triggers file cleanup; daemon-unreachable prints warning
 
 ### Pending Todos
 
@@ -201,6 +204,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T20:57:52.593Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-03-24T21:05:30.258Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None

@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### v2.0: Plugin Ecosystem
 
 - [x] **Phase 14: Plugin Manifest & Loader** - JSON Schema definition, manifest validation, daemon loader, SQLite storage (completed 2026-03-24)
-- [ ] **Phase 15: Plugin CLI & Install** - Extend plugins.rs for new manifest format, npm/GitHub/local install, daemon IPC registration
+- [x] **Phase 15: Plugin CLI & Install** - Extend plugins.rs for new manifest format, npm/GitHub/local install, daemon IPC registration (completed 2026-03-24)
 - [ ] **Phase 16: Plugin Settings UI** - Plugins tab in TUI and Electron, dynamic form rendering from manifest schema
 - [ ] **Phase 17: API Proxy Layer** - HTTP proxy in daemon, Handlebars templates, SSRF protection, rate limiting
 - [ ] **Phase 18: OAuth2 Flow** - Authorization code + PKCE, encrypted token storage, refresh lifecycle, UI integration
@@ -296,11 +296,11 @@ Plans:
   4. `tamux plugin uninstall <name>` removes files, deregisters from daemon, cleans up bundled skills
   5. `tamux plugin list` shows all installed plugins with status
   6. Plugin install rejects on command/skill name conflicts with clear error
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 15-01-PLAN.md — IPC messages (PluginInstall/Uninstall), PluginManager register/unregister/conflict-check, server handlers
-- [ ] 15-02-PLAN.md — CLI plugin add/remove/ls/enable/disable with npm/GitHub/local source detection and daemon IPC
+- [x] 15-02-PLAN.md — CLI plugin add/remove/ls/enable/disable with npm/GitHub/local source detection and daemon IPC
 
 ### Phase 16: Plugin Settings UI
 **Goal**: Both TUI and Electron render a Plugins settings tab with dynamic forms generated from plugin manifest schemas
@@ -400,7 +400,7 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | 13. TUI UX Fixes | 3/3 | Complete | 2026-03-24 |
 | **v2.0** | | | |
 | 14. Plugin Manifest & Loader | 2/2 | Complete    | 2026-03-24 |
-| 15. Plugin CLI & Install | 1/2 | In Progress|  |
+| 15. Plugin CLI & Install | 2/2 | Complete   | 2026-03-24 |
 | 16. Plugin Settings UI | 0/? | Not started | - |
 | 17. API Proxy Layer | 0/? | Not started | - |
 | 18. OAuth2 Flow | 0/? | Not started | - |
