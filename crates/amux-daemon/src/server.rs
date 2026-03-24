@@ -2075,17 +2075,15 @@ where
                     {
                         Ok(_models) => {
                             tracing::info!(provider = %provider_id, "server: validation OK");
-                            // Don't send the full models list — providers like OpenRouter
-                            // return hundreds of models which bloats the response frame.
-                            // Callers that need models use AgentFetchModels instead.
-                            framed
-                                .send(DaemonMessage::AgentProviderValidation {
-                                    provider_id,
-                                    valid: true,
-                                    error: None,
-                                    models_json: None,
-                                })
-                                .await?;
+                            let resp = DaemonMessage::AgentProviderValidation {
+                                provider_id: provider_id.clone(),
+                                valid: true,
+                                error: None,
+                                models_json: None,
+                            };
+                            tracing::info!(provider = %provider_id, "server: sending validation response");
+                            framed.send(resp).await?;
+                            tracing::info!(provider = %provider_id, "server: validation response SENT and flushed");
                         }
                         Err(e) => {
                             tracing::warn!(provider = %provider_id, error = %e, "server: validation FAILED");

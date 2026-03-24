@@ -67,9 +67,13 @@ async fn wizard_send(
 async fn wizard_recv(
     framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
 ) -> Result<DaemonMessage> {
-    framed
-        .next()
-        .await
+    let result = framed.next().await;
+    match &result {
+        Some(Ok(msg)) => eprintln!("[wizard-debug] recv OK: {:?}", std::mem::discriminant(msg)),
+        Some(Err(e)) => eprintln!("[wizard-debug] recv ERR: {e}"),
+        None => eprintln!("[wizard-debug] recv NONE (stream closed)"),
+    }
+    result
         .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))?
         .map_err(Into::into)
 }
