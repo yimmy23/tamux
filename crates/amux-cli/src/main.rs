@@ -263,14 +263,12 @@ async fn main() -> Result<()> {
     let _log_guard = init_logging(log_file_name)?;
     tracing::info!(command = ?cli.command, "tamux-cli starting");
 
-    // If no subcommand provided, check for first-run setup
+    // If no subcommand provided, check for first-run setup via IPC with legacy fallback
     if cli.command.is_none() {
-        let needs = if setup_wizard::needs_setup_via_ipc().await {
-            true
-        } else {
-            false
-        };
-        let needs = needs || setup_wizard::needs_setup_legacy();
+        // Two-phase detection: try IPC first (daemon reachable), fall back to
+        // legacy config.json existence check (first-ever run, daemon not started yet).
+        let needs = setup_wizard::needs_setup_via_ipc().await
+            || setup_wizard::needs_setup_legacy();
 
         if needs {
             println!("Welcome to tamux! Running first-time setup...\n");
