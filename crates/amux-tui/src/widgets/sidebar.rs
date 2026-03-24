@@ -287,6 +287,52 @@ fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
     lines
 }
 
+fn agent_status_line(activity: Option<&str>, tier: &str) -> Line<'static> {
+    let status_span = match activity {
+        Some("thinking" | "reasoning" | "writing") => Span::styled(
+            "\u{25CF} Thinking",
+            Style::default().fg(Color::Yellow),
+        ),
+        Some(s) if s.starts_with('\u{2699}') => Span::styled(
+            format!("\u{25CF} {}", s),
+            Style::default().fg(Color::Blue),
+        ),
+        Some("waiting_for_approval") => Span::styled(
+            "\u{25CF} Awaiting approval",
+            Style::default().fg(Color::Rgb(255, 165, 0)),
+        ),
+        Some("running_goal" | "goal_running") => Span::styled(
+            "\u{25CF} Running goal",
+            Style::default().fg(Color::Green),
+        ),
+        Some("idle") | None => Span::styled(
+            "\u{25CF} Idle",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Some(other) => Span::styled(
+            format!("\u{25CF} {}", other),
+            Style::default().fg(Color::DarkGray),
+        ),
+    };
+
+    let tier_label = match tier {
+        "newcomer" => "",
+        "familiar" => " [familiar]",
+        "power_user" => " [power user]",
+        "expert" => " [expert]",
+        _ => "",
+    };
+
+    let mut spans = vec![Span::raw(" "), status_span];
+    if !tier_label.is_empty() {
+        spans.push(Span::styled(
+            tier_label.to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    Line::from(spans)
+}
+
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -297,6 +343,7 @@ pub fn render(
     _focused: bool,
     gateway_statuses: &[GatewayStatusVm],
     tier: &TierState,
+    agent_activity: Option<&str>,
 ) {
     if area.height < 3 {
         return;
@@ -315,16 +362,24 @@ pub fn render(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
+            Constraint::Length(1), // status line (activity + tier)
+            Constraint::Length(1), // tab bar
+            Constraint::Length(1), // tab hints
+            Constraint::Min(1),   // body
             Constraint::Length(gw_height),
             Constraint::Length(tier_height),
         ])
         .split(area);
+
+    // Agent status line at the very top
+    frame.render_widget(
+        Paragraph::new(agent_status_line(agent_activity, &tier.current_tier)),
+        chunks[0],
+    );
+
     for (tab, cell) in [
-        (SidebarTab::Files, tab_cells(chunks[0])[0]),
-        (SidebarTab::Todos, tab_cells(chunks[0])[1]),
+        (SidebarTab::Files, tab_cells(chunks[1])[0]),
+        (SidebarTab::Todos, tab_cells(chunks[1])[1]),
     ] {
         let style = if sidebar.active_tab() == tab {
             theme.fg_active.bg(Color::Indexed(236))
@@ -337,20 +392,20 @@ pub fn render(
             cell,
         );
     }
-    frame.render_widget(Paragraph::new(tab_hint_line(theme)), chunks[1]);
+    frame.render_widget(Paragraph::new(tab_hint_line(theme)), chunks[2]);
 
-    let rows = rows_for_thread(tasks, sidebar, thread_id, theme, chunks[2].width as usize);
-    let scroll = resolved_scroll(&rows, sidebar, chunks[2].height as usize);
+    let rows = rows_for_thread(tasks, sidebar, thread_id, theme, chunks[3].width as usize);
+    let scroll = resolved_scroll(&rows, sidebar, chunks[3].height as usize);
     let paragraph = Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>())
         .scroll((scroll as u16, 0));
-    frame.render_widget(paragraph, chunks[2]);
+    frame.render_widget(paragraph, chunks[3]);
 
     if !gw_lines.is_empty() {
-        frame.render_widget(Paragraph::new(gw_lines), chunks[3]);
+        frame.render_widget(Paragraph::new(gw_lines), chunks[4]);
     }
 
     if !tier_lines.is_empty() {
-        frame.render_widget(Paragraph::new(tier_lines), chunks[4]);
+        frame.render_widget(Paragraph::new(tier_lines), chunks[5]);
     }
 }
 
@@ -388,16 +443,21 @@ pub fn hit_test(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(1),
+            Constraint::Length(1), // status line
+            Constraint::Length(1), // tab bar
+            Constraint::Length(1), // tab hints
+            Constraint::Min(1),   // body
         ])
         .split(area);
 
+    // Click on status line — no action
     if mouse.y == chunks[0].y {
-        return tab_hit_test(chunks[0], mouse.x).map(SidebarHitTarget::Tab);
+        return None;
     }
     if mouse.y == chunks[1].y {
+        return tab_hit_test(chunks[1], mouse.x).map(SidebarHitTarget::Tab);
+    }
+    if mouse.y == chunks[2].y {
         return None;
     }
 
@@ -406,10 +466,10 @@ pub fn hit_test(
         sidebar,
         thread_id,
         &ThemeTokens::default(),
-        chunks[2].width as usize,
+        chunks[3].width as usize,
     );
-    let scroll = resolved_scroll(&rows, sidebar, chunks[2].height as usize);
-    let row_idx = scroll + mouse.y.saturating_sub(chunks[2].y) as usize;
+    let scroll = resolved_scroll(&rows, sidebar, chunks[3].height as usize);
+    let row_idx = scroll + mouse.y.saturating_sub(chunks[3].y) as usize;
     let row = rows.get(row_idx)?;
     if let Some(path) = &row.file_path {
         Some(SidebarHitTarget::File(path.clone()))

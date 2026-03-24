@@ -112,6 +112,7 @@ impl TuiModel {
                 self.focus == FocusArea::Sidebar,
                 &self.gateway_statuses,
                 &self.tier,
+                self.agent_activity.as_deref(),
             );
         } else {
             match &self.main_pane_view {
