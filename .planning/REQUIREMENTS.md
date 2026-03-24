@@ -73,10 +73,10 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 ### Distribution
 
 - [x] **DIST-01**: Single-command install via npm: `npx tamux` downloads and runs appropriate platform binary
-- [x] **DIST-02**: Standalone platform binaries via cargo-dist (Linux, macOS, Windows)
+- [x] **DIST-02**: Standalone platform binaries via GitLab CI multi-platform build matrix (Linux x64/arm64, macOS, Windows)
 - [x] **DIST-03**: Shell installer: `curl -fsSL https://tamux.dev/install.sh | sh` for Unix systems
 - [x] **DIST-04**: PowerShell installer for Windows
-- [x] **DIST-05**: First-run automatically spawns daemon, opens default client, and starts concierge onboarding
+- [x] **DIST-05**: First-run automatically spawns daemon, opens default client, and starts setup wizard (concierge onboarding deferred to Phase 10 per D-16)
 
 ### Gateway Completion
 
