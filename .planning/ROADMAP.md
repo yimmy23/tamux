@@ -215,7 +215,11 @@ Plans:
   3. Navigation uses arrow keys/enter/tab (not number input)
   4. Advanced users get optional steps for web search, gateway, and tool configuration
   5. Newcomer tier defaults to strictest approval thresholds
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — IPC-based wizard core: crossterm navigation, daemon-queried providers, IPC config writes
+- [ ] 11-02-PLAN.md — Tier-gated optional steps: security defaults, model selection, web search, gateway
 
 ### Phase 12: CLI Polish
 **Goal**: CLI subcommands are complete, functional, and don't expose internal-only commands
@@ -261,6 +265,6 @@ Phases 12 and 13 can execute in parallel (both depend on 11).
 | 8. Gateway Completion | 0/4 | Not started | - |
 | 9. Distribution | 0/4 | Not started | - |
 | 10. Progressive UX | 5/5 | Complete | 2026-03-24 |
-| 11. Setup Wizard Rewrite | 0/? | Not started | - |
+| 11. Setup Wizard Rewrite | 0/2 | Not started | - |
 | 12. CLI Polish | 0/? | Not started | - |
 | 13. TUI UX Fixes | 0/? | Not started | - |
