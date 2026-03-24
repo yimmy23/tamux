@@ -122,12 +122,7 @@ impl Sandbox for PassthroughSandbox {
         "passthrough"
     }
 
-    fn wrap(
-        &self,
-        command: &str,
-        _workspace_root: &str,
-        _allow_network: bool,
-    ) -> SandboxedCommand {
+    fn wrap(&self, command: &str, _workspace_root: &str, _allow_network: bool) -> SandboxedCommand {
         SandboxedCommand {
             program: "sh".to_string(),
             args: vec!["-c".to_string(), command.to_string()],

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { AppContext, defaultAppState } from "./context/AppContext";
 import { ViewBuilderOverlay } from "./components/ViewBuilderOverlay";
 import { LoadingState } from "./components/LoadingState";
@@ -18,6 +19,8 @@ import { isCDUIViewVisible, useCDUIVisibilityFlags } from "./lib/cduiVisibility"
 import { registerAITrainingPlugin } from "./plugins/ai-training/registerPlugin";
 import { registerCodingAgentsPlugin } from "./plugins/coding-agents/registerPlugin";
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
+import { ConciergeToast } from "./components/ConciergeToast";
+import { useAgentStore } from "./lib/agentStore";
 
 const EMBEDDED_VIEW_IDS = new Set([
   "search-overlay",
@@ -95,6 +98,50 @@ const CDUIApp = () => {
       cancelled = true;
     };
   }, [reloadViews]);
+
+  useEffect(() => {
+    const amux = getBridge();
+    if (!amux?.onAgentEvent) {
+      console.warn("[concierge] no onAgentEvent bridge available in CDUIApp");
+      return;
+    }
+
+    const applyConciergeWelcome = (event: any) => {
+      if (event?.type !== "concierge_welcome") {
+        return;
+      }
+      useAgentStore.setState({
+        conciergeWelcome: {
+          content: event.content ?? "",
+          actions: event.actions ?? [],
+        },
+      });
+    };
+
+    const unsubscribe = amux.onAgentEvent((event: any) => {
+      if (event?.type === "concierge_welcome") {
+        applyConciergeWelcome(event);
+      }
+    });
+
+    void useAgentStore.getState().refreshConciergeConfig?.();
+
+    const requestWelcome = () => {
+      if (!amux.agentRequestConciergeWelcome) {
+        return;
+      }
+      void amux.agentRequestConciergeWelcome().catch(() => {});
+    };
+
+    const timer = window.setTimeout(requestWelcome, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (views) {
@@ -292,6 +339,7 @@ const CDUIApp = () => {
       })}
       <ViewBuilderOverlay />
       <SetupOnboardingPanel />
+      <ConciergeToast />
     </AppContext.Provider>
   );
 };

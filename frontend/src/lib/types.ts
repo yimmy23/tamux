@@ -99,7 +99,43 @@ export interface PaneInfo {
 // ---------------------------------------------------------------------------
 // Notifications (OSC 9, 99, 777)
 // ---------------------------------------------------------------------------
-export type NotificationSource = "osc9" | "osc99" | "osc777" | "cli" | "system" | "approval";
+export type NotificationSource = "osc9" | "osc99" | "osc777" | "cli" | "system" | "approval" | "heartbeat" | "audit";
+
+// ---------------------------------------------------------------------------
+// Audit Feed (Phase 3 — Transparent Autonomy)
+// ---------------------------------------------------------------------------
+
+export type ActionType = "heartbeat" | "tool" | "escalation" | "skill" | "subagent";
+export type TimeRange = "last_hour" | "today" | "this_week" | "all_time";
+
+export type AuditUserAction = "dismissed" | "acted_on" | "pinned";
+
+export interface AuditEntry {
+  id: string;
+  timestamp: number;
+  actionType: ActionType;
+  summary: string;
+  explanation: string | null;
+  confidence: number | null;
+  confidenceBand: string | null;
+  causalTraceId: string | null;
+  threadId: string | null;
+  userAction?: AuditUserAction;
+}
+
+export interface AuditFilters {
+  types: Set<ActionType>;
+  timeRange: TimeRange;
+}
+
+export interface EscalationInfo {
+  threadId: string;
+  fromLevel: string;
+  toLevel: string;
+  reason: string;
+  attempts: number;
+  auditId: string | null;
+}
 
 export interface TerminalNotification {
   id: NotificationId;
@@ -208,23 +244,13 @@ export interface AmuxSettings {
   sandboxEnabled: boolean;
   sandboxNetworkEnabled: boolean;
   snapshotBackend: "tar" | "zfs" | "btrfs";
+  snapshotMaxCount: number;
+  snapshotMaxSizeMb: number;
+  snapshotAutoCleanup: boolean;
   wormIntegrityEnabled: boolean;
   cerbosEndpoint: string;
   mcpServersJson: string;
 
-  // Gateway
-  gatewayEnabled: boolean;
-  slackToken: string;
-  slackChannelFilter: string;
-  telegramToken: string;
-  telegramAllowedChats: string;
-  discordToken: string;
-  discordChannelFilter: string;
-  discordAllowedUsers: string;
-  whatsappToken: string;
-  whatsappPhoneNumberId: string;
-  whatsappAllowedContacts: string;
-  gatewayCommandPrefix: string;
 }
 
 export const DEFAULT_SETTINGS: AmuxSettings = {
@@ -262,21 +288,12 @@ export const DEFAULT_SETTINGS: AmuxSettings = {
   sandboxEnabled: false,
   sandboxNetworkEnabled: true,
   snapshotBackend: "tar",
+  snapshotMaxCount: 10,
+  snapshotMaxSizeMb: 51200,
+  snapshotAutoCleanup: true,
   wormIntegrityEnabled: true,
   cerbosEndpoint: "",
   mcpServersJson: "{\n  \"tamux\": {\n    \"command\": \"tamux-mcp\"\n  }\n}",
-  gatewayEnabled: false,
-  slackToken: "",
-  slackChannelFilter: "",
-  telegramToken: "",
-  telegramAllowedChats: "",
-  discordToken: "",
-  discordChannelFilter: "",
-  discordAllowedUsers: "",
-  whatsappToken: "",
-  whatsappPhoneNumberId: "",
-  whatsappAllowedContacts: "",
-  gatewayCommandPrefix: "!tamux",
 };
 
 // ---------------------------------------------------------------------------

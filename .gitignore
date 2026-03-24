@@ -8,9 +8,14 @@
 .history
 tmp
 .claude
+.superpowers
+.worktrees
 agents.md
 .codex
 .vsc
+.opencode
+.planning
+.copilot
 # IDE
 .idea/
 .vscode/settings.json
@@ -35,3 +40,17 @@ dist-release/tamux-gateway.exe
 dist-release/tamux-mcp.exe
 dist-release/tamux-portable.exe
 dist-release/tamux.exe
+.planning/
+.planning/PROJECT.md
+.planning/phases/01-production-foundation/01-01-PLAN.md
+.planning/phases/01-production-foundation/01-02-PLAN.md
+.planning/phases/01-production-foundation/01-03-PLAN.md
+.planning/phases/02-core-heartbeat/02-04-PLAN.md
+.planning/phases/04-adaptive-heartbeat/04-02-PLAN.md
+.planning/phases/04-adaptive-heartbeat/04-03-PLAN.md
+.planning/phases/05-memory-consolidation/05-01-PLAN.md
+.planning/phases/05-memory-consolidation/05-02-PLAN.md
+.planning/phases/05-memory-consolidation/05-03-PLAN.md
+.planning/phases/05-memory-consolidation/05-04-PLAN.md
+.planning/phases/06-skill-discovery/06-02-PLAN.md
+.planning/phases/06-skill-discovery/06-03-PLAN.md

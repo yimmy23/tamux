@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useAgentStore } from "./agentStore";
+import { getBridge } from "./bridge";
 import { useSettingsStore } from "./settingsStore";
 import type { AmuxSettings } from "./types";
 import { readPersistedJson, readPersistedText, scheduleTextWrite } from "./persistence";
@@ -23,7 +24,12 @@ export interface OperationalEvent {
     | "approval-requested"
     | "approval-approved"
     | "approval-denied"
-    | "tool-call";
+    | "tool-call"
+    | "plan-mode"
+    | "memory-consulted"
+    | "memory-updated"
+    | "skill-consulted"
+    | "history-consulted";
     command: string | null;
     message: string | null;
     exitCode: number | null;
@@ -50,7 +56,7 @@ export interface ContextSnapshot {
     workspaceId: string | null;
     surfaceId: string | null;
     sessionId: string | null;
-    activeProvider: string;
+    active_provider: string;
     model: string;
     threadCount: number;
     snippetCount: number;
@@ -115,6 +121,7 @@ type PersistedMissionState = {
     contextSnapshots?: ContextSnapshot[];
     approvals?: ApprovalRequest[];
     sessionAllowlist?: Record<string, string[]>;
+    snapshots?: SnapshotRecord[];
 };
 
 type AgentEventRow = {
@@ -132,6 +139,7 @@ type AgentEventRow = {
 type MissionDbApi = {
     dbUpsertAgentEvent?: (eventRow: AgentEventRow) => Promise<boolean>;
     dbListAgentEvents?: (opts?: { category?: string | null; paneId?: string | null; limit?: number | null }) => Promise<AgentEventRow[]>;
+    dbListSnapshotIndex?: (workspaceId?: string | null) => Promise<unknown[]>;
 };
 
 const MISSION_DIR = "agent-mission";
@@ -160,7 +168,7 @@ let contextId = 0;
 let approvalId = 0;
 
 function getMissionDbApi(): MissionDbApi | null {
-    const api = (window as any).tamux ?? (window as any).amux;
+    const api = getBridge();
     if (!api) return null;
     return api as MissionDbApi;
 }
@@ -254,6 +262,10 @@ function syncCounters(state: PersistedMissionState): void {
     }
 }
 
+/**
+ * Bulk-persist all mission state to SQLite. Used only during initial hydration /
+ * migration so that legacy JSON-file data is back-filled into the DB.
+ */
 function persistMissionState(state: PersistedMissionState): void {
     const payload: PersistedMissionState = {
         operationalEvents: limitItems(state.operationalEvents ?? [], MAX_OPERATIONAL_EVENTS),
@@ -279,6 +291,24 @@ function persistMissionState(state: PersistedMissionState): void {
             await api.dbUpsertAgentEvent?.(serializeApprovalRequest(approval));
         }
         for (const [sessionKey, commands] of Object.entries(payload.sessionAllowlist ?? {})) {
+            await api.dbUpsertAgentEvent?.(serializeAllowlistEntry(sessionKey, commands));
+        }
+    })();
+}
+
+/** Persist a single pre-serialized event row to SQLite (fire-and-forget). */
+function persistSingleMissionEvent(row: AgentEventRow): void {
+    const api = getMissionDbApi();
+    if (!api?.dbUpsertAgentEvent) return;
+    void api.dbUpsertAgentEvent(row);
+}
+
+/** Persist the full allowlist map to SQLite (the allowlist is a map, not individual events). */
+function persistAllowlist(sessionAllowlist: Record<string, string[]>): void {
+    const api = getMissionDbApi();
+    if (!api?.dbUpsertAgentEvent) return;
+    void (async () => {
+        for (const [sessionKey, commands] of Object.entries(sessionAllowlist)) {
             await api.dbUpsertAgentEvent?.(serializeAllowlistEntry(sessionKey, commands));
         }
     })();
@@ -438,7 +468,7 @@ function buildContextSnapshot(opts: {
 }): ContextSnapshot {
     const { agentSettings, threads } = useAgentStore.getState();
     const snippets = useSnippetStore.getState().snippets;
-    const activeProviderConfig = agentSettings[agentSettings.activeProvider] as { model: string };
+    const active_providerConfig = agentSettings[agentSettings.active_provider] as { model: string };
 
     return {
         id: nextId("ctx", "context"),
@@ -447,11 +477,11 @@ function buildContextSnapshot(opts: {
         workspaceId: opts.workspaceId ?? null,
         surfaceId: opts.surfaceId ?? null,
         sessionId: opts.sessionId ?? null,
-        activeProvider: agentSettings.activeProvider,
-        model: activeProviderConfig?.model ?? "",
+        active_provider: agentSettings.active_provider,
+        model: active_providerConfig?.model ?? "",
         threadCount: threads.length,
         snippetCount: snippets.length,
-        tokenBudget: agentSettings.contextBudgetTokens,
+        tokenBudget: agentSettings.context_budget_tokens,
         systemMemoryChars: opts.frozenSnapshot.length,
         userMemoryChars: opts.userProfile.length,
     };
@@ -567,6 +597,7 @@ export interface AgentMissionState {
     recordCommandFinished: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; command?: string | null; exitCode?: number | null; durationMs?: number | null }) => void;
     recordSessionExited: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; exitCode?: number | null }) => void;
     recordError: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; message: string }) => void;
+    recordOperationalEvent: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; kind: OperationalEvent["kind"]; command?: string | null; message?: string | null; exitCode?: number | null; durationMs?: number | null; riskLevel?: RiskLevel | null; blastRadius?: string | null }) => void;
     recordCognitiveOutput: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; text: string }) => void;
     requestApproval: (opts: { paneId: string; workspaceId?: string | null; surfaceId?: string | null; sessionId?: string | null; command: string; reasons: string[]; riskLevel: RiskLevel; blastRadius: string }) => string;
     resolveApproval: (id: string, status: "approved-once" | "approved-session" | "denied") => void;
@@ -610,13 +641,6 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             const memory = { ...state.memory, [kind]: bounded };
 
             scheduleTextWrite(kind === "frozenSnapshot" ? MEMORY_FILE : USER_FILE, bounded, 200);
-            persistMissionState({
-                operationalEvents: state.operationalEvents,
-                cognitiveEvents: state.cognitiveEvents,
-                contextSnapshots: state.contextSnapshots,
-                approvals: state.approvals,
-                sessionAllowlist: state.sessionAllowlist,
-            });
 
             return { memory };
         });
@@ -641,7 +665,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -674,7 +698,8 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
             const contextSnapshots = limitItems([snapshot, ...state.contextSnapshots], MAX_CONTEXT_SNAPSHOTS);
-            persistMissionState({ ...state, operationalEvents, contextSnapshots });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
+            persistSingleMissionEvent(serializeContextSnapshot(snapshot));
             return { operationalEvents, contextSnapshots };
         });
     },
@@ -698,7 +723,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -722,7 +747,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -746,7 +771,30 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
+            return { operationalEvents };
+        });
+    },
+
+    recordOperationalEvent: (opts) => {
+        set((state) => {
+            const event: OperationalEvent = {
+                id: nextId("op", "operational"),
+                timestamp: Date.now(),
+                paneId: opts.paneId,
+                workspaceId: opts.workspaceId ?? null,
+                surfaceId: opts.surfaceId ?? null,
+                sessionId: opts.sessionId ?? null,
+                kind: opts.kind,
+                command: opts.command ?? null,
+                message: opts.message ?? null,
+                exitCode: opts.exitCode ?? null,
+                durationMs: opts.durationMs ?? null,
+                riskLevel: opts.riskLevel ?? null,
+                blastRadius: opts.blastRadius ?? null,
+            };
+            const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -770,7 +818,9 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             cognitiveId += events.length;
 
             const cognitiveEvents = limitItems([...events.reverse(), ...state.cognitiveEvents], MAX_COGNITIVE_EVENTS);
-            persistMissionState({ ...state, cognitiveEvents });
+            for (const ev of events) {
+                persistSingleMissionEvent(serializeCognitiveEvent(ev));
+            }
             return { cognitiveEvents };
         });
     },
@@ -819,12 +869,20 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
                 ...state.approvals.filter((entry) => entry.id !== opts.id),
             ], MAX_APPROVALS);
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, approvals, operationalEvents });
+            persistSingleMissionEvent(serializeApprovalRequest(approval));
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { approvals, operationalEvents };
         });
     },
 
     resolveApproval: (id, status) => {
+        // Send approval decision to daemon via IPC
+        const amux = getBridge();
+        if (amux?.agentResolveTaskApproval) {
+            const decision = status === "denied" ? "deny" : status === "approved-session" ? "approve-session" : "approve-once";
+            amux.agentResolveTaskApproval(id, decision).catch(() => {});
+        }
+
         set((state) => {
             const approval = state.approvals.find((entry) => entry.id === id);
             if (!approval) return state;
@@ -859,7 +917,10 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             };
 
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, approvals, operationalEvents, sessionAllowlist });
+            const resolvedApproval = approvals.find((entry) => entry.id === id);
+            if (resolvedApproval) persistSingleMissionEvent(serializeApprovalRequest(resolvedApproval));
+            persistSingleMissionEvent(serializeOperationalEvent(event));
+            if (status === "approved-session") persistAllowlist(sessionAllowlist);
             return { approvals, operationalEvents, sessionAllowlist };
         });
     },
@@ -870,7 +931,8 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
                 if (entry.id !== id || entry.handledAt) return entry;
                 return { ...entry, handledAt: Date.now() };
             });
-            persistMissionState({ ...state, approvals });
+            const updatedApproval = approvals.find((entry) => entry.id === id);
+            if (updatedApproval) persistSingleMissionEvent(serializeApprovalRequest(updatedApproval));
             return { approvals };
         });
     },
@@ -897,7 +959,7 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
                 blastRadius: null,
             };
             const operationalEvents = limitItems([event, ...state.operationalEvents], MAX_OPERATIONAL_EVENTS);
-            persistMissionState({ ...state, operationalEvents });
+            persistSingleMissionEvent(serializeOperationalEvent(event));
             return { operationalEvents };
         });
     },
@@ -910,6 +972,9 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
             contextSnapshots: Array.isArray(payload.contextSnapshots) ? payload.contextSnapshots : [],
             approvals: Array.isArray(payload.approvals) ? payload.approvals : [],
             sessionAllowlist: payload.sessionAllowlist ?? {},
+            snapshots: Array.isArray(payload.snapshots)
+                ? payload.snapshots.slice().sort((a, b) => b.createdAt - a.createdAt)
+                : [],
             memory: {
                 frozenSnapshot: trimBoundedText(payload.memory?.frozenSnapshot ?? defaultFrozenSnapshot(), MEMORY_MAX_CHARS),
                 userProfile: trimBoundedText(payload.memory?.userProfile ?? defaultUserProfile(), USER_MAX_CHARS),
@@ -920,7 +985,8 @@ export const useAgentMissionStore = create<AgentMissionState>((set, get) => ({
 
 export async function hydrateAgentMissionStore(): Promise<void> {
     const dbState = await loadDbMissionState();
-    const [operationalEvents, cognitiveEvents, contextSnapshots, approvals, sessionAllowlist, frozenSnapshot, userProfile] = await Promise.all([
+    const api = getMissionDbApi();
+    const [operationalEvents, cognitiveEvents, contextSnapshots, approvals, sessionAllowlist, frozenSnapshot, userProfile, snapshotRows] = await Promise.all([
         readPersistedJson<OperationalEvent[]>(OPERATIONAL_FILE),
         readPersistedJson<CognitiveEvent[]>(COGNITIVE_FILE),
         readPersistedJson<ContextSnapshot[]>(CONTEXT_FILE),
@@ -928,7 +994,23 @@ export async function hydrateAgentMissionStore(): Promise<void> {
         readPersistedJson<Record<string, string[]>>(ALLOWLIST_FILE),
         readPersistedText(MEMORY_FILE),
         readPersistedText(USER_FILE),
+        api?.dbListSnapshotIndex?.(null) ?? Promise.resolve([]),
     ]);
+
+    const snapshots = Array.isArray(snapshotRows)
+        ? snapshotRows.map((snapshot: any) => ({
+            snapshotId: snapshot.snapshotId ?? snapshot.snapshot_id,
+            workspaceId: snapshot.workspaceId ?? snapshot.workspace_id ?? null,
+            sessionId: snapshot.sessionId ?? snapshot.session_id ?? null,
+            command: snapshot.command ?? null,
+            kind: snapshot.kind ?? "tar",
+            label: snapshot.label ?? "snapshot",
+            path: snapshot.path ?? "",
+            createdAt: snapshot.createdAt ?? snapshot.created_at ?? Date.now(),
+            status: snapshot.status ?? "ready",
+            details: snapshot.details ?? "",
+        })).sort((a, b) => b.createdAt - a.createdAt)
+        : [];
 
     useAgentMissionStore.getState().hydrate({
         operationalEvents: dbState?.operationalEvents ?? operationalEvents ?? [],
@@ -936,6 +1018,7 @@ export async function hydrateAgentMissionStore(): Promise<void> {
         contextSnapshots: dbState?.contextSnapshots ?? contextSnapshots ?? [],
         approvals: dbState?.approvals ?? approvals ?? [],
         sessionAllowlist: dbState?.sessionAllowlist ?? sessionAllowlist ?? {},
+        snapshots,
         memory: {
             frozenSnapshot: frozenSnapshot ?? defaultFrozenSnapshot(),
             userProfile: userProfile ?? defaultUserProfile(),

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { isCDUIEnabled, setCDUIEnabled } from "../../lib/cduiMode";
 import { Section, SettingRow, Toggle, smallBtnStyle } from "./shared";
 
@@ -20,7 +21,7 @@ export function AboutTab() {
     const [viewsPathLabel, setViewsPathLabel] = useState<string>(() => defaultViewsPathLabel());
 
     useEffect(() => {
-        const bridge = (window as any).tamux ?? (window as any).amux;
+        const bridge = getBridge();
         if (!bridge?.getDataDir) return;
         bridge.getDataDir()
             .then((dataDir: string) => {
@@ -39,8 +40,11 @@ export function AboutTab() {
     return (
         <>
             <Section title="Runtime Mode">
-                <SettingRow label="Use New CDUI">
-                    <Toggle value={cduiEnabled} onChange={setCduiEnabledState} />
+                <SettingRow label="Use New CDUI (this will reload the app immediately!)">
+                    <Toggle value={cduiEnabled} onChange={() => {
+                        setCduiEnabledState((prev) => !prev);
+                        setCDUIEnabled(!cduiEnabled);
+                    }} />
                 </SettingRow>
                 <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                     <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
@@ -49,7 +53,7 @@ export function AboutTab() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <button
                             onClick={() => {
-                                void ((window as any).tamux ?? (window as any).amux)?.revealDataPath?.("views");
+                                void (getBridge())?.revealDataPath?.("views");
                             }}
                             style={smallBtnStyle}
                         >
@@ -83,7 +87,7 @@ export function AboutTab() {
             <Section title="About">
                 <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                     <p style={{ fontWeight: 600, marginBottom: 8 }}>tamux - Terminal Multiplexer</p>
-                    <p>Version 0.1.8</p>
+                    <p>Version 0.1.10</p>
                     <p style={{ marginTop: 8, color: "var(--text-secondary)" }}>
                         A cross-platform terminal multiplexer with workspaces, surfaces, pane management,
                         AI agent integration, snippet library, and session persistence.

@@ -1,8 +1,15 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useSettingsStore } from "../lib/settingsStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
+import {
+  buildDaemonAgentConfig,
+  diffDaemonConfigEntries,
+  getAgentBridge,
+  shouldUseDaemonRuntime,
+} from "../lib/agentDaemonConfig";
 import { AboutTab } from "./settings-panel/AboutTab";
 import { AppearanceTab } from "./settings-panel/AppearanceTab";
 import { AgentTab } from "./settings-panel/AgentTab";
@@ -10,11 +17,17 @@ import { BehaviorTab } from "./settings-panel/BehaviorTab";
 import { GatewayTab } from "./settings-panel/GatewayTab";
 import { KeyboardTab } from "./settings-panel/KeyboardTab";
 import { TerminalTab } from "./settings-panel/TerminalTab";
+import { ProviderAuthTab } from "./settings-panel/ProviderAuthTab";
+import { SubAgentsTab } from "./settings-panel/SubAgentsTab";
+import { ConciergeSection } from "./settings-panel/ConciergeSection";
+import { PluginsTab } from "./settings-panel/PluginsTab";
+import { TierGatedSection } from "./base-components/TierGatedSection";
 import {
   headerBtnStyle,
 } from "./settings-panel/shared";
+import { useTierStore, type CapabilityTier } from "../lib/tierStore";
 
-type SettingsTab = "appearance" | "terminal" | "behavior" | "agent" | "gateway" | "keyboard" | "about";
+type SettingsTab = "appearance" | "terminal" | "behavior" | "auth" | "agent" | "concierge" | "subagents" | "gateway" | "keyboard" | "about" | "plugins";
 
 type SettingsPanelProps = {
   style?: CSSProperties;
@@ -37,25 +50,40 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
   const updateProfile = useSettingsStore((s) => s.updateProfile);
   const setDefaultProfile = useSettingsStore((s) => s.setDefaultProfile);
   const agentSettings = useAgentStore((s) => s.agentSettings);
+  const agentSettingsHydrated = useAgentStore((s) => s.agentSettingsHydrated);
   const updateAgentSetting = useAgentStore((s) => s.updateAgentSetting);
   const resetAgentSettings = useAgentStore((s) => s.resetAgentSettings);
+  const refreshAgentSettingsFromDaemon = useAgentStore((s) => s.refreshAgentSettingsFromDaemon);
+  const markAgentSettingsSynced = useAgentStore((s) => s.markAgentSettingsSynced);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const snapshots = useAgentMissionStore((s) => s.snapshots);
+  const currentTier = useTierStore((s) => s.currentTier);
+
+  const handleTierOverride = async (newTier: string) => {
+    const bridge = getBridge();
+    if (!bridge) return;
+    const tierValue = newTier === "auto" ? null : newTier;
+    await bridge.agentSetTierOverride?.(tierValue);
+    if (tierValue) {
+      useTierStore.getState().setTier(tierValue as CapabilityTier);
+    }
+  };
 
   const [tab, setTab] = useState<SettingsTab>("appearance");
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
   const [availableShells, setAvailableShells] = useState<{ name: string; path: string; args?: string }[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(true);
+  const lastDaemonConfigJsonRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (open && systemFonts.length === 0) {
       // Load system fonts via Electron IPC
       if (typeof window !== "undefined" && ("tamux" in window || "amux" in window)) {
-        const bridge = (window as any).tamux ?? (window as any).amux;
-        bridge.getSystemFonts().then((fonts: string[]) => {
+        const bridge = getBridge();
+        bridge?.getSystemFonts?.().then((fonts: string[]) => {
           setSystemFonts(fonts);
         });
-        bridge.getAvailableShells?.().then(
+        bridge?.getAvailableShells?.().then(
           (shells: { name: string; path: string; args?: string }[]) => setAvailableShells(shells),
         ).catch(() => {});
       }
@@ -69,12 +97,55 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
+    void refreshAgentSettingsFromDaemon().then((ok) => {
+      if (!ok) return;
+      const latestAgentSettings = useAgentStore.getState().agentSettings;
+      lastDaemonConfigJsonRef.current = JSON.stringify(
+        buildDaemonAgentConfig(latestAgentSettings),
+      );
+    });
+  }, [open, refreshAgentSettingsFromDaemon]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!agentSettingsHydrated) return;
+    if (!shouldUseDaemonRuntime(agentSettings.agent_backend)) return;
+    const bridge = getAgentBridge();
+    if (!bridge?.agentSetConfigItem) return;
+    const nextConfig = buildDaemonAgentConfig(agentSettings);
+    const nextConfigJson = JSON.stringify(nextConfig);
+    if (lastDaemonConfigJsonRef.current === null) return;
+    if (lastDaemonConfigJsonRef.current === nextConfigJson) return;
+    const previousConfig = JSON.parse(lastDaemonConfigJsonRef.current);
+    const changes = diffDaemonConfigEntries(previousConfig, nextConfig);
+    if (changes.length === 0) {
+      lastDaemonConfigJsonRef.current = nextConfigJson;
+      markAgentSettingsSynced();
+      return;
+    }
+    void Promise.all(
+      changes.map(({ keyPath, value }) => bridge.agentSetConfigItem?.(keyPath, value)),
+    ).then(() => {
+      lastDaemonConfigJsonRef.current = nextConfigJson;
+      markAgentSettingsSynced();
+    }).catch(() => {});
+  }, [
+    open,
+    settings,
+    agentSettings,
+    agentSettingsHydrated,
+    markAgentSettingsSynced,
+    settings,
+  ]);
+
+  useEffect(() => {
     const handleOpenTab = (event: Event) => {
       const customEvent = event as CustomEvent<{ tab?: SettingsTab }>;
       const requestedTab = customEvent.detail?.tab;
       if (!requestedTab) return;
 
-      if (["appearance", "terminal", "behavior", "agent", "gateway", "keyboard", "about"].includes(requestedTab)) {
+      if (["appearance", "terminal", "behavior", "auth", "agent", "concierge", "subagents", "gateway", "keyboard", "about", "plugins"].includes(requestedTab)) {
         setTab(requestedTab);
       }
     };
@@ -93,10 +164,14 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     { id: "appearance", label: "Interface" },
     { id: "terminal", label: "Execution" },
     { id: "behavior", label: "Operator" },
+    { id: "auth", label: "Auth" },
     { id: "agent", label: "Agent" },
+    { id: "concierge", label: "Concierge" },
+    { id: "subagents", label: "Sub-Agents" },
     { id: "gateway", label: "Gateway" },
     { id: "keyboard", label: "Bindings" },
     { id: "about", label: "Runtime" },
+    { id: "plugins", label: "Plugins" },
   ];
 
   return (
@@ -165,9 +240,34 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
             <SettingsMetric label="Theme" value={settings.themeName} />
-            <SettingsMetric label="Provider" value={agentSettings.activeProvider} />
+            <SettingsMetric label="Provider" value={agentSettings.active_provider} />
             <SettingsMetric label="Approvals" value={String(approvals.filter((entry) => entry.status === "pending").length)} />
             <SettingsMetric label="Snapshots" value={String(snapshots.length)} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>Experience Level</span>
+            <select
+              value={currentTier}
+              onChange={(e) => void handleTierOverride(e.target.value)}
+              style={{
+                background: "rgba(18, 33, 47, 0.8)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "var(--text-primary)",
+                padding: "4px 8px",
+                fontSize: 12,
+                borderRadius: 4,
+                fontFamily: "inherit",
+              }}
+            >
+              <option value="auto">Automatic</option>
+              <option value="newcomer">Newcomer</option>
+              <option value="familiar">Familiar</option>
+              <option value="power_user">Power User</option>
+              <option value="expert">Expert</option>
+            </select>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", opacity: 0.7 }}>
+              Controls which features are visible
+            </span>
           </div>
         </div>
 
@@ -204,16 +304,38 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
             />
           )}
           {tab === "behavior" && (
-            <BehaviorTab settings={settings} updateSetting={updateSetting} />
+            <TierGatedSection requiredTier="familiar" label="Task Queue & Scheduling">
+              <BehaviorTab settings={settings} updateSetting={updateSetting} />
+            </TierGatedSection>
           )}
+          {tab === "auth" && <ProviderAuthTab />}
           {tab === "agent" && (
-            <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
+            <TierGatedSection requiredTier="familiar" label="Goal Runs & Agent Configuration">
+              <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
+            </TierGatedSection>
+          )}
+          {tab === "concierge" && <ConciergeSection />}
+          {tab === "subagents" && (
+            <TierGatedSection requiredTier="power_user" label="Sub-Agent Management">
+              <SubAgentsTab />
+            </TierGatedSection>
           )}
           {tab === "gateway" && (
-            <GatewayTab settings={settings} updateSetting={updateSetting} />
+            <TierGatedSection requiredTier="familiar" label="Gateway Configuration">
+              <GatewayTab settings={agentSettings} updateSetting={updateAgentSetting} />
+            </TierGatedSection>
           )}
           {tab === "keyboard" && <KeyboardTab />}
-          {tab === "about" && <AboutTab />}
+          {tab === "about" && (
+            <TierGatedSection requiredTier="expert" label="Memory & Learning Controls">
+              <AboutTab />
+            </TierGatedSection>
+          )}
+          {tab === "plugins" && (
+            <TierGatedSection requiredTier="familiar" label="Plugins">
+              <PluginsTab />
+            </TierGatedSection>
+          )}
         </div>
       </div>
     </div>
@@ -228,4 +350,3 @@ function SettingsMetric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

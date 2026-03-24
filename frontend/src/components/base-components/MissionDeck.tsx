@@ -34,7 +34,7 @@ export const MissionDeck: React.FC<MissionDeckProps> = ({
 
     const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace());
     const activeSurface = useWorkspaceStore((s) => s.activeSurface());
-    const activeProvider = useAgentStore((s) => s.agentSettings.activeProvider);
+    const active_provider = useAgentStore((s) => s.agentSettings.active_provider);
     const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
     const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
     const approvals = useAgentMissionStore((s) => s.approvals);
@@ -52,7 +52,7 @@ export const MissionDeck: React.FC<MissionDeckProps> = ({
     const missionButton = asText(missionButtonLabel, "Mission");
     const vaultButton = asText(vaultButtonLabel, "Vault");
     const providerPrefix = asText(providerLabelPrefix, "provider");
-    const providerText = asText(activeProvider, "unknown");
+    const providerText = asText(active_provider, "unknown");
     const approvalsText = asText(approvalsLabel, "approvals");
     const traceText = asText(traceLabel, "trace");
     const opsText = asText(opsLabel, "ops");

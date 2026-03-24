@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import type { AmuxSettings } from "../../lib/types";
 import { NumberInput, Section, SelectInput, SettingRow, type SettingsUpdater, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
@@ -86,8 +87,8 @@ export function BehaviorTab({
 
     const runLspHealthCheck = async () => {
         try {
-            const result = await ((window as any).tamux ?? (window as any).amux)?.checkLspHealth?.();
-            setLspHealth(result ?? null);
+            const result = await (getBridge())?.checkLspHealth?.();
+            setLspHealth((result as Record<string, boolean>) ?? null);
         } catch {
             setLspHealth(null);
         }
@@ -101,7 +102,7 @@ export function BehaviorTab({
         }
         setMcpError(null);
         try {
-            const result = await ((window as any).tamux ?? (window as any).amux)?.checkMcpHealth?.(parsed.servers);
+            const result = await (getBridge())?.checkMcpHealth?.(parsed.servers);
             setMcpHealth(Array.isArray(result) ? result : null);
         } catch {
             setMcpHealth(null);
@@ -190,6 +191,18 @@ export function BehaviorTab({
                     <SelectInput value={settings.snapshotBackend}
                         options={["tar", "zfs", "btrfs"]}
                         onChange={(value) => updateSetting("snapshotBackend", value as "tar" | "zfs" | "btrfs")} />
+                </SettingRow>
+                <SettingRow label="Snapshot Max Count">
+                    <NumberInput value={settings.snapshotMaxCount} min={1} max={1000}
+                        onChange={(value) => updateSetting("snapshotMaxCount", Math.max(1, Math.floor(value)))} />
+                </SettingRow>
+                <SettingRow label="Snapshot Max Size (MB)">
+                    <NumberInput value={settings.snapshotMaxSizeMb} min={1024} max={500000} step={1024}
+                        onChange={(value) => updateSetting("snapshotMaxSizeMb", Math.max(1024, Math.floor(value)))} />
+                </SettingRow>
+                <SettingRow label="Snapshot Auto Cleanup">
+                    <Toggle value={settings.snapshotAutoCleanup}
+                        onChange={(value) => updateSetting("snapshotAutoCleanup", value)} />
                 </SettingRow>
                 <SettingRow label="WORM Integrity Checks">
                     <Toggle value={settings.wormIntegrityEnabled}

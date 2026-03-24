@@ -72,8 +72,9 @@ impl GatewayProvider for TelegramProvider {
 
     fn recv<'a>(
         &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<GatewayMessage>>> + Send + 'a>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<GatewayMessage>>> + Send + 'a>,
+    > {
         Box::pin(async move {
             if !self.connected {
                 bail!("Telegram provider not connected");

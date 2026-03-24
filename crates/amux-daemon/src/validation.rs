@@ -1,5 +1,5 @@
-use anyhow::Result;
 use amux_protocol::SymbolMatch;
+use anyhow::Result;
 use regex::Regex;
 use std::sync::LazyLock;
 use tree_sitter::Parser;
@@ -8,8 +8,10 @@ use walkdir::WalkDir;
 use crate::lsp_client;
 
 static SYMBOL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(fn|struct|enum|trait|impl|class|interface|type|const)\s+([A-Za-z_][A-Za-z0-9_]*)")
-        .unwrap()
+    Regex::new(
+        r"\b(fn|struct|enum|trait|impl|class|interface|type|const)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    )
+    .unwrap()
 });
 
 pub fn validate_command(command: &str, language_hint: Option<&str>) -> Result<()> {
@@ -71,7 +73,10 @@ pub fn find_symbol(workspace_root: &str, symbol: &str, limit: usize) -> Vec<Symb
             let mut kind = "reference";
             if let Some(captures) = SYMBOL_PATTERN.captures(line_trimmed) {
                 if captures.get(2).map(|value| value.as_str()) == Some(symbol) {
-                    kind = captures.get(1).map(|value| value.as_str()).unwrap_or("symbol");
+                    kind = captures
+                        .get(1)
+                        .map(|value| value.as_str())
+                        .unwrap_or("symbol");
                 }
             }
 

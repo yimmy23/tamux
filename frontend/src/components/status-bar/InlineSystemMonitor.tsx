@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 
 export function InlineSystemMonitor() {
     const [stats, setStats] = useState<{
@@ -10,12 +11,13 @@ export function InlineSystemMonitor() {
 
     useEffect(() => {
         let active = true;
-        const amux = (window as any).tamux ?? (window as any).amux;
-        if (!amux?.getSystemMonitorSnapshot) return;
+        const amux = getBridge();
+        const getSnapshot = amux?.getSystemMonitorSnapshot;
+        if (!getSnapshot) return;
 
         const fetchStats = async () => {
             try {
-                const snap = await amux.getSystemMonitorSnapshot({ processLimit: 0 });
+                const snap = await getSnapshot({ processLimit: 0 });
                 if (!active) return;
                 setStats({
                     cpu: snap.cpu?.usagePercent ?? 0,

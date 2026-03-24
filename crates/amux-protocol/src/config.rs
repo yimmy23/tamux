@@ -125,6 +125,15 @@ pub struct AmuxConfig {
     /// Snapshot backend: "auto", "tar", "zfs", "btrfs". Default is "auto".
     pub snapshot_backend: Option<String>,
 
+    /// Maximum number of snapshots to keep.
+    pub snapshot_max_count: usize,
+
+    /// Maximum total size of all snapshots in megabytes.
+    pub snapshot_max_total_size_mb: u64,
+
+    /// Whether snapshot retention is enforced automatically after create().
+    pub snapshot_auto_cleanup: bool,
+
     /// Cerbos PDP endpoint for external policy evaluation (e.g. "http://localhost:3592").
     pub cerbos_endpoint: Option<String>,
 }
@@ -148,6 +157,9 @@ impl Default for AmuxConfig {
             auto_start_daemon: true,
             sandbox_enabled: true,
             snapshot_backend: None,
+            snapshot_max_count: 10,
+            snapshot_max_total_size_mb: 51_200,
+            snapshot_auto_cleanup: true,
             cerbos_endpoint: None,
         }
     }
@@ -182,8 +194,7 @@ impl AmuxConfig {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let data = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(&path, data)
     }
 

@@ -13,16 +13,25 @@ type HonchoSession = {
 };
 
 type HonchoCtor = new (options?: {
-    apiKey?: string;
-    baseUrl?: string;
+    api_key?: string;
+    base_url?: string;
     workspaceId?: string;
 }) => unknown;
 
 const syncedMessageIds = new Set<string>();
+const SYNCED_IDS_MAX = 10_000;
+
+function trackSyncedId(id: string): void {
+    syncedMessageIds.add(id);
+    if (syncedMessageIds.size > SYNCED_IDS_MAX) {
+        const first = syncedMessageIds.values().next().value;
+        if (first !== undefined) syncedMessageIds.delete(first);
+    }
+}
 let honchoCtorPromise: Promise<HonchoCtor> | null = null;
 
 function isEnabled(settings: AgentSettings): boolean {
-    return Boolean(settings.enableHonchoMemory && settings.honchoApiKey.trim());
+    return Boolean(settings.enable_honcho_memory && settings.honcho_api_key.trim());
 }
 
 function ensureNodeLikeGlobals(): void {
@@ -60,11 +69,11 @@ async function createClient(settings: AgentSettings): Promise<any | null> {
     const Honcho = await getHonchoCtor();
 
     const options: Record<string, string> = {
-        apiKey: settings.honchoApiKey.trim(),
-        workspaceId: settings.honchoWorkspaceId.trim() || "tamux",
+        api_key: settings.honcho_api_key.trim(),
+        workspaceId: settings.honcho_workspace_id.trim() || "tamux",
     };
-    if (settings.honchoBaseUrl.trim()) {
-        options.baseUrl = settings.honchoBaseUrl.trim();
+    if (settings.honcho_base_url.trim()) {
+        options.base_url = settings.honcho_base_url.trim();
     }
 
     return new Honcho(options);
@@ -81,7 +90,7 @@ async function ensureSession(settings: AgentSettings, threadId: string): Promise
     }
 
     const userPeer = await client.peer("operator") as HonchoPeer;
-    const assistantPeer = await client.peer(settings.agentName.trim() || "assistant") as HonchoPeer;
+    const assistantPeer = await client.peer(settings.agent_name.trim() || "assistant") as HonchoPeer;
     const session = await client.session(threadId) as HonchoSession;
     await session.addPeers([userPeer, assistantPeer]);
     return { session, userPeer, assistantPeer };
@@ -157,7 +166,7 @@ export async function syncMessagesToHoncho(
 
         await session.addMessages(pending.map((entry) => entry.payload));
         for (const entry of pending) {
-            syncedMessageIds.add(entry.id);
+            trackSyncedId(entry.id);
         }
     } catch (error) {
         console.warn("Honcho sync failed", error);
@@ -194,7 +203,7 @@ export async function queryHonchoMemory(
         if (!client) {
             return "Honcho memory is not configured.";
         }
-        const assistantPeer = client.peer(settings.agentName.trim() || "assistant") as unknown as HonchoPeer;
+        const assistantPeer = client.peer(settings.agent_name.trim() || "assistant") as unknown as HonchoPeer;
         const response = await assistantPeer.chat(query.trim());
         return normalizeText(response) || "No relevant memory found.";
     } catch (error: any) {

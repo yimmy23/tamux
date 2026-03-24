@@ -1,0 +1,34 @@
+[package]
+name = "tamux-tui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tamux-tui"
+path = "src/main.rs"
+
+[dependencies]
+amux-protocol = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+tokio-util = { workspace = true }
+
+# TUI dependencies
+ratatui = { version = "0.29", features = ["crossterm"] }
+ratatui-textarea = "0.8.0"
+crossterm = "0.28"
+unicode-width = "0.2"
+futures = { workspace = true }
+ureq = { version = "3", features = ["json"] }
+base64 = "0.22"
+sha2 = "0.10"
+tui-markdown = "0.3"
+ratatui-core = "0.1"
+arboard = "3"
+url = "2"

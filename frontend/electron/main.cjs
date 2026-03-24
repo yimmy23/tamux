@@ -5,8 +5,10 @@ const execFileAsync = promisify(execFile);
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const path = require('path');
 const net = require('net');
+const http = require('http');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 const DAEMON_NAME = 'tamux-daemon';
 const CLI_NAME = 'tamux';
@@ -16,11 +18,18 @@ const CLONE_SESSION_PREFIX = 'clone:';
 const MAX_TERMINAL_HISTORY_BYTES = 1024 * 1024;
 const MAX_REATTACH_HISTORY_BYTES = 64 * 1024;
 const VISION_SCREENSHOT_TTL_MS = 10 * 60 * 1000;
+const OPENAI_CODEX_AUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+const OPENAI_CODEX_AUTH_AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
+const OPENAI_CODEX_AUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
+const OPENAI_CODEX_AUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback';
+const OPENAI_CODEX_AUTH_SCOPE = 'openid profile email offline_access';
+const OPENAI_CODEX_AUTH_FILE = 'openai-codex-auth.json';
 let mainWindow = null;
 const terminalBridges = new Map();
 const paneSessionHints = new Map();
 let agentBridge = null;
 let dbBridge = null;
+let pendingOpenAICodexAuth = null;
 // Module-level reference to sendAgentCommand (set during registerIpcHandlers)
 let sendAgentCommandFn = null;
 // Track the active daemon thread ID for routing gateway messages
@@ -663,6 +672,384 @@ function ensureTamuxDataDir() {
     return dataDir;
 }
 
+function getOpenAICodexAuthPath() {
+    return path.join(ensureTamuxDataDir(), OPENAI_CODEX_AUTH_FILE);
+}
+
+function decodeJwtPayload(token) {
+    if (typeof token !== 'string' || !token.includes('.')) {
+        return null;
+    }
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) {
+            return null;
+        }
+        const payload = Buffer.from(parts[1], 'base64url').toString('utf8');
+        return JSON.parse(payload);
+    } catch {
+        return null;
+    }
+}
+
+function extractOpenAICodexAccountId(accessToken) {
+    const payload = decodeJwtPayload(accessToken);
+    const accountId = payload?.['https://api.openai.com/auth']?.chatgpt_account_id;
+    return typeof accountId === 'string' && accountId.trim() ? accountId.trim() : null;
+}
+
+function extractJwtExpiry(accessToken) {
+    const payload = decodeJwtPayload(accessToken);
+    const exp = payload?.exp;
+    return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : null;
+}
+
+function readJsonFileSafe(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return null;
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+        return null;
+    }
+}
+
+function readStoredOpenAICodexAuth() {
+    const parsed = readJsonFileSafe(getOpenAICodexAuthPath());
+    if (!parsed || typeof parsed !== 'object') {
+        return null;
+    }
+    if (typeof parsed.accessToken !== 'string' || typeof parsed.refreshToken !== 'string') {
+        return null;
+    }
+    return parsed;
+}
+
+function writeStoredOpenAICodexAuth(auth) {
+    const authPath = getOpenAICodexAuthPath();
+    fs.writeFileSync(authPath, JSON.stringify({
+        provider: 'openai-codex',
+        authMode: 'chatgpt_subscription',
+        accessToken: auth.accessToken,
+        refreshToken: auth.refreshToken,
+        accountId: auth.accountId,
+        expiresAt: auth.expiresAt,
+        source: auth.source || 'tamux',
+        updatedAt: Date.now(),
+        createdAt: auth.createdAt || Date.now(),
+    }, null, 2), 'utf8');
+}
+
+function deleteStoredOpenAICodexAuth() {
+    try {
+        fs.unlinkSync(getOpenAICodexAuthPath());
+    } catch {
+        // Ignore missing file.
+    }
+}
+
+function importCodexCliAuthIfPresent() {
+    const existing = readStoredOpenAICodexAuth();
+    if (existing) {
+        return existing;
+    }
+
+    const codexAuthPath = path.join(os.homedir(), '.codex', 'auth.json');
+    const parsed = readJsonFileSafe(codexAuthPath);
+    if (!parsed || typeof parsed !== 'object') {
+        return null;
+    }
+
+    const accessToken = parsed?.tokens?.access_token;
+    const refreshToken = parsed?.tokens?.refresh_token;
+    const accountId = extractOpenAICodexAccountId(accessToken);
+    const expiresAt = extractJwtExpiry(accessToken);
+    if (typeof accessToken !== 'string' || typeof refreshToken !== 'string' || !accountId || !expiresAt) {
+        return null;
+    }
+
+    const imported = {
+        accessToken,
+        refreshToken,
+        accountId,
+        expiresAt,
+        source: 'codex_import',
+        createdAt: Date.now(),
+    };
+    writeStoredOpenAICodexAuth(imported);
+    return readStoredOpenAICodexAuth();
+}
+
+async function refreshOpenAICodexAuth(auth) {
+    const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: auth.refreshToken,
+        client_id: OPENAI_CODEX_AUTH_CLIENT_ID,
+    });
+
+    const response = await fetch(OPENAI_CODEX_AUTH_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`OpenAI token refresh failed: HTTP ${response.status}${text ? ` ${text}` : ''}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload?.access_token !== 'string' || typeof payload?.refresh_token !== 'string' || typeof payload?.expires_in !== 'number') {
+        throw new Error('OpenAI token refresh returned incomplete credentials');
+    }
+
+    const accountId = extractOpenAICodexAccountId(payload.access_token);
+    if (!accountId) {
+        throw new Error('OpenAI token refresh returned no ChatGPT account id');
+    }
+
+    const next = {
+        accessToken: payload.access_token,
+        refreshToken: payload.refresh_token,
+        accountId,
+        expiresAt: Date.now() + payload.expires_in * 1000,
+        source: auth.source || 'tamux',
+        createdAt: auth.createdAt || Date.now(),
+    };
+    writeStoredOpenAICodexAuth(next);
+    return next;
+}
+
+async function getOpenAICodexAuthStatus(options = {}) {
+    const allowRefresh = options.refresh !== false;
+    let auth = readStoredOpenAICodexAuth() || importCodexCliAuthIfPresent();
+    if (!auth) {
+        return {
+            available: false,
+            authMode: 'chatgpt_subscription',
+            error: 'No ChatGPT subscription auth found',
+        };
+    }
+
+    const expiresAt = Number(auth.expiresAt || 0);
+    const shouldRefresh = allowRefresh && (!Number.isFinite(expiresAt) || expiresAt <= Date.now() + 60_000);
+    if (shouldRefresh) {
+        try {
+            auth = await refreshOpenAICodexAuth(auth);
+        } catch (error) {
+            return {
+                available: false,
+                authMode: 'chatgpt_subscription',
+                error: error?.message || String(error),
+            };
+        }
+    }
+
+    return {
+        available: true,
+        authMode: 'chatgpt_subscription',
+        accountId: auth.accountId,
+        expiresAt: auth.expiresAt,
+        source: auth.source || 'tamux',
+        apiKey: auth.accessToken,
+    };
+}
+
+function generatePkcePair() {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+    return { verifier, challenge };
+}
+
+function startOpenAICodexCallbackServer(expectedState) {
+    let settled = false;
+    let resolveCode;
+    let rejectCode;
+    const codePromise = new Promise((resolve, reject) => {
+        resolveCode = resolve;
+        rejectCode = reject;
+    });
+
+    const server = http.createServer((req, res) => {
+        try {
+            const url = new URL(req.url || '', 'http://127.0.0.1');
+            if (url.pathname !== '/auth/callback') {
+                res.statusCode = 404;
+                res.end('Not found');
+                return;
+            }
+
+            const state = url.searchParams.get('state');
+            const code = url.searchParams.get('code');
+            if (state !== expectedState) {
+                res.statusCode = 400;
+                res.end('State mismatch');
+                if (!settled) {
+                    settled = true;
+                    rejectCode(new Error('OpenAI OAuth state mismatch'));
+                }
+                return;
+            }
+            if (!code) {
+                res.statusCode = 400;
+                res.end('Missing authorization code');
+                if (!settled) {
+                    settled = true;
+                    rejectCode(new Error('OpenAI OAuth callback missing authorization code'));
+                }
+                return;
+            }
+
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            res.end('<!doctype html><html><body><p>Authentication successful. Return to tamux.</p></body></html>');
+            if (!settled) {
+                settled = true;
+                resolveCode(code);
+            }
+        } catch (error) {
+            res.statusCode = 500;
+            res.end('Internal error');
+            if (!settled) {
+                settled = true;
+                rejectCode(error);
+            }
+        }
+    });
+
+    return {
+        waitForCode: () => codePromise,
+        listen: () => new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(1455, '127.0.0.1', () => {
+                server.removeListener('error', reject);
+                resolve();
+            });
+        }),
+        close: () => {
+            try {
+                server.close();
+            } catch {
+                // Ignore shutdown errors.
+            }
+        },
+    };
+}
+
+async function exchangeOpenAICodexAuthorizationCode(code, verifier) {
+    const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: OPENAI_CODEX_AUTH_CLIENT_ID,
+        code,
+        code_verifier: verifier,
+        redirect_uri: OPENAI_CODEX_AUTH_REDIRECT_URI,
+    });
+
+    const response = await fetch(OPENAI_CODEX_AUTH_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`OpenAI OAuth exchange failed: HTTP ${response.status}${text ? ` ${text}` : ''}`);
+    }
+
+    const payload = await response.json();
+    if (typeof payload?.access_token !== 'string' || typeof payload?.refresh_token !== 'string' || typeof payload?.expires_in !== 'number') {
+        throw new Error('OpenAI OAuth exchange returned incomplete credentials');
+    }
+
+    const accountId = extractOpenAICodexAccountId(payload.access_token);
+    if (!accountId) {
+        throw new Error('OpenAI OAuth exchange returned no ChatGPT account id');
+    }
+
+    const auth = {
+        accessToken: payload.access_token,
+        refreshToken: payload.refresh_token,
+        accountId,
+        expiresAt: Date.now() + payload.expires_in * 1000,
+        source: 'tamux',
+        createdAt: Date.now(),
+    };
+    writeStoredOpenAICodexAuth(auth);
+    return auth;
+}
+
+async function loginOpenAICodexInteractive() {
+    if (pendingOpenAICodexAuth?.authUrl) {
+        return {
+            available: false,
+            authMode: 'chatgpt_subscription',
+            authUrl: pendingOpenAICodexAuth.authUrl,
+            status: pendingOpenAICodexAuth.status || 'pending',
+            error: pendingOpenAICodexAuth.error || null,
+        };
+    }
+
+    const { verifier, challenge } = generatePkcePair();
+    const state = crypto.randomBytes(16).toString('hex');
+    const authUrl = new URL(OPENAI_CODEX_AUTH_AUTHORIZE_URL);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', OPENAI_CODEX_AUTH_CLIENT_ID);
+    authUrl.searchParams.set('redirect_uri', OPENAI_CODEX_AUTH_REDIRECT_URI);
+    authUrl.searchParams.set('scope', OPENAI_CODEX_AUTH_SCOPE);
+    authUrl.searchParams.set('code_challenge', challenge);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
+    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('id_token_add_organizations', 'true');
+    authUrl.searchParams.set('codex_cli_simplified_flow', 'true');
+    authUrl.searchParams.set('originator', 'tamux');
+
+    const callbackServer = startOpenAICodexCallbackServer(state);
+    await callbackServer.listen();
+    pendingOpenAICodexAuth = {
+        authUrl: authUrl.toString(),
+        status: 'pending',
+        error: null,
+        startedAt: Date.now(),
+    };
+    void shell.openExternal(authUrl.toString()).catch(() => {});
+
+    void (async () => {
+        try {
+            const code = await Promise.race([
+                callbackServer.waitForCode(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('OpenAI OAuth timed out waiting for browser callback')), 5 * 60 * 1000)),
+            ]);
+            await exchangeOpenAICodexAuthorizationCode(code, verifier);
+            pendingOpenAICodexAuth = {
+                authUrl: authUrl.toString(),
+                status: 'completed',
+                error: null,
+                startedAt: pendingOpenAICodexAuth?.startedAt || Date.now(),
+            };
+        } catch (error) {
+            pendingOpenAICodexAuth = {
+                authUrl: authUrl.toString(),
+                status: 'error',
+                error: error?.message || String(error),
+                startedAt: pendingOpenAICodexAuth?.startedAt || Date.now(),
+            };
+        } finally {
+            callbackServer.close();
+            setTimeout(() => {
+                if (pendingOpenAICodexAuth?.authUrl === authUrl.toString()) {
+                    pendingOpenAICodexAuth = null;
+                }
+            }, 30_000);
+        }
+    })();
+
+    return {
+        available: false,
+        authMode: 'chatgpt_subscription',
+        authUrl: authUrl.toString(),
+        status: 'pending',
+    };
+}
+
 function getVisionTempDir() {
     const dir = path.join(ensureTamuxDataDir(), 'tmp', 'vision');
     fs.mkdirSync(dir, { recursive: true });
@@ -1020,6 +1407,107 @@ function getFsPathInfo(targetPath) {
     };
 }
 
+async function resolveGitRepoRoot(targetPath) {
+    const resolved = resolveFsPath(targetPath || '.');
+
+    try {
+        const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+            cwd: resolved,
+            encoding: 'utf8',
+            timeout: 5000,
+        });
+        const repoRoot = stdout.trim();
+        return repoRoot ? resolveFsPath(repoRoot) : null;
+    } catch {
+        return null;
+    }
+}
+
+async function gitStatus(targetPath) {
+    const repoRoot = await resolveGitRepoRoot(targetPath);
+    if (!repoRoot) {
+        return '';
+    }
+
+    const { stdout } = await execFileAsync('git', ['status', '--short', '--untracked-files=all'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+    });
+    return stdout;
+}
+
+async function gitDiff(targetPath, filePath) {
+    const repoRoot = await resolveGitRepoRoot(targetPath);
+    if (!repoRoot) {
+        return '';
+    }
+
+    const relativePath = typeof filePath === 'string' && filePath.trim() ? filePath.trim() : null;
+    if (!relativePath) {
+        const { stdout } = await execFileAsync('git', ['diff', '--no-ext-diff', 'HEAD'], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            timeout: 5000,
+            maxBuffer: 1024 * 1024 * 4,
+        }).catch((error) => {
+            if (typeof error?.stdout === 'string') {
+                return { stdout: error.stdout };
+            }
+            return { stdout: '' };
+        });
+        return stdout;
+    }
+
+    const absoluteFilePath = path.resolve(repoRoot, relativePath);
+    const headExists = await execFileAsync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+    }).then(() => true).catch(() => false);
+    const tracked = await execFileAsync('git', ['ls-files', '--error-unmatch', '--', relativePath], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+    }).then(() => true).catch(() => false);
+
+    if (!tracked && fs.existsSync(absoluteFilePath)) {
+        const untrackedDiff = await execFileAsync(
+            'git',
+            ['diff', '--no-index', '--no-ext-diff', '--', '/dev/null', absoluteFilePath],
+            {
+                cwd: repoRoot,
+                encoding: 'utf8',
+                timeout: 5000,
+                maxBuffer: 1024 * 1024 * 4,
+            },
+        ).catch((error) => {
+            if (typeof error?.stdout === 'string') {
+                return { stdout: error.stdout };
+            }
+            return { stdout: '' };
+        });
+        return untrackedDiff.stdout;
+    }
+
+    const args = headExists
+        ? ['diff', '--no-ext-diff', 'HEAD', '--', relativePath]
+        : ['diff', '--no-ext-diff', '--cached', '--', relativePath];
+    const { stdout } = await execFileAsync('git', args, {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+        maxBuffer: 1024 * 1024 * 4,
+    }).catch((error) => {
+        if (typeof error?.stdout === 'string') {
+            return { stdout: error.stdout };
+        }
+        return { stdout: '' };
+    });
+    return stdout;
+}
+
 function openDataPath(relativePath) {
     const filePath = resolveDataPath(relativePath);
     if (!fs.existsSync(filePath)) {
@@ -1276,6 +1764,21 @@ function getBridgeForPane(paneId) {
         throw new Error(`terminal bridge not found for pane ${paneId}`);
     }
     return bridge;
+}
+
+function getBridgeForSnapshotAction(paneId) {
+    const requested = paneId ? terminalBridges.get(paneId) : null;
+    if (requested && !requested.process.killed && requested.process.stdin.writable) {
+        return requested;
+    }
+
+    for (const bridge of terminalBridges.values()) {
+        if (bridge && !bridge.process.killed && bridge.process.stdin.writable) {
+            return bridge;
+        }
+    }
+
+    throw new Error(`terminal bridge not found for pane ${paneId}`);
 }
 
 function closeBridgeStdin(bridge) {
@@ -2478,13 +2981,13 @@ function findManagedSymbol(_event, paneId, workspaceRoot, symbol, limit) {
 }
 
 function listSnapshots(_event, paneId, workspaceId) {
-    const bridge = getBridgeForPane(paneId);
+    const bridge = getBridgeForSnapshotAction(paneId);
     sendBridgeCommand(bridge, { type: 'list-snapshots', workspace_id: workspaceId ?? null });
     return true;
 }
 
 function restoreSnapshot(_event, paneId, snapshotId) {
-    const bridge = getBridgeForPane(paneId);
+    const bridge = getBridgeForSnapshotAction(paneId);
     sendBridgeCommand(bridge, { type: 'restore-snapshot', snapshot_id: snapshotId });
     return true;
 }
@@ -2809,6 +3312,24 @@ async function getSystemMonitorSnapshot(_event, options = {}) {
     };
 }
 
+function escapeJsonPointerSegment(segment) {
+    return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+function flattenConfigEntries(value, pointer = "", entries = []) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+        const keys = Object.keys(value);
+        if (keys.length > 0) {
+            for (const key of keys) {
+                flattenConfigEntries(value[key], `${pointer}/${escapeJsonPointerSegment(key)}`, entries);
+            }
+            return entries;
+        }
+    }
+    entries.push([pointer, value]);
+    return entries;
+}
+
 function createWindow() {
     const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize;
     const useNativeFrame = process.platform === 'win32';
@@ -2885,6 +3406,66 @@ function registerIpcHandlers() {
     ipcMain.handle('ai-training-discover', (_event, workspacePath) => discoverAITraining(workspacePath));
     ipcMain.handle('plugin-list-installed', () => listInstalledPlugins());
     ipcMain.handle('plugin-load-installed', () => loadInstalledPluginScripts());
+
+    // Plugin daemon IPC handlers (Plan 16-01)
+    ipcMain.handle('plugin-daemon-list', async () => {
+        try {
+            return await sendAgentQuery({ type: 'plugin-list' }, 'plugin-list-result');
+        } catch (err) {
+            return { plugins: [] };
+        }
+    });
+    ipcMain.handle('plugin-daemon-get', async (_event, name) => {
+        try {
+            return await sendAgentQuery({ type: 'plugin-get', name }, 'plugin-get-result');
+        } catch (err) {
+            return { plugin: null, settings_schema: null };
+        }
+    });
+    ipcMain.handle('plugin-daemon-enable', async (_event, name) => {
+        try {
+            sendAgentCommand({ type: 'plugin-enable', name });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+    ipcMain.handle('plugin-daemon-disable', async (_event, name) => {
+        try {
+            sendAgentCommand({ type: 'plugin-disable', name });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+    ipcMain.handle('plugin-get-settings', async (_event, name) => {
+        try {
+            return await sendAgentQuery({ type: 'plugin-get-settings', name }, 'plugin-settings');
+        } catch (err) {
+            return { plugin_name: name, settings: [] };
+        }
+    });
+    ipcMain.handle('plugin-update-settings', async (_event, pluginName, key, value, isSecret) => {
+        try {
+            sendAgentCommand({
+                type: 'plugin-update-settings',
+                plugin_name: pluginName,
+                key,
+                value: String(value),
+                is_secret: Boolean(isSecret),
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+    ipcMain.handle('plugin-test-connection', async (_event, name) => {
+        try {
+            return await sendAgentQuery({ type: 'plugin-test-connection', name }, 'plugin-test-connection-result');
+        } catch (err) {
+            return { plugin_name: name, success: false, message: err.message || 'Bridge error' };
+        }
+    });
     ipcMain.handle('diagnostics-check-lsp', checkLspHealth);
     ipcMain.handle('diagnostics-check-mcp', checkMcpHealth);
     ipcMain.handle('persistence-get-data-dir', () => ensureTamuxDataDir());
@@ -2918,6 +3499,8 @@ function registerIpcHandlers() {
         return true;
     });
     ipcMain.handle('fs-path-info', (_event, targetPath) => getFsPathInfo(targetPath));
+    ipcMain.handle('git-status', (_event, targetPath) => gitStatus(targetPath));
+    ipcMain.handle('git-diff', (_event, targetPath, filePath) => gitDiff(targetPath, filePath));
     ipcMain.handle('clipboard-read-text', () => clipboard.readText());
     ipcMain.handle('clipboard-write-text', (_event, text) => {
         clipboard.writeText(typeof text === 'string' ? text : '');
@@ -3009,6 +3592,18 @@ function registerIpcHandlers() {
     ipcMain.handle('db-add-message', async (_event, message) => {
         try {
             await sendDbAckCommand({ type: 'add-agent-message', message_json: JSON.stringify(message ?? {}) });
+            return true;
+        } catch {
+            return false;
+        }
+    });
+    ipcMain.handle('db-delete-message', async (_event, threadId, messageId) => {
+        try {
+            await sendDbAckCommand({
+                type: 'delete-agent-messages',
+                thread_id: threadId,
+                message_ids: [messageId],
+            });
             return true;
         } catch {
             return false;
@@ -3185,9 +3780,38 @@ function registerIpcHandlers() {
                     continue;
                 }
 
+                if (event.type === 'concierge_welcome') {
+                    logToFile('info', '[concierge] received concierge_welcome from bridge', { hasContent: !!event.content, hasActions: !!event.actions });
+                }
+
                 // Response types from daemon queries — resolve oldest pending
                 // request of the matching type (FIFO order).
-                if (['thread-list', 'thread-detail', 'task-list', 'config', 'heartbeat-items'].includes(event.type)) {
+                if ([
+                    'thread-list',
+                    'thread-detail',
+                    'task-list',
+                    'run-list',
+                    'run-detail',
+                    'todo-list',
+                    'todo-detail',
+                    'work-context-detail',
+                    'git-diff',
+                    'file-preview',
+                    'goal-run-started',
+                    'goal-run-list',
+                    'goal-run-detail',
+                    'goal-run-controlled',
+                    'config',
+                    'heartbeat-items',
+                    'provider-auth-states',
+                    'provider-validation',
+                    'sub-agent-list',
+                    'sub-agent-updated',
+                    'sub-agent-removed',
+                    'concierge-config',
+                    'concierge-welcome-dismissed',
+                    'status-response',
+                ].includes(event.type)) {
                     let oldest = null;
                     for (const [reqId, handler] of agentBridge.pending.entries()) {
                         if (handler.responseType === event.type) {
@@ -3217,8 +3841,15 @@ function registerIpcHandlers() {
                 }
 
                 // Agent events (delta, done, tool_call, etc.) — forward to renderer
+                if (event.type === 'concierge_welcome') {
+                    logToFile('info', '[concierge] forwarding concierge_welcome to renderer', { contentLen: event.content?.length, actionsLen: event.actions?.length });
+                }
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.webContents.send('agent-event', event);
+                } else {
+                    if (event.type === 'concierge_welcome') {
+                        logToFile('warn', '[concierge] mainWindow not available to forward event');
+                    }
                 }
             }
         });
@@ -3280,6 +3911,22 @@ function registerIpcHandlers() {
                     continue;
                 }
 
+                if (event.type === 'error') {
+                    // Reject the oldest pending request with the error message
+                    let oldest = null;
+                    for (const [reqId, handler] of dbBridge.pending.entries()) {
+                        if (!oldest || handler.ts < oldest.ts) {
+                            oldest = { reqId, handler, ts: handler.ts };
+                        }
+                    }
+                    if (oldest) {
+                        oldest.handler.resolve(null);
+                        dbBridge.pending.delete(oldest.reqId);
+                    }
+                    logToFile('warn', 'db bridge error', { message: event.message || event.data });
+                    continue;
+                }
+
                 let oldest = null;
                 for (const [reqId, handler] of dbBridge.pending.entries()) {
                     if (handler.responseType === event.type) {
@@ -3311,14 +3958,14 @@ function registerIpcHandlers() {
     }
 
     async function handleAgentGatewaySend(event) {
-        // Read settings to get gateway tokens (settings are nested under "settings" key)
-        const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
-        let settings = {};
+        let gateway = {};
         try {
-            const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-            settings = parsed.settings ?? parsed;
-        } catch {
-            logToFile('warn', 'agent gateway: cannot read settings for tokens');
+            const config = await sendAgentQuery({ type: 'get-config' }, 'config');
+            gateway = config?.gateway ?? {};
+        } catch (err) {
+            logToFile('warn', 'agent gateway: cannot load daemon gateway config', {
+                error: err?.message ?? String(err),
+            });
             return;
         }
 
@@ -3326,19 +3973,19 @@ function registerIpcHandlers() {
 
         switch (platform) {
             case 'slack': {
-                const token = settings.slackToken || '';
+                const token = gateway.slack_token || '';
                 if (!token) { logToFile('warn', 'agent gateway: no Slack token configured'); return; }
                 await sendSlackMessage(null, { token, channelId: target, message });
                 break;
             }
             case 'discord': {
-                const token = settings.discordToken || '';
+                const token = gateway.discord_token || '';
                 if (!token) { logToFile('warn', 'agent gateway: no Discord token configured'); return; }
                 await sendDiscordMessage(null, { token, channelId: target, message });
                 break;
             }
             case 'telegram': {
-                const token = settings.telegramToken || '';
+                const token = gateway.telegram_token || '';
                 if (!token) { logToFile('warn', 'agent gateway: no Telegram token configured'); return; }
                 await sendTelegramMessage(null, { token, chatId: target, message });
                 break;
@@ -3417,9 +4064,27 @@ function registerIpcHandlers() {
         return sendDbQuery(command, 'ack', timeoutMs);
     }
 
-    ipcMain.handle('agent-send-message', async (_event, threadId, content) => {
+    ipcMain.handle('agent-send-message', async (_event, threadId, content, sessionId, contextMessages) => {
         try {
-            sendAgentCommand({ type: 'send-message', thread_id: threadId || null, content });
+            logToFile('info', 'agent-send-message', {
+                threadId,
+                contentLen: content?.length,
+                sessionId,
+                contextCount: Array.isArray(contextMessages) ? contextMessages.length : 0,
+            });
+            const cmd = {
+                type: 'send-message',
+                thread_id: threadId || null,
+                content,
+                session_id: typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null,
+            };
+            if (Array.isArray(contextMessages) && contextMessages.length > 0) {
+                cmd.context_messages = contextMessages;
+                logToFile('info', 'agent-send-message context roles', {
+                    roles: contextMessages.map(m => m.role),
+                });
+            }
+            sendAgentCommand(cmd);
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };
@@ -3499,21 +4164,322 @@ function registerIpcHandlers() {
         }
     });
 
-    ipcMain.handle('agent-get-config', async () => {
+    ipcMain.handle('agent-list-runs', async () => {
         try {
-            return await sendAgentQuery({ type: 'get-config' }, 'config');
+            return await sendAgentQuery({ type: 'list-runs' }, 'run-list');
+        } catch {
+            return [];
+        }
+    });
+
+    ipcMain.handle('agent-get-run', async (_event, runId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-run', run_id: runId }, 'run-detail');
+        } catch {
+            return null;
+        }
+    });
+
+    ipcMain.handle('agent-list-todos', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-todos' }, 'todo-list');
         } catch {
             return {};
         }
     });
 
-    ipcMain.handle('agent-set-config', async (_event, config) => {
+    ipcMain.handle('agent-get-todos', async (_event, threadId) => {
         try {
-            sendAgentCommand({ type: 'set-config', config_json: JSON.stringify(config) });
+            return await sendAgentQuery({ type: 'get-todos', thread_id: threadId }, 'todo-detail');
+        } catch {
+            return { thread_id: threadId, items: [] };
+        }
+    });
+
+    ipcMain.handle('agent-get-work-context', async (_event, threadId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-work-context', thread_id: threadId }, 'work-context-detail');
+        } catch {
+            return { thread_id: threadId, context: { thread_id: threadId, entries: [] } };
+        }
+    });
+
+    ipcMain.handle('agent-get-git-diff', async (_event, repoPath, filePath) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-git-diff',
+                repo_path: repoPath,
+                file_path: typeof filePath === 'string' && filePath.trim() ? filePath.trim() : null,
+            }, 'git-diff');
+        } catch {
+            return { repo_path: repoPath, file_path: filePath ?? null, diff: '' };
+        }
+    });
+
+    ipcMain.handle('agent-get-file-preview', async (_event, filePath, maxBytes) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-file-preview',
+                path: filePath,
+                max_bytes: Number.isFinite(maxBytes) ? Math.max(1024, Math.trunc(maxBytes)) : null,
+            }, 'file-preview');
+        } catch {
+            return { path: filePath, content: '', truncated: false, is_text: false };
+        }
+    });
+
+    ipcMain.handle('agent-start-goal-run', async (_event, payload) => {
+        try {
+            return await sendAgentQuery({
+                type: 'start-goal-run',
+                goal: payload?.goal,
+                title: typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : null,
+                thread_id: typeof payload?.threadId === 'string' && payload.threadId.trim() ? payload.threadId.trim() : null,
+                session_id: typeof payload?.sessionId === 'string' && payload.sessionId.trim() ? payload.sessionId.trim() : null,
+                priority: typeof payload?.priority === 'string' && payload.priority.trim() ? payload.priority.trim() : null,
+                client_request_id: typeof payload?.clientRequestId === 'string' && payload.clientRequestId.trim() ? payload.clientRequestId.trim() : null,
+            }, 'goal-run-started');
+        } catch (err) {
+            return { ok: false, error: err?.message || String(err) };
+        }
+    });
+
+    ipcMain.handle('agent-list-goal-runs', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-goal-runs' }, 'goal-run-list');
+        } catch {
+            return [];
+        }
+    });
+
+    ipcMain.handle('agent-get-goal-run', async (_event, goalRunId) => {
+        try {
+            return await sendAgentQuery({ type: 'get-goal-run', goal_run_id: goalRunId }, 'goal-run-detail');
+        } catch {
+            return null;
+        }
+    });
+
+    ipcMain.handle('agent-control-goal-run', async (_event, goalRunId, action, stepIndex) => {
+        try {
+            return await sendAgentQuery({
+                type: 'control-goal-run',
+                goal_run_id: goalRunId,
+                action,
+                step_index: Number.isFinite(stepIndex) ? Math.trunc(stepIndex) : null,
+            }, 'goal-run-controlled');
+        } catch {
+            return { ok: false };
+        }
+    });
+
+    ipcMain.handle('agent-get-concierge-config', async () => {
+        try {
+            return await sendAgentQuery({ type: 'get-concierge-config' }, 'concierge-config');
+        } catch (err) {
+            throw err;
+        }
+    });
+
+    ipcMain.handle('agent-set-concierge-config', async (_event, config) => {
+        try {
+            sendAgentCommand({ type: 'set-concierge-config', config_json: JSON.stringify(config) });
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };
         }
+    });
+
+    ipcMain.handle('agent-dismiss-concierge-welcome', async () => {
+        try {
+            sendAgentCommand({ type: 'dismiss-concierge-welcome' });
+            return { ok: true };
+        } catch {
+            return { ok: false };
+        }
+    });
+
+    ipcMain.handle('agent-request-concierge-welcome', async () => {
+        try {
+            sendAgentCommand({ type: 'request-concierge-welcome' });
+            return { ok: true };
+        } catch {
+            return { ok: false };
+        }
+    });
+
+    ipcMain.handle('dismiss-audit-entry', async (_event, entryId) => {
+        try {
+            sendAgentCommand({ type: 'audit-dismiss', entry_id: entryId });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-get-config', async () => {
+        try {
+            return await sendAgentQuery({ type: 'get-config' }, 'config');
+        } catch (err) {
+            throw err;
+        }
+    });
+
+    ipcMain.handle('agent-get-status', async () => {
+        try {
+            return await sendAgentQuery({ type: 'get-status' }, 'status-response');
+        } catch (err) {
+            logToFile('warn', 'agent-get-status failed', { error: err?.message ?? String(err) });
+            return null;
+        }
+    });
+
+    ipcMain.handle('agent-set-config-item', async (_event, keyPath, value) => {
+        try {
+            sendAgentCommand({
+                type: 'set-config-item',
+                key_path: keyPath,
+                value_json: JSON.stringify(value),
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-set-tier-override', async (_event, tier) => {
+        try {
+            sendAgentCommand({
+                type: 'set-tier-override',
+                tier: tier || null,
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('gateway:get-config', async () => {
+        try {
+            const config = await sendAgentQuery({ type: 'get-config' }, 'config');
+            return config?.gateway ?? {};
+        } catch (err) {
+            logToFile('warn', '[gateway] get-config IPC error', { error: err.message });
+            return {};
+        }
+    });
+
+    ipcMain.handle('gateway:set-config', async (_event, patch) => {
+        try {
+            for (const [key, value] of Object.entries(patch || {})) {
+                sendAgentCommand({
+                    type: 'set-config-item',
+                    key_path: `gateway.${key}`,
+                    value_json: JSON.stringify(value),
+                });
+            }
+            logToFile('info', '[gateway] Config updated via IPC', { keys: Object.keys(patch || {}) });
+            return { ok: true };
+        } catch (err) {
+            logToFile('warn', '[gateway] set-config IPC error', { error: err.message });
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-get-provider-auth-states', async () => {
+        try {
+            return await sendAgentQuery({ type: 'get-provider-auth-states' }, 'provider-auth-states');
+        } catch (err) {
+            throw err;
+        }
+    });
+
+    ipcMain.handle('agent-login-provider', async (_event, providerId, apiKey, baseUrl) => {
+        try {
+            return await sendAgentQuery(
+                { type: 'login-provider', provider_id: providerId, api_key: apiKey, base_url: baseUrl || '' },
+                'provider-auth-states'
+            );
+        } catch (err) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-logout-provider', async (_event, providerId) => {
+        try {
+            return await sendAgentQuery(
+                { type: 'logout-provider', provider_id: providerId },
+                'provider-auth-states'
+            );
+        } catch (err) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-validate-provider', async (_event, providerId, baseUrl, apiKey, authSource) => {
+        try {
+            return await sendAgentQuery(
+                { type: 'validate-provider', provider_id: providerId, base_url: baseUrl, api_key: apiKey, auth_source: authSource },
+                'provider-validation'
+            );
+        } catch (err) {
+            return { valid: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-set-sub-agent', async (_event, subAgentJson) => {
+        try {
+            sendAgentCommand({ type: 'set-sub-agent', sub_agent_json: subAgentJson });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-remove-sub-agent', async (_event, subAgentId) => {
+        try {
+            sendAgentCommand({ type: 'remove-sub-agent', sub_agent_id: subAgentId });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-list-sub-agents', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-sub-agents' }, 'sub-agent-list');
+        } catch {
+            return [];
+        }
+    });
+
+    ipcMain.handle('openai-codex-auth-status', async (_event, options) => {
+        try {
+            return await getOpenAICodexAuthStatus(options || {});
+        } catch (err) {
+            return {
+                available: false,
+                authMode: 'chatgpt_subscription',
+                error: err?.message || String(err),
+            };
+        }
+    });
+
+    ipcMain.handle('openai-codex-auth-login', async () => {
+        try {
+            return await loginOpenAICodexInteractive();
+        } catch (err) {
+            return {
+                available: false,
+                authMode: 'chatgpt_subscription',
+                error: err?.message || String(err),
+            };
+        }
+    });
+
+    ipcMain.handle('openai-codex-auth-logout', async () => {
+        deleteStoredOpenAICodexAuth();
+        return { ok: true };
     });
 
     ipcMain.handle('agent-heartbeat-get-items', async () => {
@@ -3527,6 +4493,16 @@ function registerIpcHandlers() {
     ipcMain.handle('agent-heartbeat-set-items', async (_event, items) => {
         try {
             sendAgentCommand({ type: 'heartbeat-set-items', items_json: JSON.stringify(items) });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-resolve-task-approval', async (_event, approvalId, decision) => {
+        try {
+            logToFile('info', 'resolving task approval', { approvalId, decision });
+            sendAgentCommand({ type: 'resolve-task-approval', approval_id: approvalId, decision });
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };
@@ -3601,34 +4577,35 @@ app.whenReady().then(async () => {
         };
     }
 
-    // Auto-connect gateway platforms when tokens are configured.
-    // In legacy mode, the renderer calls ensure*Connected. In daemon
-    // mode, nothing does — so we do it here on startup.
     try {
-        const settingsPath = path.join(getTamuxDataDir(), 'settings.json');
-        if (fs.existsSync(settingsPath)) {
-            const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-            const settings = parsed.settings ?? parsed;
-
-            if (settings.gatewayEnabled) {
-                if (settings.slackToken) {
-                    ensureSlackConnected(null, { token: settings.slackToken })
+        const config = await sendAgentQuery({ type: 'get-config' }, 'config').catch(() => null);
+        const gateway = config?.gateway ?? null;
+        if (gateway?.enabled) {
+            // Check the feature flag — Electron bridges are disabled by default (D-06/D-07).
+            // When gateway_electron_bridges_enabled is false or missing, the daemon handles
+            // all Slack/Discord/Telegram connections. WhatsApp stays in Electron (unaffected).
+            if (gateway.gateway_electron_bridges_enabled !== true) {
+                logToFile('info', '[gateway] Electron bridges disabled — daemon handles all gateway connections');
+            } else {
+                logToFile('info', '[gateway] Starting Electron bridges (deprecated — daemon gateways preferred). Set gateway.gateway_electron_bridges_enabled=false to disable.');
+                if (gateway.slack_token) {
+                    ensureSlackConnected(null, { token: gateway.slack_token })
                         .then((r) => logToFile('info', 'auto-connected Slack', r))
                         .catch((e) => logToFile('warn', 'Slack auto-connect failed', { error: e.message }));
                 }
-                if (settings.discordToken) {
+                if (gateway.discord_token) {
                     ensureDiscordConnected(null, {
-                        token: settings.discordToken,
-                        channelFilter: settings.discordChannelFilter || '',
-                        allowedUsers: settings.discordAllowedUsers || '',
+                        token: gateway.discord_token,
+                        channelFilter: gateway.discord_channel_filter || '',
+                        allowedUsers: gateway.discord_allowed_users || '',
                     })
                         .then((r) => logToFile('info', 'auto-connected Discord', r))
                         .catch((e) => logToFile('warn', 'Discord auto-connect failed', { error: e.message }));
                 }
-                if (settings.telegramToken) {
+                if (gateway.telegram_token) {
                     ensureTelegramConnected(null, {
-                        token: settings.telegramToken,
-                        allowedChats: settings.telegramAllowedChats || '',
+                        token: gateway.telegram_token,
+                        allowedChats: gateway.telegram_allowed_chats || '',
                     })
                         .then((r) => logToFile('info', 'auto-connected Telegram', r))
                         .catch((e) => logToFile('warn', 'Telegram auto-connect failed', { error: e.message }));

@@ -1,14 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { allLeafIds } from "../lib/bspTree";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useNotificationStore } from "../lib/notificationStore";
 import { useSettingsStore } from "../lib/settingsStore";
+import { useAgentStore } from "../lib/agentStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
+import { useStatusStore, type AgentActivityState } from "../lib/statusStore";
+import { useTierStore } from "../lib/tierStore";
 import { InlineSystemMonitor } from "./status-bar/InlineSystemMonitor";
 import { StatusBarMissionStats } from "./status-bar/StatusBarMissionStats";
 import { StatusIndicator } from "./status-bar/StatusPrimitives";
 import { TaskTrayButton } from "./TaskTray";
 import { dividerStyle, statusBarRootStyle } from "./status-bar/shared";
+
+const ACTIVITY_DISPLAY: Record<AgentActivityState, { label: string; status: "success" | "warning" | "neutral" }> = {
+  idle: { label: "idle", status: "neutral" },
+  thinking: { label: "thinking...", status: "warning" },
+  executing_tool: { label: "running tool", status: "warning" },
+  waiting_for_approval: { label: "awaiting approval", status: "warning" },
+  running_goal: { label: "running goal", status: "success" },
+  goal_running: { label: "running goal", status: "success" },
+};
 
 export function StatusBar() {
   const ws = useWorkspaceStore((s) => s.activeWorkspace());
@@ -20,15 +33,25 @@ export function StatusBar() {
   const themeName = useSettingsStore((s) => s.settings.themeName);
   const sandboxEnabled = useSettingsStore((s) => s.settings.sandboxEnabled);
   const snapshotBackend = useSettingsStore((s) => s.settings.snapshotBackend);
-  const gatewayEnabled = useSettingsStore((s) => s.settings.gatewayEnabled);
+  const gatewayEnabled = useAgentStore((s) => s.agentSettings.gateway_enabled);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
   const approvals = useAgentMissionStore((s) => s.approvals);
   const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
   const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
   const historyHits = useAgentMissionStore((s) => s.historyHits);
   const snapshots = useAgentMissionStore((s) => s.snapshots);
+  const activity = useStatusStore((s) => s.activity);
+  const activeGoalRunTitle = useStatusStore((s) => s.activeGoalRunTitle);
+  const providerHealth = useStatusStore((s) => s.providerHealth);
+  const recentActions = useStatusStore((s) => s.recentActions);
+  const currentTier = useTierStore((s) => s.currentTier);
   const [daemonConnected, setDaemonConnected] = useState(false);
   const pendingApprovals = useMemo(() => approvals.filter((entry) => entry.status === "pending").length, [approvals]);
+  const activityInfo = ACTIVITY_DISPLAY[activity] ?? ACTIVITY_DISPLAY.idle;
+  const activityLabel = (activity === "running_goal" || activity === "goal_running") && activeGoalRunTitle
+    ? `goal: ${activeGoalRunTitle}`
+    : activityInfo.label;
+  const unhealthyProviders = providerHealth.filter((p) => !p.canExecute);
   const traceCount = cognitiveEvents.length;
   const opsCount = operationalEvents.length;
   const toolCallCount = useMemo(() => operationalEvents.filter((e) => e.kind === "tool-call").length, [operationalEvents]);
@@ -37,8 +60,8 @@ export function StatusBar() {
     async function check() {
       try {
         if (typeof window !== "undefined" && "amux" in window) {
-          const ok = await ((window as any).tamux ?? (window as any).amux).checkDaemon();
-          setDaemonConnected(ok);
+          const ok = await getBridge()?.checkDaemon?.();
+          setDaemonConnected(ok ?? false);
         }
       } catch {
         setDaemonConnected(false);
@@ -58,6 +81,35 @@ export function StatusBar() {
           label={daemonConnected ? "daemon online" : "daemon offline"}
           status={daemonConnected ? "success" : "neutral"}
         />
+
+        {daemonConnected && (
+          <StatusIndicator
+            label={activityLabel}
+            status={activityInfo.status}
+          />
+        )}
+
+        {currentTier && currentTier !== "newcomer" && (
+          <span style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)", textTransform: "capitalize" }}>
+            {currentTier}
+          </span>
+        )}
+
+        {recentActions.length > 0 && (
+          <span
+            style={{ color: "var(--text-muted)", fontSize: "var(--text-xs)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            title={recentActions.map((a) => a.summary).join("\n")}
+          >
+            last: {recentActions[0]?.summary ?? ""}
+          </span>
+        )}
+
+        {unhealthyProviders.length > 0 && (
+          <StatusIndicator
+            label={`${unhealthyProviders.length} provider${unhealthyProviders.length > 1 ? "s" : ""} tripped`}
+            status="warning"
+          />
+        )}
 
         {ws && (
           <span style={{
@@ -158,6 +210,12 @@ export function StatusBar() {
             }}
           >
             {unreadCount}
+          </span>
+        )}
+
+        {currentTier !== "newcomer" && (
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", opacity: 0.7 }}>
+            {currentTier.replace("_", " ")}
           </span>
         )}
 

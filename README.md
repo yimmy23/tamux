@@ -10,9 +10,27 @@
 
 # tamux
 
-**Terminal Agentic Multiplexer** -- a terminal multiplexer built for the age of AI agents.
+**Terminal Agentic Multiplexer** -- a daemon-first terminal environment for long-running AI workflows.
 
 Official website: [https://tamux.app](https://tamux.app)
+
+## Summary
+
+tamux is a daemon-first terminal multiplexer with a built-in agent runtime.
+
+In practice that means:
+
+- terminals, agent threads, tasks, approvals, and goal runs live in the daemon
+- Electron, the TUI, the CLI, MCP clients, and chat gateways all talk to the same daemon state
+- the built-in daemon agent can plan work, run tools, spawn sub-agents, pause for approval, persist memory, and learn from prior runs
+- persistence is split between SQLite for structured state and files for editable memory, transcripts, skills, and append-only telemetry
+
+## See More
+
+- [How tamux Works](docs/how-tamux-works.md) — current system overview
+- [Self-Orchestrating Agent Architecture](docs/self-orchestrating-agent.md) — deeper agent internals
+- [Getting Started](docs/getting-started.md) — install and first-run path
+- [Goal Runners](docs/goal-runners.md) — durable autonomy flow
 
 
 tamux combines tmux-like session management with first-class AI agent integration, structured safety infrastructure, and a modern React-based UI. The backend is written in Rust for performance and reliability; the frontend is a React/TypeScript application rendered inside an Electron shell.
@@ -22,16 +40,53 @@ tamux combines tmux-like session management with first-class AI agent integratio
 
 ## Overview
 
-tamux is an agentic-first terminal multiplexer designed to serve as a unified command environment where humans and AI agents collaborate. Rather than bolting AI onto a traditional terminal, tamux treats autonomous agent execution as a core primitive alongside PTY management, session persistence, and workspace isolation.
+tamux is an agentic-first terminal multiplexer designed to serve as a unified command environment where humans and AI agents collaborate. Rather than bolting AI onto a traditional terminal, tamux treats autonomous execution as a core primitive alongside PTY management, session persistence, workspace isolation, and approval-aware operations.
 
-The daemon runs independently of any UI client, ensuring that agent workflows, long-running processes, and background sessions survive disconnects and can be reattached from any client -- CLI, Electron, or a future web interface.
+The daemon runs independently of any UI client, ensuring that agent workflows, long-running processes, background tasks, and durable goal runs survive disconnects and can be reattached from any client -- CLI, Electron, or a future web interface.
 
 Key design principles:
 
 - **Daemon-first architecture.** All session state lives in the daemon. The UI is a stateless renderer.
+- **Long-running autonomy.** Goal runners can plan, execute, replan, reflect, and persist what they learn over time instead of being limited to one prompt/response turn.
 - **Safety by default.** Managed commands pass through sandbox isolation, AST validation, policy evaluation, and structured approval workflows before execution.
 - **Observable AI.** The agent's reasoning traces, tool calls, and decisions are surfaced in dedicated UI planes rather than hidden behind a black box.
 - **Multi-provider flexibility.** Connect to 16 LLM providers out of the box, or bring your own via a custom endpoint.
+
+### Autonomy Loop
+
+tamux now supports a durable autonomy loop for daemon-managed agent workflows:
+
+1. **Start a goal run.** Give the daemon a long-running objective instead of a single prompt.
+2. **Generate a plan.** The built-in agent decomposes the goal into actionable steps.
+3. **Execute child work.** Steps spawn queued tasks and managed terminal commands inside the daemon.
+4. **Pause for approvals.** High-risk work stops behind the normal structured approval flow.
+5. **Reflect and learn.** Successful runs can update persistent memory and generate reusable skills from the trajectory.
+
+![Goal Runner operator view](docs/assets/goal-runner-overview.svg)
+
+### Quick Start
+
+If you want to see the new feature fast:
+
+1. Start `tamux-daemon`.
+2. Launch the Electron app.
+3. Open the agent panel and switch to the built-in `daemon` backend.
+4. Go to `Goal Runners` and enter a long-running objective.
+5. Watch the daemon generate a plan, enqueue child tasks, pause for approvals if needed, and persist the final reflection.
+
+### Example Goal
+
+Example prompt:
+
+> Investigate why the nightly Rust build is failing, summarize the root cause, propose the smallest fix, and save any reusable workflow as a skill.
+
+Expected flow:
+
+- tamux creates a goal run
+- the daemon plans the work into steps
+- child tasks execute in the queue
+- risky commands pause for approval
+- the final run can write durable memory and generate a reusable skill document
 
 ---
 
@@ -57,7 +112,9 @@ Key design principles:
 
 - **Multi-provider LLM chat panel** with streaming responses, token tracking, and conversation memory.
 - **16 built-in providers** (see table below) plus a custom endpoint option.
+- **Durable goal runners** for long-running objectives that plan, execute, reflect, and learn over time.
 - **Daemon-owned agent task queue** for background work that survives UI disconnects and restarts.
+- **Goal-run child tasks** -- goal runners translate plan steps into queued daemon work and track progress across those child tasks.
 - **Task dependencies, retries, and session targeting** so queued work can model ordered execution and bind managed commands to a specific PTY session.
 - **First-class queue tools for daemon agents and MCP clients** -- agents can enqueue, inspect, cancel, and schedule background jobs instead of treating the queue as a UI-only feature.
 - **Approval-aware background execution** -- queued tasks can pause in `awaiting_approval` and resume or fail when an operator resolves the approval request.
@@ -68,8 +125,24 @@ Key design principles:
 - **Bash tool** allowing the agent to execute shell commands within managed sessions.
 - **Web search tool** integration (Firecrawl, Exa, Tavily).
 - **agent_query_memory tool** for targeted long-term memory lookups during legacy frontend agent runs.
-- **Procedural skills ecosystem** -- the daemon can generate reusable SKILL.md documents from successful execution trajectories.
+- **Procedural skills ecosystem** -- the daemon can generate reusable SKILL.md documents from successful execution trajectories, including completed goal runs.
 - **Semantic symbol search** powered by tree-sitter AST indexing.
+
+### Self-Orchestrating Agent
+
+The daemon agent is a **self-orchestrating system** that goes beyond simple prompt-response turns. It can autonomously manage its own execution with production-grade reliability. Key capabilities:
+
+- **Sub-agent management** -- spawn bounded child tasks with per-agent tool filtering (whitelist/blacklist), context token budgets, a composable termination DSL (`timeout(300) OR error_count(3)`), and configurable supervision.
+- **Automatic checkpointing** -- goal run state is snapshotted before and after each step. Checkpoints capture 4 layers (goal state, execution state, context, runtime) for crash recovery.
+- **Health monitoring with hysteresis** -- a 30-second supervisor tick detects stuck agents (no-progress, error loops, tool-call cycling, resource exhaustion, timeout) and selects interventions based on severity.
+- **4-level escalation** -- self-correction → sub-agent delegation → user escalation → external notification (Slack/Discord), with automatic level progression on repeated failures.
+- **Dynamic re-planning** -- 6 strategies (compress-retry, spawn expert, user guidance, alternative tools, parallelize, goal revision) selected based on the stuck reason and attempt history.
+- **Context self-management** -- audit, compress, archive, and restore context items. Three compression strategies auto-selected by ratio. FTS5-indexed archive for retrieval.
+- **Execution learning** -- traces record every tool call. Pattern mining builds confidence-scored tool sequences. Heuristics optimize context allocation and tool selection per task type.
+- **Production hardening** -- circuit breaker for LLM API protection, per-tool token-bucket rate limiting, bounded data structures with retention policies.
+
+> **Current system overview:** [docs/how-tamux-works.md](docs/how-tamux-works.md)  
+> **Deep agent internals:** [docs/self-orchestrating-agent.md](docs/self-orchestrating-agent.md)
 
 ### Infrastructure
 
@@ -93,6 +166,7 @@ Key design principles:
 - **Operational event tracking** -- command execution duration, exit codes, payloads in replayable JSONL.
 - **Cognitive event tracking** -- agent reasoning traces, retrieved memory embeddings, compiled prompts.
 - **Contextual telemetry** -- CPU, memory, and system health correlated with agent actions.
+- **Goal-run visibility** -- inspect durable autonomous runs, current plan step, child task progress, and final reflection output.
 - **Persistent task-tray visibility** for queued, blocked, running, approval-pending, failed, and completed agent jobs.
 - **Approval workflows** rendered as structured interceptor modals rather than raw Y/N prompts.
 - **Context snapshots** capturing the full workspace/session state before managed command batches.
@@ -100,10 +174,10 @@ Key design principles:
 
 ### Persistence
 
-- **SQLite-backed operational state** for command logs, agent threads/messages, agent task queue state/dependencies/logs, transcript metadata, mission events, WORM tips, and snapshot indexes.
+- **SQLite-backed operational state** for command logs, agent threads/messages, agent task queue state/dependencies/logs, goal-run state/steps/events, transcript metadata, mission events, WORM tips, and snapshot indexes.
 - **Single daemon-owned source of truth** shared by the Rust daemon, CLI bridge, Electron shell, and frontend stores.
 - **Transcript log files preserved on disk** while their searchable index lives in SQLite.
-- **Agent mission MEMORY.md and USER.md preserved as editable markdown files** alongside SQLite-backed structured events.
+- **Agent mission MEMORY.md and USER.md preserved as editable markdown files** alongside SQLite-backed structured events, reflections, and generated skills.
 
 ### MCP Server
 
@@ -218,7 +292,9 @@ Gateway command examples:
 | Qwen | `qwen` | qwen-max | api.qwen.com |
 | Qwen (DeepInfra) | `qwen-deepinfra` | Qwen/Qwen2.5-72B-Instruct | api.deepinfra.com |
 | Kimi (Moonshot) | `kimi` | moonshot-v1-32k | api.moonshot.ai |
+| Kimi Coding Plan | `kimi-coding-plan` | kimi-for-coding | api.kimi.com/coding |
 | Z.AI (GLM) | `z.ai` | glm-4-plus | api.z.ai |
+| Z.AI Coding Plan | `z.ai-coding-plan` | glm-5 | api.z.ai/api/coding/paas/v4 |
 | OpenRouter | `openrouter` | anthropic/claude-sonnet-4 | openrouter.ai |
 | Cerebras | `cerebras` | llama-3.3-70b | api.cerebras.ai |
 | Together | `together` | meta-llama/Llama-3.3-70B-Instruct-Turbo | api.together.xyz |
@@ -227,17 +303,26 @@ Gateway command examples:
 | Chutes | `chutes` | deepseek-ai/DeepSeek-V3 | llm.chutes.ai |
 | Hugging Face | `huggingface` | meta-llama/Llama-3.3-70B-Instruct | api-inference.huggingface.co |
 | MiniMax | `minimax` | MiniMax-M1-80k | api.minimax.io |
+| MiniMax Coding Plan | `minimax-coding-plan` | MiniMax-M2.7 | api.minimax.io/anthropic |
+| Alibaba Coding Plan | `alibaba-coding-plan` | qwen3-coder | coding-intl.dashscope.aliyuncs.com |
+| OpenCode Zen | `opencode-zen` | claude-sonnet-4-5 | opencode.ai/zen |
 | Custom | `custom` | (user-defined) | (user-defined) |
 
-All providers use OpenAI-compatible chat completion endpoints. Switch providers at any time from the Settings panel or by updating the agent configuration. Each provider's base URL, model, and API key are independently configurable.
+**API Formats:**
+- Most providers use OpenAI-compatible `/chat/completions` endpoints
+- Anthropic, MiniMax, MiniMax Coding Plan use Anthropic Messages API (`/v1/messages`)
+- Alibaba Coding Plan supports both: OpenAI-compatible at `/v1` and Anthropic-compatible at `/apps/anthropic` (auto-selected based on model name)
+- OpenCode Zen auto-selects API format based on model (Anthropic for Claude models, OpenAI-compatible for others)
+
+Switch providers at any time from the Settings panel. Each provider's base URL, model, and API key are independently configurable. Models can be selected from a searchable dropdown with predefined options, or custom model IDs can be entered.
 
 ## Persistence And Memory
 
-tamux now stores high-churn UI and agent state in the daemon's SQLite database instead of scattered JSON indexes. That includes command logs, agent threads and messages, AJQ task records with dependency edges and task logs, transcript indexes, mission-control event streams, WORM cache tips, and snapshot indexes. The goal is one durable store that survives UI restarts and can be shared consistently across Electron, the CLI bridge, and daemon-side agents.
+tamux now stores high-churn UI and agent state in the daemon's SQLite database instead of scattered JSON indexes. That includes command logs, agent threads and messages, AJQ task records with dependency edges and task logs, goal-run records with steps and lifecycle events, transcript indexes, mission-control event streams, WORM cache tips, and snapshot indexes. The goal is one durable store that survives UI restarts and can be shared consistently across Electron, the CLI bridge, and daemon-side agents.
 
-Transcript bodies still live as plain `.log` files under the data directory, and agent mission notes still keep `MEMORY.md` and `USER.md` as editable text. Only their structured indexes and event streams moved into SQLite.
+Transcript bodies still live as plain `.log` files under the data directory, and agent mission notes still keep `MEMORY.md` and `USER.md` as editable text. Goal runs can append durable learnings to memory and generate reusable skills, while their structured history stays searchable in SQLite.
 
-The AJQ scheduler runs inside the daemon and dispatches work across execution lanes. Session-bound tasks use dedicated `session:<id>` lanes, generic daemon work stays on `daemon-main`, and tasks that are waiting on dependencies, lane availability, or a workspace lock surface that state in the UI instead of silently stalling.
+The AJQ scheduler runs inside the daemon and dispatches work across execution lanes. Session-bound tasks use dedicated `session:<id>` lanes, generic daemon work stays on `daemon-main`, and tasks that are waiting on dependencies, lane availability, or a workspace lock surface that state in the UI instead of silently stalling. Goal runners sit above that queue: they plan work, spawn child tasks, watch approvals and failures, and replan when needed.
 
 Legacy frontend agent runs can optionally sync conversations into Honcho. When enabled, tamux writes user and assistant turns to Honcho, requests per-thread context before a new turn, and exposes an `agent_query_memory` tool for explicit recall. For managed cloud, set an API key and workspace ID. For self-hosted Honcho, also set the base URL in the Agent settings panel.
 
@@ -245,9 +330,17 @@ Legacy frontend agent runs can optionally sync conversations into Honcho. When e
 
 ## Documentation
 
+- [Getting Started Guide](docs/getting-started.md)
+- [Goal Runners Guide](docs/goal-runners.md)
+- [Agentic Mission Control Notes](docs/agentic-mission-control.md)
 - [Building CDUI Components And Views With YAML](docs/cdui-yaml-views.md)
 - [Creating Your Own tamux Plugin](docs/plugin-development.md)
-- [Getting Started Guide](docs/getting-started.md)
+
+Suggested next reads:
+
+- Start with the Getting Started guide if you want to run tamux locally.
+- Read Goal Runners if you want the lifecycle, limits, and operator controls for long-running autonomy.
+- Read Agentic Mission Control if you want the UI and operator model behind approvals, trace, and long-running autonomy.
 
 Runtime-installed plugins are now supported through `tamux install plugin <npm-package-or-local-path>`.
 

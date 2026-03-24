@@ -1,8 +1,7 @@
 use amux_protocol::{
-    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry,
-    DaemonMessage, HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo,
-    SnapshotIndexEntry, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus,
-    TranscriptIndexEntry, WorkspaceTopology,
+    AgentDbMessage, AgentDbThread, AgentEventRow, ApprovalDecision, CommandLogEntry, DaemonMessage,
+    HistorySearchHit, ManagedCommandRequest, SessionId, SessionInfo, SnapshotIndexEntry,
+    SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, TranscriptIndexEntry, WorkspaceTopology,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -21,9 +20,10 @@ use crate::validation::{find_symbol, validate_command};
 pub struct SessionManager {
     sessions: RwLock<HashMap<SessionId, Arc<Mutex<PtySession>>>>,
     state_path: std::path::PathBuf,
-    history: HistoryStore,
+    history: Arc<HistoryStore>,
     snapshots: SnapshotStore,
     pending_approvals: RwLock<HashMap<String, PendingApproval>>,
+    pty_channel_capacity: usize,
 }
 
 struct PendingApproval {
@@ -34,15 +34,25 @@ struct PendingApproval {
 }
 
 impl SessionManager {
-    pub fn new() -> Arc<Self> {
-        let history = HistoryStore::new().expect("history store initialization failed");
-        let snapshots = SnapshotStore::new().expect("snapshot store initialization failed");
+    #[cfg(test)]
+    pub async fn new_test(root: &std::path::Path) -> Arc<Self> {
+        let history = Arc::new(
+            HistoryStore::new_test_store(root)
+                .await
+                .expect("test history store initialization failed"),
+        );
+        Self::new_with_history(history, 256)
+    }
+
+    pub fn new_with_history(history: Arc<HistoryStore>, pty_channel_capacity: usize) -> Arc<Self> {
+        let snapshots = SnapshotStore::new_with_history((*history).clone());
         Arc::new(Self {
             sessions: RwLock::new(HashMap::new()),
             state_path: crate::state::default_state_path(),
             history,
             snapshots,
             pending_approvals: RwLock::new(HashMap::new()),
+            pty_channel_capacity,
         })
     }
 
@@ -65,7 +75,8 @@ impl SessionManager {
             env,
             cols,
             rows,
-            self.history.clone(),
+            (*self.history).clone(),
+            self.pty_channel_capacity,
         )?;
         let rx = session.subscribe();
 
@@ -89,7 +100,11 @@ impl SessionManager {
         rows: Option<u16>,
         replay_scrollback: bool,
         cwd_override: Option<String>,
-    ) -> Result<(SessionId, broadcast::Receiver<DaemonMessage>, Option<String>)> {
+    ) -> Result<(
+        SessionId,
+        broadcast::Receiver<DaemonMessage>,
+        Option<String>,
+    )> {
         let source = self
             .sessions
             .read()
@@ -98,7 +113,15 @@ impl SessionManager {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("session not found: {source_id}"))?;
 
-        let (shell, cwd, source_workspace_id, source_cols, source_rows, replay_bytes, src_active_cmd) = {
+        let (
+            shell,
+            cwd,
+            source_workspace_id,
+            source_cols,
+            source_rows,
+            replay_bytes,
+            src_active_cmd,
+        ) = {
             let source = source.lock().await;
             (
                 source.shell().map(ToOwned::to_owned),
@@ -128,8 +151,7 @@ impl SessionManager {
             .await?;
 
         if replay_scrollback && !replay_bytes.is_empty() {
-            let sanitized =
-                crate::pty_session::sanitize_scrollback_for_replay(&replay_bytes);
+            let sanitized = crate::pty_session::sanitize_scrollback_for_replay(&replay_bytes);
             if let Some(cloned_session) = self.sessions.read().await.get(&id).cloned() {
                 cloned_session.lock().await.preload_output(&sanitized);
             }
@@ -325,7 +347,7 @@ impl SessionManager {
                         request.cwd.as_deref().or_else(|| session.cwd()),
                         Some(&request.command),
                         "pre-execution checkpoint",
-                    )?
+                    ).await?
                 };
                 let position = session.lock().await.queue_managed_command(
                     execution_id.clone(),
@@ -397,7 +419,7 @@ impl SessionManager {
                 pending.request.cwd.as_deref().or_else(|| session.cwd()),
                 Some(&pending.request.command),
                 "approved pre-execution checkpoint",
-            )?
+            ).await?
         };
         let position = session.lock().await.queue_managed_command(
             pending.execution_id.clone(),
@@ -413,109 +435,110 @@ impl SessionManager {
         Ok(responses)
     }
 
-    pub fn search_history(
+    pub async fn search_history(
         &self,
         query: &str,
         limit: usize,
     ) -> Result<(String, Vec<HistorySearchHit>)> {
-        self.history.search(query, limit)
+        self.history.search(query, limit).await
     }
 
-    pub fn generate_skill(
+    pub async fn generate_skill(
         &self,
         query: Option<&str>,
         title: Option<&str>,
     ) -> Result<(String, String)> {
-        self.history.generate_skill(query, title)
+        self.history.generate_skill(query, title).await
     }
 
-    pub fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
-        self.history.append_command_log(entry)
+    pub async fn append_command_log(&self, entry: &CommandLogEntry) -> Result<()> {
+        self.history.append_command_log(entry).await
     }
 
-    pub fn complete_command_log(
+    pub async fn complete_command_log(
         &self,
         id: &str,
         exit_code: Option<i32>,
         duration_ms: Option<i64>,
     ) -> Result<()> {
-        self.history.complete_command_log(id, exit_code, duration_ms)
+        self.history
+            .complete_command_log(id, exit_code, duration_ms).await
     }
 
-    pub fn query_command_log(
+    pub async fn query_command_log(
         &self,
         workspace_id: Option<&str>,
         pane_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<CommandLogEntry>> {
-        self.history.query_command_log(workspace_id, pane_id, limit)
+        self.history.query_command_log(workspace_id, pane_id, limit).await
     }
 
-    pub fn clear_command_log(&self) -> Result<()> {
-        self.history.clear_command_log()
+    pub async fn clear_command_log(&self) -> Result<()> {
+        self.history.clear_command_log().await
     }
 
-    pub fn create_agent_thread(&self, thread: &AgentDbThread) -> Result<()> {
-        self.history.create_thread(thread)
+    pub async fn create_agent_thread(&self, thread: &AgentDbThread) -> Result<()> {
+        self.history.create_thread(thread).await
     }
 
-    pub fn delete_agent_thread(&self, thread_id: &str) -> Result<()> {
-        self.history.delete_thread(thread_id)
+    pub async fn delete_agent_thread(&self, thread_id: &str) -> Result<()> {
+        self.history.delete_thread(thread_id).await
     }
 
-    pub fn list_agent_threads(&self) -> Result<Vec<AgentDbThread>> {
-        self.history.list_threads()
+    pub async fn list_agent_threads(&self) -> Result<Vec<AgentDbThread>> {
+        self.history.list_threads().await
     }
 
-    pub fn get_agent_thread(&self, thread_id: &str) -> Result<Option<AgentDbThread>> {
-        self.history.get_thread(thread_id)
+    pub async fn get_agent_thread(&self, thread_id: &str) -> Result<Option<AgentDbThread>> {
+        self.history.get_thread(thread_id).await
     }
 
-    pub fn add_agent_message(&self, message: &AgentDbMessage) -> Result<()> {
-        self.history.add_message(message)
+    pub async fn add_agent_message(&self, message: &AgentDbMessage) -> Result<()> {
+        self.history.add_message(message).await
     }
 
-    pub fn list_agent_messages(
+    pub async fn list_agent_messages(
         &self,
         thread_id: &str,
         limit: Option<usize>,
     ) -> Result<Vec<AgentDbMessage>> {
-        self.history.list_messages(thread_id, limit)
+        self.history.list_messages(thread_id, limit).await
     }
 
-    pub fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
-        self.history.upsert_transcript_index(entry)
+    pub async fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
+        self.history.upsert_transcript_index(entry).await
     }
 
-    pub fn list_transcript_index(
+    pub async fn list_transcript_index(
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<TranscriptIndexEntry>> {
-        self.history.list_transcript_index(workspace_id)
+        self.history.list_transcript_index(workspace_id).await
     }
 
-    pub fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
-        self.history.upsert_snapshot_index(entry)
+    pub async fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
+        self.history.upsert_snapshot_index(entry).await
     }
 
-    pub fn list_snapshot_index(
+    pub async fn list_snapshot_index(
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<SnapshotIndexEntry>> {
-        self.history.list_snapshot_index(workspace_id)
+        self.history.list_snapshot_index(workspace_id).await
     }
 
-    pub fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
-        self.history.upsert_agent_event(entry)
+    pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
+        self.history.upsert_agent_event(entry).await
     }
 
-    pub fn list_agent_events(
+    pub async fn list_agent_events(
         &self,
         category: Option<&str>,
         pane_id: Option<&str>,
         limit: Option<usize>,
     ) -> Result<Vec<AgentEventRow>> {
-        self.history.list_agent_events(category, pane_id, limit)
+        self.history.list_agent_events(category, pane_id, limit).await
     }
 
     pub fn find_symbol_matches(
@@ -527,12 +550,12 @@ impl SessionManager {
         find_symbol(workspace_root, symbol, limit)
     }
 
-    pub fn list_snapshots(&self, workspace_id: Option<&str>) -> Result<Vec<SnapshotInfo>> {
-        self.snapshots.list(workspace_id)
+    pub async fn list_snapshots(&self, workspace_id: Option<&str>) -> Result<Vec<SnapshotInfo>> {
+        self.snapshots.list(workspace_id).await
     }
 
-    pub fn restore_snapshot(&self, snapshot_id: &str) -> Result<(bool, String)> {
-        self.snapshots.restore(snapshot_id)
+    pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<(bool, String)> {
+        self.snapshots.restore(snapshot_id).await
     }
 
     /// Verify WORM telemetry ledger integrity and return results as protocol types.

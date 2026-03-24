@@ -23,24 +23,14 @@ const storeCDUIPreference = (enabled: boolean): void => {
   scheduleJsonWrite(CDUI_PREFERENCE_FILE, { enabled }, 0);
 };
 
-const readQueryOverride = (): boolean | null => {
-  const query = new URLSearchParams(window.location.search);
+export const isCDUIEnabled = (): boolean => {
 
-  if (query.get("cdui") === "1" || query.get("ui") === "cdui") {
+  const stored = localStorage.getItem("amux_feature_cdui");
+  if (stored === "1") {
     return true;
   }
-
-  if (query.get("cdui") === "0" || query.get("ui") === "classic") {
+  if (stored === "0") {
     return false;
-  }
-
-  return null;
-};
-
-export const isCDUIEnabled = (): boolean => {
-  const queryOverride = readQueryOverride();
-  if (queryOverride != null) {
-    return queryOverride;
   }
 
   const storedPreference = readStoredCDUIPreference();
@@ -53,17 +43,7 @@ export const isCDUIEnabled = (): boolean => {
 
 export const setCDUIEnabled = (enabled: boolean): void => {
   storeCDUIPreference(enabled);
-
-  const url = new URL(window.location.href);
-  url.searchParams.set("cdui", enabled ? "1" : "0");
-
-  if (enabled) {
-    if (url.searchParams.get("ui") === "classic") {
-      url.searchParams.delete("ui");
-    }
-  } else {
-    url.searchParams.set("ui", "classic");
-  }
-
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  localStorage.setItem("amux_feature_cdui", enabled ? "1" : "0");
+  window.dispatchEvent(new Event("amux:cdui-changed"));
+  window.location.reload();
 };

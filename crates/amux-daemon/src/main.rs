@@ -15,6 +15,7 @@ mod session_manager;
 mod snapshot;
 mod state;
 mod validation;
+pub mod plugin;
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
@@ -54,7 +55,10 @@ async fn main() -> Result<()> {
     tracing::info!(?state_path, "state file location");
     match state::load_state(&state_path) {
         Ok(state) => {
-            tracing::info!(previous_sessions = state.previous_sessions.len(), "loaded persisted daemon state");
+            tracing::info!(
+                previous_sessions = state.previous_sessions.len(),
+                "loaded persisted daemon state"
+            );
         }
         Err(error) => {
             tracing::warn!(error = %error, path = %state_path.display(), "failed to load persisted daemon state");

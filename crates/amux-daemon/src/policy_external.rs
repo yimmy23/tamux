@@ -34,7 +34,9 @@ pub struct PolicyRequest {
 pub struct LocalPolicyProvider;
 
 impl PolicyProvider for LocalPolicyProvider {
-    fn name(&self) -> &'static str { "local" }
+    fn name(&self) -> &'static str {
+        "local"
+    }
 
     fn evaluate(&self, request: &PolicyRequest) -> Result<PolicyDecision> {
         let managed_request = amux_protocol::ManagedCommandRequest {
@@ -82,12 +84,16 @@ pub struct CerbosPolicyProvider {
 
 impl CerbosPolicyProvider {
     pub fn new(endpoint: &str) -> Self {
-        Self { endpoint: endpoint.to_string() }
+        Self {
+            endpoint: endpoint.to_string(),
+        }
     }
 }
 
 impl PolicyProvider for CerbosPolicyProvider {
-    fn name(&self) -> &'static str { "cerbos" }
+    fn name(&self) -> &'static str {
+        "cerbos"
+    }
 
     fn evaluate(&self, request: &PolicyRequest) -> Result<PolicyDecision> {
         // Cerbos integration requires the ureq dependency.
@@ -112,7 +118,9 @@ impl CompositePolicyProvider {
 }
 
 impl PolicyProvider for CompositePolicyProvider {
-    fn name(&self) -> &'static str { "composite" }
+    fn name(&self) -> &'static str {
+        "composite"
+    }
 
     fn evaluate(&self, request: &PolicyRequest) -> Result<PolicyDecision> {
         // Run all providers; most restrictive decision wins

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import type { AmuxSettings } from "../../lib/types";
-import { PasswordInput, Section, SettingRow, type SettingsUpdater, TextInput, Toggle, smallBtnStyle } from "./shared";
+import { getBridge } from "@/lib/bridge";
+import type { AgentSettings } from "../../lib/agentStore";
+import { PasswordInput, Section, SettingRow, TextInput, Toggle, smallBtnStyle } from "./shared";
+import { GatewayHealth } from "./GatewaySettings";
 
 type WhatsAppStatus = "disconnected" | "connecting" | "qr_ready" | "connected" | "error";
 
@@ -13,7 +15,7 @@ function WhatsAppConnector() {
     useEffect(() => {
         checkStatus();
 
-        const amux = (window as any).tamux ?? (window as any).amux;
+        const amux = getBridge();
         const unsubQr = amux?.onWhatsAppQR?.((dataUrl: string) => {
             setQrDataUrl(dataUrl);
             setStatus("qr_ready");
@@ -45,10 +47,10 @@ function WhatsAppConnector() {
 
     async function checkStatus() {
         try {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.whatsappStatus) return;
             const result = await amux.whatsappStatus();
-            setStatus(result.status);
+            if (result.status) setStatus(result.status as WhatsAppStatus);
             if (result.phone) setPhoneInfo(result.phone);
         } catch {
             // IPC not available yet
@@ -59,7 +61,7 @@ function WhatsAppConnector() {
         setStatus("connecting");
         setError(null);
         try {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.whatsappConnect) {
                 setError("WhatsApp bridge not available. Install dependencies: npm install @whiskeysockets/baileys qrcode pino @hapi/boom");
                 setStatus("error");
@@ -78,7 +80,7 @@ function WhatsAppConnector() {
 
     async function disconnect() {
         try {
-            await (window as any).amux?.whatsappDisconnect?.();
+            await getBridge()?.whatsappDisconnect?.();
             setStatus("disconnected");
             setQrDataUrl(null);
             setPhoneInfo(null);
@@ -193,19 +195,23 @@ function WhatsAppConnector() {
 export function GatewayTab({
     settings, updateSetting,
 }: {
-    settings: AmuxSettings;
-    updateSetting: SettingsUpdater;
+    settings: AgentSettings;
+    updateSetting: <K extends keyof AgentSettings>(key: K, value: AgentSettings[K]) => void;
 }) {
     return (
         <>
+            <Section title="Connection Status">
+                <GatewayHealth />
+            </Section>
+
             <Section title="Gateway">
                 <SettingRow label="Enable Gateway">
-                    <Toggle value={settings.gatewayEnabled}
-                        onChange={(value) => updateSetting("gatewayEnabled", value)} />
+                    <Toggle value={settings.gateway_enabled}
+                        onChange={(value) => updateSetting("gateway_enabled", value)} />
                 </SettingRow>
                 <SettingRow label="Command Prefix">
-                    <TextInput value={settings.gatewayCommandPrefix}
-                        onChange={(value) => updateSetting("gatewayCommandPrefix", value)}
+                    <TextInput value={settings.gateway_command_prefix}
+                        onChange={(value) => updateSetting("gateway_command_prefix", value)}
                         placeholder="!tamux" />
                 </SettingRow>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
@@ -217,44 +223,44 @@ export function GatewayTab({
 
             <Section title="Slack">
                 <SettingRow label="Bot Token">
-                    <PasswordInput value={settings.slackToken}
-                        onChange={(value) => updateSetting("slackToken", value)}
+                    <PasswordInput value={settings.slack_token}
+                        onChange={(value) => updateSetting("slack_token", value)}
                         placeholder="xoxb-..." />
                 </SettingRow>
                 <SettingRow label="Channel Filter">
-                    <TextInput value={settings.slackChannelFilter}
-                        onChange={(value) => updateSetting("slackChannelFilter", value)}
+                    <TextInput value={settings.slack_channel_filter}
+                        onChange={(value) => updateSetting("slack_channel_filter", value)}
                         placeholder="general, ops (comma-separated)" />
                 </SettingRow>
             </Section>
 
             <Section title="Telegram">
                 <SettingRow label="Bot Token">
-                    <PasswordInput value={settings.telegramToken}
-                        onChange={(value) => updateSetting("telegramToken", value)}
+                    <PasswordInput value={settings.telegram_token}
+                        onChange={(value) => updateSetting("telegram_token", value)}
                         placeholder="123456:ABC-DEF..." />
                 </SettingRow>
                 <SettingRow label="Allowed Chats">
-                    <TextInput value={settings.telegramAllowedChats}
-                        onChange={(value) => updateSetting("telegramAllowedChats", value)}
+                    <TextInput value={settings.telegram_allowed_chats}
+                        onChange={(value) => updateSetting("telegram_allowed_chats", value)}
                         placeholder="chat_id1, chat_id2 (comma-separated)" />
                 </SettingRow>
             </Section>
 
             <Section title="Discord">
                 <SettingRow label="Bot Token">
-                    <PasswordInput value={settings.discordToken}
-                        onChange={(value) => updateSetting("discordToken", value)}
+                    <PasswordInput value={settings.discord_token}
+                        onChange={(value) => updateSetting("discord_token", value)}
                         placeholder="Discord bot token" />
                 </SettingRow>
                 <SettingRow label="Channel Filter">
-                    <TextInput value={settings.discordChannelFilter}
-                        onChange={(value) => updateSetting("discordChannelFilter", value)}
+                    <TextInput value={settings.discord_channel_filter}
+                        onChange={(value) => updateSetting("discord_channel_filter", value)}
                         placeholder="channel_id1, channel_id2 (comma-separated)" />
                 </SettingRow>
                 <SettingRow label="Allowed Users">
-                    <TextInput value={settings.discordAllowedUsers}
-                        onChange={(value) => updateSetting("discordAllowedUsers", value)}
+                    <TextInput value={settings.discord_allowed_users}
+                        onChange={(value) => updateSetting("discord_allowed_users", value)}
                         placeholder="user_id1, user_id2 (comma-separated)" />
                 </SettingRow>
             </Section>
@@ -262,8 +268,8 @@ export function GatewayTab({
             <Section title="WhatsApp">
                 <WhatsAppConnector />
                 <SettingRow label="Allowed Contacts">
-                    <TextInput value={settings.whatsappAllowedContacts}
-                        onChange={(value) => updateSetting("whatsappAllowedContacts", value)}
+                    <TextInput value={settings.whatsapp_allowed_contacts}
+                        onChange={(value) => updateSetting("whatsapp_allowed_contacts", value)}
                         placeholder="+1234567890, +0987654321 (comma-separated)" />
                 </SettingRow>
 
@@ -278,13 +284,13 @@ export function GatewayTab({
                         If you have a Meta Business account, you can use the Cloud API instead of QR linking.
                     </div>
                     <SettingRow label="API Token">
-                        <PasswordInput value={settings.whatsappToken}
-                            onChange={(value) => updateSetting("whatsappToken", value)}
+                        <PasswordInput value={settings.whatsapp_token}
+                            onChange={(value) => updateSetting("whatsapp_token", value)}
                             placeholder="WhatsApp Business API token" />
                     </SettingRow>
                     <SettingRow label="Phone Number ID">
-                        <TextInput value={settings.whatsappPhoneNumberId}
-                            onChange={(value) => updateSetting("whatsappPhoneNumberId", value)}
+                        <TextInput value={settings.whatsapp_phone_id}
+                            onChange={(value) => updateSetting("whatsapp_phone_id", value)}
                             placeholder="Phone number ID from Meta dashboard" />
                     </SettingRow>
                 </div>

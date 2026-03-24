@@ -170,7 +170,9 @@ fn build_task_action(
     let mut description = String::new();
     if let Some(command) = command.as_deref() {
         description.push_str("Run the scheduled gateway command when it becomes eligible.");
-        description.push_str("\nUse execute_managed_command unless a different daemon tool is more appropriate.");
+        description.push_str(
+            "\nUse execute_managed_command unless a different daemon tool is more appropriate.",
+        );
         description.push_str(&format!("\nCommand: {command}"));
     } else {
         description.push_str(payload);
@@ -192,7 +194,11 @@ fn build_task_action(
     }))
 }
 
-fn build_reminder_task(msg: &GatewayMessage, reminder: &str, scheduled_at: u64) -> GatewayTaskRequest {
+fn build_reminder_task(
+    msg: &GatewayMessage,
+    reminder: &str,
+    scheduled_at: u64,
+) -> GatewayTaskRequest {
     let mut description = format!(
         "Send the following reminder back to the same {} destination at the scheduled time:\n\n{}",
         msg.platform, reminder
@@ -217,7 +223,8 @@ fn build_reminder_task(msg: &GatewayMessage, reminder: &str, scheduled_at: u64) 
             ));
         }
         _ => {
-            description.push_str("\n\nUse the matching gateway messaging tool for this destination.");
+            description
+                .push_str("\n\nUse the matching gateway messaging tool for this destination.");
         }
     }
     description.push_str(&format!("\nOrigin user_id: {}", msg.user_id));
@@ -282,7 +289,8 @@ mod tests {
 
     #[test]
     fn bang_prefix_routes() {
-        let GatewayAction::ManagedCommand(req) = route_message(&make_msg("!ls -la")).unwrap() else {
+        let GatewayAction::ManagedCommand(req) = route_message(&make_msg("!ls -la")).unwrap()
+        else {
             panic!("expected managed command");
         };
         assert_eq!(req.command, "ls -la");
@@ -290,7 +298,9 @@ mod tests {
 
     #[test]
     fn run_prefix_routes() {
-        let GatewayAction::ManagedCommand(req) = route_message(&make_msg("/run cargo build")).unwrap() else {
+        let GatewayAction::ManagedCommand(req) =
+            route_message(&make_msg("/run cargo build")).unwrap()
+        else {
             panic!("expected managed command");
         };
         assert_eq!(req.command, "cargo build");
@@ -308,7 +318,8 @@ mod tests {
 
     #[test]
     fn whitespace_trimmed() {
-        let GatewayAction::ManagedCommand(req) = route_message(&make_msg("  !echo hi  ")).unwrap() else {
+        let GatewayAction::ManagedCommand(req) = route_message(&make_msg("  !echo hi  ")).unwrap()
+        else {
             panic!("expected managed command");
         };
         assert_eq!(req.command, "echo hi");
@@ -316,7 +327,9 @@ mod tests {
 
     #[test]
     fn schedule_task_routes() {
-        let GatewayAction::EnqueueTask(task) = route_message(&make_msg("/schedule 10m -- remind me to review the PR")).unwrap() else {
+        let GatewayAction::EnqueueTask(task) =
+            route_message(&make_msg("/schedule 10m -- remind me to review the PR")).unwrap()
+        else {
             panic!("expected queued task");
         };
         assert!(task.scheduled_at.is_some());
@@ -326,7 +339,9 @@ mod tests {
 
     #[test]
     fn remind_routes() {
-        let GatewayAction::EnqueueTask(task) = route_message(&make_msg("/remind 5m -- Standup in five minutes")).unwrap() else {
+        let GatewayAction::EnqueueTask(task) =
+            route_message(&make_msg("/remind 5m -- Standup in five minutes")).unwrap()
+        else {
             panic!("expected reminder task");
         };
         assert!(task.scheduled_at.is_some());

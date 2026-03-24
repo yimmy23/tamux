@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { SystemMonitorContent } from "./system-monitor-panel/SystemMonitorContent";
 import { SystemMonitorControls } from "./system-monitor-panel/SystemMonitorControls";
@@ -27,7 +28,7 @@ export function SystemMonitorPanel({ style, className }: SystemMonitorPanelProps
         let timeoutId: number | undefined;
 
         const fetchSnapshot = async () => {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.getSystemMonitorSnapshot) {
                 if (active) {
                     setError("Native system monitoring is available in the desktop runtime.");

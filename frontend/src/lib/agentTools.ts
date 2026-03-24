@@ -6,9 +6,9 @@
  * calling schema.
  */
 
-import { useSettingsStore } from "./settingsStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import { allLeafIds, findLeaf } from "./bspTree";
+import { getBridge } from "./bridge";
 import { getTerminalController, getTerminalSnapshot } from "./terminalRegistry";
 import { getBrowserController } from "./browserRegistry";
 import { getCanvasBrowserController } from "./canvasBrowserRegistry";
@@ -17,6 +17,7 @@ import { useAgentStore } from "./agentStore";
 import { resolveSnippetTemplate, useSnippetStore } from "./snippetStore";
 import { queryHonchoMemory } from "./honchoClient";
 import { executePluginAssistantTool, listPluginAssistantTools } from "../plugins/assistantToolRegistry";
+import { useSettingsStore } from "./settingsStore";
 
 // ---------------------------------------------------------------------------
 // Tool schema (OpenAI function calling format)
@@ -680,45 +681,46 @@ const WORKSPACE_TOOLS: ToolDefinition[] = [
  * Returns the tools available to the agent based on current settings and gateway configuration.
  */
 export function getAvailableTools(options: {
-  enableBashTool: boolean;
-  gatewayEnabled: boolean;
-  enableWebBrowsingTool?: boolean;
-  enableVisionTool?: boolean;
+  enable_bash_tool: boolean;
+  gateway_enabled: boolean;
+  enable_web_browsing_tool?: boolean;
+  enable_vision_tool?: boolean;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [...SYSTEM_TOOLS, ...WORKSPACE_TOOLS];
 
-  if (options.enableBashTool) {
+  if (options.enable_bash_tool) {
     tools.push(...TERMINAL_TOOLS);
   }
 
-  if (options.enableWebBrowsingTool) {
+  if (options.enable_web_browsing_tool) {
     tools.push(...WEB_BROWSING_TOOLS);
     tools.push(...BROWSER_USE_TOOLS);
   }
 
-  if (options.enableVisionTool) {
+  if (options.enable_vision_tool) {
     tools.push(...VISION_TOOLS);
   }
 
-  if (options.gatewayEnabled) {
-    const settings = useSettingsStore.getState().settings;
+  if (options.gateway_enabled) {
+    const settings = useAgentStore.getState().agentSettings;
     // Only include tools for configured gateways
-    if (settings.slackToken) {
+    if (settings.slack_token) {
       tools.push(GATEWAY_TOOLS[0]); // send_slack_message
     }
-    if (settings.discordToken) {
+    if (settings.discord_token) {
       tools.push(GATEWAY_TOOLS[1]); // send_discord_message
     }
-    if (settings.telegramToken) {
+    if (settings.telegram_token) {
       tools.push(GATEWAY_TOOLS[2]); // send_telegram_message
     }
-    if (settings.whatsappToken || settings.whatsappAllowedContacts) {
+    if (settings.whatsapp_token || settings.whatsapp_allowed_contacts) {
       tools.push(GATEWAY_TOOLS[3]); // send_whatsapp_message
     }
   }
 
-  if (useAgentStore.getState().agentSettings.enableHonchoMemory) {
-    tools.push(SYSTEM_TOOLS[SYSTEM_TOOLS.length - 1]);
+  if (useAgentStore.getState().agentSettings.enable_honcho_memory) {
+    const honchoTool = SYSTEM_TOOLS.find(t => t.function.name === 'agent_query_memory');
+    if (honchoTool) tools.push(honchoTool);
   }
 
   const registeredNames = new Set(tools.map((tool) => tool.function.name));
@@ -847,7 +849,7 @@ async function executeGatewayMessage(
   callId: string, name: string, platform: string, target: string, message: string,
 ): Promise<ToolResult> {
   // Gateway messages go through the amux-gateway daemon
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
   if (!amux?.executeManagedCommand) {
     return {
       toolCallId: callId, name,
@@ -866,7 +868,7 @@ async function executeGatewayMessage(
     });
     return {
       toolCallId: callId, name,
-      content: result?.output || `Message sent to ${platform} ${target}`,
+      content: (typeof result === "object" && result?.output) || `Message sent to ${platform} ${target}`,
     };
   } catch {
     // Fallback: the gateway may not be connected yet, queue the intent
@@ -880,9 +882,9 @@ async function executeGatewayMessage(
 async function executeDiscordMessage(
   callId: string, name: string, channelId: string | undefined, userId: string | undefined, message: string,
 ): Promise<ToolResult> {
-  const settings = useSettingsStore.getState().settings;
-  const token = settings.discordToken;
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const settings = useAgentStore.getState().agentSettings;
+  const token = settings.discord_token;
+  const amux = getBridge();
 
   if (!token) {
     return {
@@ -907,8 +909,8 @@ async function executeDiscordMessage(
       return match?.[0] ?? trimmed;
     };
 
-    const configuredChannels = settings.discordChannelFilter.split(",").map((s) => s.trim()).filter(Boolean);
-    const configuredUsers = settings.discordAllowedUsers.split(",").map((s) => s.trim()).filter(Boolean);
+    const configuredChannels = settings.discord_channel_filter.split(",").map((s) => s.trim()).filter(Boolean);
+    const configuredUsers = settings.discord_allowed_users.split(",").map((s) => s.trim()).filter(Boolean);
 
     const requestedChannelId = normalizeDiscordId(channelId);
     const requestedUserId = normalizeDiscordId(userId);
@@ -966,7 +968,7 @@ async function executeDiscordMessage(
 async function executeWhatsAppMessage(
   callId: string, name: string, phone: string, message: string,
 ): Promise<ToolResult> {
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
   if (!amux?.whatsappSend) {
     return {
       toolCallId: callId, name,
@@ -1089,7 +1091,7 @@ function createManagedCommandAwaiter(
   let cancel = () => { };
 
   const promise = new Promise<ManagedAwaitResult>((resolve) => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onTerminalEvent) {
       resolve({ status: "timeout" });
       return;
@@ -1659,7 +1661,7 @@ async function executeBrowserScreenshot(callId: string, name: string): Promise<T
   }
 
   const shot = await browser.captureScreenshot();
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
   if (!amux?.saveVisionScreenshot) {
     return { toolCallId: callId, name, content: "Error: Vision screenshot persistence is not available in this environment." };
   }
@@ -1672,7 +1674,7 @@ async function executeBrowserScreenshot(callId: string, name: string): Promise<T
   return {
     toolCallId: callId,
     name,
-    content: `Screenshot saved: ${saved.path}\nExpiresAt: ${new Date(saved.expiresAt).toISOString()}\nPage: ${shot.title || "(untitled)"}\nURL: ${shot.url}`,
+    content: `Screenshot saved: ${saved.path}\nExpiresAt: ${saved.expiresAt ? new Date(saved.expiresAt).toISOString() : "unknown"}\nPage: ${shot.title || "(untitled)"}\nURL: ${shot.url}`,
   };
 }
 
@@ -1713,7 +1715,7 @@ async function executeBrowserClick(
     const script = selector
       ? `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
-          if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
+          if (!el) return { ok: false, error: 'Element not found: ' + ${JSON.stringify(selector)} };
           el.scrollIntoView({ block: 'center' });
           el.click();
           return { ok: true, tag: el.tagName, text: (el.textContent || '').slice(0, 100) };
@@ -1759,7 +1761,7 @@ async function executeBrowserType(
     const shouldClear = clear !== false;
     const script = `(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
+      if (!el) return { ok: false, error: 'Element not found: ' + ${JSON.stringify(selector)} };
       el.focus();
       ${shouldClear ? `
       if ('value' in el) { el.value = ''; }
@@ -1948,7 +1950,7 @@ async function executeReadTerminalContent(
 async function executeTerminalCommand(
   callId: string, name: string, command: string, paneId?: string,
 ): Promise<ToolResult> {
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
   if (!amux?.sendTerminalInput && !amux?.executeManagedCommand) {
     return { toolCallId: callId, name, content: "Error: Terminal bridge not available." };
   }
@@ -2047,7 +2049,7 @@ async function executeTerminalCommand(
 async function executeGetSystemInfo(
   callId: string, name: string,
 ): Promise<ToolResult> {
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
   if (!amux?.getSystemMonitorSnapshot) {
     return { toolCallId: callId, name, content: "Error: System monitor not available." };
   }

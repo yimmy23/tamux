@@ -5,9 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use amux_protocol::{
-    DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SessionId, SnapshotInfo,
-};
+use amux_protocol::{DaemonMessage, ManagedCommandRequest, SessionId, SnapshotInfo};
 use anyhow::Result;
 use base64::Engine;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -79,6 +77,7 @@ impl PtySession {
         cols: u16,
         rows: u16,
         history: HistoryStore,
+        pty_channel_capacity: usize,
     ) -> Result<Self> {
         let pty_system = native_pty_system();
 
@@ -129,7 +128,7 @@ impl PtySession {
         let master_write = Arc::new(std::sync::Mutex::new(pair.master.take_writer()?));
 
         // Broadcast channel for output fanout to attached clients.
-        let (tx, _) = broadcast::channel(256);
+        let (tx, _) = broadcast::channel(pty_channel_capacity);
 
         let scrollback = Arc::new(std::sync::Mutex::new(Vec::with_capacity(
             SCROLLBACK_CAPACITY,
@@ -158,6 +157,7 @@ impl PtySession {
             let tracked_cwd = tracked_cwd.clone();
             let workspace_id = workspace_id.clone();
             let cwd = cwd.clone();
+            let rt_handle = tokio::runtime::Handle::current();
             std::thread::Builder::new()
                 .name(format!("pty-reader-{id}"))
                 .spawn(move || {
@@ -174,6 +174,7 @@ impl PtySession {
                         history,
                         workspace_id,
                         cwd,
+                        rt_handle,
                     );
                 })?;
         }
@@ -213,19 +214,6 @@ impl PtySession {
         snapshot: Option<SnapshotInfo>,
     ) -> Result<usize> {
         let mut lane = self.managed_lane.lock().unwrap();
-        let immediate_dispatch = lane.active.is_some()
-            && matches!(
-                request.source,
-                ManagedCommandSource::Agent | ManagedCommandSource::Gateway
-            );
-
-        if immediate_dispatch {
-            // Assistant/gateway commands should remain responsive even if a
-            // previously managed command is still running interactively.
-            dispatch_managed_command(&self.master_write, &request, self.cwd.as_deref())?;
-            return Ok(0);
-        }
-
         if lane.active.is_none() {
             dispatch_managed_command(&self.master_write, &request, self.cwd.as_deref())?;
             lane.active = Some(ActiveManagedCommand {
@@ -393,6 +381,7 @@ fn pty_reader_loop(
     history: HistoryStore,
     workspace_id: Option<String>,
     cwd: Option<String>,
+    rt_handle: tokio::runtime::Handle,
 ) {
     let mut buf = [0u8; 4096];
     let mut marker_tail = Vec::<u8>::new();
@@ -503,16 +492,16 @@ fn pty_reader_loop(
                                         .as_ref()
                                         .map(|snapshot| snapshot.path.clone()),
                                 };
-                                if let Err(error) = history.record_managed_finish(&record) {
+                                if let Err(error) = rt_handle.block_on(history.record_managed_finish(&record)) {
                                     tracing::error!(%id, error = %error, cwd = ?cwd, "failed to persist managed history");
                                 }
 
                                 // Auto-generate skill if a successful workflow pattern is detected
                                 if record.exit_code == Some(0) {
-                                    if let Ok(candidates) = history.detect_skill_candidates() {
+                                    if let Ok(candidates) = rt_handle.block_on(history.detect_skill_candidates()) {
                                         for (title, _hits) in candidates.iter().take(1) {
                                             if let Ok((_title, path)) =
-                                                history.generate_skill(Some(title), Some(title))
+                                                rt_handle.block_on(history.generate_skill(Some(title), Some(title)))
                                             {
                                                 tracing::info!(skill_path = %path, "auto-generated skill from workflow pattern");
                                             }
@@ -689,8 +678,7 @@ pub fn sanitize_scrollback_for_replay(data: &[u8]) -> Vec<u8> {
                     b'c' => {
                         // DA1 (\x1b[?..c), DA2 (\x1b[>..c), DA3 (\x1b[=..c), plain DA
                         let first = data.get(params_start).copied();
-                        matches!(first, Some(b'?') | Some(b'>') | Some(b'='))
-                            || params_start == j
+                        matches!(first, Some(b'?') | Some(b'>') | Some(b'=')) || params_start == j
                     }
                     b'R' => {
                         // Cursor Position Report: \x1b[<digits>;<digits>R
@@ -811,7 +799,11 @@ fn windows_path_to_wsl(path: &std::path::Path) -> String {
 }
 
 #[cfg(windows)]
-fn configure_shell_command(shell_program: &str, cmd: &mut CommandBuilder, cwd: Option<&str>) -> Result<()> {
+fn configure_shell_command(
+    shell_program: &str,
+    cmd: &mut CommandBuilder,
+    cwd: Option<&str>,
+) -> Result<()> {
     let shell_name = std::path::Path::new(shell_program)
         .file_name()
         .and_then(|name| name.to_str())
@@ -851,7 +843,11 @@ fn configure_shell_command(shell_program: &str, cmd: &mut CommandBuilder, cwd: O
 }
 
 #[cfg(not(windows))]
-fn configure_shell_command(shell_program: &str, cmd: &mut CommandBuilder, _cwd: Option<&str>) -> Result<()> {
+fn configure_shell_command(
+    shell_program: &str,
+    cmd: &mut CommandBuilder,
+    _cwd: Option<&str>,
+) -> Result<()> {
     let shell_name = std::path::Path::new(shell_program)
         .file_name()
         .and_then(|name| name.to_str())

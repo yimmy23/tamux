@@ -49,9 +49,8 @@ impl Decoder for AmuxCodec {
 
         src.advance(4);
         let data = src.split_to(length);
-        let msg: DaemonMessage = bincode::deserialize(&data).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let msg: DaemonMessage = bincode::deserialize(&data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         Ok(Some(msg))
     }
 }
@@ -64,9 +63,8 @@ impl Encoder<ClientMessage> for AmuxCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: ClientMessage, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let payload = bincode::serialize(&item).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let payload = bincode::serialize(&item)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         dst.put_u32_le(payload.len() as u32);
         dst.extend_from_slice(&payload);
         Ok(())
@@ -109,9 +107,8 @@ impl Decoder for DaemonCodec {
 
         src.advance(4);
         let data = src.split_to(length);
-        let msg: ClientMessage = bincode::deserialize(&data).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let msg: ClientMessage = bincode::deserialize(&data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         Ok(Some(msg))
     }
 }
@@ -120,9 +117,8 @@ impl Encoder<DaemonMessage> for DaemonCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: DaemonMessage, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let payload = bincode::serialize(&item).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?;
+        let payload = bincode::serialize(&item)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
         dst.put_u32_le(payload.len() as u32);
         dst.extend_from_slice(&payload);
         Ok(())

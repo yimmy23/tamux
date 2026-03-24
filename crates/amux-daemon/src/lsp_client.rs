@@ -197,10 +197,7 @@ impl LspClient {
     fn initialize(&mut self, workspace_root: &str) -> Option<()> {
         let root_uri = format!(
             "file://{}",
-            Path::new(workspace_root)
-                .canonicalize()
-                .ok()?
-                .display()
+            Path::new(workspace_root).canonicalize().ok()?.display()
         );
 
         let params = json!({
@@ -267,7 +264,8 @@ fn detect_servers(workspace_root: &str) -> Vec<&'static str> {
     // First, figure out which file extensions are present in the workspace
     // so we only launch relevant servers.  We do a shallow scan (max depth 4)
     // to keep this fast.
-    let mut extensions_present: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut extensions_present: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     for entry in walkdir::WalkDir::new(workspace_root)
         .max_depth(4)
         .into_iter()
@@ -333,7 +331,8 @@ fn parse_symbol_results(result: &Value, limit: usize) -> Vec<SymbolMatch> {
             (path.to_string(), line)
         } else {
             // WorkspaceSymbol may use `location` with just a uri (no range).
-            let uri = item.get("location")
+            let uri = item
+                .get("location")
                 .and_then(|l| l.get("uri"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
