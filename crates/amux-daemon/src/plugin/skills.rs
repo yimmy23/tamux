@@ -6,21 +6,60 @@ use std::path::Path;
 use super::manifest::PluginManifest;
 
 /// Copy bundled skill files from plugin dir to the standard skills directory.
-/// Target: `skills_root/plugins/{plugin_name}/`
+/// Source: `plugins_dir/{plugin_name}/{skill_path}`
+/// Target: `skills_root/plugins/{plugin_name}/{filename}`
 /// Returns count of successfully copied files.
 pub(crate) fn install_bundled_skills(
-    _plugins_dir: &Path,
-    _plugin_name: &str,
-    _manifest: &PluginManifest,
-    _skills_root: &Path,
+    plugins_dir: &Path,
+    plugin_name: &str,
+    manifest: &PluginManifest,
+    skills_root: &Path,
 ) -> Result<usize> {
-    todo!()
+    let skill_paths = match &manifest.skills {
+        Some(paths) if !paths.is_empty() => paths,
+        _ => return Ok(0),
+    };
+
+    let target_dir = skills_root.join("plugins").join(plugin_name);
+    std::fs::create_dir_all(&target_dir)?;
+
+    let mut copied = 0usize;
+    for skill_path in skill_paths {
+        let source = plugins_dir.join(plugin_name).join(skill_path);
+        if !source.exists() {
+            tracing::warn!(
+                plugin = %plugin_name,
+                skill = %skill_path,
+                "bundled skill file not found, skipping"
+            );
+            continue;
+        }
+        // Use just the file name component for the destination (flatten subdirs)
+        let filename = Path::new(skill_path)
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new(skill_path));
+        let dest = target_dir.join(filename);
+        std::fs::copy(&source, &dest)?;
+        copied += 1;
+    }
+
+    tracing::info!(
+        plugin = %plugin_name,
+        count = copied,
+        "installed bundled skills"
+    );
+    Ok(copied)
 }
 
 /// Remove skill directory for a plugin.
 /// Target: `skills_root/plugins/{plugin_name}/`
-pub(crate) fn remove_bundled_skills(_plugin_name: &str, _skills_root: &Path) -> Result<()> {
-    todo!()
+pub(crate) fn remove_bundled_skills(plugin_name: &str, skills_root: &Path) -> Result<()> {
+    let target_dir = skills_root.join("plugins").join(plugin_name);
+    if target_dir.exists() {
+        std::fs::remove_dir_all(&target_dir)?;
+        tracing::info!(plugin = %plugin_name, "removed bundled skills");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

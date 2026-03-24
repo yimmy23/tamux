@@ -119,7 +119,22 @@ impl PluginManager {
             tracing::warn!(error = %e, "failed to reconcile stale plugin records");
         }
 
+        // Install bundled skills for each loaded plugin
+        for (name, plugin) in &plugins_map {
+            if let Err(e) = skills::install_bundled_skills(
+                &self.plugins_dir,
+                name,
+                &plugin.manifest,
+                &self.skills_root,
+            ) {
+                tracing::warn!(plugin = %name, error = %e, "failed to install bundled skills");
+            }
+        }
+
         *self.plugins.write().await = plugins_map;
+
+        // Rebuild command registry after all plugins are loaded
+        self.rebuild_command_registry().await;
 
         tracing::info!(
             loaded = loaded_count,
@@ -279,6 +294,16 @@ impl PluginManager {
             }),
         );
 
+        // Install bundled skills
+        if let Err(e) = skills::install_bundled_skills(
+            &self.plugins_dir,
+            &manifest.name,
+            &manifest,
+            &self.skills_root,
+        ) {
+            tracing::warn!(plugin = %manifest.name, error = %e, "failed to install bundled skills");
+        }
+
         // Add to in-memory map
         self.plugins.write().await.insert(
             manifest.name.clone(),
@@ -289,6 +314,9 @@ impl PluginManager {
             },
         );
 
+        // Rebuild command registry
+        self.rebuild_command_registry().await;
+
         tracing::info!(plugin = %record.name, source = %install_source, "plugin registered");
         Ok(info)
     }
@@ -296,11 +324,20 @@ impl PluginManager {
     /// Unregister a plugin: remove from SQLite (plugins + settings + credentials)
     /// and from in-memory map. Does NOT delete files from disk (CLI handles that).
     pub async fn unregister_plugin(&self, name: &str) -> Result<()> {
+        // Remove bundled skills before removing from map
+        if let Err(e) = skills::remove_bundled_skills(name, &self.skills_root) {
+            tracing::warn!(plugin = %name, error = %e, "failed to remove bundled skills");
+        }
+
         let existed = self.persistence.remove_plugin(name).await?;
         if !existed {
             return Err(anyhow::anyhow!("plugin '{}' not found", name));
         }
         self.plugins.write().await.remove(name);
+
+        // Rebuild command registry after removal
+        self.rebuild_command_registry().await;
+
         tracing::info!(plugin = %name, "plugin unregistered");
         Ok(())
     }

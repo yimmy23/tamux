@@ -20,28 +20,55 @@ pub(crate) struct PluginCommandRegistry {
 
 impl PluginCommandRegistry {
     pub fn new() -> Self {
-        todo!()
+        Self {
+            commands: HashMap::new(),
+        }
     }
 
     /// Clear and repopulate from all loaded plugins.
-    pub fn rebuild_from_plugins(&mut self, _plugins: &HashMap<String, LoadedPlugin>) {
-        todo!()
+    /// For each plugin with commands, creates entries with key `/pluginname.commandname` per PSKL-05.
+    pub fn rebuild_from_plugins(&mut self, plugins: &HashMap<String, LoadedPlugin>) {
+        self.commands.clear();
+        for (plugin_name, loaded) in plugins {
+            let Some(cmds) = &loaded.manifest.commands else {
+                continue;
+            };
+            for (cmd_name, cmd_def) in cmds {
+                let key = format!("/{}.{}", plugin_name, cmd_name);
+                self.commands.insert(
+                    key.clone(),
+                    PluginCommandEntry {
+                        plugin_name: plugin_name.clone(),
+                        command_key: key,
+                        description: cmd_def.description.clone(),
+                        api_endpoint: cmd_def.action.clone(),
+                    },
+                );
+            }
+        }
     }
 
     /// Resolve a user input string to a command entry.
-    /// Checks if input starts with a registered command key.
-    pub fn resolve(&self, _input: &str) -> Option<&PluginCommandEntry> {
-        todo!()
+    /// Checks if input starts with a registered command key (exact match or followed by whitespace).
+    pub fn resolve(&self, input: &str) -> Option<&PluginCommandEntry> {
+        for (key, entry) in &self.commands {
+            if input == key || input.starts_with(&format!("{} ", key)) {
+                return Some(entry);
+            }
+        }
+        None
     }
 
     /// Return all entries sorted by command_key.
     pub fn list_all(&self) -> Vec<&PluginCommandEntry> {
-        todo!()
+        let mut entries: Vec<&PluginCommandEntry> = self.commands.values().collect();
+        entries.sort_by(|a, b| a.command_key.cmp(&b.command_key));
+        entries
     }
 
     /// Check if registry is empty.
     pub fn is_empty(&self) -> bool {
-        todo!()
+        self.commands.is_empty()
     }
 }
 
