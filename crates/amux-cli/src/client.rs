@@ -844,6 +844,25 @@ pub async fn send_plugin_disable(name: &str) -> Result<(bool, String)> {
     }
 }
 
+/// Send PluginListCommands to daemon. Returns list of registered plugin commands. Per PSKL-05.
+pub async fn send_plugin_list_commands() -> Result<Vec<amux_protocol::PluginCommandInfo>> {
+    match roundtrip(ClientMessage::PluginListCommands {}).await {
+        Ok(DaemonMessage::PluginCommandsResult { commands }) => Ok(commands),
+        Ok(DaemonMessage::Error { message }) => {
+            tracing::warn!("daemon error listing plugin commands: {message}");
+            Ok(vec![])
+        }
+        Ok(_other) => {
+            tracing::warn!("unexpected response for PluginListCommands");
+            Ok(vec![])
+        }
+        Err(e) => {
+            tracing::warn!("failed to list plugin commands: {e}");
+            Ok(vec![])
+        }
+    }
+}
+
 pub async fn run_bridge(
     session: Option<String>,
     shell: Option<String>,

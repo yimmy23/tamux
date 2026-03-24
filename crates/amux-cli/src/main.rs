@@ -232,6 +232,8 @@ enum PluginAction {
         /// Plugin name to disable.
         name: String,
     },
+    /// List available plugin commands. Per PSKL-05.
+    Commands,
 }
 
 #[derive(Debug, Subcommand)]
@@ -934,6 +936,15 @@ async fn main() -> Result<()> {
                 } else {
                     eprintln!("{}", message);
                     std::process::exit(1);
+                }
+            }
+            PluginAction::Commands => {
+                match client::send_plugin_list_commands().await {
+                    Ok(commands) => plugins::plugin_commands(&commands),
+                    Err(e) => {
+                        eprintln!("Could not reach daemon: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
         },

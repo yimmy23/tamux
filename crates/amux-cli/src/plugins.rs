@@ -715,6 +715,37 @@ pub fn remove_plugin_files(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Print a formatted table of registered plugin commands. Per PSKL-05.
+pub fn plugin_commands(commands: &[amux_protocol::PluginCommandInfo]) {
+    if commands.is_empty() {
+        println!("No plugin commands registered.");
+        return;
+    }
+    println!(
+        "{:<30} {:<20} {}",
+        "COMMAND", "PLUGIN", "DESCRIPTION"
+    );
+    for cmd in commands {
+        println!(
+            "{:<30} {:<20} {}",
+            truncate(cmd.command.as_str(), 30),
+            truncate(cmd.plugin_name.as_str(), 20),
+            cmd.description,
+        );
+    }
+    println!("\n{} command(s) registered.", commands.len());
+}
+
+/// Truncate a string to `max` characters, appending ellipsis if needed.
+fn truncate(value: &str, max: usize) -> String {
+    let chars: String = value.chars().take(max).collect();
+    if value.chars().count() > max {
+        format!("{}…", &chars[..chars.len().saturating_sub(1)])
+    } else {
+        chars
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
