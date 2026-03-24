@@ -208,7 +208,7 @@ Plans:
 **Goal**: Setup wizard correctly configures the daemon via IPC (not config.json), syncs with actual provider list, supports arrow-key navigation, and offers tier-appropriate configuration depth
 **Depends on**: Phase 10
 **Requirements**: DIST-05 (reopen), PRUX-01
-**Gap Closure:** Closes UAT issues: wizard→daemon config path, provider list mismatch, input UX, advanced user path, newcomer security defaults, web search/gateway optional steps
+**Gap Closure:** Closes UAT issues: wizard->daemon config path, provider list mismatch, input UX, advanced user path, newcomer security defaults, web search/gateway optional steps
 **Success Criteria** (what must be TRUE):
   1. Setup wizard writes config to daemon DB via IPC, NOT to config.json
   2. Provider list matches daemon's actual provider definitions
@@ -232,7 +232,11 @@ Plans:
   3. Internal commands (attach, new, scrub) are hidden from `tamux --help`
   4. `tamux audit` list output shows entry IDs usable with `--detail`
   5. `tamux settings` allows CLI-based configuration of all daemon settings
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — Add tui/gui launch commands, stats alias, hide internals, fix audit ID display
+- [ ] 12-02-PLAN.md — Settings subcommand with list/get/set via daemon IPC
 
 ### Phase 13: TUI UX Fixes
 **Goal**: TUI correctly renders concierge onboarding in conversation, exposes tier and feature settings, and shows full status information
@@ -266,5 +270,5 @@ Phases 12 and 13 can execute in parallel (both depend on 11).
 | 9. Distribution | 0/4 | Not started | - |
 | 10. Progressive UX | 5/5 | Complete | 2026-03-24 |
 | 11. Setup Wizard Rewrite | 2/2 | Complete    | 2026-03-24 |
-| 12. CLI Polish | 0/? | Not started | - |
+| 12. CLI Polish | 0/2 | Not started | - |
 | 13. TUI UX Fixes | 0/? | Not started | - |
