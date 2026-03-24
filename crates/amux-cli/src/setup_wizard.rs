@@ -90,19 +90,34 @@ async fn validate_provider(provider_id: &str, auth_source: &str) -> Result<bool>
         },
     )
     .await?;
-    match wizard_recv(&mut conn).await? {
-        DaemonMessage::AgentProviderValidation { valid, error, .. } => {
-            if !valid {
-                if let Some(err) = error {
-                    println!("Validation error: {err}");
+
+    // The daemon may take a few seconds to call the provider API.
+    // Read response — loop to skip any interleaved AgentEvent messages.
+    loop {
+        match wizard_recv(&mut conn).await {
+            Ok(DaemonMessage::AgentProviderValidation { valid, error, .. }) => {
+                if !valid {
+                    if let Some(err) = error {
+                        println!("Validation error: {err}");
+                    }
                 }
+                return Ok(valid);
             }
-            Ok(valid)
+            Ok(DaemonMessage::AgentError { message }) => {
+                anyhow::bail!("Daemon error: {message}");
+            }
+            Ok(DaemonMessage::AgentEvent { .. }) => {
+                // Skip broadcast events, keep reading
+                continue;
+            }
+            Ok(other) => {
+                eprintln!("[debug] unexpected response: {other:?}");
+                return Ok(false);
+            }
+            Err(e) => {
+                anyhow::bail!("Connection lost while waiting for validation: {e}");
+            }
         }
-        DaemonMessage::AgentError { message } => {
-            anyhow::bail!("Daemon error: {message}");
-        }
-        _ => Ok(false),
     }
 }
 
@@ -600,7 +615,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                     wizard_send(
                         &mut framed,
                         ClientMessage::AgentSetConfigItem {
-                            key_path: key.to_string(),
+                            key_path: format!("/{key}"),
                             value_json: val,
                         },
                     )
@@ -635,7 +650,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                 wizard_send(
                     &mut framed,
                     ClientMessage::AgentSetConfigItem {
-                        key_path: key.to_string(),
+                        key_path: format!("/{key}"),
                         value_json: val,
                     },
                 )
@@ -677,7 +692,7 @@ pub async fn run_setup_wizard() -> Result<()> {
     wizard_send(
         &mut framed,
         ClientMessage::AgentSetConfigItem {
-            key_path: "provider".to_string(),
+            key_path: "/provider".to_string(),
             value_json: format!("\"{}\"", provider_id),
         },
     )
@@ -689,7 +704,7 @@ pub async fn run_setup_wizard() -> Result<()> {
         wizard_send(
             &mut framed,
             ClientMessage::AgentSetConfigItem {
-                key_path: "model".to_string(),
+                key_path: "/model".to_string(),
                 value_json: format!("\"{}\"", default_model),
             },
         )
@@ -723,7 +738,7 @@ pub async fn run_setup_wizard() -> Result<()> {
     wizard_send(
         &mut framed,
         ClientMessage::AgentSetConfigItem {
-            key_path: "managed_execution.security_level".to_string(),
+            key_path: "/managed_execution/security_level".to_string(),
             value_json: format!("\"{}\"", security_level_str),
         },
     )
@@ -776,7 +791,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                             wizard_send(
                                 &mut framed,
                                 ClientMessage::AgentSetConfigItem {
-                                    key_path: "model".to_string(),
+                                    key_path: "/model".to_string(),
                                     value_json: format!("\"{}\"", chosen_model),
                                 },
                             )
@@ -804,7 +819,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                             wizard_send(
                                 &mut framed,
                                 ClientMessage::AgentSetConfigItem {
-                                    key_path: "model".to_string(),
+                                    key_path: "/model".to_string(),
                                     value_json: format!("\"{}\"", m),
                                 },
                             )
@@ -835,7 +850,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                         wizard_send(
                             &mut framed,
                             ClientMessage::AgentSetConfigItem {
-                                key_path: "model".to_string(),
+                                key_path: "/model".to_string(),
                                 value_json: format!("\"{}\"", m),
                             },
                         )
@@ -912,7 +927,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                         wizard_send(
                             &mut framed,
                             ClientMessage::AgentSetConfigItem {
-                                key_path: "tools.web_search".to_string(),
+                                key_path: "/tools/web_search".to_string(),
                                 value_json: "true".to_string(),
                             },
                         )
@@ -923,7 +938,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                         wizard_send(
                             &mut framed,
                             ClientMessage::AgentSetConfigItem {
-                                key_path: key_name.to_string(),
+                                key_path: format!("/{key_name}"),
                                 value_json: format!("\"{}\"", key),
                             },
                         )
@@ -1003,7 +1018,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                         wizard_send(
                             &mut framed,
                             ClientMessage::AgentSetConfigItem {
-                                key_path: "gateway.enabled".to_string(),
+                                key_path: "/gateway/enabled".to_string(),
                                 value_json: "true".to_string(),
                             },
                         )
@@ -1011,7 +1026,7 @@ pub async fn run_setup_wizard() -> Result<()> {
                         .context("Failed to enable gateway")?;
 
                         // Set the platform token
-                        let token_key = format!("gateway.{}_token", platform);
+                        let token_key = format!("/gateway/{}_token", platform);
                         wizard_send(
                             &mut framed,
                             ClientMessage::AgentSetConfigItem {
