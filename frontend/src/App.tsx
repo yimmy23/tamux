@@ -22,6 +22,7 @@ import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
 import { ConciergeToast } from "./components/ConciergeToast";
 import { useNotificationStore } from "./lib/notificationStore";
 import { useAuditStore } from "./lib/auditStore";
+import { useTierStore, type CapabilityTier } from "./lib/tierStore";
 
 const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
 
@@ -199,6 +200,15 @@ export default function App() {
           attempts: event.attempts ?? 0,
           auditId: event.audit_id ?? null,
         });
+      }
+      // Tier changed events (Phase 10 - Progressive UX)
+      if (event?.type === "tier_changed" || event?.type === "tier-changed") {
+        const data = event.data ?? event;
+        const newTier = (data.new_tier ?? data.newTier) as string | undefined;
+        const validTiers: CapabilityTier[] = ["newcomer", "familiar", "power_user", "expert"];
+        if (newTier && validTiers.includes(newTier as CapabilityTier)) {
+          useTierStore.getState().setTier(newTier as CapabilityTier);
+        }
       }
     });
 

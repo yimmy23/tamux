@@ -310,7 +310,19 @@ declare global {
         agentLogoutProvider?: (providerId: string) => Promise<unknown[] | { error?: string }>;
         agentValidateProvider?: (providerId: string, base_url: string, api_key: string, auth_source: string) => Promise<{ valid: boolean; error?: string; models?: unknown[] }>;
         agentGetConfig?: () => Promise<unknown>;
+        agentGetStatus?: () => Promise<{
+            tier: string;
+            feature_flags: unknown;
+            activity: string;
+            active_thread_id: string | null;
+            active_goal_run_id: string | null;
+            active_goal_run_title: string | null;
+            provider_health: Record<string, { can_execute: boolean; trip_count: number }>;
+            gateway_statuses: Record<string, { status: string; consecutive_failures: number }>;
+            recent_actions: Array<{ id: number; timestamp: number; action_type: string; summary: string }>;
+        } | null>;
         agentSetConfigItem?: (keyPath: string, value: unknown) => Promise<unknown>;
+        agentSetTierOverride?: (tier: string | null) => Promise<unknown>;
         agentSetSubAgent?: (subAgentJson: string) => Promise<{ ok?: boolean; error?: string }>;
         agentRemoveSubAgent?: (subAgentId: string) => Promise<{ ok?: boolean }>;
         agentListSubAgents?: () => Promise<unknown[]>;

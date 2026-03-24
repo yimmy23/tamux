@@ -3750,6 +3750,7 @@ function registerIpcHandlers() {
                     'sub-agent-removed',
                     'concierge-config',
                     'concierge-welcome-dismissed',
+                    'status-response',
                 ].includes(event.type)) {
                     let oldest = null;
                     for (const [reqId, handler] of agentBridge.pending.entries()) {
@@ -4264,12 +4265,33 @@ function registerIpcHandlers() {
         }
     });
 
+    ipcMain.handle('agent-get-status', async () => {
+        try {
+            return await sendAgentQuery({ type: 'get-status' }, 'status-response');
+        } catch (err) {
+            logToFile('warn', 'agent-get-status failed', { error: err?.message ?? String(err) });
+            return null;
+        }
+    });
+
     ipcMain.handle('agent-set-config-item', async (_event, keyPath, value) => {
         try {
             sendAgentCommand({
                 type: 'set-config-item',
                 key_path: keyPath,
                 value_json: JSON.stringify(value),
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('agent-set-tier-override', async (_event, tier) => {
+        try {
+            sendAgentCommand({
+                type: 'set-tier-override',
+                tier: tier || null,
             });
             return { ok: true };
         } catch (err) {

@@ -20,9 +20,11 @@ import { TerminalTab } from "./settings-panel/TerminalTab";
 import { ProviderAuthTab } from "./settings-panel/ProviderAuthTab";
 import { SubAgentsTab } from "./settings-panel/SubAgentsTab";
 import { ConciergeSection } from "./settings-panel/ConciergeSection";
+import { TierGatedSection } from "./base-components/TierGatedSection";
 import {
   headerBtnStyle,
 } from "./settings-panel/shared";
+import { useTierStore, type CapabilityTier } from "../lib/tierStore";
 
 type SettingsTab = "appearance" | "terminal" | "behavior" | "auth" | "agent" | "concierge" | "subagents" | "gateway" | "keyboard" | "about";
 
@@ -54,6 +56,17 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
   const markAgentSettingsSynced = useAgentStore((s) => s.markAgentSettingsSynced);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const snapshots = useAgentMissionStore((s) => s.snapshots);
+  const currentTier = useTierStore((s) => s.currentTier);
+
+  const handleTierOverride = async (newTier: string) => {
+    const bridge = getBridge();
+    if (!bridge) return;
+    const tierValue = newTier === "auto" ? null : newTier;
+    await bridge.agentSetTierOverride?.(tierValue);
+    if (tierValue) {
+      useTierStore.getState().setTier(tierValue as CapabilityTier);
+    }
+  };
 
   const [tab, setTab] = useState<SettingsTab>("appearance");
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
@@ -229,6 +242,31 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
             <SettingsMetric label="Approvals" value={String(approvals.filter((entry) => entry.status === "pending").length)} />
             <SettingsMetric label="Snapshots" value={String(snapshots.length)} />
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>Experience Level</span>
+            <select
+              value={currentTier}
+              onChange={(e) => void handleTierOverride(e.target.value)}
+              style={{
+                background: "rgba(18, 33, 47, 0.8)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: "var(--text-primary)",
+                padding: "4px 8px",
+                fontSize: 12,
+                borderRadius: 4,
+                fontFamily: "inherit",
+              }}
+            >
+              <option value="auto">Automatic</option>
+              <option value="newcomer">Newcomer</option>
+              <option value="familiar">Familiar</option>
+              <option value="power_user">Power User</option>
+              <option value="expert">Expert</option>
+            </select>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", opacity: 0.7 }}>
+              Controls which features are visible
+            </span>
+          </div>
         </div>
 
         <div style={{
@@ -264,19 +302,33 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
             />
           )}
           {tab === "behavior" && (
-            <BehaviorTab settings={settings} updateSetting={updateSetting} />
+            <TierGatedSection requiredTier="familiar" label="Task Queue & Scheduling">
+              <BehaviorTab settings={settings} updateSetting={updateSetting} />
+            </TierGatedSection>
           )}
           {tab === "auth" && <ProviderAuthTab />}
           {tab === "agent" && (
-            <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
+            <TierGatedSection requiredTier="familiar" label="Goal Runs & Agent Configuration">
+              <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
+            </TierGatedSection>
           )}
           {tab === "concierge" && <ConciergeSection />}
-          {tab === "subagents" && <SubAgentsTab />}
+          {tab === "subagents" && (
+            <TierGatedSection requiredTier="power_user" label="Sub-Agent Management">
+              <SubAgentsTab />
+            </TierGatedSection>
+          )}
           {tab === "gateway" && (
-            <GatewayTab settings={agentSettings} updateSetting={updateAgentSetting} />
+            <TierGatedSection requiredTier="familiar" label="Gateway Configuration">
+              <GatewayTab settings={agentSettings} updateSetting={updateAgentSetting} />
+            </TierGatedSection>
           )}
           {tab === "keyboard" && <KeyboardTab />}
-          {tab === "about" && <AboutTab />}
+          {tab === "about" && (
+            <TierGatedSection requiredTier="expert" label="Memory & Learning Controls">
+              <AboutTab />
+            </TierGatedSection>
+          )}
         </div>
       </div>
     </div>
