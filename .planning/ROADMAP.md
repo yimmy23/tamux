@@ -333,7 +333,11 @@ Plans:
   5. Template rendering has 1-second timeout and strict mode
   6. Rate limits from manifest enforced via token bucket
   7. Errors returned to agent with actionable context
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 17-01-PLAN.md — SSRF validation, rate limiter, Handlebars template engine, PluginApiError, IPC protocol messages
+- [ ] 17-02-PLAN.md — HTTP execution, PluginManager.api_call() orchestration, tool executor wiring, server.rs IPC handler
 
 ### Phase 18: OAuth2 Flow
 **Goal**: Plugins requiring OAuth2 can authenticate users through the daemon, with tokens encrypted at rest and automatically refreshed
@@ -406,8 +410,8 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | **v2.0** | | | |
 | 14. Plugin Manifest & Loader | 2/2 | Complete    | 2026-03-24 |
 | 15. Plugin CLI & Install | 2/2 | Complete    | 2026-03-24 |
-| 16. Plugin Settings UI | 3/3 | Complete   | 2026-03-24 |
-| 17. API Proxy Layer | 0/? | Not started | - |
+| 16. Plugin Settings UI | 3/3 | Complete    | 2026-03-24 |
+| 17. API Proxy Layer | 0/2 | Planned | - |
 | 18. OAuth2 Flow | 0/? | Not started | - |
 | 19. Plugin Skills & Commands | 0/? | Not started | - |
 | 20. Gmail/Calendar Validation | 0/? | Not started | - |
