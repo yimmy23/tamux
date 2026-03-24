@@ -17,7 +17,7 @@ var binaryPath = path.join(__dirname, binaryName);
 function tryFallbackDownload() {
   console.log("tamux: binary not found, attempting download...");
   try {
-    var install = require("../install");
+    require("../install"); // side-effect: triggers async download
     // install() returns a promise -- we need to wait synchronously here
     // since the module's top-level main().catch() already runs on require.
     // After require completes, the download has been initiated.
