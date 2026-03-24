@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ### v2.0: Plugin Ecosystem
 
-- [ ] **Phase 14: Plugin Manifest & Loader** - JSON Schema definition, manifest validation, daemon loader, SQLite storage
+- [x] **Phase 14: Plugin Manifest & Loader** - JSON Schema definition, manifest validation, daemon loader, SQLite storage (completed 2026-03-24)
 - [ ] **Phase 15: Plugin CLI & Install** - Extend plugins.rs for new manifest format, npm/GitHub/local install, daemon IPC registration
 - [ ] **Phase 16: Plugin Settings UI** - Plugins tab in TUI and Electron, dynamic form rendering from manifest schema
 - [ ] **Phase 17: API Proxy Layer** - HTTP proxy in daemon, Handlebars templates, SSRF protection, rate limiting
@@ -279,11 +279,11 @@ Plans:
   4. Loaded plugins are persisted in SQLite `plugins` table with full metadata
   5. New IPC messages exist for plugin operations (list, get, enable, disable)
   6. Manifest size limits enforced (100KB, 50 endpoints, 30 settings)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 14-01-PLAN.md — Plugin manifest serde structs, JSON Schema v1, and IPC message variants
-- [ ] 14-02-PLAN.md — Plugin loader, SQLite persistence, PluginManager, and server.rs IPC wiring
+- [x] 14-02-PLAN.md — Plugin loader, SQLite persistence, PluginManager, and server.rs IPC wiring
 
 ### Phase 15: Plugin CLI & Install
 **Goal**: Users can install, uninstall, and manage plugins from the CLI, with the daemon registering plugins via IPC
@@ -395,7 +395,7 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | 12. CLI Polish | 2/2 | Complete | 2026-03-24 |
 | 13. TUI UX Fixes | 3/3 | Complete | 2026-03-24 |
 | **v2.0** | | | |
-| 14. Plugin Manifest & Loader | 1/2 | In Progress|  |
+| 14. Plugin Manifest & Loader | 2/2 | Complete   | 2026-03-24 |
 | 15. Plugin CLI & Install | 0/? | Not started | - |
 | 16. Plugin Settings UI | 0/? | Not started | - |
 | 17. API Proxy Layer | 0/? | Not started | - |

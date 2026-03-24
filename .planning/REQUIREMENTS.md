@@ -94,14 +94,14 @@ Requirements for the "Plugin Ecosystem" milestone. Each maps to roadmap phases 1
 ### Plugin Manifest
 
 - [x] **PLUG-01**: Plugin manifest format defined as JSON with versioned schema (`schema_version: 1`)
-- [ ] **PLUG-02**: Daemon validates plugin manifests against JSON Schema on load, rejects invalid manifests with clear error messages
-- [ ] **PLUG-03**: Daemon loads all valid plugin manifests from `~/.tamux/plugins/` on startup
+- [x] **PLUG-02**: Daemon validates plugin manifests against JSON Schema on load, rejects invalid manifests with clear error messages
+- [x] **PLUG-03**: Daemon loads all valid plugin manifests from `~/.tamux/plugins/` on startup
 - [x] **PLUG-04**: Plugin manifests declare settings fields with types (string, number, boolean, select), labels, required/optional, and secret flag
 - [x] **PLUG-05**: Plugin manifests declare API endpoints with method, path template, params, headers, and response template
 - [x] **PLUG-06**: Plugin manifests declare commands (slash commands) with description and action mapping to API endpoints
 - [x] **PLUG-07**: Plugin manifests reference bundled YAML skills by relative path
-- [ ] **PLUG-08**: Plugin manifest size limit enforced (100KB max, 50 endpoints max, 30 settings fields max)
-- [ ] **PLUG-09**: Plugin metadata stored in SQLite `plugins` table with name, version, manifest, source, enabled status
+- [x] **PLUG-08**: Plugin manifest size limit enforced (100KB max, 50 endpoints max, 30 settings fields max)
+- [x] **PLUG-09**: Plugin metadata stored in SQLite `plugins` table with name, version, manifest, source, enabled status
 
 ### Plugin Install & Lifecycle
 
@@ -289,14 +289,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GATE-06 | Phase 8 | Complete |
 
 | PLUG-01 | Phase 14 | Complete |
-| PLUG-02 | Phase 14 | Pending |
-| PLUG-03 | Phase 14 | Pending |
+| PLUG-02 | Phase 14 | Complete |
+| PLUG-03 | Phase 14 | Complete |
 | PLUG-04 | Phase 14 | Complete |
 | PLUG-05 | Phase 14 | Complete |
 | PLUG-06 | Phase 14 | Complete |
 | PLUG-07 | Phase 14 | Complete |
-| PLUG-08 | Phase 14 | Pending |
-| PLUG-09 | Phase 14 | Pending |
+| PLUG-08 | Phase 14 | Complete |
+| PLUG-09 | Phase 14 | Complete |
 | INST-01 | Phase 15 | Pending |
 | INST-02 | Phase 15 | Pending |
 | INST-03 | Phase 15 | Pending |

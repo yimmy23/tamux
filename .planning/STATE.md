@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Plugin Ecosystem
-status: Ready to execute
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-03-24T17:58:00.441Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-03-24T18:09:15.641Z"
 progress:
   total_phases: 20
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 49
-  completed_plans: 44
+  completed_plans: 45
 ---
 
 # Project State
@@ -92,6 +92,7 @@ Plan: 2 of 2
 | Phase 13-tui-ux-fixes P02 | 7min | 1 tasks | 6 files |
 | Phase 12 P02 | 2min | 2 tasks | 2 files |
 | Phase 14 P01 | 7min | 2 tasks | 7 files |
+| Phase 14 P02 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,9 @@ Recent decisions affecting current work:
 - [Phase 14]: jsonschema 0.45 for JSON Schema Draft 2020-12 validation; compile once, reuse validator
 - [Phase 14]: Permissive deserialization with serde(flatten) captures unknown fields per D-01
 - [Phase 14]: Plugin module at crate::plugin (daemon-level, not inside agent/) to avoid circular dependency
+- [Phase 14]: HistoryStore.conn made pub(crate) for cross-module SQLite access from plugin persistence
+- [Phase 14]: PluginManager reads from SQLite for list_plugins (not just in-memory) to reflect IPC-toggled enabled state
+- [Phase 14]: Settings schema extracted from manifest_json as standalone JSON for future dynamic form rendering
 
 ### Pending Todos
 
@@ -195,6 +199,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T17:58:00.439Z
-Stopped at: Completed 14-01-PLAN.md
+Last session: 2026-03-24T18:09:15.638Z
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
