@@ -72,7 +72,7 @@ Requirements for the "Living Agent" milestone. Each maps to roadmap phases.
 
 ### Distribution
 
-- [ ] **DIST-01**: Single-command install via npm: `npx tamux` downloads and runs appropriate platform binary
+- [x] **DIST-01**: Single-command install via npm: `npx tamux` downloads and runs appropriate platform binary
 - [x] **DIST-02**: Standalone platform binaries via cargo-dist (Linux, macOS, Windows)
 - [x] **DIST-03**: Shell installer: `curl -fsSL https://tamux.dev/install.sh | sh` for Unix systems
 - [x] **DIST-04**: PowerShell installer for Windows
@@ -186,7 +186,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRUX-04 | Phase 10 | Pending |
 | PRUX-05 | Phase 10 | Pending |
 | PRUX-06 | Phase 10 | Pending |
-| DIST-01 | Phase 9 | Pending |
+| DIST-01 | Phase 9 | Complete |
 | DIST-02 | Phase 9 | Complete |
 | DIST-03 | Phase 9 | Complete |
 | DIST-04 | Phase 9 | Complete |

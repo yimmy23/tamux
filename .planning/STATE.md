@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-03-24T06:40:35.685Z"
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-03-24T06:41:07.796Z"
 progress:
   total_phases: 10
   completed_phases: 6
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-23)
 ## Current Position
 
 Phase: 09 (distribution) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 ## Performance Metrics
 
@@ -77,6 +77,7 @@ Plan: 3 of 4
 | Phase 08 P04 | 8min | 3 tasks | 12 files |
 | Phase 09 P02 | 2min | 1 tasks | 1 files |
 | Phase 09 P03 | 2min | 2 tasks | 2 files |
+| Phase 09 P01 | 3min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,9 @@ Recent decisions affecting current work:
 - [Phase 08]: Electron bridges disabled by default via gateway_electron_bridges_enabled feature flag; WhatsApp excluded from gating per D-06
 - [Phase 09]: glab CLI for GitLab Release creation; cross tool for ARM64 cross-compilation; manual stages for macOS builds and npm publish
 - [Phase 09]: POSIX sh (not bash) for install.sh to maximize portability; desktop app prompt uses terminal detection to skip when piped
+- [Phase 09]: Non-blocking failure: all postinstall errors exit 0 to never break npm install
+- [Phase 09]: Two-layer fallback: postinstall downloads first, bin wrapper retries at runtime if binary missing
+- [Phase 09]: install.js exported as module for require() from bin wrapper fallback; poll-based binary wait (500ms/60s) for async completion
 
 ### Pending Todos
 
@@ -158,6 +162,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T06:40:35.683Z
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-03-24T06:41:07.793Z
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
