@@ -138,6 +138,12 @@ pub(super) struct OperatorModel {
     pub session_rhythm: SessionRhythm,
     pub attention_topology: AttentionTopology,
     pub implicit_feedback: ImplicitFeedback,
+    /// Distinct tool names the operator has interacted with (Phase 10).
+    #[serde(default)]
+    pub unique_tools_seen: Vec<String>,
+    /// Number of successfully completed goal runs (Phase 10).
+    #[serde(default)]
+    pub goal_runs_completed: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +163,8 @@ impl Default for OperatorModel {
             session_rhythm: SessionRhythm::default(),
             attention_topology: AttentionTopology::default(),
             implicit_feedback: ImplicitFeedback::default(),
+            unique_tools_seen: Vec::new(),
+            goal_runs_completed: 0,
         }
     }
 }

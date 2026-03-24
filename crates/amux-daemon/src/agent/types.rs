@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
+use super::capability_tier::TierConfig;
+
 // ---------------------------------------------------------------------------
 // Provider definitions (static registry)
 // ---------------------------------------------------------------------------
@@ -1087,6 +1089,9 @@ pub struct AgentConfig {
     /// Skill promotion thresholds (Phase 6).
     #[serde(default)]
     pub skill_promotion: SkillPromotionConfig,
+    /// Capability tier configuration (Phase 10).
+    #[serde(default)]
+    pub tier: TierConfig,
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -1642,6 +1647,7 @@ impl Default for AgentConfig {
             consolidation: ConsolidationConfig::default(),
             skill_discovery: SkillDiscoveryConfig::default(),
             skill_promotion: SkillPromotionConfig::default(),
+            tier: TierConfig::default(),
             extra: HashMap::new(),
         }
     }

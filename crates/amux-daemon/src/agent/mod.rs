@@ -16,6 +16,7 @@ pub mod types;
 mod agent_loop;
 mod anticipatory;
 mod behavioral_events;
+mod capability_tier;
 mod causal_traces;
 mod circuit_breaker;
 mod collaboration;
@@ -73,6 +74,7 @@ pub mod subagent;
 // sibling submodules via `use super::*;`.
 use anticipatory::*;
 use behavioral_events::*;
+use capability_tier::*;
 use compaction::*;
 pub(crate) use explanation::*;
 use goal_parsing::*;
