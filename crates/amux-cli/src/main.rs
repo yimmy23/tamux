@@ -138,6 +138,12 @@ enum Commands {
     /// Show current agent status.
     Status,
 
+    /// View and modify daemon configuration.
+    Settings {
+        #[command(subcommand)]
+        action: SettingsAction,
+    },
+
     /// Run the first-time setup wizard.
     Setup,
 
@@ -253,6 +259,25 @@ enum SkillAction {
     Publish {
         /// Skill name or variant ID.
         name: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SettingsAction {
+    /// List all configuration settings.
+    #[command(alias = "ls")]
+    List,
+    /// Get a specific configuration value.
+    Get {
+        /// Configuration key (dot-notation, e.g., "heartbeat.interval", "provider", "model").
+        key: String,
+    },
+    /// Set a configuration value.
+    Set {
+        /// Configuration key (dot-notation, e.g., "heartbeat.interval", "provider", "model").
+        key: String,
+        /// Value to set (JSON or plain string).
+        value: String,
     },
 }
 
@@ -690,6 +715,54 @@ async fn main() -> Result<()> {
             }
         }
 
+        Commands::Settings { action } => match action {
+            SettingsAction::List => {
+                let config = client::send_config_get().await?;
+                let mut pairs: Vec<(String, String)> = Vec::new();
+                flatten_json("", &config, &mut pairs);
+                if pairs.is_empty() {
+                    println!("No configuration found.");
+                } else {
+                    for (key, value) in &pairs {
+                        println!("{} = {}", key, value);
+                    }
+                }
+            }
+            SettingsAction::Get { key } => {
+                let config = client::send_config_get().await?;
+                let value = resolve_dot_path(&config, &key);
+                match value {
+                    Some(v) => {
+                        if is_sensitive_key(&key) {
+                            println!("***");
+                        } else {
+                            match v.as_str() {
+                                Some(s) => println!("{}", s),
+                                None => println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(v).unwrap_or_default()
+                                ),
+                            }
+                        }
+                    }
+                    None => {
+                        eprintln!("Key not found: {}", key);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            SettingsAction::Set { key, value } => {
+                let json_pointer = format!("/{}", key.replace('.', "/"));
+                let value_json = if serde_json::from_str::<serde_json::Value>(&value).is_ok() {
+                    value.clone()
+                } else {
+                    serde_json::to_string(&value).unwrap_or_else(|_| format!("\"{}\"", value))
+                };
+                client::send_config_set(json_pointer, value_json).await?;
+                println!("{} = {}", key, value);
+            }
+        },
+
         Commands::Scrub { text } => {
             let input = if let Some(t) = text {
                 t
@@ -862,4 +935,58 @@ fn print_audit_detail(entry: &amux_protocol::AuditEntryPublic) {
     if let Some(task) = &entry.task_id {
         println!("Task:        {}", task);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Settings helpers
+// ---------------------------------------------------------------------------
+
+/// Flatten a JSON value into dot-notation key=value pairs.
+fn flatten_json(prefix: &str, value: &serde_json::Value, out: &mut Vec<(String, String)>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let full_key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", prefix, k)
+                };
+                flatten_json(&full_key, v, out);
+            }
+        }
+        serde_json::Value::Null => {
+            // Skip null values
+        }
+        serde_json::Value::String(s) => {
+            let display = if is_sensitive_key(prefix) {
+                "***".to_string()
+            } else {
+                s.clone()
+            };
+            out.push((prefix.to_string(), display));
+        }
+        other => {
+            let display = if is_sensitive_key(prefix) {
+                "***".to_string()
+            } else {
+                other.to_string()
+            };
+            out.push((prefix.to_string(), display));
+        }
+    }
+}
+
+/// Resolve a dot-notation path to a JSON value reference.
+fn resolve_dot_path<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    for segment in path.split('.') {
+        current = current.get(segment)?;
+    }
+    Some(current)
+}
+
+/// Check if a key name refers to a sensitive value that should be redacted.
+fn is_sensitive_key(key: &str) -> bool {
+    let lower = key.to_lowercase();
+    lower.contains("api_key") || lower.contains("token") || lower.contains("secret")
 }
