@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useKeybindStore } from "../lib/keybindStore";
@@ -141,7 +142,7 @@ export function TitleBar() {
   ]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onWindowState) return;
 
     amux.getPlatform?.().then((value: string) => setPlatform(value));
@@ -185,7 +186,7 @@ export function TitleBar() {
   if (platform === null) return null;
   if (platform === "win32") return null;
 
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
 
   return (
     <div
@@ -381,9 +382,9 @@ export function TitleBar() {
             </span>
           ) : null}
         </button>
-        <WindowButton label="─" onClick={() => amux.windowMinimize()} />
-        <WindowButton label={maximized ? "❐" : "□"} onClick={() => amux.windowMaximize()} />
-        <WindowButton label="✕" onClick={() => amux.windowClose()} isClose />
+        <WindowButton label="─" onClick={() => amux?.windowMinimize?.()} />
+        <WindowButton label={maximized ? "❐" : "□"} onClick={() => amux?.windowMaximize?.()} />
+        <WindowButton label="✕" onClick={() => amux?.windowClose?.()} isClose />
       </div>
     </div>
   );

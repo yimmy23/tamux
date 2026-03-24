@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { getBridge } from "@/lib/bridge";
 import { allLeafIds, findLeaf } from "../../lib/bspTree";
 import {
     controlGoalRun,
@@ -190,7 +191,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
     const [historyMinApprovals, setHistoryMinApprovals] = useState(0);
     const [historyMinDurationMinutes, setHistoryMinDurationMinutes] = useState(0);
 
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     const goalRunsSupported = goalRunSupportAvailable();
     const activeWorkspace = useWorkspaceStore((state) => state.activeWorkspace());
     const createThread = useAgentStore((state) => state.createThread);
@@ -226,7 +227,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
         if (!amux?.agentHeartbeatGetItems) return;
         try {
             const result = await amux.agentHeartbeatGetItems();
-            setHeartbeatItems(Array.isArray(result) ? result : []);
+            setHeartbeatItems(Array.isArray(result) ? result as HeartbeatItem[] : []);
         } catch {
             /* silent */
         }
@@ -1316,7 +1317,7 @@ function TaskCodePreview({
     const [error, setError] = useState<string | null>(null);
     const codingTask = taskLooksLikeCoding(task);
     const threadId = task.thread_id || null;
-    const bridge = (window as any).tamux ?? (window as any).amux;
+    const bridge = getBridge();
     const selectedEntry = useMemo(
         () => context.entries.find((entry) => entry.path === selectedPath) ?? null,
         [context.entries, selectedPath],

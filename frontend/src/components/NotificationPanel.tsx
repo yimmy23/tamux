@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useNotificationStore } from "../lib/notificationStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
@@ -53,7 +54,7 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
     const paneId = notification.panelId ?? notification.paneId;
     if (!paneId) return;
 
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     const pendingApproval = approvals.find(
       (entry) => entry.paneId === paneId && entry.status === "pending" && entry.handledAt === null
     );

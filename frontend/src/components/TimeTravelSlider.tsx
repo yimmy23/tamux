@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
 import { getTerminalController } from "../lib/terminalRegistry";
@@ -43,7 +44,7 @@ export function TimeTravelSlider({ style, className }: TimeTravelSliderProps = {
       // Fall back to the persisted snapshot index when no live pane bridge exists.
     }
 
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     const rows = await amux?.dbListSnapshotIndex?.(null);
     if (Array.isArray(rows)) {
       setSnapshots(rows.map((snapshot: any) => toSnapshotEntry(snapshot)));

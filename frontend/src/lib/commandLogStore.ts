@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getBridge } from "./bridge";
 import { CommandLogEntry, WorkspaceId, SurfaceId, PaneId } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import { readPersistedJson } from "./persistence";
@@ -15,7 +16,7 @@ type DbApi = {
 };
 
 function getDbApi(): DbApi | null {
-  const api = (window as any).tamux ?? (window as any).amux;
+  const api = getBridge();
   if (!api) return null;
   return api as DbApi;
 }

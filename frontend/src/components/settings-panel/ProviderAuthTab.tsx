@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useAgentStore } from "../../lib/agentStore";
 import { Section, inputStyle, smallBtnStyle } from "./shared";
 
@@ -37,7 +38,7 @@ export function ProviderAuthTab() {
     useEffect(() => {
         if (!chatgptAuthUrl) return;
         const timer = window.setInterval(() => {
-            const amux = (window as any).amux || (window as any).tamux;
+            const amux = getBridge();
             if (!amux?.openAICodexAuthStatus) return;
             void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
                 if (status?.available) {
@@ -66,7 +67,7 @@ export function ProviderAuthTab() {
     };
 
     const handleChatgptLogin = async () => {
-        const amux = (window as any).amux || (window as any).tamux;
+        const amux = getBridge();
         if (!amux?.openAICodexAuthLogin) return;
         setChatgptAuthBusy(true);
         try {
@@ -87,7 +88,7 @@ export function ProviderAuthTab() {
     };
 
     const handleChatgptLogout = async () => {
-        const amux = (window as any).amux || (window as any).tamux;
+        const amux = getBridge();
         if (!amux?.openAICodexAuthLogout) return;
         setChatgptAuthBusy(true);
         try {
@@ -104,7 +105,7 @@ export function ProviderAuthTab() {
         const state = filtered.find((s) => s.provider_id === providerId);
         try {
             if (providerId === "openai" && state?.auth_source === "chatgpt_subscription") {
-                const amux = (window as any).amux || (window as any).tamux;
+                const amux = getBridge();
                 if (!amux?.openAICodexAuthStatus) {
                     setValidationResult((prev) => ({
                         ...prev,

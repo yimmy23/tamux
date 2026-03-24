@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { allLeafIds } from "../lib/bspTree";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useNotificationStore } from "../lib/notificationStore";
@@ -38,8 +39,8 @@ export function StatusBar() {
     async function check() {
       try {
         if (typeof window !== "undefined" && "amux" in window) {
-          const ok = await ((window as any).tamux ?? (window as any).amux).checkDaemon();
-          setDaemonConnected(ok);
+          const ok = await getBridge()?.checkDaemon?.();
+          setDaemonConnected(ok ?? false);
         }
       } catch {
         setDaemonConnected(false);

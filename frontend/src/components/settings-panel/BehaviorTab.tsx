@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import type { AmuxSettings } from "../../lib/types";
 import { NumberInput, Section, SelectInput, SettingRow, type SettingsUpdater, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
@@ -86,8 +87,8 @@ export function BehaviorTab({
 
     const runLspHealthCheck = async () => {
         try {
-            const result = await ((window as any).tamux ?? (window as any).amux)?.checkLspHealth?.();
-            setLspHealth(result ?? null);
+            const result = await (getBridge())?.checkLspHealth?.();
+            setLspHealth((result as Record<string, boolean>) ?? null);
         } catch {
             setLspHealth(null);
         }
@@ -101,7 +102,7 @@ export function BehaviorTab({
         }
         setMcpError(null);
         try {
-            const result = await ((window as any).tamux ?? (window as any).amux)?.checkMcpHealth?.(parsed.servers);
+            const result = await (getBridge())?.checkMcpHealth?.(parsed.servers);
             setMcpHealth(Array.isArray(result) ? result : null);
         } catch {
             setMcpHealth(null);

@@ -1,3 +1,4 @@
+import { getBridge } from "./bridge";
 import { formatTaskStatus, formatTaskTimestamp, isTaskActive, isTaskTerminal, taskStatusColor, type AgentTaskPriority, type AgentTaskStatus } from "./agentTaskQueue";
 
 export type AgentRunKind = "task" | "subagent";
@@ -36,7 +37,7 @@ export interface AgentRun {
 }
 
 export async function fetchAgentRuns(): Promise<AgentRun[]> {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.agentListRuns) {
         return [];
     }

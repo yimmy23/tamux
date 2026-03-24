@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
@@ -71,7 +72,7 @@ export function AgentTab({
             return;
         }
 
-        const amux = (window as any).amux || (window as any).tamux;
+        const amux = getBridge();
         if (!amux?.openAICodexAuthStatus) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
@@ -99,7 +100,7 @@ export function AgentTab({
         }
 
         const timer = window.setInterval(() => {
-            const amux = (window as any).amux || (window as any).tamux;
+            const amux = getBridge();
             if (!amux?.openAICodexAuthStatus) {
                 return;
             }
@@ -115,7 +116,7 @@ export function AgentTab({
     }, [subscriptionAuthUrl]);
 
     const triggerSubscriptionAuth = async () => {
-        const amux = (window as any).amux || (window as any).tamux;
+        const amux = getBridge();
         if (!amux?.openAICodexAuthLogin) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
@@ -138,7 +139,7 @@ export function AgentTab({
     };
 
     const clearSubscriptionAuth = async () => {
-        const amux = (window as any).amux || (window as any).tamux;
+        const amux = getBridge();
         if (!amux?.openAICodexAuthLogout) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: "ChatGPT auth bridge unavailable" });
             return;
@@ -383,7 +384,7 @@ export function AgentTab({
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    const amux = (window as any).amux || (window as any).tamux;
+                                                    const amux = getBridge();
                                                     if (amux?.writeClipboardText) {
                                                         void amux.writeClipboardText(subscriptionAuthUrl);
                                                         return;

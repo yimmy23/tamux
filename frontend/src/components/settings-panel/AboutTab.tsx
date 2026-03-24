@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { isCDUIEnabled, setCDUIEnabled } from "../../lib/cduiMode";
 import { Section, SettingRow, Toggle, smallBtnStyle } from "./shared";
 
@@ -20,7 +21,7 @@ export function AboutTab() {
     const [viewsPathLabel, setViewsPathLabel] = useState<string>(() => defaultViewsPathLabel());
 
     useEffect(() => {
-        const bridge = (window as any).tamux ?? (window as any).amux;
+        const bridge = getBridge();
         if (!bridge?.getDataDir) return;
         bridge.getDataDir()
             .then((dataDir: string) => {
@@ -49,7 +50,7 @@ export function AboutTab() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <button
                             onClick={() => {
-                                void ((window as any).tamux ?? (window as any).amux)?.revealDataPath?.("views");
+                                void (getBridge())?.revealDataPath?.("views");
                             }}
                             style={smallBtnStyle}
                         >

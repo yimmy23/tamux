@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
+import { getBridge } from "@/lib/bridge";
 import { BUILTIN_THEMES } from "../../lib/themes";
 import type { AmuxSettings } from "../../lib/types";
 import type { AgentProviderId, AuthSource, ModelDefinition } from "../../lib/agentStore";
@@ -284,7 +285,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
     }, [filteredModels, search, value]);
 
     const handleFetchModels = async () => {
-        const amux = (window as any).amux || (window as any).tamux;
+        const amux = getBridge();
         if (!amux?.agentFetchModels) {
             setFetchError("API not available");
             return;
@@ -307,7 +308,7 @@ export function ModelSelector({ providerId, value, customName, onChange, disable
                         name: m.name || m.id,
                         contextWindow: m.context_window || m.contextWindow || 0,
                     })));
-                } else if ("error" in result) {
+                } else if ("error" in result && typeof result.error === "string") {
                     setFetchError(result.error);
                 }
             }

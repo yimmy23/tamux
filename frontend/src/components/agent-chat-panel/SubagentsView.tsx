@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { allLeafIds, findLeaf } from "../../lib/bspTree";
 import { fetchAgentRuns, formatRunStatus, formatRunTimestamp, isRunActive, isSubagentRun, runStatusColor, type AgentRun } from "../../lib/agentRuns";
 import { fetchThreadTodos } from "../../lib/agentTodos";
@@ -72,7 +73,7 @@ function findTaskWorkspaceLocation(workspaces: Workspace[], sessionId: string | 
 
 export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsViewProps) {
     const [runs, setRuns] = useState<AgentRun[]>([]);
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     const workspaces = useWorkspaceStore((state) => state.workspaces);
     const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
     const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface);

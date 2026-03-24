@@ -925,7 +925,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                 });
                 // Use daemonTid if available, otherwise pass local threadId so
                 // the daemon uses the same ID — prevents duplicate threads in SQLite.
-                await amux.agentSendMessage(daemonTid || threadId, text, preferredSessionId, contextMessages);
+                await amux.agentSendMessage!(daemonTid || threadId, text, preferredSessionId, contextMessages);
             })();
             return;
         }

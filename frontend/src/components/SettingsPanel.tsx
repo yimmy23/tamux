@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useSettingsStore } from "../lib/settingsStore";
 import { useAgentStore } from "../lib/agentStore";
@@ -64,11 +65,11 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     if (open && systemFonts.length === 0) {
       // Load system fonts via Electron IPC
       if (typeof window !== "undefined" && ("tamux" in window || "amux" in window)) {
-        const bridge = (window as any).tamux ?? (window as any).amux;
-        bridge.getSystemFonts().then((fonts: string[]) => {
+        const bridge = getBridge();
+        bridge?.getSystemFonts?.().then((fonts: string[]) => {
           setSystemFonts(fonts);
         });
-        bridge.getAvailableShells?.().then(
+        bridge?.getAvailableShells?.().then(
           (shells: { name: string; path: string; args?: string }[]) => setAvailableShells(shells),
         ).catch(() => {});
       }

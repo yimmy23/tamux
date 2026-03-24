@@ -7,6 +7,7 @@
  *
  * All providers are called directly from the frontend via fetch().
  */
+import { getBridge } from "./bridge";
 
 import type {
   AgentProviderId,
@@ -232,7 +233,7 @@ async function resolveProviderAuth(req: ChatRequest): Promise<ResolvedProviderAu
     return { api_key: req.config.api_key };
   }
 
-  const amux = (window as any).amux || (window as any).tamux;
+  const amux = getBridge();
   if (!amux?.openAICodexAuthStatus) {
     throw new Error("ChatGPT subscription auth is unavailable in this build.");
   }

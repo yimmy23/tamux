@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { AppContext, defaultAppState } from "./context/AppContext";
 import { ViewBuilderOverlay } from "./components/ViewBuilderOverlay";
 import { LoadingState } from "./components/LoadingState";
@@ -99,7 +100,7 @@ const CDUIApp = () => {
   }, [reloadViews]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onAgentEvent) {
       console.warn("[concierge] no onAgentEvent bridge available in CDUIApp");
       return;

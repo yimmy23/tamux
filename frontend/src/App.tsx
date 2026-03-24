@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
+import { getBridge } from "@/lib/bridge";
 import { LayoutContainer } from "./components/LayoutContainer";
 import { SurfaceTabBar } from "./components/SurfaceTabBar";
 import { StatusBar } from "./components/StatusBar";
@@ -123,7 +124,7 @@ export default function App() {
   // This runs in App (always mounted) because runtime.tsx (chat panel)
   // may not be open when the app loads.
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onAgentEvent) {
       console.warn("[concierge] no onAgentEvent bridge available");
       return;
@@ -254,7 +255,7 @@ export default function App() {
       )
     );
 
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     void amux?.setWindowOpacity?.(settings.opacity);
   }, [
     settings.themeName,
@@ -267,7 +268,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onAppCommand) return;
 
     return amux.onAppCommand((command: string) => {
@@ -366,7 +367,7 @@ export default function App() {
     text: string;
     replyTarget: string;
   }) => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     const gatewaySettings = useAgentStore.getState().agentSettings;
     const agentState = useAgentStore.getState();
 
@@ -790,7 +791,7 @@ export default function App() {
   }, [persistGatewayThreadMap]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.ensureSlackConnected || !amux?.onSlackMessage) return;
     if (!agentSettings.gateway_enabled || !agentSettings.slack_token) return;
 
@@ -820,7 +821,7 @@ export default function App() {
   }, [handleInboundGatewayMessage, agentSettings.gateway_enabled, agentSettings.slack_token]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.ensureTelegramConnected || !amux?.onTelegramMessage) return;
     if (!agentSettings.gateway_enabled || !agentSettings.telegram_token) return;
 
@@ -848,7 +849,7 @@ export default function App() {
   }, [handleInboundGatewayMessage, agentSettings.gateway_enabled, agentSettings.telegram_token]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.ensureDiscordConnected || !amux?.onDiscordMessage) return;
     if (!agentSettings.gateway_enabled || !agentSettings.discord_token) return;
 
@@ -876,7 +877,7 @@ export default function App() {
   }, [handleInboundGatewayMessage, agentSettings.discord_token, agentSettings.gateway_enabled]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onWhatsAppMessage || !amux?.whatsappStatus) return;
     if (!agentSettings.gateway_enabled) return;
 

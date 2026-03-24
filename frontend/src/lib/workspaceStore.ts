@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getBridge } from "./bridge";
 import {
   Workspace,
   Surface,
@@ -353,7 +354,7 @@ function createDefaultWorkspace(name?: string, layoutMode: SurfaceLayoutMode = "
 }
 
 function stopPaneSessions(paneIds: string[], killSessions: boolean = true) {
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
   if (!amux?.stopTerminalSession) return;
 
   for (const paneId of paneIds) {

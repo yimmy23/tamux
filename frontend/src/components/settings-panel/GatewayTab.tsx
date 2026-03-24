@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import type { AgentSettings } from "../../lib/agentStore";
 import { PasswordInput, Section, SettingRow, TextInput, Toggle, smallBtnStyle } from "./shared";
 import { GatewayHealth } from "./GatewaySettings";
@@ -14,7 +15,7 @@ function WhatsAppConnector() {
     useEffect(() => {
         checkStatus();
 
-        const amux = (window as any).tamux ?? (window as any).amux;
+        const amux = getBridge();
         const unsubQr = amux?.onWhatsAppQR?.((dataUrl: string) => {
             setQrDataUrl(dataUrl);
             setStatus("qr_ready");
@@ -46,10 +47,10 @@ function WhatsAppConnector() {
 
     async function checkStatus() {
         try {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.whatsappStatus) return;
             const result = await amux.whatsappStatus();
-            setStatus(result.status);
+            if (result.status) setStatus(result.status as WhatsAppStatus);
             if (result.phone) setPhoneInfo(result.phone);
         } catch {
             // IPC not available yet
@@ -60,7 +61,7 @@ function WhatsAppConnector() {
         setStatus("connecting");
         setError(null);
         try {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.whatsappConnect) {
                 setError("WhatsApp bridge not available. Install dependencies: npm install @whiskeysockets/baileys qrcode pino @hapi/boom");
                 setStatus("error");
@@ -79,7 +80,7 @@ function WhatsAppConnector() {
 
     async function disconnect() {
         try {
-            await (window as any).amux?.whatsappDisconnect?.();
+            await getBridge()?.whatsappDisconnect?.();
             setStatus("disconnected");
             setQrDataUrl(null);
             setPhoneInfo(null);
