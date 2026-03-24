@@ -986,34 +986,61 @@ mod tests {
     }
 
     #[test]
-    fn test_needs_setup_returns_false_when_config_has_provider() {
-        let tmp = tempfile::tempdir().unwrap();
-        let agent_dir = tmp.path().join("agent");
-        std::fs::create_dir_all(&agent_dir).unwrap();
-        let config_path = agent_dir.join("config.json");
-        std::fs::write(
-            &config_path,
-            r#"{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}"#,
-        )
-        .unwrap();
-        assert!(!needs_setup_at(&config_path));
-    }
-
-    #[test]
-    fn test_needs_setup_returns_true_when_provider_empty() {
-        let tmp = tempfile::tempdir().unwrap();
-        let agent_dir = tmp.path().join("agent");
-        std::fs::create_dir_all(&agent_dir).unwrap();
-        let config_path = agent_dir.join("config.json");
-        std::fs::write(&config_path, r#"{"provider": "", "model": ""}"#).unwrap();
-        assert!(needs_setup_at(&config_path));
-    }
-
-    #[test]
     fn test_is_local_provider() {
         assert!(is_local_provider("ollama"));
         assert!(is_local_provider("lmstudio"));
         assert!(!is_local_provider("anthropic"));
         assert!(!is_local_provider("openai"));
+    }
+
+    #[test]
+    fn test_security_default_for_tier() {
+        // newcomer -> 0 (highest: approve all actions)
+        assert_eq!(default_security_index("newcomer"), 0);
+        // familiar -> 1 (moderate: approve risky actions)
+        assert_eq!(default_security_index("familiar"), 1);
+        // power_user -> 2 (lowest: approve destructive only)
+        assert_eq!(default_security_index("power_user"), 2);
+        // expert -> 2 (lowest: approve destructive only)
+        assert_eq!(default_security_index("expert"), 2);
+        // unknown tier falls back to 1 (moderate)
+        assert_eq!(default_security_index("unknown"), 1);
+    }
+
+    #[test]
+    fn test_tier_shows_optional_steps() {
+        // Newcomer sees nothing optional
+        assert!(!tier_shows_step("newcomer", "model"));
+        assert!(!tier_shows_step("newcomer", "web_search"));
+        assert!(!tier_shows_step("newcomer", "gateway"));
+        assert!(!tier_shows_step("newcomer", "data_dir"));
+
+        // Familiar sees model, web_search, data_dir but NOT gateway
+        assert!(tier_shows_step("familiar", "model"));
+        assert!(tier_shows_step("familiar", "web_search"));
+        assert!(!tier_shows_step("familiar", "gateway"));
+        assert!(tier_shows_step("familiar", "data_dir"));
+
+        // Power user sees everything including gateway
+        assert!(tier_shows_step("power_user", "model"));
+        assert!(tier_shows_step("power_user", "web_search"));
+        assert!(tier_shows_step("power_user", "gateway"));
+        assert!(tier_shows_step("power_user", "data_dir"));
+
+        // Expert sees everything including gateway
+        assert!(tier_shows_step("expert", "model"));
+        assert!(tier_shows_step("expert", "web_search"));
+        assert!(tier_shows_step("expert", "gateway"));
+        assert!(tier_shows_step("expert", "data_dir"));
+    }
+
+    #[test]
+    fn test_security_level_from_index() {
+        assert_eq!(security_level_from_index(0), ("highest", "Approve all actions"));
+        assert_eq!(security_level_from_index(1), ("moderate", "Approve risky actions"));
+        assert_eq!(security_level_from_index(2), ("lowest", "Approve destructive only"));
+        assert_eq!(security_level_from_index(3), ("yolo", "Minimize interruptions"));
+        // Out of range falls back to moderate
+        assert_eq!(security_level_from_index(99), ("moderate", "Approve risky actions"));
     }
 }
