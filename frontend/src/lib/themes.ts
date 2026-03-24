@@ -338,7 +338,6 @@ export function getAppShellTheme(
     customSelection
   );
 
-  // New design system color mapping - consistent structure across all themes
   const bgVoid = mix(colors.background, "#000000", 0.5);
   const bgDeep = mix(colors.background, "#000000", 0.3);
   const bgPrimary = colors.background;
@@ -346,9 +345,19 @@ export function getAppShellTheme(
   const bgTertiary = mix(colors.background, colors.black, 0.2);
   const bgSurface = mix(colors.background, colors.white, 0.1);
   const bgElevated = mix(colors.background, colors.white, 0.16);
+  const bgCanvas = mix(colors.background, "#000000", 0.6);
+  const bgOverlay = withAlpha(mix(colors.background, "#000000", 0.4), 0.85);
 
-  // Agent-centric accent colors based on theme
-  const accent = colors.cyan; // Cyan/teal for primary accent
+  const textPrimary = colors.foreground;
+  const textSecondary = mix(colors.foreground, colors.background, 0.28);
+  const textMuted = withAlpha(colors.foreground, 0.55);
+  const textDisabled = withAlpha(colors.foreground, 0.35);
+
+  const accent = colors.cyan;
+  const accentHover = mix(accent, "#ffffff", 0.2);
+  const accentSoft = withAlpha(accent, 0.12);
+  const accentDim = withAlpha(accent, 0.06);
+
   const agent = colors.blue;
   const human = colors.green;
   const approval = colors.yellow;
@@ -356,8 +365,12 @@ export function getAppShellTheme(
   const mission = colors.cyan;
   const timeline = colors.brightMagenta;
 
+  const success = colors.green;
+  const warning = colors.yellow;
+  const danger = colors.red;
+  const info = colors.blue;
+
   return {
-    // Core backgrounds
     "--bg-void": bgVoid,
     "--bg-deep": bgDeep,
     "--bg-primary": bgPrimary,
@@ -365,63 +378,120 @@ export function getAppShellTheme(
     "--bg-tertiary": bgTertiary,
     "--bg-surface": bgSurface,
     "--bg-elevated": bgElevated,
-    "--bg-canvas": mix(colors.background, "#000000", 0.6),
-    "--bg-overlay": withAlpha(mix(colors.background, "#000000", 0.4), 0.85),
+    "--bg-canvas": bgCanvas,
+    "--bg-overlay": bgOverlay,
 
-    // Text colors
-    "--text-primary": colors.foreground,
-    "--text-secondary": mix(colors.foreground, colors.background, 0.28),
-    "--text-muted": withAlpha(colors.foreground, 0.55),
-    "--text-disabled": withAlpha(colors.foreground, 0.35),
+    "--background": bgPrimary,
+    "--foreground": textPrimary,
+    "--card": bgSecondary,
+    "--card-foreground": textPrimary,
+    "--popover": bgSecondary,
+    "--popover-foreground": textPrimary,
+    "--muted": bgTertiary,
+    "--muted-foreground": textSecondary,
+    "--secondary": bgSurface,
+    "--secondary-hover": bgElevated,
+    "--secondary-foreground": textPrimary,
+    "--primary": accent,
+    "--primary-foreground": mix(colors.background, colors.foreground, 0.12),
+    "--destructive": danger,
+    "--destructive-foreground": textPrimary,
+    "--input": bgSecondary,
+    "--input-hover": bgTertiary,
+    "--input-foreground": textPrimary,
+    "--overlay": bgOverlay,
+    "--ring": withAlpha(accent, 0.4),
 
-    // Primary accent
+    "--text-primary": textPrimary,
+    "--text-secondary": textSecondary,
+    "--text-muted": textMuted,
+    "--text-disabled": textDisabled,
+    "--text-inverse": bgPrimary,
+    "--text-on-accent": mix(colors.background, colors.foreground, 0.12),
+    "--text-on-agent": mix(colors.background, colors.foreground, 0.12),
+    "--text-on-human": mix(colors.background, colors.foreground, 0.12),
+
     "--accent": accent,
-    "--accent-hover": mix(accent, "#ffffff", 0.2),
-    "--accent-soft": withAlpha(accent, 0.12),
-    "--accent-dim": withAlpha(accent, 0.06),
+    "--accent-hover": accentHover,
+    "--accent-soft": accentSoft,
+    "--accent-dim": accentDim,
+    "--accent-glow": withAlpha(accent, 0.2),
+    "--accent-border": withAlpha(accent, 0.28),
 
-    // Agent lane colors
     "--agent": agent,
+    "--agent-hover": mix(agent, "#ffffff", 0.2),
     "--agent-soft": withAlpha(agent, 0.14),
+    "--agent-dim": withAlpha(agent, 0.06),
     "--agent-glow": withAlpha(agent, 0.25),
+    "--agent-border": withAlpha(agent, 0.3),
     "--human": human,
+    "--human-hover": mix(human, "#ffffff", 0.2),
     "--human-soft": withAlpha(human, 0.14),
+    "--human-dim": withAlpha(human, 0.06),
     "--human-glow": withAlpha(human, 0.25),
+    "--human-border": withAlpha(human, 0.3),
     "--approval": approval,
+    "--approval-hover": mix(approval, "#ffffff", 0.2),
     "--approval-soft": withAlpha(approval, 0.14),
+    "--approval-dim": withAlpha(approval, 0.06),
     "--approval-glow": withAlpha(approval, 0.3),
+    "--approval-border": withAlpha(approval, 0.3),
     "--reasoning": reasoning,
+    "--reasoning-hover": mix(reasoning, "#ffffff", 0.2),
     "--reasoning-soft": withAlpha(reasoning, 0.14),
+    "--reasoning-dim": withAlpha(reasoning, 0.06),
     "--reasoning-glow": withAlpha(reasoning, 0.25),
+    "--reasoning-border": withAlpha(reasoning, 0.3),
     "--mission": mission,
+    "--mission-hover": mix(mission, "#ffffff", 0.2),
     "--mission-soft": withAlpha(mission, 0.14),
+    "--mission-dim": withAlpha(mission, 0.06),
     "--mission-glow": withAlpha(mission, 0.25),
+    "--mission-border": withAlpha(mission, 0.3),
     "--timeline": timeline,
+    "--timeline-hover": mix(timeline, "#ffffff", 0.2),
     "--timeline-soft": withAlpha(timeline, 0.14),
+    "--timeline-dim": withAlpha(timeline, 0.06),
+    "--timeline-glow": withAlpha(timeline, 0.25),
+    "--timeline-border": withAlpha(timeline, 0.3),
 
-    // Status colors
-    "--success": colors.green,
-    "--success-soft": withAlpha(colors.green, 0.12),
-    "--warning": colors.yellow,
-    "--warning-soft": withAlpha(colors.yellow, 0.12),
-    "--danger": colors.red,
-    "--danger-soft": withAlpha(colors.red, 0.12),
-    "--info": colors.blue,
-    "--info-soft": withAlpha(colors.blue, 0.12),
+    "--success": success,
+    "--success-hover": mix(success, "#ffffff", 0.2),
+    "--success-soft": withAlpha(success, 0.12),
+    "--success-glow": withAlpha(success, 0.2),
+    "--success-border": withAlpha(success, 0.28),
+    "--warning": warning,
+    "--warning-hover": mix(warning, "#ffffff", 0.2),
+    "--warning-soft": withAlpha(warning, 0.12),
+    "--warning-glow": withAlpha(warning, 0.2),
+    "--warning-border": withAlpha(warning, 0.28),
+    "--danger": danger,
+    "--danger-hover": mix(danger, "#ffffff", 0.2),
+    "--danger-soft": withAlpha(danger, 0.12),
+    "--danger-glow": withAlpha(danger, 0.2),
+    "--danger-border": withAlpha(danger, 0.28),
+    "--info": info,
+    "--info-hover": mix(info, "#ffffff", 0.2),
+    "--info-soft": withAlpha(info, 0.12),
+    "--info-glow": withAlpha(info, 0.2),
+    "--info-border": withAlpha(info, 0.28),
 
-    // Risk levels
-    "--risk-low": withAlpha(colors.green, 0.1),
-    "--risk-medium": withAlpha(colors.yellow, 0.12),
-    "--risk-high": withAlpha(colors.red, 0.12),
-    "--risk-critical": withAlpha(colors.red, 0.18),
+    "--risk-low": withAlpha(success, 0.1),
+    "--risk-medium": withAlpha(warning, 0.12),
+    "--risk-high": withAlpha(danger, 0.12),
+    "--risk-critical": withAlpha(danger, 0.18),
+    "--risk-low-solid": success,
+    "--risk-medium-solid": warning,
+    "--risk-high-solid": danger,
+    "--risk-critical-solid": mix(danger, "#ffffff", 0.08),
 
-    // Borders
     "--border": withAlpha(colors.white, 0.06),
     "--border-strong": withAlpha(colors.white, 0.1),
+    "--border-subtle": withAlpha(colors.white, 0.04),
     "--border-focus": withAlpha(accent, 0.4),
     "--glass-border": withAlpha(colors.white, 0.05),
+    "--glass-border-light": withAlpha(colors.white, 0.08),
 
-    // Shadows
     "--shadow-sm": `0 2px 8px ${withAlpha(colors.black, 0.3)}`,
     "--shadow-md": `0 4px 16px ${withAlpha(colors.black, 0.4)}`,
     "--shadow-lg": `0 8px 32px ${withAlpha(colors.black, 0.5)}`,
@@ -429,14 +499,12 @@ export function getAppShellTheme(
     "--shadow-glow-sm": `0 0 20px ${withAlpha(agent, 0.3)}`,
     "--shadow-glow-md": `0 0 40px ${withAlpha(agent, 0.3)}`,
 
-    // Blur
     "--blur-sm": "8px",
     "--blur-md": "16px",
     "--blur-lg": "24px",
     "--blur-xl": "32px",
     "--panel-blur": "20px",
 
-    // Legacy compatibility
     "--shadow-color": withAlpha(colors.black, 0.45),
   };
 }
