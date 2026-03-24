@@ -547,6 +547,18 @@ pub enum ClientMessage {
     AgentSetTierOverride {
         tier: Option<String>,
     },
+
+    /// List all installed plugins. Per PLUG-09.
+    PluginList {},
+
+    /// Get details for a specific plugin by name. Per PLUG-09.
+    PluginGet { name: String },
+
+    /// Enable a plugin by name. Per PLUG-09.
+    PluginEnable { name: String },
+
+    /// Disable a plugin by name. Per PLUG-09.
+    PluginDisable { name: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -860,7 +872,7 @@ pub enum DaemonMessage {
 
     /// Response to AgentSynthesizeTool / AgentRunGeneratedTool / AgentPromoteGeneratedTool.
     AgentGeneratedToolResult {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         tool_name: Option<String>,
         result_json: String,
     },
@@ -869,9 +881,9 @@ pub enum DaemonMessage {
     AgentProviderValidation {
         provider_id: String,
         valid: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         error: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         models_json: Option<String>,
     },
 
@@ -951,16 +963,28 @@ pub enum DaemonMessage {
         tier: String,
         feature_flags_json: String,
         activity: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         active_thread_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         active_goal_run_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
         active_goal_run_title: Option<String>,
         provider_health_json: String,
         gateway_statuses_json: String,
         recent_actions_json: String,
     },
+
+    /// Response to PluginList -- list of installed plugins. Per PLUG-09.
+    PluginListResult { plugins: Vec<PluginInfo> },
+
+    /// Response to PluginGet -- single plugin detail with optional settings schema JSON. Per PLUG-09.
+    PluginGetResult {
+        plugin: Option<PluginInfo>,
+        settings_schema: Option<String>,
+    },
+
+    /// Response to PluginEnable/PluginDisable. Per PLUG-09.
+    PluginActionResult { success: bool, message: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,6 +1056,27 @@ pub struct ScanReportPublic {
     pub findings_count: u32,
     pub critical_count: u32,
     pub suspicious_count: u32,
+}
+
+/// Public plugin info shared across all crates. Per PLUG-09.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginInfo {
+    pub name: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    pub enabled: bool,
+    pub install_source: String,
+    pub has_api: bool,
+    pub has_auth: bool,
+    pub has_commands: bool,
+    pub has_skills: bool,
+    pub endpoint_count: u32,
+    pub settings_count: u32,
+    pub installed_at: String,
+    pub updated_at: String,
 }
 
 /// Metadata about a running session.
@@ -1393,6 +1438,67 @@ pub struct TelemetryLedgerStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::{AmuxCodec, DaemonCodec};
+    use bytes::BytesMut;
+    use tokio_util::codec::{Decoder, Encoder};
+
+    #[test]
+    fn agent_provider_validation_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentProviderValidation {
+            provider_id: "openrouter".to_string(),
+            valid: true,
+            error: None,
+            models_json: None,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentProviderValidation {
+                provider_id,
+                valid,
+                error,
+                models_json,
+            } => {
+                assert_eq!(provider_id, "openrouter");
+                assert!(valid);
+                assert!(error.is_none());
+                assert!(models_json.is_none());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn agent_provider_validation_codec_roundtrip() {
+        let msg = DaemonMessage::AgentProviderValidation {
+            provider_id: "openrouter".to_string(),
+            valid: true,
+            error: None,
+            models_json: None,
+        };
+
+        // Encode with DaemonCodec (daemon side), decode with AmuxCodec (client side)
+        let mut daemon_codec = DaemonCodec;
+        let mut buf = BytesMut::new();
+        daemon_codec.encode(msg.clone(), &mut buf).unwrap();
+
+        let mut client_codec = AmuxCodec;
+        let decoded = client_codec.decode(&mut buf).unwrap().unwrap();
+        match decoded {
+            DaemonMessage::AgentProviderValidation {
+                provider_id,
+                valid,
+                error,
+                models_json,
+            } => {
+                assert_eq!(provider_id, "openrouter");
+                assert!(valid);
+                assert!(error.is_none());
+                assert!(models_json.is_none());
+            }
+            other => panic!("decoded wrong variant: {:?}", other),
+        }
+    }
 
     fn sample_skill_variant() -> SkillVariantPublic {
         SkillVariantPublic {
@@ -1777,5 +1883,165 @@ mod tests {
         let json = serde_json::to_string(&report).unwrap();
         let decoded: ScanReportPublic = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, report);
+    }
+
+    // -----------------------------------------------------------------------
+    // Plugin IPC bincode round-trips
+    // -----------------------------------------------------------------------
+
+    fn sample_plugin_info() -> PluginInfo {
+        PluginInfo {
+            name: "test-plugin".into(),
+            version: "1.0.0".into(),
+            description: Some("A test plugin".into()),
+            author: Some("Test Author".into()),
+            enabled: true,
+            install_source: "local".into(),
+            has_api: true,
+            has_auth: false,
+            has_commands: true,
+            has_skills: false,
+            endpoint_count: 3,
+            settings_count: 2,
+            installed_at: "2026-03-24T00:00:00Z".into(),
+            updated_at: "2026-03-24T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn plugin_list_bincode_roundtrip() {
+        let msg = ClientMessage::PluginList {};
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginList {} => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_get_bincode_roundtrip() {
+        let msg = ClientMessage::PluginGet {
+            name: "gmail".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginGet { name } => {
+                assert_eq!(name, "gmail");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_enable_bincode_roundtrip() {
+        let msg = ClientMessage::PluginEnable {
+            name: "gmail".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginEnable { name } => {
+                assert_eq!(name, "gmail");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_disable_bincode_roundtrip() {
+        let msg = ClientMessage::PluginDisable {
+            name: "gmail".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::PluginDisable { name } => {
+                assert_eq!(name, "gmail");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_list_result_bincode_roundtrip() {
+        let msg = DaemonMessage::PluginListResult {
+            plugins: vec![sample_plugin_info()],
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::PluginListResult { plugins } => {
+                assert_eq!(plugins.len(), 1);
+                assert_eq!(plugins[0], sample_plugin_info());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_get_result_some_bincode_roundtrip() {
+        let msg = DaemonMessage::PluginGetResult {
+            plugin: Some(sample_plugin_info()),
+            settings_schema: Some(r#"{"type":"object"}"#.into()),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::PluginGetResult {
+                plugin,
+                settings_schema,
+            } => {
+                assert_eq!(plugin, Some(sample_plugin_info()));
+                assert_eq!(settings_schema.as_deref(), Some(r#"{"type":"object"}"#));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_get_result_none_bincode_roundtrip() {
+        let msg = DaemonMessage::PluginGetResult {
+            plugin: None,
+            settings_schema: None,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::PluginGetResult {
+                plugin,
+                settings_schema,
+            } => {
+                assert!(plugin.is_none());
+                assert!(settings_schema.is_none());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_action_result_bincode_roundtrip() {
+        let msg = DaemonMessage::PluginActionResult {
+            success: true,
+            message: "ok".into(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::PluginActionResult { success, message } => {
+                assert!(success);
+                assert_eq!(message, "ok");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plugin_info_json_roundtrip() {
+        let info = sample_plugin_info();
+        let json = serde_json::to_string(&info).unwrap();
+        let decoded: PluginInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, info);
     }
 }

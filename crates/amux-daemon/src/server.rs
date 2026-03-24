@@ -2063,40 +2063,31 @@ where
                         provider = %provider_id,
                         url = %resolved_url,
                         has_key = !resolved_key.is_empty(),
-                        "server: AgentValidateProvider starting validation"
+                        "validating provider connection"
                     );
-                    match crate::agent::llm_client::validate_provider_connection(
-                        &provider_id,
-                        &resolved_url,
-                        &resolved_key,
-                        auth_source,
-                    )
-                    .await
-                    {
-                        Ok(_models) => {
-                            tracing::info!(provider = %provider_id, "server: validation OK");
-                            let resp = DaemonMessage::AgentProviderValidation {
-                                provider_id: provider_id.clone(),
-                                valid: true,
-                                error: None,
-                                models_json: None,
-                            };
-                            tracing::info!(provider = %provider_id, "server: sending validation response");
-                            framed.send(resp).await?;
-                            tracing::info!(provider = %provider_id, "server: validation response SENT and flushed");
-                        }
-                        Err(e) => {
-                            tracing::warn!(provider = %provider_id, error = %e, "server: validation FAILED");
-                            framed
-                                .send(DaemonMessage::AgentProviderValidation {
-                                    provider_id,
-                                    valid: false,
-                                    error: Some(e.to_string()),
-                                    models_json: None,
-                                })
-                                .await?;
-                        }
-                    }
+                    let (valid, error) =
+                        match crate::agent::llm_client::validate_provider_connection(
+                            &provider_id,
+                            &resolved_url,
+                            &resolved_key,
+                            auth_source,
+                        )
+                        .await
+                        {
+                            Ok(_) => (true, None),
+                            Err(e) => {
+                                tracing::warn!(provider = %provider_id, error = %e, "provider validation failed");
+                                (false, Some(e.to_string()))
+                            }
+                        };
+                    framed
+                        .send(DaemonMessage::AgentProviderValidation {
+                            provider_id,
+                            valid,
+                            error,
+                            models_json: None,
+                        })
+                        .await?;
                 }
 
                 ClientMessage::AgentSetSubAgent { sub_agent_json } => {
@@ -2838,6 +2829,40 @@ where
                         // No explicit response -- a TierChanged event is broadcast if tier
                         // actually changed, and the caller can query status afterward.
                     }
+                }
+
+                // Plugin operations -- handlers wired in Plan 14-02.
+                ClientMessage::PluginList {} => {
+                    framed
+                        .send(DaemonMessage::PluginListResult { plugins: vec![] })
+                        .await?;
+                }
+                ClientMessage::PluginGet { name } => {
+                    tracing::debug!(plugin = %name, "plugin get (not yet wired)");
+                    framed
+                        .send(DaemonMessage::PluginGetResult {
+                            plugin: None,
+                            settings_schema: None,
+                        })
+                        .await?;
+                }
+                ClientMessage::PluginEnable { name } => {
+                    tracing::debug!(plugin = %name, "plugin enable (not yet wired)");
+                    framed
+                        .send(DaemonMessage::PluginActionResult {
+                            success: false,
+                            message: "plugin system not yet initialized".into(),
+                        })
+                        .await?;
+                }
+                ClientMessage::PluginDisable { name } => {
+                    tracing::debug!(plugin = %name, "plugin disable (not yet wired)");
+                    framed
+                        .send(DaemonMessage::PluginActionResult {
+                            success: false,
+                            message: "plugin system not yet initialized".into(),
+                        })
+                        .await?;
                 }
             }
         }
