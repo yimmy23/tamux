@@ -44,6 +44,102 @@ pub struct RenderedRequest {
     pub body: Option<String>,
 }
 
+/// HTTP request timeout for plugin API calls.
+const HTTP_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum response body length to include in error messages.
+const MAX_ERROR_BODY_CHARS: usize = 2000;
+
+/// Default retry-after duration when upstream returns 429 without a header.
+const DEFAULT_RETRY_AFTER_SECS: u64 = 60;
+
+/// Execute an HTTP request from a RenderedRequest and return the parsed JSON response.
+///
+/// Handles:
+/// - HTTP timeout (30s) -> `PluginApiError::Timeout`
+/// - Upstream 429 -> `PluginApiError::RateLimited` with retry-after from header or default 60s
+/// - HTTP error status -> `PluginApiError::HttpError` with truncated body
+/// - Non-JSON response -> wraps raw text in `{"text": "..."}`
+/// - Success -> parsed `serde_json::Value`
+pub async fn execute_request(
+    http_client: &reqwest::Client,
+    rendered: &RenderedRequest,
+) -> Result<serde_json::Value, PluginApiError> {
+    let method: reqwest::Method = rendered
+        .method
+        .parse()
+        .map_err(|e| PluginApiError::TemplateError {
+            detail: format!("invalid HTTP method '{}': {e}", rendered.method),
+        })?;
+
+    let mut builder = http_client.request(method, &rendered.url);
+
+    for (key, value) in &rendered.headers {
+        builder = builder.header(key.as_str(), value.as_str());
+    }
+
+    if let Some(ref body) = rendered.body {
+        builder = builder.body(body.clone());
+    }
+
+    let response = match tokio::time::timeout(
+        std::time::Duration::from_secs(HTTP_TIMEOUT_SECS),
+        builder.send(),
+    )
+    .await
+    {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            // reqwest-level error (DNS, connection, etc.)
+            return Err(PluginApiError::HttpError {
+                status: 0,
+                body: format!("request failed: {e}"),
+            });
+        }
+        Err(_timeout) => {
+            return Err(PluginApiError::Timeout);
+        }
+    };
+
+    let status = response.status();
+
+    // Handle 429 (Too Many Requests) from upstream
+    if status.as_u16() == 429 {
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_RETRY_AFTER_SECS);
+        return Err(PluginApiError::RateLimited {
+            plugin: String::new(), // caller fills in plugin name context
+            retry_after_secs: retry_after,
+        });
+    }
+
+    // Read body text
+    let body_text = response.text().await.unwrap_or_default();
+
+    // Handle other error statuses
+    if !status.is_success() {
+        let truncated = if body_text.len() > MAX_ERROR_BODY_CHARS {
+            format!("{}...", &body_text[..MAX_ERROR_BODY_CHARS])
+        } else {
+            body_text
+        };
+        return Err(PluginApiError::HttpError {
+            status: status.as_u16(),
+            body: truncated,
+        });
+    }
+
+    // Parse response as JSON; wrap raw text if not valid JSON
+    match serde_json::from_str::<serde_json::Value>(&body_text) {
+        Ok(json) => Ok(json),
+        Err(_) => Ok(serde_json::json!({ "text": body_text })),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,7 @@ pub mod template;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tokio::sync::RwLock;
@@ -18,23 +19,37 @@ pub use api_proxy::PluginApiError;
 pub use loader::LoadedPlugin;
 pub use persistence::{PluginPersistence, PluginRecord};
 
-/// Manages plugin lifecycle: loading, validation, persistence, and queries.
+/// Manages plugin lifecycle: loading, validation, persistence, queries, and API proxy.
 /// Initialized once in server.rs, shared via Arc.
 pub struct PluginManager {
     plugins: RwLock<HashMap<String, LoadedPlugin>>,
     persistence: PluginPersistence,
     plugins_dir: PathBuf,
     schema_validator: jsonschema::Validator,
+    /// Shared HTTP client for plugin API proxy requests.
+    http_client: reqwest::Client,
+    /// Per-plugin token bucket rate limiters (lazy-initialized).
+    rate_limiters: tokio::sync::Mutex<rate_limiter::RateLimiterMap>,
+    /// Handlebars template registry with custom helpers for request/response rendering.
+    template_registry: handlebars::Handlebars<'static>,
 }
 
 impl PluginManager {
     /// Create a new PluginManager. Does NOT load plugins yet -- call load_all_from_disk().
     pub fn new(history: Arc<crate::history::HistoryStore>, plugins_dir: PathBuf) -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_default();
+
         Self {
             plugins: RwLock::new(HashMap::new()),
             persistence: PluginPersistence::new(history),
             plugins_dir,
             schema_validator: schema::compile_schema_v1(),
+            http_client,
+            rate_limiters: tokio::sync::Mutex::new(rate_limiter::RateLimiterMap::new()),
+            template_registry: template::create_registry(),
         }
     }
 
@@ -348,6 +363,137 @@ impl PluginManager {
                 Err(e) => (false, format!("Connection failed: {}", e)),
             },
             Err(e) => (false, format!("HTTP client error: {}", e)),
+        }
+    }
+
+    /// Execute a plugin API call through the full proxy flow.
+    ///
+    /// Orchestrates: plugin lookup -> enabled check -> rate limit -> settings fetch ->
+    /// template render -> SSRF check -> HTTP request -> response template -> return text.
+    ///
+    /// Per D-11/APRX-01/APRX-03.
+    pub async fn api_call(
+        &self,
+        plugin_name: &str,
+        endpoint_name: &str,
+        params: serde_json::Value,
+    ) -> Result<String, api_proxy::PluginApiError> {
+        // (a) Look up plugin in loaded map
+        let plugins = self.plugins.read().await;
+        let plugin = plugins
+            .get(plugin_name)
+            .ok_or_else(|| api_proxy::PluginApiError::PluginNotFound {
+                name: plugin_name.to_string(),
+            })?;
+
+        // (b) Check enabled state from persistence
+        if !self.check_plugin_enabled(plugin_name).await? {
+            return Err(api_proxy::PluginApiError::PluginDisabled {
+                name: plugin_name.to_string(),
+            });
+        }
+
+        // (c) Get API section and endpoint from manifest
+        let api = plugin
+            .manifest
+            .api
+            .as_ref()
+            .ok_or_else(|| api_proxy::PluginApiError::EndpointNotFound {
+                plugin: plugin_name.to_string(),
+                endpoint: endpoint_name.to_string(),
+            })?;
+        let endpoint = api
+            .endpoints
+            .get(endpoint_name)
+            .ok_or_else(|| api_proxy::PluginApiError::EndpointNotFound {
+                plugin: plugin_name.to_string(),
+                endpoint: endpoint_name.to_string(),
+            })?;
+
+        // Clone what we need before dropping the read lock
+        let api_clone = api.clone();
+        let endpoint_clone = endpoint.clone();
+        let rpm = api
+            .rate_limit
+            .as_ref()
+            .and_then(|rl| rl.requests_per_minute)
+            .unwrap_or(rate_limiter::DEFAULT_REQUESTS_PER_MINUTE);
+
+        // Drop the plugins read lock before acquiring other locks
+        drop(plugins);
+
+        // (d) Check rate limit
+        {
+            let mut limiters = self.rate_limiters.lock().await;
+            if !limiters.check(plugin_name, rpm) {
+                return Err(api_proxy::PluginApiError::RateLimited {
+                    plugin: plugin_name.to_string(),
+                    retry_after_secs: 60,
+                });
+            }
+        }
+
+        // (e) Get raw settings from persistence (NOT masked -- need real values for templates)
+        let settings = self
+            .persistence
+            .get_settings(plugin_name)
+            .await
+            .unwrap_or_default();
+
+        // (f) Build template context
+        let context = template::build_context(params, settings);
+
+        // (g) Render request
+        let rendered = template::render_request(
+            &self.template_registry,
+            &api_clone,
+            &endpoint_clone,
+            &context,
+        )
+        .await?;
+
+        // (h) SSRF validate (allow_local=false for production safety)
+        ssrf::validate_url(&rendered.url, false).await?;
+
+        // (i) Execute HTTP request
+        let response_json =
+            match api_proxy::execute_request(&self.http_client, &rendered).await {
+                Ok(json) => json,
+                Err(api_proxy::PluginApiError::RateLimited {
+                    retry_after_secs, ..
+                }) => {
+                    // Fill in plugin name for upstream 429 errors
+                    return Err(api_proxy::PluginApiError::RateLimited {
+                        plugin: plugin_name.to_string(),
+                        retry_after_secs,
+                    });
+                }
+                Err(e) => return Err(e),
+            };
+
+        // (j) Render response
+        let rendered_text =
+            template::render_response(&self.template_registry, &endpoint_clone, &response_json)?;
+
+        // (k) Return rendered text
+        Ok(rendered_text)
+    }
+
+    /// Check if a plugin is enabled via persistence. Returns true if enabled.
+    async fn check_plugin_enabled(
+        &self,
+        name: &str,
+    ) -> Result<bool, api_proxy::PluginApiError> {
+        match self.persistence.get_plugin(name).await {
+            Ok(Some(record)) => Ok(record.enabled),
+            Ok(None) => Err(api_proxy::PluginApiError::PluginNotFound {
+                name: name.to_string(),
+            }),
+            Err(e) => {
+                tracing::warn!(plugin = %name, error = %e, "failed to check plugin enabled state");
+                // Default to enabled if DB check fails (don't block API calls on DB errors)
+                Ok(true)
+            }
         }
     }
 
