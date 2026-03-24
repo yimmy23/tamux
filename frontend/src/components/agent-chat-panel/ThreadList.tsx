@@ -59,10 +59,23 @@ export function ThreadList({
             </div>
 
             {filteredThreads.length === 0 && (
-                <div className="amux-empty-state">
-                    <div className="amux-empty-state__icon">💬</div>
-                    <div className="amux-empty-state__title">No conversations yet</div>
-                    <div className="amux-empty-state__description">Create a new thread to start collaborating with the agent</div>
+                <div
+                    style={{
+                        display: "grid",
+                        gap: "var(--space-2)",
+                        placeItems: "center",
+                        padding: "var(--space-6)",
+                        borderRadius: "var(--radius-xl)",
+                        border: "1px dashed var(--border)",
+                        background: "var(--bg-secondary)",
+                        color: "var(--text-muted)",
+                        textAlign: "center",
+                        marginBottom: "var(--space-3)",
+                    }}
+                >
+                    <div style={{ fontSize: 24, lineHeight: 1 }}>💬</div>
+                    <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-primary)" }}>No conversations yet</div>
+                    <div style={{ fontSize: "var(--text-sm)" }}>Create a new thread to start collaborating with the agent</div>
                 </div>
             )}
 

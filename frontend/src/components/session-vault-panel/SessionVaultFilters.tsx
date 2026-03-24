@@ -1,75 +1,110 @@
-import { filterInputStyle } from "./shared";
+import { Input, cn, fieldClassName } from "../ui";
 
 export function SessionVaultFilters({
-    query,
-    setQuery,
-    workspaceFilter,
-    setWorkspaceFilter,
-    surfaceFilter,
-    setSurfaceFilter,
-    paneFilter,
-    setPaneFilter,
-    reasonFilter,
-    setReasonFilter,
-    dateFilter,
-    setDateFilter,
-    workspaceOptions,
-    surfaceOptions,
-    paneOptions,
-    reasonOptions,
-    close,
+  query,
+  setQuery,
+  workspaceFilter,
+  setWorkspaceFilter,
+  surfaceFilter,
+  setSurfaceFilter,
+  paneFilter,
+  setPaneFilter,
+  reasonFilter,
+  setReasonFilter,
+  dateFilter,
+  setDateFilter,
+  workspaceOptions,
+  surfaceOptions,
+  paneOptions,
+  reasonOptions,
+  close,
 }: {
-    query: string;
-    setQuery: (value: string) => void;
-    workspaceFilter: string;
-    setWorkspaceFilter: (value: string) => void;
-    surfaceFilter: string;
-    setSurfaceFilter: (value: string) => void;
-    paneFilter: string;
-    setPaneFilter: (value: string) => void;
-    reasonFilter: string;
-    setReasonFilter: (value: string) => void;
-    dateFilter: string;
-    setDateFilter: (value: string) => void;
-    workspaceOptions: Array<{ id: string; name: string }>;
-    surfaceOptions: Array<{ id: string; name: string }>;
-    paneOptions: string[];
-    reasonOptions: string[];
-    close: () => void;
+  query: string;
+  setQuery: (value: string) => void;
+  workspaceFilter: string;
+  setWorkspaceFilter: (value: string) => void;
+  surfaceFilter: string;
+  setSurfaceFilter: (value: string) => void;
+  paneFilter: string;
+  setPaneFilter: (value: string) => void;
+  reasonFilter: string;
+  setReasonFilter: (value: string) => void;
+  dateFilter: string;
+  setDateFilter: (value: string) => void;
+  workspaceOptions: Array<{ id: string; name: string }>;
+  surfaceOptions: Array<{ id: string; name: string }>;
+  paneOptions: string[];
+  reasonOptions: string[];
+  close: () => void;
 }) {
-    return (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) repeat(5, minmax(0, 1fr))", gap: 10, padding: 14, borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }}>
-            <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search transcripts..."
-                autoFocus
-                onKeyDown={(e) => e.key === "Escape" && close()}
-                style={filterInputStyle}
-            />
-            <select value={workspaceFilter} onChange={(e) => setWorkspaceFilter(e.target.value)} style={filterInputStyle}>
-                <option value="all">All workspaces</option>
-                {workspaceOptions.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
-            </select>
-            <select value={surfaceFilter} onChange={(e) => setSurfaceFilter(e.target.value)} style={filterInputStyle}>
-                <option value="all">All surfaces</option>
-                {surfaceOptions.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
-            </select>
-            <select value={paneFilter} onChange={(e) => setPaneFilter(e.target.value)} style={filterInputStyle}>
-                <option value="all">All panes</option>
-                {paneOptions.map((id) => <option key={id} value={id}>{id}</option>)}
-            </select>
-            <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)} style={filterInputStyle}>
-                <option value="all">All reasons</option>
-                {reasonOptions.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
-            </select>
-            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} style={filterInputStyle}>
-                <option value="all">All dates</option>
-                <option value="today">Today</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-            </select>
-        </div>
-    );
+  return (
+    <div className="grid gap-[var(--space-3)] border-b border-[var(--border-subtle)] bg-[var(--panel)]/45 px-[var(--space-5)] py-[var(--space-4)] xl:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
+      <Input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search transcripts..."
+        autoFocus
+        onKeyDown={(e) => e.key === "Escape" && close()}
+      />
+      <select
+        value={workspaceFilter}
+        onChange={(e) => setWorkspaceFilter(e.target.value)}
+        className={cn(fieldClassName, "appearance-none")}
+      >
+        <option value="all">All workspaces</option>
+        {workspaceOptions.map(({ id, name }) => (
+          <option key={id} value={id}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={surfaceFilter}
+        onChange={(e) => setSurfaceFilter(e.target.value)}
+        className={cn(fieldClassName, "appearance-none")}
+      >
+        <option value="all">All surfaces</option>
+        {surfaceOptions.map(({ id, name }) => (
+          <option key={id} value={id}>
+            {name}
+          </option>
+        ))}
+      </select>
+      <select
+        value={paneFilter}
+        onChange={(e) => setPaneFilter(e.target.value)}
+        className={cn(fieldClassName, "appearance-none")}
+      >
+        <option value="all">All panes</option>
+        {paneOptions.map((id) => (
+          <option key={id} value={id}>
+            {id}
+          </option>
+        ))}
+      </select>
+      <select
+        value={reasonFilter}
+        onChange={(e) => setReasonFilter(e.target.value)}
+        className={cn(fieldClassName, "appearance-none")}
+      >
+        <option value="all">All reasons</option>
+        {reasonOptions.map((reason) => (
+          <option key={reason} value={reason}>
+            {reason}
+          </option>
+        ))}
+      </select>
+      <select
+        value={dateFilter}
+        onChange={(e) => setDateFilter(e.target.value)}
+        className={cn(fieldClassName, "appearance-none")}
+      >
+        <option value="all">All dates</option>
+        <option value="today">Today</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+      </select>
+    </div>
+  );
 }

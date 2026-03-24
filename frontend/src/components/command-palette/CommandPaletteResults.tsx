@@ -1,103 +1,82 @@
+import { Badge, Card, ScrollArea, Separator } from "../ui";
 import type { Command } from "./shared";
 
 export function CommandPaletteResults({
-    filtered,
-    grouped,
-    categories,
-    flatFiltered,
-    selectedIndex,
-    setSelectedIndex,
-    onExecute,
+  filtered,
+  grouped,
+  categories,
+  flatFiltered,
+  selectedIndex,
+  setSelectedIndex,
+  onExecute,
 }: {
-    filtered: Command[];
-    grouped: Record<string, Command[]>;
-    categories: string[];
-    flatFiltered: Command[];
-    selectedIndex: number;
-    setSelectedIndex: (index: number) => void;
-    onExecute: (command: Command) => void;
+  filtered: Command[];
+  grouped: Record<string, Command[]>;
+  categories: string[];
+  flatFiltered: Command[];
+  selectedIndex: number;
+  setSelectedIndex: (index: number) => void;
+  onExecute: (command: Command) => void;
 }) {
-    return (
-        <div style={{ overflow: "auto", padding: "var(--space-2)", flex: 1 }}>
-            {filtered.length === 0 ? (
-                <div
-                    style={{
-                        padding: "var(--space-6)",
-                        color: "var(--text-muted)",
-                        fontSize: "var(--text-sm)",
-                        textAlign: "center",
-                    }}
-                >
-                    No matching commands.
-                </div>
-            ) : null}
+  return (
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="flex flex-col gap-[var(--space-3)] p-[var(--space-3)]">
+        {filtered.length === 0 ? (
+          <Card className="border-dashed bg-[var(--surface)]/60 p-[var(--space-6)] text-center text-[var(--text-sm)] text-[var(--text-muted)]">
+            No matching commands.
+          </Card>
+        ) : null}
 
-            {categories.map((category) => (
-                <div key={category} style={{ marginBottom: "var(--space-2)" }}>
-                    <div
-                        style={{
-                            padding: "var(--space-2) var(--space-3)",
-                            fontSize: "var(--text-xs)",
-                            color: "var(--text-muted)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.1em",
-                            fontWeight: 600,
-                        }}
-                    >
-                        {category}
+        {categories.map((category, categoryIndex) => (
+          <div key={category} className="flex flex-col gap-[var(--space-2)]">
+            {categoryIndex > 0 ? <Separator /> : null}
+            <div className="px-[var(--space-1)] pt-[var(--space-1)]">
+              <Badge variant="default" className="uppercase tracking-[0.08em] text-[10px] text-[var(--text-muted)]">
+                {category}
+              </Badge>
+            </div>
+
+            <div className="flex flex-col gap-[var(--space-2)]">
+              {grouped[category].map((command) => {
+                const globalIndex = flatFiltered.indexOf(command);
+                const isSelected = globalIndex === selectedIndex;
+
+                return (
+                  <button
+                    key={command.id}
+                    type="button"
+                    onClick={() => onExecute(command)}
+                    onMouseEnter={() => setSelectedIndex(globalIndex)}
+                    className={[
+                      "w-full rounded-[var(--radius-lg)] border p-[var(--space-3)] text-left transition-colors duration-100 ease-out",
+                      isSelected
+                        ? "border-[var(--accent-border)] bg-[var(--accent-soft)]"
+                        : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--border-strong)] hover:bg-[var(--surface)]",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start justify-between gap-[var(--space-3)]">
+                      <div className="flex min-w-0 flex-col gap-[2px]">
+                        <span className="truncate text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                          {command.label}
+                        </span>
+                        <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+                          {command.id.replace(/-/g, " ")}
+                        </span>
+                      </div>
+
+                      {command.shortcut ? (
+                        <Badge variant="default" className="amux-code shrink-0 px-[var(--space-2)] py-[2px]">
+                          {command.shortcut}
+                        </Badge>
+                      ) : null}
                     </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
-                        {grouped[category].map((command) => {
-                            const globalIndex = flatFiltered.indexOf(command);
-                            const isSelected = globalIndex === selectedIndex;
-
-                            return (
-                                <div
-                                    key={command.id}
-                                    onClick={() => onExecute(command)}
-                                    onMouseEnter={() => setSelectedIndex(globalIndex)}
-                                    style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        alignItems: "center",
-                                        gap: "var(--space-3)",
-                                        padding: "var(--space-2) var(--space-3)",
-                                        borderRadius: "var(--radius-md)",
-                                        cursor: "pointer",
-                                        background: isSelected ? "var(--accent-soft)" : "transparent",
-                                        border: "1px solid",
-                                        borderColor: isSelected ? "var(--accent-soft)" : "transparent",
-                                        transition: "all var(--transition-fast)",
-                                    }}
-                                >
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                        <span style={{ fontSize: "var(--text-sm)", color: "var(--text-primary)" }}>{command.label}</span>
-                                        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>{command.id.replace(/-/g, " ")}</span>
-                                    </div>
-
-                                    {command.shortcut ? (
-                                        <kbd
-                                            style={{
-                                                background: "var(--bg-tertiary)",
-                                                borderRadius: "var(--radius-sm)",
-                                                border: "1px solid var(--glass-border)",
-                                                padding: "var(--space-1) var(--space-2)",
-                                                color: "var(--text-muted)",
-                                                fontSize: "var(--text-xs)",
-                                                fontFamily: "inherit",
-                                                whiteSpace: "nowrap",
-                                            }}
-                                        >
-                                            {command.shortcut}
-                                        </kbd>
-                                    ) : null}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
+  );
 }

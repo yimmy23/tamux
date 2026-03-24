@@ -1,160 +1,119 @@
 import type { TerminalNotification } from "../../lib/types";
+import { Badge, Button, cn, panelSurfaceClassName } from "../ui";
 import { formatTime } from "./shared";
 
 export function NotificationList({
-    notifications,
-    markRead,
-    onSelectNotification,
-    onApproveNotification,
-    onDenyNotification,
+  notifications,
+  markRead,
+  onSelectNotification,
+  onApproveNotification,
+  onDenyNotification,
 }: {
-    notifications: TerminalNotification[];
-    markRead: (id: string) => void;
-    onSelectNotification?: (notification: TerminalNotification) => void;
-    onApproveNotification?: (notification: TerminalNotification) => void;
-    onDenyNotification?: (notification: TerminalNotification) => void;
+  notifications: TerminalNotification[];
+  markRead: (id: string) => void;
+  onSelectNotification?: (notification: TerminalNotification) => void;
+  onApproveNotification?: (notification: TerminalNotification) => void;
+  onDenyNotification?: (notification: TerminalNotification) => void;
 }) {
-    return (
-        <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
-            {notifications.length === 0 ? (
-                <div
-                    style={{
-                        padding: 32,
-                        textAlign: "center",
-                        color: "var(--text-secondary)",
-                        fontSize: 12,
-                    }}
-                >
-                    No notifications
-                </div>
-            ) : (
-                notifications.map((notification) => (
-                    <div
-                        key={notification.id}
-                        onClick={() => {
-                            markRead(notification.id);
-                            onSelectNotification?.(notification);
-                        }}
-                        style={{
-                            padding: "12px 16px",
-                            cursor: "pointer",
-                            borderBottom: "1px solid rgba(255,255,255,0.03)",
-                            opacity: notification.isRead ? 0.5 : 1,
-                            margin: "0 10px 8px",
-                            borderRadius: 0,
-                            border: notification.source === "approval"
-                                ? "1px solid var(--approval-border)"
-                                : "1px solid rgba(255,255,255,0.05)",
-                            background: notification.source === "approval"
-                                ? "var(--approval-soft)"
-                                : "rgba(255,255,255,0.02)",
-                        }}
-                        onMouseEnter={(event) => {
-                            event.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                        }}
-                        onMouseLeave={(event) => {
-                            event.currentTarget.style.background = "rgba(255,255,255,0.02)";
-                        }}
-                    >
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                            {!notification.isRead ? (
-                                <div
-                                    style={{
-                                        width: 6,
-                                        height: 6,
-                                        borderRadius: "50%",
-                                        background: "var(--accent)",
-                                        flexShrink: 0,
-                                    }}
-                                />
-                            ) : null}
-                            <span style={{ fontSize: 12, fontWeight: notification.isRead ? 400 : 600 }}>
-                                {notification.title}
-                            </span>
-                            <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-secondary)" }}>
-                                {formatTime(notification.timestamp)}
-                            </span>
-                        </div>
-                        {notification.body ? (
-                            <div
-                                style={{
-                                    fontSize: 11,
-                                    color: "var(--text-secondary)",
-                                    marginLeft: notification.isRead ? 0 : 12,
-                                    whiteSpace: "pre-wrap",
-                                    wordBreak: "break-word",
-                                }}
-                            >
-                                {notification.body}
-                            </div>
-                        ) : null}
-                        {notification.progress !== null ? (
-                            <div
-                                style={{
-                                    marginTop: 4,
-                                    marginLeft: notification.isRead ? 0 : 12,
-                                    height: 3,
-                                    borderRadius: 0,
-                                    background: "var(--bg-surface)",
-                                    overflow: "hidden",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: `${notification.progress}%`,
-                                        height: "100%",
-                                        background: "var(--accent)",
-                                        borderRadius: 0,
-                                        transition: "width 0.3s ease",
-                                    }}
-                                />
-                            </div>
-                        ) : null}
-                        {notification.source === "approval" ? (
-                            <div style={{ marginTop: 10, display: "flex", gap: 8, marginLeft: notification.isRead ? 0 : 12 }}>
-                                <button
-                                    type="button"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        markRead(notification.id);
-                                        onApproveNotification?.(notification);
-                                    }}
-                                    style={{
-                                        border: "1px solid rgba(74, 222, 128, 0.36)",
-                                        background: "rgba(74, 222, 128, 0.16)",
-                                        color: "var(--success)",
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        padding: "5px 10px",
-                                        cursor: "pointer",
-                                    }}
-                                >
-                                    Allow (y)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        markRead(notification.id);
-                                        onDenyNotification?.(notification);
-                                    }}
-                                    style={{
-                                        border: "1px solid rgba(248, 113, 113, 0.36)",
-                                        background: "rgba(248, 113, 113, 0.14)",
-                                        color: "var(--danger)",
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        padding: "5px 10px",
-                                        cursor: "pointer",
-                                    }}
-                                >
-                                    Deny (n)
-                                </button>
-                            </div>
-                        ) : null}
-                    </div>
-                ))
-            )}
+  return (
+    <div className="flex-1 overflow-auto bg-[var(--panel)]/25 px-[var(--space-3)] py-[var(--space-3)]">
+      {notifications.length === 0 ? (
+        <div className="flex min-h-[16rem] items-center justify-center px-[var(--space-6)] text-center text-[var(--text-sm)] text-[var(--text-secondary)]">
+          No notifications
         </div>
-    );
+      ) : (
+        <div className="grid gap-[var(--space-3)]">
+          {notifications.map((notification) => {
+            const isApproval = notification.source === "approval";
+            return (
+              <div
+                key={notification.id}
+                onClick={() => {
+                  markRead(notification.id);
+                  onSelectNotification?.(notification);
+                }}
+                className={cn(
+                  panelSurfaceClassName,
+                  "cursor-pointer rounded-[var(--radius-lg)] px-[var(--space-4)] py-[var(--space-3)] shadow-none transition-colors hover:bg-[var(--muted)]/70",
+                  notification.isRead ? "opacity-70" : "",
+                  isApproval
+                    ? "border-[var(--approval-border)] bg-[var(--approval-soft)]/60"
+                    : "bg-[var(--card)]/80"
+                )}
+              >
+                <div className="flex items-start gap-[var(--space-2)]">
+                  {!notification.isRead ? (
+                    <span className="mt-[0.35rem] h-[0.45rem] w-[0.45rem] rounded-full bg-[var(--accent)]" />
+                  ) : null}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+                      <span
+                        className={cn(
+                          "text-[var(--text-sm)] text-[var(--text-primary)]",
+                          notification.isRead ? "font-medium" : "font-semibold"
+                        )}
+                      >
+                        {notification.title}
+                      </span>
+                      <Badge variant={isApproval ? "approval" : notification.isRead ? "default" : "accent"}>
+                        {isApproval ? "approval" : notification.isRead ? "read" : "new"}
+                      </Badge>
+                      <span className="ml-auto text-[var(--text-xs)] text-[var(--text-muted)]">
+                        {formatTime(notification.timestamp)}
+                      </span>
+                    </div>
+
+                    {notification.body ? (
+                      <div className="mt-[var(--space-2)] whitespace-pre-wrap break-words text-[var(--text-xs)] leading-6 text-[var(--text-secondary)]">
+                        {notification.body}
+                      </div>
+                    ) : null}
+
+                    {notification.progress !== null ? (
+                      <div className="mt-[var(--space-3)] overflow-hidden rounded-[var(--radius-full)] border border-[var(--border-subtle)] bg-[var(--muted)]">
+                        <div
+                          className="h-[0.35rem] bg-[var(--accent)] transition-[width] duration-300 ease-out"
+                          style={{ width: `${notification.progress}%` }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {isApproval ? (
+                      <div className="mt-[var(--space-3)] flex flex-wrap gap-[var(--space-2)]">
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            markRead(notification.id);
+                            onApproveNotification?.(notification);
+                          }}
+                        >
+                          Allow (y)
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            markRead(notification.id);
+                            onDenyNotification?.(notification);
+                          }}
+                        >
+                          Deny (n)
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }

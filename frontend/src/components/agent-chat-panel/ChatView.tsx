@@ -198,10 +198,22 @@ export function ChatView({
                 </div>
 
                 {filteredDisplayItems.length === 0 && (
-                    <div className="amux-empty-state">
-                        <div className="amux-empty-state__icon">✨</div>
-                        <div className="amux-empty-state__title">{messages.length === 0 ? "Start a conversation" : "No chat items match filters"}</div>
-                        <div className="amux-empty-state__description">{messages.length === 0 ? "Send a message to begin collaborating with the agent" : "Try a different search term."}</div>
+                    <div
+                        style={{
+                            display: "grid",
+                            gap: "var(--space-2)",
+                            placeItems: "center",
+                            padding: "var(--space-6)",
+                            borderRadius: "var(--radius-xl)",
+                            border: "1px dashed var(--border)",
+                            background: "var(--bg-secondary)",
+                            color: "var(--text-muted)",
+                            textAlign: "center",
+                        }}
+                    >
+                        <div style={{ fontSize: 24, lineHeight: 1 }}>✨</div>
+                        <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-primary)" }}>{messages.length === 0 ? "Start a conversation" : "No chat items match filters"}</div>
+                        <div style={{ fontSize: "var(--text-sm)" }}>{messages.length === 0 ? "Send a message to begin collaborating with the agent" : "Try a different search term."}</div>
                     </div>
                 )}
 
@@ -350,15 +362,15 @@ export function ChatView({
                         gridTemplateColumns: "auto 1fr",
                         alignItems: "start",
                         gap: "var(--space-2)",
-                        border: "1px solid rgba(94, 231, 223, 0.3)",
-                        background: "var(--bg-tertiary)",
+                        border: "1px solid var(--accent-border)",
+                        background: "var(--bg-secondary)",
                         borderRadius: "var(--radius-md)",
                         padding: "8px 10px",
                     }}
                 >
                     <span
                         style={{
-                            color: "#5ee7df",
+                            color: "var(--accent)",
                             fontFamily: "var(--font-mono)",
                             fontSize: "var(--text-sm)",
                             lineHeight: "24px",
@@ -450,9 +462,9 @@ export function ChatView({
                                 type="button"
                                 onClick={onStopStreaming}
                                 style={{
-                                    border: "1px solid rgba(255, 118, 117, 0.45)",
-                                    background: "rgba(255, 118, 117, 0.15)",
-                                    color: "#ff7675",
+                                    border: "1px solid var(--danger-border)",
+                                    background: "var(--danger-soft)",
+                                    color: "var(--danger)",
                                     borderRadius: "var(--radius-sm)",
                                     padding: "6px 10px",
                                     fontSize: 12,
@@ -469,7 +481,7 @@ export function ChatView({
                             disabled={!agentSettings.enabled || !input.trim()}
                             style={{
                                 border: "1px solid var(--accent)",
-                                background: "rgba(94, 231, 223, 0.16)",
+                                background: "var(--accent-soft)",
                                 color: "var(--accent)",
                                 borderRadius: "var(--radius-sm)",
                                 padding: "6px 12px",
@@ -510,7 +522,7 @@ const markdownComponents: Components = {
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: "#5ee7df", textDecoration: "underline", textUnderlineOffset: 2 }}
+            style={{ color: "var(--accent)", textDecoration: "underline", textUnderlineOffset: 2 }}
         >
             {children}
         </a>
@@ -520,12 +532,12 @@ const markdownComponents: Components = {
             style={{
                 margin: "6px 0",
                 padding: "10px 12px",
-                background: "rgba(0, 0, 0, 0.35)",
+                background: "var(--bg-secondary)",
                 borderRadius: "var(--radius-md)",
                 overflowX: "auto",
                 fontSize: "var(--text-xs)",
                 lineHeight: 1.5,
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "1px solid var(--border)",
             }}
         >
             {children}
@@ -544,7 +556,7 @@ const markdownComponents: Components = {
             <code
                 style={{
                     fontFamily: "var(--font-mono)",
-                    background: "rgba(255, 255, 255, 0.08)",
+                    background: "var(--bg-tertiary)",
                     padding: "1px 5px",
                     borderRadius: 3,
                     fontSize: "0.9em",
@@ -586,7 +598,7 @@ const markdownComponents: Components = {
             style={{
                 margin: "6px 0",
                 paddingLeft: 12,
-                borderLeft: "3px solid rgba(94, 231, 223, 0.4)",
+                borderLeft: "3px solid var(--accent-border)",
                 color: "var(--text-secondary)",
                 fontStyle: "italic",
             }}
@@ -612,7 +624,7 @@ const markdownComponents: Components = {
             style={{
                 textAlign: "left",
                 padding: "4px 8px",
-                borderBottom: "1px solid rgba(255,255,255,0.15)",
+                borderBottom: "1px solid var(--border)",
                 fontWeight: 600,
             }}
         >
@@ -623,7 +635,7 @@ const markdownComponents: Components = {
         <td
             style={{
                 padding: "4px 8px",
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                borderBottom: "1px solid var(--border)",
             }}
         >
             {children}
@@ -633,7 +645,7 @@ const markdownComponents: Components = {
         <hr
             style={{
                 border: "none",
-                borderTop: "1px solid rgba(255,255,255,0.1)",
+                borderTop: "1px solid var(--border)",
                 margin: "8px 0",
             }}
         />
@@ -665,7 +677,7 @@ function ToolEventRow({
     const shortId = (group.toolCallId || group.key).slice(-8);
 
     return (
-        <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)" }}>
+        <div style={{ border: "1px solid var(--border)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-md)", background: "var(--bg-secondary)" }}>
             <button
                 type="button"
                 onClick={() => setCollapsed((prev) => !prev)}
@@ -683,13 +695,13 @@ function ToolEventRow({
                     gap: 8,
                 }}
             >
-                <span style={{ color: "#DE600A" }}>{collapsed ? "▸" : "▾"}</span>
+                <span style={{ color: "var(--warning)" }}>{collapsed ? "▸" : "▾"}</span>
                 <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "space-between", flex: 1 }}>
                     {/* <span style={{ color: "#DE600A" }}>{"tool"}</span> */}
                     <span>{group.toolName}</span>
                     <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8 }}>
-                        <span style={{ color: "#BA4400", fontSize: 11 }}>#{shortId}</span>
-                        <span style={{ color: "#BA4400", fontSize: 11 }}>{statusLabel}</span>
+                        <span style={{ color: "var(--warning)", fontSize: 11 }}>#{shortId}</span>
+                        <span style={{ color: "var(--warning)", fontSize: 11 }}>{statusLabel}</span>
                     </div>
                 </div>
             </button>
@@ -699,7 +711,7 @@ function ToolEventRow({
                     {group.toolArguments && (
                         <div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>args</div>
-                            <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
+                            <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", border: "1px solid var(--border)", background: "var(--bg-tertiary)", padding: 8, borderRadius: "var(--radius-sm)" }}>
                                 {(() => {
                                     try {
                                         return JSON.stringify(JSON.parse(group.toolArguments), null, 2);
@@ -714,7 +726,7 @@ function ToolEventRow({
                     {group.resultContent && (
                         <div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>result</div>
-                            <div style={{ fontSize: 12, lineHeight: 1.45, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>{group.resultContent}</div>
+                            <div style={{ fontSize: 12, lineHeight: 1.45, border: "1px solid var(--border)", background: "var(--bg-tertiary)", padding: 8, borderRadius: "var(--radius-sm)" }}>{group.resultContent}</div>
                         </div>
                     )}
                 </div>
@@ -781,12 +793,12 @@ function MessageBubble({
                         : isSystem || isTool
                             ? "var(--bg-secondary)"
                             : "transparent",
-                    color: isUser ? "#b2fff8" : "var(--text-primary)",
+                    color: isUser ? "var(--accent)" : "var(--text-primary)",
                     border: "1px solid",
                     borderColor: isUser
-                        ? "rgba(94, 231, 223, 0.28)"
+                        ? "var(--accent-border)"
                         : isSystem || isTool
-                            ? "rgba(120, 168, 209, 0.22)"
+                            ? "var(--border)"
                             : "transparent",
                     wordBreak: "break-word",
                     userSelect: "auto",
@@ -797,7 +809,7 @@ function MessageBubble({
                 onMouseLeave={() => setHovered(false)}
             >
                 {isAssistant && (
-                    <div style={{ color: "#5ee7df", opacity: 0.95, marginBottom: 4, fontSize: 12 }}>{"> assistant"}</div>
+                    <div style={{ color: "var(--accent)", opacity: 0.95, marginBottom: 4, fontSize: 12 }}>{"> assistant"}</div>
                 )}
 
                 {isAssistant && message.reasoning && (
@@ -826,8 +838,8 @@ function MessageBubble({
                             <pre style={{
                                 margin: 0,
                                 padding: "8px",
-                                background: "rgba(255,255,255,0.04)",
-                                border: "1px solid rgba(255,255,255,0.08)",
+                                background: "var(--bg-tertiary)",
+                                border: "1px solid var(--border)",
                                 fontSize: 11,
                                 lineHeight: 1.4,
                                 whiteSpace: "pre-wrap",
@@ -847,8 +859,8 @@ function MessageBubble({
                         {message.content && (
                             <div style={{
                                 padding: "8px",
-                                background: "rgba(2, 10, 18, 0.55)",
-                                border: "1px solid rgba(120, 168, 209, 0.22)",
+                                background: "var(--bg-tertiary)",
+                                border: "1px solid var(--border)",
                                 fontSize: 12,
                                 lineHeight: 1.45,
                                 whiteSpace: "pre-wrap",
@@ -945,7 +957,7 @@ function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
                 transition: "color var(--transition-fast)",
                 whiteSpace: "nowrap",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.background = "var(--bg-tertiary)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
         >
             {label}

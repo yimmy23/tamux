@@ -1007,7 +1007,7 @@ function TodoSnapshotList({ items }: { items: TodoItem[] }) {
                             gap: "var(--space-2)",
                             padding: "6px 8px",
                             borderRadius: "var(--radius-sm)",
-                            background: "rgba(255,255,255,0.03)",
+                            background: "var(--bg-tertiary)",
                         }}
                     >
                         <span

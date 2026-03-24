@@ -1532,8 +1532,20 @@ export function AgentChatPanelHeader() {
                             </button>
                         )}
                         <span
-                            className="amux-agent-indicator"
-                            style={{ background: "var(--mission-soft)", borderColor: "var(--mission-glow)", color: "var(--mission)" }}
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "var(--space-2)",
+                                padding: "var(--space-1) var(--space-3)",
+                                borderRadius: "var(--radius-full)",
+                                border: "1px solid var(--mission-border)",
+                                background: "var(--mission-soft)",
+                                color: "var(--mission)",
+                                fontSize: "var(--text-xs)",
+                                fontWeight: 700,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                            }}
                         >
                             Mission Console
                         </span>

@@ -1,101 +1,85 @@
 import { useEffect, useState } from "react";
 import { formatKeyboardEvent, useKeybindStore } from "../../lib/keybindStore";
-import { Section, addBtnStyle, inputStyle, kbdStyle, rebindBtnStyle } from "./shared";
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input } from "../ui";
 
 export function KeyboardTab() {
-    const bindings = useKeybindStore((s) => s.bindings);
-    const setBinding = useKeybindStore((s) => s.setBinding);
-    const resetBindings = useKeybindStore((s) => s.resetBindings);
-    const [query, setQuery] = useState("");
-    const [recordingAction, setRecordingAction] = useState<string | null>(null);
-    const [warning, setWarning] = useState<string | null>(null);
+  const bindings = useKeybindStore((s) => s.bindings);
+  const setBinding = useKeybindStore((s) => s.setBinding);
+  const resetBindings = useKeybindStore((s) => s.resetBindings);
+  const [query, setQuery] = useState("");
+  const [recordingAction, setRecordingAction] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!recordingAction) return;
+  useEffect(() => {
+    if (!recordingAction) return;
 
-        const onKeyDown = (event: KeyboardEvent) => {
-            event.preventDefault();
-            event.stopPropagation();
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-            if (event.key === "Escape") {
-                setRecordingAction(null);
-                return;
-            }
+      if (event.key === "Escape") {
+        setRecordingAction(null);
+        return;
+      }
 
-            const combo = formatKeyboardEvent(event);
-            if (!combo || combo === "Ctrl" || combo === "Alt" || combo === "Shift") {
-                return;
-            }
+      const combo = formatKeyboardEvent(event);
+      if (!combo || combo === "Ctrl" || combo === "Alt" || combo === "Shift") {
+        return;
+      }
 
-            const conflicting = bindings.find((binding) => binding.combo === combo && binding.action !== recordingAction);
-            if (conflicting) {
-                setWarning(`${combo} is already assigned to ${conflicting.description}`);
-                return;
-            }
+      const conflicting = bindings.find((binding) => binding.combo === combo && binding.action !== recordingAction);
+      if (conflicting) {
+        setWarning(`${combo} is already assigned to ${conflicting.description}`);
+        return;
+      }
 
-            setBinding(recordingAction as never, combo);
-            setWarning(null);
-            setRecordingAction(null);
-        };
+      setBinding(recordingAction as never, combo);
+      setWarning(null);
+      setRecordingAction(null);
+    };
 
-        window.addEventListener("keydown", onKeyDown, true);
-        return () => window.removeEventListener("keydown", onKeyDown, true);
-    }, [bindings, recordingAction, setBinding]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [bindings, recordingAction, setBinding]);
 
-    const filteredShortcuts = query.trim()
-        ? bindings.filter((binding) => `${binding.combo} ${binding.description}`.toLowerCase().includes(query.toLowerCase()))
-        : bindings;
+  const filteredShortcuts = query.trim()
+    ? bindings.filter((binding) => `${binding.combo} ${binding.description}`.toLowerCase().includes(query.toLowerCase()))
+    : bindings;
 
-    return (
-        <Section title="Keyboard Shortcuts">
-            <div style={{ marginBottom: 10 }}>
-                <input
-                    type="text"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search shortcuts..."
-                    style={{ ...inputStyle, width: "100%" }}
-                />
-                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                        {recordingAction ? "Press a new shortcut or Esc to cancel" : "Click Rebind to capture a shortcut"}
-                    </span>
-                    <button onClick={resetBindings} style={addBtnStyle}>Reset bindings</button>
-                </div>
-                {warning ? (
-                    <div style={{ marginTop: 8, fontSize: 11, color: "var(--warning)" }}>
-                        {warning}
-                    </div>
-                ) : null}
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+          <CardTitle>Keyboard Shortcuts</CardTitle>
+          <Badge variant="timeline">{filteredShortcuts.length} bindings</Badge>
+        </div>
+        <CardDescription>Tab switching, rebinding, and reset behavior stay intact while the list moves onto redesign cards.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-[var(--space-4)]">
+        <div className="grid gap-[var(--space-3)] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--muted)]/50 p-[var(--space-3)]">
+          <Input type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shortcuts..." />
+          <div className="flex flex-wrap items-center justify-between gap-[var(--space-2)]">
+            <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">{recordingAction ? "Press a new shortcut or Esc to cancel" : "Click Rebind to capture a shortcut"}</span>
+            <Button variant="outline" size="sm" onClick={resetBindings}>Reset bindings</Button>
+          </div>
+          {warning ? <div className="text-[var(--text-sm)] text-[var(--warning)]">{warning}</div> : null}
+        </div>
+
+        <div className="grid gap-[var(--space-2)]">
+          {filteredShortcuts.map((binding) => (
+            <div key={binding.action} className="flex flex-wrap items-center justify-between gap-[var(--space-3)] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--card)] px-[var(--space-3)] py-[var(--space-3)]">
+              <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">{binding.description}</span>
+              <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+                <Badge variant="default" className="font-mono">{binding.combo}</Badge>
+                <Button type="button" variant={recordingAction === binding.action ? "primary" : "outline"} size="sm" onClick={() => setRecordingAction(binding.action)}>
+                  {recordingAction === binding.action ? "Recording..." : "Rebind"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setBinding(binding.action, "")}>Clear</Button>
+              </div>
             </div>
-            {filteredShortcuts.map((binding) => (
-                <div
-                    key={binding.action}
-                    style={{
-                        display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0",
-                        fontSize: 12, borderBottom: "1px solid rgba(255,255,255,0.03)",
-                    }}
-                >
-                    <span style={{ color: "var(--text-secondary)" }}>{binding.description}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <kbd style={kbdStyle}>{binding.combo}</kbd>
-                        <button
-                            type="button"
-                            onClick={() => setRecordingAction(binding.action)}
-                            style={rebindBtnStyle}
-                        >
-                            {recordingAction === binding.action ? "Recording..." : "Rebind"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setBinding(binding.action, "")}
-                            style={rebindBtnStyle}
-                        >
-                            Clear
-                        </button>
-                    </div>
-                </div>
-            ))}
-        </Section>
-    );
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

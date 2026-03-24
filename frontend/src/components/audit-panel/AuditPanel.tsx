@@ -3,6 +3,7 @@ import { useAuditStore } from "../../lib/auditStore";
 import { AuditHeader } from "./AuditHeader";
 import { AuditList } from "./AuditList";
 import { EscalationBanner } from "./EscalationBanner";
+import { cn, overlayClassName, panelSurfaceClassName } from "../ui/shared";
 
 /**
  * Main slide-over audit panel, 440px wide from right.
@@ -45,27 +46,22 @@ export function AuditPanel() {
   return (
     <div
       onClick={toggle}
+      className={overlayClassName}
       style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(3,8,14,0.56)",
         zIndex: 900,
         display: "flex",
         justifyContent: "flex-end",
-        backdropFilter: "none",
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className={cn(panelSurfaceClassName, "rounded-none border-y-0 border-r-0 shadow-none")}
         style={{
           width: 440,
           maxWidth: "90vw",
           height: "100%",
-          background: "var(--bg-primary)",
-          borderLeft: "1px solid var(--glass-border)",
           display: "flex",
           flexDirection: "column",
-          boxShadow: "none",
         }}
       >
         {currentEscalation && (

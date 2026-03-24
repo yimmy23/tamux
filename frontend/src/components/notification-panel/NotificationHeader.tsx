@@ -1,52 +1,91 @@
-import { actionBtnStyle } from "./shared";
+import { Badge, Button, cn, panelSurfaceClassName } from "../ui";
 
 export function NotificationHeader({
-    unreadCount,
-    totalCount,
-    markAllRead,
-    clearAll,
-    close,
+  unreadCount,
+  totalCount,
+  markAllRead,
+  clearAll,
+  close,
 }: {
-    unreadCount: number;
-    totalCount: number;
-    markAllRead: () => void;
-    clearAll: () => void;
-    close: () => void;
+  unreadCount: number;
+  totalCount: number;
+  markAllRead: () => void;
+  clearAll: () => void;
+  close: () => void;
 }) {
-    return (
-        <div
-            style={{
-                display: "grid",
-                gap: 12,
-                padding: "18px 18px 14px",
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
-            }}
-        >
-            <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ display: "grid", gap: 6 }}>
-                    <span className="amux-panel-title" style={{ color: "var(--mission)" }}>Mission Feed</span>
-                    <span style={{ fontSize: 20, fontWeight: 800 }}>Notifications</span>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={markAllRead} style={actionBtnStyle} title="Mark all read">Read</button>
-                    <button onClick={clearAll} style={actionBtnStyle} title="Clear all">Purge</button>
-                    <button onClick={close} style={actionBtnStyle} title="Close">✕</button>
-                </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-                <MetricCard label="Unread" value={String(unreadCount)} />
-                <MetricCard label="Total" value={String(totalCount)} />
-                <MetricCard label="State" value={unreadCount > 0 ? "attention" : "quiet"} />
-            </div>
+  return (
+    <div className="grid gap-[var(--space-4)] border-b border-[var(--border-subtle)] bg-[var(--card)] px-[var(--space-4)] py-[var(--space-5)]">
+      <div className="flex items-start justify-between gap-[var(--space-3)]">
+        <div className="grid gap-[var(--space-2)]">
+          <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+            <Badge variant="mission">Mission Feed</Badge>
+            <Badge variant={unreadCount > 0 ? "warning" : "success"}>
+              {unreadCount > 0 ? "Unread activity" : "All caught up"}
+            </Badge>
+          </div>
+          <div className="grid gap-[var(--space-1)]">
+            <span className="text-[1.25rem] font-semibold leading-none text-[var(--text-primary)]">
+              Notifications
+            </span>
+            <span className="text-[var(--text-sm)] leading-6 text-[var(--text-secondary)]">
+              Review alerts, approval prompts, and pane activity without leaving the current
+              workspace context.
+            </span>
+          </div>
         </div>
-    );
+
+        <div className="flex flex-wrap gap-[var(--space-2)]">
+          <Button onClick={markAllRead} variant="secondary" size="sm" title="Mark all read">
+            Read
+          </Button>
+          <Button onClick={clearAll} variant="destructive" size="sm" title="Clear all">
+            Purge
+          </Button>
+          <Button onClick={close} variant="ghost" size="sm" title="Close">
+            Close
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-[var(--space-3)] md:grid-cols-3">
+        <MetricCard label="Unread" value={String(unreadCount)} tone={unreadCount > 0 ? "warning" : "success"} />
+        <MetricCard label="Total" value={String(totalCount)} tone="default" />
+        <MetricCard label="State" value={unreadCount > 0 ? "attention" : "quiet"} tone="mission" />
+      </div>
+    </div>
+  );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-    return (
-        <div style={{ borderRadius: 0, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.06)", background: "rgba(18, 33, 47, 0.8)", display: "grid", gap: 4 }}>
-            <span className="amux-panel-title">{label}</span>
-            <span style={{ fontSize: 15, fontWeight: 700 }}>{value}</span>
-        </div>
-    );
+function MetricCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "default" | "warning" | "success" | "mission";
+}) {
+  const accentClasses =
+    tone === "warning"
+      ? "border-[var(--warning-border)]/80"
+      : tone === "success"
+        ? "border-[var(--success-border)]/80"
+        : tone === "mission"
+          ? "border-[var(--mission-border)]/80"
+          : "";
+
+  return (
+    <div
+      className={cn(
+        panelSurfaceClassName,
+        "grid gap-[var(--space-2)] rounded-[var(--radius-lg)] bg-[var(--panel)]/60 px-[var(--space-4)] py-[var(--space-3)] shadow-none",
+        accentClasses
+      )}
+    >
+      <span className="text-[var(--text-xs)] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+        {label}
+      </span>
+      <span className="text-[var(--text-base)] font-semibold text-[var(--text-primary)]">{value}</span>
+    </div>
+  );
 }

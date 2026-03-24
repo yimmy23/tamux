@@ -1,14 +1,18 @@
-export function CommandPaletteHeader({ commandCount }: { commandCount: number }) {
-    return (
-        <div style={{ padding: "var(--space-4)", borderBottom: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-2)" }}>
-                <span className="amux-agent-indicator" style={{ background: "var(--mission-soft)", borderColor: "var(--mission-glow)", color: "var(--mission)" }}>
-                    Action Launcher
-                </span>
-                <span className="amux-chip">{commandCount} commands</span>
-            </div>
+import { Badge } from "../ui";
 
-            <div style={{ fontSize: "var(--text-xl)", fontWeight: 700 }}>Mission Command Palette</div>
+export function CommandPaletteHeader({ commandCount }: { commandCount: number }) {
+  return (
+    <div className="flex flex-col gap-[var(--space-3)] p-[var(--space-4)] pr-[calc(var(--space-4)+var(--space-6))]">
+      <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+        <Badge variant="mission">Action Launcher</Badge>
+        <Badge variant="default">{commandCount} commands</Badge>
+      </div>
+      <div className="flex flex-col gap-[var(--space-1)]">
+        <div className="text-[var(--text-xl)] font-bold text-[var(--text-primary)]">Mission Command Palette</div>
+        <div className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+          Search layouts, tools, views, and workspace actions.
         </div>
-    );
+      </div>
+    </div>
+  );
 }

@@ -1,79 +1,81 @@
 import type { RefObject } from "react";
-import { activeToggleBtn, navBtn, toggleBtn, type SearchActions } from "./shared";
+import { Button, Input } from "../ui";
+import type { SearchActions } from "./shared";
 
 export function SearchOverlayControls({
-    inputRef,
-    actions,
+  inputRef,
+  actions,
 }: {
-    inputRef: RefObject<HTMLInputElement | null>;
-    actions: SearchActions;
+  inputRef: RefObject<HTMLInputElement | null>;
+  actions: SearchActions;
 }) {
-    const {
-        query,
-        searchOpts,
-        doSearch,
-        findNext,
-        findPrev,
-        caseSensitive,
-        useRegex,
-        setCaseSensitive,
-        setUseRegex,
-        clearAndClose,
-    } = actions;
+  const {
+    query,
+    searchOpts,
+    doSearch,
+    findNext,
+    findPrev,
+    caseSensitive,
+    useRegex,
+    setCaseSensitive,
+    setUseRegex,
+    clearAndClose,
+  } = actions;
 
-    return (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={(event) => doSearch(event.target.value, searchOpts)}
-                onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                        clearAndClose();
-                    } else if (event.key === "Enter") {
-                        if (event.shiftKey) findPrev();
-                        else findNext();
-                    }
-                }}
-                placeholder="Search in buffer..."
-                style={{
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 4,
-                    color: "var(--text-primary)",
-                    fontSize: 12,
-                    padding: "3px 8px",
-                    width: 220,
-                    fontFamily: "inherit",
-                    outline: "none",
-                    flex: 1,
-                }}
-            />
+  return (
+    <div className="flex flex-col gap-[var(--space-2)]">
+      <Input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(event) => doSearch(event.target.value, searchOpts)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            clearAndClose();
+          } else if (event.key === "Enter") {
+            if (event.shiftKey) findPrev();
+            else findNext();
+          }
+        }}
+        placeholder="Search in buffer..."
+        className="h-9"
+      />
 
-            <button
-                onClick={() => {
-                    setCaseSensitive((value) => !value);
-                    if (query) doSearch(query, { regex: useRegex, caseSensitive: !caseSensitive });
-                }}
-                style={{ ...toggleBtn, ...(caseSensitive ? activeToggleBtn : null) }}
-                title="Match Case"
-            >
-                Aa
-            </button>
-            <button
-                onClick={() => {
-                    setUseRegex((value) => !value);
-                    if (query) doSearch(query, { regex: !useRegex, caseSensitive });
-                }}
-                style={{ ...toggleBtn, ...(useRegex ? activeToggleBtn : null) }}
-                title="Use Regular Expression"
-            >
-                .*
-            </button>
-            <button onClick={findPrev} style={navBtn} title="Previous (Shift+Enter)">↑</button>
-            <button onClick={findNext} style={navBtn} title="Next (Enter)">↓</button>
-            <button onClick={clearAndClose} style={navBtn} title="Close (Esc)">✕</button>
-        </div>
-    );
+      <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+        <Button
+          variant={caseSensitive ? "primary" : "outline"}
+          size="sm"
+          onClick={() => {
+            setCaseSensitive((value) => !value);
+            if (query) doSearch(query, { regex: useRegex, caseSensitive: !caseSensitive });
+          }}
+          title="Match Case"
+          className="font-mono"
+        >
+          Aa
+        </Button>
+        <Button
+          variant={useRegex ? "primary" : "outline"}
+          size="sm"
+          onClick={() => {
+            setUseRegex((value) => !value);
+            if (query) doSearch(query, { regex: !useRegex, caseSensitive });
+          }}
+          title="Use Regular Expression"
+          className="font-mono"
+        >
+          .*
+        </Button>
+        <Button variant="outline" size="sm" onClick={findPrev} title="Previous (Shift+Enter)">
+          ↑
+        </Button>
+        <Button variant="outline" size="sm" onClick={findNext} title="Next (Enter)">
+          ↓
+        </Button>
+        <Button variant="ghost" size="sm" onClick={clearAndClose} title="Close (Esc)">
+          ✕
+        </Button>
+      </div>
+    </div>
+  );
 }

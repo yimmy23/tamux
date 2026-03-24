@@ -1,4 +1,5 @@
 import { useAgentStore } from "../lib/agentStore";
+import { cn, panelSurfaceClassName } from "./ui/shared";
 
 export function ConciergeToast() {
     const welcome = useAgentStore((s) => s.conciergeWelcome);
@@ -10,18 +11,20 @@ export function ConciergeToast() {
     if (!welcome || !config.enabled) return null;
 
     return (
-        <div style={{
-            position: "fixed",
-            bottom: 20,
-            right: 20,
-            zIndex: 2147483647,
-            maxWidth: 400,
-            background: "rgba(18, 33, 47, 0.95)",
-            border: "1px solid var(--accent)",
-            borderRadius: 8,
-            padding: 16,
-            boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-        }}>
+        <div
+            className={cn(panelSurfaceClassName, "backdrop-blur-[var(--panel-blur)]")}
+            style={{
+                position: "fixed",
+                bottom: 20,
+                right: 20,
+                zIndex: 2147483647,
+                maxWidth: 400,
+                padding: 16,
+                borderColor: "var(--accent-border)",
+                background: "color-mix(in srgb, var(--card) 92%, var(--bg-overlay))",
+                boxShadow: "var(--shadow-lg)",
+            }}
+        >
             <div style={{ fontSize: 10, color: "var(--accent)", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Concierge
             </div>
@@ -46,14 +49,15 @@ export function ConciergeToast() {
                             }
                         }}
                         style={{
-                            background: "rgba(97, 197, 255, 0.1)",
-                            border: "1px solid rgba(97, 197, 255, 0.3)",
+                            background: "var(--accent-soft)",
+                            border: "1px solid var(--accent-border)",
                             color: "var(--accent)",
-                            borderRadius: 4,
+                            borderRadius: "var(--radius-sm)",
                             padding: "4px 10px",
                             fontSize: 11,
                             cursor: "pointer",
                             fontFamily: "inherit",
+                            transition: "background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast)",
                         }}
                     >
                         {action.label}

@@ -7,7 +7,7 @@ import { Overlay } from "./snippet-picker/Overlay";
 import { SnippetForm } from "./snippet-picker/SnippetForm";
 import { SnippetListView } from "./snippet-picker/SnippetListView";
 import { SnippetResolverDialog } from "./snippet-picker/SnippetResolverDialog";
-import { modalStyle, type SnippetPickerProps } from "./snippet-picker/shared";
+import type { SnippetPickerProps } from "./snippet-picker/shared";
 
 /**
  * Snippet Picker modal — Ctrl+S.
@@ -47,15 +47,15 @@ export function SnippetPicker({ style, className }: SnippetPickerProps = {}) {
   }, [open]);
 
   if (!open) return null;
-  const resolvedModalStyle = style ? { ...modalStyle, ...style } : modalStyle;
+  const resolvedModalStyle = style;
 
   const ownerScoped = snippets.filter((snippet) => ownerFilter === "both" || snippet.owner === ownerFilter);
   const filtered = query
     ? search(query).filter((snippet) => ownerFilter === "both" || snippet.owner === ownerFilter)
     : [...ownerScoped].sort((a, b) => {
-      if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
-      return b.useCount - a.useCount;
-    });
+        if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+        return b.useCount - a.useCount;
+      });
 
   const categories = getCategories();
 
@@ -76,12 +76,11 @@ export function SnippetPicker({ style, className }: SnippetPickerProps = {}) {
     if (controller) {
       await controller.sendText(resolved, { trackHistory: false });
     } else {
-      navigator.clipboard.writeText(resolved).catch(() => { });
+      navigator.clipboard.writeText(resolved).catch(() => {});
     }
     toggle();
   }
 
-  // Template resolution dialog
   if (resolvingSnippet) {
     return (
       <Overlay onClose={toggle}>
@@ -98,7 +97,6 @@ export function SnippetPicker({ style, className }: SnippetPickerProps = {}) {
     );
   }
 
-  // Edit / Create form
   if (editingSnippet || creating) {
     return (
       <Overlay onClose={toggle}>

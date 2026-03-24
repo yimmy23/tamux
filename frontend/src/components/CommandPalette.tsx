@@ -3,6 +3,7 @@ import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useSettingsStore } from "../lib/settingsStore";
 import { useKeybindStore } from "../lib/keybindStore";
 import { BUILTIN_THEMES } from "../lib/themes";
+import { Card, Input, Separator, Sheet, SheetContent } from "./ui";
 import { CommandPaletteHeader } from "./command-palette/CommandPaletteHeader";
 import { CommandPaletteResults } from "./command-palette/CommandPaletteResults";
 import type { Command, CommandPaletteProps } from "./command-palette/shared";
@@ -118,83 +119,68 @@ export function CommandPalette({ style, className }: CommandPaletteProps = {}) {
   };
 
   return (
-    <div
-      onClick={toggle}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "var(--bg-overlay)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: 80,
-        zIndex: 5000,
-        backdropFilter: "none",
-        ...(style ?? {}),
-      }}
-      className={className}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "var(--bg-primary)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-xl)",
-          width: 640,
-          maxWidth: "92vw",
-          maxHeight: "70vh",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
+    <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && toggle()}>
+      <SheetContent
+        side="top"
+        className="border-none bg-transparent p-0 shadow-none"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus();
         }}
       >
-        <CommandPaletteHeader commandCount={filtered.length} />
-
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") toggle();
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setSelectedIndex((current) => Math.min(current + 1, flatFiltered.length - 1));
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setSelectedIndex((current) => Math.max(current - 1, 0));
-            }
-            if (e.key === "Enter" && flatFiltered.length > 0) {
-              const command = flatFiltered[selectedIndex];
-              if (command) {
-                executeAndClose(command);
-              }
-            }
-          }}
-          placeholder="Find commands, layouts, tools, or actions..."
-          style={{
-            width: "100%",
-            padding: "var(--space-4)",
-            background: "transparent",
-            border: "none",
-            borderBottom: "1px solid var(--border)",
-            color: "var(--text-primary)",
-            fontSize: "var(--text-md)",
-            fontFamily: "inherit",
-            outline: "none",
-          }}
-        />
-
-        <CommandPaletteResults
-          filtered={filtered}
-          grouped={grouped}
-          categories={categories}
-          flatFiltered={flatFiltered}
-          selectedIndex={selectedIndex}
-          setSelectedIndex={setSelectedIndex}
-          onExecute={executeAndClose}
-        />
-      </div>
-    </div>
+        <div className="flex justify-center px-[var(--space-4)] pt-20 pb-[var(--space-6)]">
+          <Card
+            style={style}
+            className={[
+              "flex h-[min(70vh,44rem)] w-[min(92vw,40rem)] flex-col overflow-hidden",
+              className ?? "",
+            ].join(" ")}
+          >
+            <CommandPaletteHeader commandCount={filtered.length} />
+            <Separator />
+            <div className="px-[var(--space-4)] py-[var(--space-3)]">
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggle();
+                  }
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSelectedIndex((current) => Math.min(current + 1, flatFiltered.length - 1));
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSelectedIndex((current) => Math.max(current - 1, 0));
+                  }
+                  if (e.key === "Enter" && flatFiltered.length > 0) {
+                    const command = flatFiltered[selectedIndex];
+                    if (command) {
+                      executeAndClose(command);
+                    }
+                  }
+                }}
+                placeholder="Find commands, layouts, tools, or actions..."
+                className="h-11 text-[var(--text-md)]"
+              />
+            </div>
+            <Separator />
+            <CommandPaletteResults
+              filtered={filtered}
+              grouped={grouped}
+              categories={categories}
+              flatFiltered={flatFiltered}
+              selectedIndex={selectedIndex}
+              setSelectedIndex={setSelectedIndex}
+              onExecute={executeAndClose}
+            />
+          </Card>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

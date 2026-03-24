@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { cn, overlayClassName, panelSurfaceClassName } from "./ui";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useCommandLogStore } from "../lib/commandLogStore";
 import { useTranscriptStore } from "../lib/transcriptStore";
@@ -144,33 +145,19 @@ export function SessionVaultPanel({ style, className }: SessionVaultPanelProps =
   return (
     <div
       onClick={toggle}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(3,8,14,0.72)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: "4vh 2vw",
-        zIndex: 940,
-        backdropFilter: "none",
-        ...(style ?? {}),
-      }}
-      className={className}
+      style={style}
+      className={cn(
+        overlayClassName,
+        "fixed inset-0 z-[940] flex items-start justify-center px-[2vw] py-[4vh]",
+        className
+      )}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: 0,
-          width: "min(1500px, 96vw)",
-          maxHeight: "88vh",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-        className="amux-shell-card"
+        className={cn(
+          panelSurfaceClassName,
+          "flex max-h-[88vh] w-[min(1500px,96vw)] flex-col overflow-hidden rounded-[var(--radius-xl)] border-[var(--border-strong)] bg-[var(--card)]"
+        )}
       >
         <SessionVaultHeader
           visibleCount={display.length}

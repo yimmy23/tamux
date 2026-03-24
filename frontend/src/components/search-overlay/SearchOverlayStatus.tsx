@@ -1,20 +1,12 @@
+import { Badge } from "../ui";
 import { hasTerminalController } from "../../lib/terminalRegistry";
 
 export function SearchOverlayStatus({ activePaneId }: { activePaneId: string | null }) {
-    return (
-        <div
-            style={{
-                fontSize: 10,
-                color: "var(--text-muted)",
-                paddingTop: 2,
-                letterSpacing: "0.02em",
-            }}
-        >
-            {!activePaneId
-                ? "No active terminal pane"
-                : !hasTerminalController(activePaneId)
-                    ? "Terminal not initialized"
-                    : `Searching buffer: ${activePaneId}`}
-        </div>
-    );
+  const status = !activePaneId
+    ? { text: "No active terminal pane", variant: "warning" as const }
+    : !hasTerminalController(activePaneId)
+      ? { text: "Terminal not initialized", variant: "warning" as const }
+      : { text: `Searching buffer: ${activePaneId}`, variant: "default" as const };
+
+  return <Badge variant={status.variant} className="w-fit text-[10px] tracking-[0.02em]">{status.text}</Badge>;
 }

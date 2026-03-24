@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
+import { cn, overlayClassName, panelSurfaceClassName } from "./ui/shared";
 
 type AgentApprovalOverlayProps = {
   style?: CSSProperties;
@@ -28,20 +29,17 @@ export function AgentApprovalOverlay({ style, className }: AgentApprovalOverlayP
   if (!approval) return null;
 
   const riskColorMap = {
-    low: { bg: "var(--success-soft)", border: "rgba(74, 222, 128, 0.3)", text: "var(--success)" },
-    medium: { bg: "var(--warning-soft)", border: "rgba(251, 191, 36, 0.3)", text: "var(--warning)" },
-    high: { bg: "var(--danger-soft)", border: "rgba(248, 113, 113, 0.3)", text: "var(--danger)" },
-    critical: { bg: "var(--risk-critical)", border: "rgba(239, 68, 68, 0.4)", text: "#f87171" },
+    low: { bg: "var(--success-soft)", border: "var(--success-border)", text: "var(--success)" },
+    medium: { bg: "var(--warning-soft)", border: "var(--warning-border)", text: "var(--warning)" },
+    high: { bg: "var(--danger-soft)", border: "var(--danger-border)", text: "var(--danger)" },
+    critical: { bg: "var(--danger-soft)", border: "var(--danger-border)", text: "var(--danger)" },
   };
   const riskColors = riskColorMap[approval.riskLevel as keyof typeof riskColorMap] || riskColorMap.high;
 
   return (
     <div
+      className={cn(overlayClassName, className)}
       style={{
-        position: "fixed",
-        inset: 0,
-        background: "var(--bg-overlay)",
-        backdropFilter: "none",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -49,16 +47,16 @@ export function AgentApprovalOverlay({ style, className }: AgentApprovalOverlayP
         padding: "var(--space-6)",
         ...(style ?? {}),
       }}
-      className={className}
     >
       <div
+        className={panelSurfaceClassName}
         style={{
           width: "min(640px, 92vw)",
           borderRadius: "var(--radius-2xl)",
           overflow: "hidden",
-          border: "1px solid var(--border-strong)",
-          background: "var(--bg-primary)",
-          animation: "slideInUp var(--transition-base) ease",
+          borderColor: "var(--border-strong)",
+          background: "color-mix(in srgb, var(--card) 94%, var(--bg-overlay))",
+          boxShadow: "var(--shadow-lg)",
         }}
       >
         <div
@@ -156,14 +154,14 @@ export function AgentApprovalOverlay({ style, className }: AgentApprovalOverlayP
               {approval.reasons.map((reason) => (
                 <span
                   key={reason}
-                  style={{
-                    padding: "var(--space-1) var(--space-2)",
-                    borderRadius: "var(--radius-md)",
-                    background: "var(--warning-soft)",
-                    border: "1px solid rgba(251, 191, 36, 0.2)",
-                    fontSize: "var(--text-xs)",
-                    color: "var(--warning)",
-                  }}
+                    style={{
+                      padding: "var(--space-1) var(--space-2)",
+                      borderRadius: "var(--radius-md)",
+                      background: "var(--warning-soft)",
+                      border: "1px solid var(--warning-border)",
+                      fontSize: "var(--text-xs)",
+                      color: "var(--warning)",
+                    }}
                 >
                   {reason}
                 </span>
@@ -199,7 +197,7 @@ export function AgentApprovalOverlay({ style, className }: AgentApprovalOverlayP
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "var(--danger-soft)";
               e.currentTarget.style.color = "var(--danger)";
-              e.currentTarget.style.borderColor = "rgba(248, 113, 113, 0.3)";
+              e.currentTarget.style.borderColor = "var(--danger-border)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "transparent";
@@ -251,12 +249,12 @@ export function AgentApprovalOverlay({ style, className }: AgentApprovalOverlayP
               transition: "all var(--transition-fast)",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(74, 222, 128, 0.2)";
-              e.currentTarget.style.borderColor = "rgba(74, 222, 128, 0.4)";
+              e.currentTarget.style.background = "var(--success-soft)";
+              e.currentTarget.style.borderColor = "var(--success-border)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.background = "var(--success-soft)";
-              e.currentTarget.style.borderColor = "var(--success-soft)";
+              e.currentTarget.style.borderColor = "var(--success-border)";
             }}
           >
             Allow For Session
@@ -277,7 +275,7 @@ function InfoCard({ label, value }: { label: string; value: string }) {
         border: "1px solid var(--glass-border)",
       }}
     >
-      <div className="amux-panel-title">{label}</div>
+      <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>{label}</div>
       <div style={{ fontSize: "var(--text-sm)", marginTop: "var(--space-1)", wordBreak: "break-word" }}>{value}</div>
     </div>
   );

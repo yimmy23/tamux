@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { cn, overlayClassName, panelSurfaceClassName } from "./ui";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useNotificationStore } from "../lib/notificationStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
@@ -47,7 +48,10 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
     }
   };
 
-  const reactToApprovalNotification = async (notification: TerminalNotification, decision: "approve" | "deny") => {
+  const reactToApprovalNotification = async (
+    notification: TerminalNotification,
+    decision: "approve" | "deny"
+  ) => {
     handleSelectNotification(notification);
 
     const paneId = notification.panelId ?? notification.paneId;
@@ -78,30 +82,15 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
   return (
     <div
       onClick={toggle}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(3,8,14,0.56)",
-        zIndex: 900,
-        display: "flex",
-        justifyContent: "flex-end",
-        backdropFilter: "none",
-        ...(style ?? {}),
-      }}
-      className={className}
+      style={style}
+      className={cn(overlayClassName, "fixed inset-0 z-[900] flex justify-end", className)}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 440,
-          maxWidth: "90vw",
-          height: "100%",
-          background: "var(--bg-primary)",
-          borderLeft: "1px solid var(--glass-border)",
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "none",
-        }}
+        className={cn(
+          panelSurfaceClassName,
+          "flex h-full w-[min(90vw,28rem)] flex-col rounded-none border-y-0 border-r-0 border-l-[var(--border-strong)] bg-[var(--card)] shadow-[var(--shadow-lg)]"
+        )}
       >
         <NotificationHeader
           unreadCount={unread.length}

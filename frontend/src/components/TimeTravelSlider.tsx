@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { cn, panelSurfaceClassName } from "./ui";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
 import { getTerminalController } from "../lib/terminalRegistry";
@@ -50,15 +51,11 @@ export function TimeTravelSlider({ style, className }: TimeTravelSliderProps = {
     }
   }, [activePaneId]);
 
-  // Fetch snapshots from daemon when panel opens
   useEffect(() => {
     if (!open) return;
 
-    // Use mission store snapshots if available
     if (missionSnapshots.length > 0) {
-      setSnapshots(
-        missionSnapshots.map((s) => toSnapshotEntry(s))
-      );
+      setSnapshots(missionSnapshots.map((s) => toSnapshotEntry(s)));
       setSelectedIndex(0);
     } else {
       void refreshSnapshots();
@@ -95,23 +92,12 @@ export function TimeTravelSlider({ style, className }: TimeTravelSliderProps = {
 
   return (
     <div
-      style={{
-        position: "fixed",
-        bottom: 12,
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 200,
-        minWidth: 520,
-        maxWidth: 720,
-        background: "var(--bg-secondary)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: 0,
-        padding: "14px 18px",
-        boxShadow: "none",
-        backdropFilter: "none",
-        ...(style ?? {}),
-      }}
-      className={className ? `amux-shell-card ${className}` : "amux-shell-card"}
+      style={style}
+      className={cn(
+        panelSurfaceClassName,
+        "fixed bottom-3 left-1/2 z-[200] flex min-w-[32.5rem] max-w-[45rem] -translate-x-1/2 flex-col gap-[var(--space-3)] rounded-[var(--radius-xl)] border-[var(--border-strong)] bg-[var(--card)] px-[var(--space-5)] py-[var(--space-4)] shadow-[var(--shadow-lg)]",
+        className
+      )}
     >
       <TimeTravelHeader
         snapshotCount={snapshots.length}

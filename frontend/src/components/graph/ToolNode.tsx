@@ -29,13 +29,13 @@ export const ToolNode = memo(function ToolNode({ data, selected }: NodeProps) {
           minWidth: 160,
           maxWidth: 220,
           padding: "10px 14px",
-          borderRadius: 0,
+          borderRadius: "var(--radius-lg)",
           background: selected
             ? "var(--bg-secondary)"
             : "var(--bg-primary)",
-          border: `1px solid ${selected ? "rgba(137, 180, 250, 0.36)" : "var(--glass-border)"}`,
-          boxShadow: "none",
-          transition: "all 0.15s ease",
+          border: `1px solid ${selected ? "var(--accent-border)" : "var(--glass-border)"}`,
+          boxShadow: selected ? "var(--shadow-sm)" : "none",
+          transition: "all var(--transition-fast)",
         }}
       >
         {/* Command text */}

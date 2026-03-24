@@ -1,55 +1,93 @@
-import { formatUptime, panelButtonStyle } from "./shared";
+import { Badge, Button, cn, panelSurfaceClassName } from "../ui";
+import { formatUptime } from "./shared";
 
 export function SystemMonitorHeader({
-    hostname,
-    platform,
-    intervalMs,
-    uptimeSeconds,
-    clear,
-    close,
+  hostname,
+  platform,
+  intervalMs,
+  uptimeSeconds,
+  clear,
+  close,
 }: {
-    hostname: string;
-    platform: string;
-    intervalMs: number;
-    uptimeSeconds: number | null;
-    clear: () => void;
-    close: () => void;
+  hostname: string;
+  platform: string;
+  intervalMs: number;
+  uptimeSeconds: number | null;
+  clear: () => void;
+  close: () => void;
 }) {
-    return (
-        <div style={{ display: "grid", gap: 14, padding: "18px 20px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-            <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 16 }}>
-                <div style={{ display: "grid", gap: 6 }}>
-                    <span className="amux-panel-title" style={{ color: "var(--agent)" }}>Host Telemetry</span>
-                    <span style={{ fontSize: 22, fontWeight: 800 }}>System Monitor</span>
-                    <span style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                        Live CPU, memory, GPU, and process telemetry with adjustable refresh cadence and per-process inspection.
-                    </span>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <button type="button" style={panelButtonStyle} onClick={clear}>
-                        Clear
-                    </button>
-                    <button type="button" style={panelButtonStyle} onClick={close}>
-                        ✕
-                    </button>
-                </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-                <MetricCard label="Host" value={hostname} />
-                <MetricCard label="Platform" value={platform} />
-                <MetricCard label="Refresh" value={`every ${intervalMs / 1000}s`} />
-                <MetricCard label="Uptime" value={uptimeSeconds === null ? "pending" : formatUptime(uptimeSeconds)} />
-            </div>
+  return (
+    <div className="grid gap-[var(--space-4)] border-b border-[var(--border-subtle)] bg-[var(--card)] px-[var(--space-5)] py-[var(--space-5)]">
+      <div className="flex flex-wrap items-start justify-between gap-[var(--space-4)]">
+        <div className="grid gap-[var(--space-2)]">
+          <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+            <Badge variant="agent">Host Telemetry</Badge>
+            <Badge variant="default">{platform}</Badge>
+          </div>
+          <div className="grid gap-[var(--space-1)]">
+            <span className="text-[1.375rem] font-semibold leading-none text-[var(--text-primary)]">
+              System Monitor
+            </span>
+            <span className="max-w-3xl text-[var(--text-sm)] leading-6 text-[var(--text-secondary)]">
+              Live CPU, memory, GPU, and process telemetry with adjustable refresh cadence and
+              per-process inspection.
+            </span>
+          </div>
         </div>
-    );
+        <div className="flex flex-wrap gap-[var(--space-2)]">
+          <Button type="button" variant="secondary" size="sm" onClick={clear}>
+            Clear
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={close}>
+            Close
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-[var(--space-3)] md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Host" value={hostname} tone="agent" />
+        <MetricCard label="Platform" value={platform} tone="default" />
+        <MetricCard label="Refresh" value={`every ${intervalMs / 1000}s`} tone="accent" />
+        <MetricCard
+          label="Uptime"
+          value={uptimeSeconds === null ? "pending" : formatUptime(uptimeSeconds)}
+          tone="default"
+        />
+      </div>
+    </div>
+  );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-    return (
-        <div style={{ borderRadius: 0, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.06)", background: "rgba(18, 33, 47, 0.8)", display: "grid", gap: 4 }}>
-            <span className="amux-panel-title">{label}</span>
-            <span style={{ fontSize: 15, fontWeight: 700, wordBreak: "break-word" }}>{value}</span>
-        </div>
-    );
+function MetricCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "default" | "agent" | "accent";
+}) {
+  const accentClasses =
+    tone === "agent"
+      ? "border-[var(--agent-border)]/80"
+      : tone === "accent"
+        ? "border-[var(--accent-border)]/80"
+        : "";
+
+  return (
+    <div
+      className={cn(
+        panelSurfaceClassName,
+        "grid gap-[var(--space-2)] rounded-[var(--radius-lg)] bg-[var(--panel)]/65 px-[var(--space-4)] py-[var(--space-3)] shadow-none",
+        accentClasses
+      )}
+    >
+      <span className="text-[var(--text-xs)] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+        {label}
+      </span>
+      <span className="break-words text-[var(--text-base)] font-semibold text-[var(--text-primary)]">
+        {value}
+      </span>
+    </div>
+  );
 }

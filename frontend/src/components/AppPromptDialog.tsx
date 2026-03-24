@@ -1,4 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Separator,
+} from "./ui";
 
 type AppPromptDialogProps = {
   open: boolean;
@@ -11,6 +22,14 @@ type AppPromptDialogProps = {
   tone?: "danger" | "warning" | "neutral";
   onConfirm: (value: string) => void;
   onCancel: () => void;
+};
+
+const confirmToneClassName: Record<NonNullable<AppPromptDialogProps["tone"]>, string> = {
+  danger: "",
+  warning:
+    "border-[var(--warning-border)] bg-[var(--warning-soft)] text-[var(--warning)] hover:border-[var(--warning)] hover:text-[var(--warning)]",
+  neutral:
+    "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent)] hover:border-[var(--accent)] hover:text-[var(--accent-hover)]",
 };
 
 export function AppPromptDialog({
@@ -26,6 +45,7 @@ export function AppPromptDialog({
   onCancel,
 }: AppPromptDialogProps) {
   const [value, setValue] = useState(defaultValue);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -33,141 +53,46 @@ export function AppPromptDialog({
     }
   }, [defaultValue, open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        onConfirm(value);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onCancel, onConfirm, open, value]);
-
-  if (!open) return null;
-
-  const confirmStyle = tone === "danger"
-    ? {
-      border: "1px solid rgba(248, 113, 113, 0.4)",
-      background: "var(--danger-soft)",
-      color: "var(--danger)",
-    }
-    : tone === "warning"
-      ? {
-        border: "1px solid rgba(251, 191, 36, 0.4)",
-        background: "var(--warning-soft)",
-        color: "var(--warning)",
-      }
-      : {
-        border: "1px solid var(--accent-soft)",
-        background: "var(--accent-soft)",
-        color: "var(--accent)",
-      };
-
   return (
-    <div
-      onClick={onCancel}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "var(--bg-overlay)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 5200,
-        padding: "var(--space-6)",
-      }}
-    >
-      <div
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: "min(560px, 92vw)",
-          borderRadius: "var(--radius-xl)",
-          overflow: "hidden",
-          border: "1px solid var(--border-strong)",
-          background: "var(--bg-primary)",
-          boxShadow: "var(--shadow-sm)",
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
+      <DialogContent
+        className="w-[min(calc(100vw-var(--space-6)),35rem)] gap-[var(--space-4)] p-0"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus();
         }}
       >
-        <div
-          style={{
-            padding: "var(--space-5)",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-3)",
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onConfirm(value);
           }}
         >
-          <div style={{ fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)" }}>
-            {title}
-          </div>
-          <div style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            {message}
-          </div>
-          <input
-            autoFocus
-            value={value}
-            placeholder={placeholder}
-            onChange={(event) => setValue(event.target.value)}
-            style={{
-              width: "100%",
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--glass-border)",
-              borderRadius: "var(--radius-md)",
-              color: "var(--text-primary)",
-              fontSize: "var(--text-sm)",
-              padding: "var(--space-2) var(--space-3)",
-              outline: "none",
-            }}
-          />
-        </div>
-
-        <div
-          style={{
-            padding: "var(--space-4) var(--space-5)",
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: "var(--space-2)",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg-secondary)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={onCancel}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--glass-border)",
-              background: "transparent",
-              color: "var(--text-secondary)",
-              fontSize: "var(--text-sm)",
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(value)}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              borderRadius: "var(--radius-md)",
-              fontSize: "var(--text-sm)",
-              fontWeight: 600,
-              cursor: "pointer",
-              ...confirmStyle,
-            }}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          <DialogHeader className="gap-[var(--space-3)] p-[var(--space-5)] pb-[var(--space-4)] pr-[calc(var(--space-5)+var(--space-6))]">
+            <DialogTitle className="text-[var(--text-lg)] font-bold">{title}</DialogTitle>
+            <DialogDescription className="leading-6 text-[var(--text-sm)]">{message}</DialogDescription>
+            <Input
+              ref={inputRef}
+              value={value}
+              placeholder={placeholder}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </DialogHeader>
+          <Separator />
+          <DialogFooter className="bg-[var(--bg-secondary)] px-[var(--space-5)] py-[var(--space-4)] sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={onCancel}>
+              {cancelLabel}
+            </Button>
+            <Button
+              type="submit"
+              variant={tone === "danger" ? "destructive" : "outline"}
+              className={confirmToneClassName[tone]}
+            >
+              {confirmLabel}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
