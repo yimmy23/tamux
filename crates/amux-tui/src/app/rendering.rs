@@ -113,6 +113,7 @@ impl TuiModel {
                 &self.gateway_statuses,
                 &self.tier,
                 self.agent_activity.as_deref(),
+                &self.recent_actions,
             );
         } else {
             match &self.main_pane_view {

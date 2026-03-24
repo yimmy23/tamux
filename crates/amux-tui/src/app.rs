@@ -39,6 +39,14 @@ pub struct Attachment {
     pub size_bytes: usize,
 }
 
+/// A recent autonomous action displayed in the sidebar.
+#[derive(Debug, Clone)]
+pub struct RecentActionVm {
+    pub action_type: String,
+    pub summary: String,
+    pub timestamp: u64,
+}
+
 /// Flat representation of a sidebar item for matching selected index to data.
 struct SidebarFlatItem {
     target: Option<sidebar::SidebarItemTarget>,
@@ -161,6 +169,9 @@ pub struct TuiModel {
     // Gateway connection statuses received from daemon
     pub gateway_statuses: Vec<chat::GatewayStatusVm>,
 
+    // Recent autonomous actions from heartbeat digests (shown in sidebar)
+    pub recent_actions: Vec<RecentActionVm>,
+
     // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,
     chat_drag_current: Option<Position>,
@@ -231,6 +242,7 @@ impl TuiModel {
             cancelled_thread_id: None,
             ignore_pending_concierge_welcome: false,
             gateway_statuses: Vec::new(),
+            recent_actions: Vec::new(),
             chat_drag_anchor: None,
             chat_drag_current: None,
             chat_drag_anchor_point: None,
@@ -285,8 +297,9 @@ impl TuiModel {
     }
 
     fn concierge_banner_visible(&self) -> bool {
-        self.concierge.loading
-            || (self.concierge.welcome_visible && self.chat.active_thread_id() == Some("concierge"))
+        // Concierge onboarding now renders as a chat message in the concierge
+        // thread instead of a separate overlay banner (D-01/D-02).
+        false
     }
 
     fn concierge_banner_height(&self) -> u16 {

@@ -3,6 +3,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use crate::app::RecentActionVm;
 use crate::state::chat::GatewayStatusVm;
 use crate::state::sidebar::{SidebarState, SidebarTab};
 use crate::state::task::TaskState;
@@ -256,6 +257,41 @@ fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTokens) -> Ve
     lines
 }
 
+fn recent_actions_lines(actions: &[RecentActionVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
+    if actions.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        " Recent Actions",
+        Style::default()
+            .fg(Color::Indexed(245))
+            .add_modifier(ratatui::style::Modifier::BOLD),
+    )));
+    for action in actions.iter().take(3) {
+        let icon = match action.action_type.as_str() {
+            "stale_todo" => "\u{2611}",      // ballot box with check
+            "stuck_goal" => "\u{26A0}",      // warning
+            "morning_brief" => "\u{2600}",   // sun
+            _ => "\u{25CB}",                 // circle
+        };
+        let mut summary = action.summary.clone();
+        if summary.chars().count() > 40 {
+            summary = format!(
+                "{}...",
+                summary.chars().take(37).collect::<String>()
+            );
+        }
+        lines.push(Line::from(vec![
+            Span::styled("  ", theme.fg_dim),
+            Span::styled(icon.to_string(), theme.fg_dim),
+            Span::raw(" "),
+            Span::styled(summary, theme.fg_active),
+        ]));
+    }
+    lines
+}
+
 /// Render a dimmed one-line placeholder for a tier-locked sidebar section (D-05).
 fn tier_placeholder_line(label: &str, required_tier: &str) -> Line<'static> {
     let dim = Style::default().fg(Color::DarkGray);
@@ -344,6 +380,7 @@ pub fn render(
     gateway_statuses: &[GatewayStatusVm],
     tier: &TierState,
     agent_activity: Option<&str>,
+    recent_actions: &[RecentActionVm],
 ) {
     if area.height < 3 {
         return;
@@ -356,6 +393,9 @@ pub fn render(
     };
     let gw_height = gw_lines.len() as u16;
 
+    let ra_lines = recent_actions_lines(recent_actions, theme);
+    let ra_height = ra_lines.len() as u16;
+
     let tier_lines = tier_gated_lines(tier);
     let tier_height = tier_lines.len() as u16;
 
@@ -367,6 +407,7 @@ pub fn render(
             Constraint::Length(1), // tab hints
             Constraint::Min(1),   // body
             Constraint::Length(gw_height),
+            Constraint::Length(ra_height),
             Constraint::Length(tier_height),
         ])
         .split(area);
@@ -404,8 +445,12 @@ pub fn render(
         frame.render_widget(Paragraph::new(gw_lines), chunks[4]);
     }
 
+    if !ra_lines.is_empty() {
+        frame.render_widget(Paragraph::new(ra_lines), chunks[5]);
+    }
+
     if !tier_lines.is_empty() {
-        frame.render_widget(Paragraph::new(tier_lines), chunks[5]);
+        frame.render_widget(Paragraph::new(tier_lines), chunks[6]);
     }
 }
 
