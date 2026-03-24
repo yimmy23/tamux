@@ -6,11 +6,22 @@ import { useNotificationStore } from "../lib/notificationStore";
 import { useSettingsStore } from "../lib/settingsStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
+import { useStatusStore, type AgentActivityState } from "../lib/statusStore";
+import { useTierStore } from "../lib/tierStore";
 import { InlineSystemMonitor } from "./status-bar/InlineSystemMonitor";
 import { StatusBarMissionStats } from "./status-bar/StatusBarMissionStats";
 import { StatusIndicator } from "./status-bar/StatusPrimitives";
 import { TaskTrayButton } from "./TaskTray";
 import { dividerStyle, statusBarRootStyle } from "./status-bar/shared";
+
+const ACTIVITY_DISPLAY: Record<AgentActivityState, { label: string; status: "success" | "warning" | "neutral" }> = {
+  idle: { label: "idle", status: "neutral" },
+  thinking: { label: "thinking...", status: "warning" },
+  executing_tool: { label: "running tool", status: "warning" },
+  waiting_for_approval: { label: "awaiting approval", status: "warning" },
+  running_goal: { label: "running goal", status: "success" },
+  goal_running: { label: "running goal", status: "success" },
+};
 
 export function StatusBar() {
   const ws = useWorkspaceStore((s) => s.activeWorkspace());
@@ -29,8 +40,17 @@ export function StatusBar() {
   const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
   const historyHits = useAgentMissionStore((s) => s.historyHits);
   const snapshots = useAgentMissionStore((s) => s.snapshots);
+  const activity = useStatusStore((s) => s.activity);
+  const activeGoalRunTitle = useStatusStore((s) => s.activeGoalRunTitle);
+  const providerHealth = useStatusStore((s) => s.providerHealth);
+  const currentTier = useTierStore((s) => s.currentTier);
   const [daemonConnected, setDaemonConnected] = useState(false);
   const pendingApprovals = useMemo(() => approvals.filter((entry) => entry.status === "pending").length, [approvals]);
+  const activityInfo = ACTIVITY_DISPLAY[activity] ?? ACTIVITY_DISPLAY.idle;
+  const activityLabel = (activity === "running_goal" || activity === "goal_running") && activeGoalRunTitle
+    ? `goal: ${activeGoalRunTitle}`
+    : activityInfo.label;
+  const unhealthyProviders = providerHealth.filter((p) => !p.canExecute);
   const traceCount = cognitiveEvents.length;
   const opsCount = operationalEvents.length;
   const toolCallCount = useMemo(() => operationalEvents.filter((e) => e.kind === "tool-call").length, [operationalEvents]);
@@ -60,6 +80,20 @@ export function StatusBar() {
           label={daemonConnected ? "daemon online" : "daemon offline"}
           status={daemonConnected ? "success" : "neutral"}
         />
+
+        {daemonConnected && (
+          <StatusIndicator
+            label={activityLabel}
+            status={activityInfo.status}
+          />
+        )}
+
+        {unhealthyProviders.length > 0 && (
+          <StatusIndicator
+            label={`${unhealthyProviders.length} provider${unhealthyProviders.length > 1 ? "s" : ""} tripped`}
+            status="warning"
+          />
+        )}
 
         {ws && (
           <span style={{
@@ -160,6 +194,12 @@ export function StatusBar() {
             }}
           >
             {unreadCount}
+          </span>
+        )}
+
+        {currentTier !== "newcomer" && (
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", opacity: 0.7 }}>
+            {currentTier.replace("_", " ")}
           </span>
         )}
 

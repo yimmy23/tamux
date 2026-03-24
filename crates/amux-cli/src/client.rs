@@ -549,6 +549,45 @@ pub async fn scrub_text(text: String) -> Result<String> {
     }
 }
 
+/// Status response fields from the daemon.
+pub struct AgentStatusSnapshot {
+    pub tier: String,
+    pub activity: String,
+    pub active_thread_id: Option<String>,
+    pub active_goal_run_id: Option<String>,
+    pub active_goal_run_title: Option<String>,
+    pub provider_health_json: String,
+    pub gateway_statuses_json: String,
+    pub recent_actions_json: String,
+}
+
+pub async fn send_status_query() -> Result<AgentStatusSnapshot> {
+    match roundtrip(ClientMessage::AgentStatusQuery).await? {
+        DaemonMessage::AgentStatusResponse {
+            tier,
+            activity,
+            active_thread_id,
+            active_goal_run_id,
+            active_goal_run_title,
+            provider_health_json,
+            gateway_statuses_json,
+            recent_actions_json,
+            ..
+        } => Ok(AgentStatusSnapshot {
+            tier,
+            activity,
+            active_thread_id,
+            active_goal_run_id,
+            active_goal_run_title,
+            provider_health_json,
+            gateway_statuses_json,
+            recent_actions_json,
+        }),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
 pub async fn send_audit_query(
     action_types: Option<Vec<String>>,
     since: Option<u64>,

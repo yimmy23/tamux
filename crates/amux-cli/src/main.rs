@@ -108,6 +108,9 @@ enum Commands {
         action: SkillAction,
     },
 
+    /// Show current agent status.
+    Status,
+
     /// Run the first-time setup wizard.
     Setup,
 
@@ -549,6 +552,88 @@ async fn main() -> Result<()> {
                 }
             }
         },
+
+        Commands::Status => {
+            let status = client::send_status_query().await?;
+            println!("Agent Status");
+            println!("============");
+            println!("Tier:     {}", status.tier.replace('_', " "));
+            println!("Activity: {}", status.activity.replace('_', " "));
+
+            if let Some(title) = &status.active_goal_run_title {
+                println!("Goal:     {}", title);
+            }
+            if let Some(thread) = &status.active_thread_id {
+                println!("Thread:   {}", thread);
+            }
+
+            // Parse and display provider health
+            if let Ok(providers) =
+                serde_json::from_str::<serde_json::Value>(&status.provider_health_json)
+            {
+                if let Some(obj) = providers.as_object() {
+                    if !obj.is_empty() {
+                        println!("\nProviders:");
+                        for (name, info) in obj {
+                            let can_exec = info
+                                .get("can_execute")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true);
+                            let trips = info
+                                .get("trip_count")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let health = if can_exec { "healthy" } else { "tripped" };
+                            if trips > 0 {
+                                println!("  {} - {} (trips: {})", name, health, trips);
+                            } else {
+                                println!("  {} - {}", name, health);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Parse and display gateway statuses
+            if let Ok(gateways) =
+                serde_json::from_str::<serde_json::Value>(&status.gateway_statuses_json)
+            {
+                if let Some(obj) = gateways.as_object() {
+                    if !obj.is_empty() {
+                        println!("\nGateways:");
+                        for (platform, info) in obj {
+                            let gw_status = info
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            println!("  {} - {}", platform, gw_status);
+                        }
+                    }
+                }
+            }
+
+            // Parse and display recent actions
+            if let Ok(actions) =
+                serde_json::from_str::<Vec<serde_json::Value>>(&status.recent_actions_json)
+            {
+                if !actions.is_empty() {
+                    println!("\nRecent Actions:");
+                    for a in actions.iter().take(5) {
+                        let action_type =
+                            a.get("action_type").and_then(|v| v.as_str()).unwrap_or("");
+                        let summary =
+                            a.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                        let ts = a.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                        println!(
+                            "  {} [{}] {}",
+                            format_timestamp(ts),
+                            action_type,
+                            summary
+                        );
+                    }
+                }
+            }
+        }
 
         Commands::Scrub { text } => {
             let input = if let Some(t) = text {
