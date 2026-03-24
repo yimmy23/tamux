@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Milestone complete
-stopped_at: Phase 11 plans complete (2 plans)
-last_updated: "2026-03-24T10:23:06.544Z"
+status: Ready to execute
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-03-24T10:30:18.267Z"
 progress:
   total_phases: 13
   completed_phases: 8
   total_plans: 42
-  completed_plans: 38
+  completed_plans: 39
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-23)
 
 **Core value:** An agent that feels alive and gets smarter over time -- while remaining simple enough that anyone can understand what it's doing and why.
-**Current focus:** Phase 10 — progressive-ux
+**Current focus:** Phase 11 — setup-wizard-rewrite
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
+Phase: 11 (setup-wizard-rewrite) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -84,6 +84,7 @@ Plan: Not started
 | Phase 10-progressive-ux P04 | 9min | 2 tasks | 16 files |
 | Phase 10 P03 | 7min | 2 tasks | 7 files |
 | Phase 10 P05 | 10min | 2 tasks | 9 files |
+| Phase 11 P01 | 4min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -164,6 +165,7 @@ Recent decisions affecting current work:
 - [Phase 10]: Tier change detection runs every heartbeat; disclosure queue on AgentEngine for shared heartbeat access
 - [Phase 10]: Object-to-array transform in statusStore for provider_health and gateway_statuses (daemon sends object maps, store normalizes to arrays)
 - [Phase 10]: TUI agent_status_line maps existing agent_activity event strings to user-friendly colored status indicators
+- [Phase 11]: Auth source string read from ProviderAuthState rather than hardcoded mapping; legacy needs_setup_at kept as read-only fallback; AgentSetTierOverride fire-and-forget with 100ms delay
 
 ### Pending Todos
 
@@ -177,6 +179,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T10:23:06.541Z
-Stopped at: Phase 11 plans complete (2 plans)
-Resume file: .planning/phases/11-setup-wizard-rewrite/11-01-PLAN.md
+Last session: 2026-03-24T10:30:18.265Z
+Stopped at: Completed 11-01-PLAN.md
+Resume file: None
