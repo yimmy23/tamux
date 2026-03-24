@@ -191,12 +191,12 @@ Plans:
   3. New users see a simplified interface; advanced features appear only as usage grows
   4. First-time users experience a guided concierge onboarding with hands-on examples
   5. Status visibility is consistent across TUI, Electron, and CLI — user always knows what the agent is doing and why
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 **UI hint**: yes
 
 Plans:
 - [ ] 10-01-PLAN.md — Daemon foundation: CapabilityTier enum, resolve_tier() pure function, protocol messages, setup wizard self-assessment
-- [ ] 10-02-PLAN.md — Typed getBridge() helper replacing all 85 unsafe (window as any) casts across 39 frontend files
+- [x] 10-02-PLAN.md — Typed getBridge() helper replacing all 85 unsafe (window as any) casts across 39 frontend files
 - [ ] 10-03-PLAN.md — Concierge onboarding with tier-adapted content, tier transition announcements, disclosure queue
 - [ ] 10-04-PLAN.md — Client-side tier gating: Zustand tierStore, TierGatedSection component, TUI TierState
 - [ ] 10-05-PLAN.md — Unified status visibility: statusStore, enhanced StatusBar, TUI sidebar status, CLI status subcommand
@@ -218,4 +218,4 @@ Note: Phases 8 and 9 can execute in parallel with phases 2-7 (they only depend o
 | 7. Community Skills | 1/3 | In Progress | - |
 | 8. Gateway Completion | 0/4 | Not started | - |
 | 9. Distribution | 0/4 | Not started | - |
-| 10. Progressive UX | 0/5 | Not started | - |
+| 10. Progressive UX | 1/5 | In Progress|  |
