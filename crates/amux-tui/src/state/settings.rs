@@ -13,6 +13,7 @@ pub enum SettingsTab {
     Agent,
     SubAgents,
     Concierge,
+    Features,
     Advanced,
 }
 
@@ -27,6 +28,7 @@ impl SettingsTab {
         SettingsTab::Agent,
         SettingsTab::SubAgents,
         SettingsTab::Concierge,
+        SettingsTab::Features,
         SettingsTab::Advanced,
     ];
 
@@ -314,6 +316,23 @@ impl SettingsState {
                 3 => "concierge_model",
                 _ => "",
             },
+            SettingsTab::Features => match self.field_cursor {
+                0 => "feat_tier_override",
+                1 => "feat_security_level",
+                2 => "feat_heartbeat_cron",
+                3 => "feat_heartbeat_quiet_start",
+                4 => "feat_heartbeat_quiet_end",
+                5 => "feat_check_stale_todos",
+                6 => "feat_check_stuck_goals",
+                7 => "feat_check_unreplied_messages",
+                8 => "feat_check_repo_changes",
+                9 => "feat_consolidation_enabled",
+                10 => "feat_decay_half_life_hours",
+                11 => "feat_heuristic_promotion_threshold",
+                12 => "feat_skill_discovery_enabled",
+                13 => "feat_skill_promotion_threshold",
+                _ => "",
+            },
             SettingsTab::Advanced => match self.field_cursor {
                 0 => "managed_sandbox_enabled",
                 1 => "managed_security_level",
@@ -348,6 +367,7 @@ impl SettingsState {
             SettingsTab::Agent => 3,
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 4,
+            SettingsTab::Features => 14,
             SettingsTab::Advanced => 16,
         }
     }
@@ -646,8 +666,8 @@ mod tests {
     }
 
     #[test]
-    fn all_tabs_covers_ten_variants() {
-        assert_eq!(SettingsTab::all().len(), 10);
+    fn all_tabs_covers_eleven_variants() {
+        assert_eq!(SettingsTab::all().len(), 11);
     }
 
     #[test]
@@ -886,6 +906,8 @@ mod tests {
         assert_eq!(state.field_count(), 1); // sub-agent list with row-level actions handled separately
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
         assert_eq!(state.field_count(), 4); // enabled, detail_level, provider, model
+        state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
+        assert_eq!(state.field_count(), 14); // tier, security, heartbeat (5), memory (3), skills (2), check toggles (4 already counted)
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
         assert_eq!(state.field_count(), 16); // managed execution + advanced + snapshot fields
     }

@@ -252,6 +252,7 @@ impl TuiModel {
                         &self.auth,
                         &self.subagents,
                         &self.concierge,
+                        &self.tier,
                         &self.theme,
                     );
                 }

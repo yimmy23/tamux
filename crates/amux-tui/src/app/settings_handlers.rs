@@ -1267,6 +1267,128 @@ impl TuiModel {
                     levels[(current_idx + 1) % levels.len()].to_string();
                 self.sync_config_to_daemon();
             }
+            // ── Features tab ──
+            "feat_tier_override" => {
+                let tiers = ["newcomer", "familiar", "power_user", "expert"];
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("tier"))
+                    .and_then(|t| t.get("user_override"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&self.tier.current_tier);
+                let current_idx = tiers.iter().position(|t| *t == current).unwrap_or(0);
+                let next = tiers[(current_idx + 1) % tiers.len()];
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/tier/user_override".to_string(),
+                    value_json: format!("\"{}\"", next),
+                });
+                // Update local raw config optimistically
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    if raw.get("tier").is_none() {
+                        raw["tier"] = serde_json::json!({});
+                    }
+                    raw["tier"]["user_override"] = serde_json::Value::String(next.to_string());
+                }
+                self.tier.on_tier_changed(next);
+            }
+            "feat_security_level" => {
+                let levels = ["permissive", "balanced", "strict"];
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("managed_security_level"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("balanced");
+                let current_idx = levels.iter().position(|l| *l == current).unwrap_or(1);
+                let next = levels[(current_idx + 1) % levels.len()];
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/managed_security_level".to_string(),
+                    value_json: format!("\"{}\"", next),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    raw["managed_security_level"] = serde_json::Value::String(next.to_string());
+                }
+            }
+            "feat_heartbeat_cron" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get("cron"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*/15 * * * *")
+                    .to_string();
+                self.settings.start_editing("feat_heartbeat_cron", &current);
+            }
+            "feat_heartbeat_quiet_start" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get("quiet_start"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("22:00")
+                    .to_string();
+                self.settings
+                    .start_editing("feat_heartbeat_quiet_start", &current);
+            }
+            "feat_heartbeat_quiet_end" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get("quiet_end"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("07:00")
+                    .to_string();
+                self.settings
+                    .start_editing("feat_heartbeat_quiet_end", &current);
+            }
+            "feat_decay_half_life_hours" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("consolidation"))
+                    .and_then(|c| c.get("decay_half_life_hours"))
+                    .and_then(|v| v.as_f64())
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "69".to_string());
+                self.settings
+                    .start_editing("feat_decay_half_life_hours", &current);
+            }
+            "feat_heuristic_promotion_threshold" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("consolidation"))
+                    .and_then(|c| c.get("heuristic_promotion_threshold"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "5".to_string());
+                self.settings
+                    .start_editing("feat_heuristic_promotion_threshold", &current);
+            }
+            "feat_skill_promotion_threshold" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("skill_discovery"))
+                    .and_then(|s| s.get("promotion_threshold"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "3".to_string());
+                self.settings
+                    .start_editing("feat_skill_promotion_threshold", &current);
+            }
             _ => {}
         }
     }
@@ -1375,6 +1497,87 @@ impl TuiModel {
                 self.config.snapshot_auto_cleanup = !self.config.snapshot_auto_cleanup;
                 self.sync_config_to_daemon();
             }
+            // ── Features tab toggles ──
+            "feat_tier_override" => {
+                // Cycle tier on Space (same as Enter)
+                self.activate_settings_field();
+            }
+            "feat_security_level" => {
+                self.activate_settings_field();
+            }
+            "feat_check_stale_todos"
+            | "feat_check_stuck_goals"
+            | "feat_check_unreplied_messages"
+            | "feat_check_repo_changes" => {
+                let key = match field.as_str() {
+                    "feat_check_stale_todos" => "check_stale_todos",
+                    "feat_check_stuck_goals" => "check_stuck_goals",
+                    "feat_check_unreplied_messages" => "check_unreplied_messages",
+                    "feat_check_repo_changes" => "check_repo_changes",
+                    _ => return,
+                };
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get(key))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let next = !current;
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: format!("/heartbeat/{}", key),
+                    value_json: next.to_string(),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    if raw.get("heartbeat").is_none() {
+                        raw["heartbeat"] = serde_json::json!({});
+                    }
+                    raw["heartbeat"][key] = serde_json::Value::Bool(next);
+                }
+            }
+            "feat_consolidation_enabled" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("consolidation"))
+                    .and_then(|c| c.get("enabled"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let next = !current;
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/consolidation/enabled".to_string(),
+                    value_json: next.to_string(),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    if raw.get("consolidation").is_none() {
+                        raw["consolidation"] = serde_json::json!({});
+                    }
+                    raw["consolidation"]["enabled"] = serde_json::Value::Bool(next);
+                }
+            }
+            "feat_skill_discovery_enabled" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("skill_discovery"))
+                    .and_then(|s| s.get("enabled"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let next = !current;
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/skill_discovery/enabled".to_string(),
+                    value_json: next.to_string(),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    if raw.get("skill_discovery").is_none() {
+                        raw["skill_discovery"] = serde_json::json!({});
+                    }
+                    raw["skill_discovery"]["enabled"] = serde_json::Value::Bool(next);
+                }
+            }
             "concierge_enabled" => {
                 self.concierge.enabled = !self.concierge.enabled;
                 self.send_concierge_config();
@@ -1422,6 +1625,14 @@ impl TuiModel {
                 | "tool_synthesis_require_activation"
                 | "auto_compact_context"
                 | "snapshot_auto_cleanup"
+                | "feat_tier_override"
+                | "feat_security_level"
+                | "feat_check_stale_todos"
+                | "feat_check_stuck_goals"
+                | "feat_check_unreplied_messages"
+                | "feat_check_repo_changes"
+                | "feat_consolidation_enabled"
+                | "feat_skill_discovery_enabled"
         ) || self.settings.current_field_name().starts_with("tool_")
     }
 }

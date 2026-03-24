@@ -594,6 +594,7 @@ fn settings_tab_label(tab: SettingsTab) -> &'static str {
         SettingsTab::Agent => "agent",
         SettingsTab::SubAgents => "subagents",
         SettingsTab::Concierge => "concierge",
+        SettingsTab::Features => "features",
         SettingsTab::Advanced => "advanced",
     }
 }

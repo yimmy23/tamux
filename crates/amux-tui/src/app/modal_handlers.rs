@@ -230,6 +230,99 @@ impl TuiModel {
                                 };
                                 self.send_concierge_config();
                             }
+                            // ── Features tab editable fields ──
+                            "feat_heartbeat_cron" => {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/heartbeat/cron".to_string(),
+                                    value_json: format!("\"{}\"", value),
+                                });
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    if raw.get("heartbeat").is_none() {
+                                        raw["heartbeat"] = serde_json::json!({});
+                                    }
+                                    raw["heartbeat"]["cron"] =
+                                        serde_json::Value::String(value);
+                                }
+                            }
+                            "feat_heartbeat_quiet_start" => {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/heartbeat/quiet_start".to_string(),
+                                    value_json: format!("\"{}\"", value),
+                                });
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    if raw.get("heartbeat").is_none() {
+                                        raw["heartbeat"] = serde_json::json!({});
+                                    }
+                                    raw["heartbeat"]["quiet_start"] =
+                                        serde_json::Value::String(value);
+                                }
+                            }
+                            "feat_heartbeat_quiet_end" => {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/heartbeat/quiet_end".to_string(),
+                                    value_json: format!("\"{}\"", value),
+                                });
+                                if let Some(ref mut raw) = self.config.agent_config_raw {
+                                    if raw.get("heartbeat").is_none() {
+                                        raw["heartbeat"] = serde_json::json!({});
+                                    }
+                                    raw["heartbeat"]["quiet_end"] =
+                                        serde_json::Value::String(value);
+                                }
+                            }
+                            "feat_decay_half_life_hours" => {
+                                if let Ok(n) = value.parse::<f64>() {
+                                    let clamped = n.clamp(1.0, 10000.0);
+                                    self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                        key_path: "/consolidation/decay_half_life_hours"
+                                            .to_string(),
+                                        value_json: format!("{}", clamped),
+                                    });
+                                    if let Some(ref mut raw) = self.config.agent_config_raw {
+                                        if raw.get("consolidation").is_none() {
+                                            raw["consolidation"] = serde_json::json!({});
+                                        }
+                                        raw["consolidation"]["decay_half_life_hours"] =
+                                            serde_json::json!(clamped);
+                                    }
+                                }
+                            }
+                            "feat_heuristic_promotion_threshold" => {
+                                if let Ok(n) = value.parse::<u64>() {
+                                    let clamped = n.clamp(1, 100);
+                                    self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                        key_path:
+                                            "/consolidation/heuristic_promotion_threshold"
+                                                .to_string(),
+                                        value_json: format!("{}", clamped),
+                                    });
+                                    if let Some(ref mut raw) = self.config.agent_config_raw {
+                                        if raw.get("consolidation").is_none() {
+                                            raw["consolidation"] = serde_json::json!({});
+                                        }
+                                        raw["consolidation"]
+                                            ["heuristic_promotion_threshold"] =
+                                            serde_json::json!(clamped);
+                                    }
+                                }
+                            }
+                            "feat_skill_promotion_threshold" => {
+                                if let Ok(n) = value.parse::<u64>() {
+                                    let clamped = n.clamp(1, 100);
+                                    self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                        key_path: "/skill_discovery/promotion_threshold"
+                                            .to_string(),
+                                        value_json: format!("{}", clamped),
+                                    });
+                                    if let Some(ref mut raw) = self.config.agent_config_raw {
+                                        if raw.get("skill_discovery").is_none() {
+                                            raw["skill_discovery"] = serde_json::json!({});
+                                        }
+                                        raw["skill_discovery"]["promotion_threshold"] =
+                                            serde_json::json!(clamped);
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                         self.settings.reduce(SettingsAction::ConfirmEdit);
