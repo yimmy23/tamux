@@ -2059,6 +2059,12 @@ where
                     } else {
                         crate::agent::types::AuthSource::ApiKey
                     };
+                    tracing::info!(
+                        provider = %provider_id,
+                        url = %resolved_url,
+                        has_key = !resolved_key.is_empty(),
+                        "server: AgentValidateProvider starting validation"
+                    );
                     match crate::agent::llm_client::validate_provider_connection(
                         &provider_id,
                         &resolved_url,
@@ -2068,6 +2074,7 @@ where
                     .await
                     {
                         Ok(models) => {
+                            tracing::info!(provider = %provider_id, "server: validation OK");
                             let json = models
                                 .as_ref()
                                 .map(|value| serde_json::to_string(value).unwrap_or_default());
@@ -2081,6 +2088,7 @@ where
                                 .await?;
                         }
                         Err(e) => {
+                            tracing::warn!(provider = %provider_id, error = %e, "server: validation FAILED");
                             framed
                                 .send(DaemonMessage::AgentProviderValidation {
                                     provider_id,
