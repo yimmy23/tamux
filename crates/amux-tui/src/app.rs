@@ -283,8 +283,9 @@ impl TuiModel {
     }
 
     fn concierge_banner_visible(&self) -> bool {
-        self.concierge.loading
-            || (self.concierge.welcome_visible && self.chat.active_thread_id() == Some("concierge"))
+        // Concierge onboarding now renders as a chat message in the concierge
+        // thread instead of a separate overlay banner (D-01/D-02).
+        false
     }
 
     fn concierge_banner_height(&self) -> u16 {

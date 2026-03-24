@@ -545,17 +545,59 @@ impl TuiModel {
                     return;
                 }
                 self.ignore_pending_concierge_welcome = false;
+
+                // Keep action state for keyboard navigation (left/right arrows)
                 self.concierge
-                    .reduce(crate::state::ConciergeAction::WelcomeReceived { content, actions });
-                if self.chat.active_thread_id().is_none() {
+                    .reduce(crate::state::ConciergeAction::WelcomeReceived {
+                        content: content.clone(),
+                        actions: actions.clone(),
+                    });
+
+                // Build chat message content with action buttons appended as text
+                let mut chat_content = content;
+                if !actions.is_empty() {
+                    chat_content.push_str("\n\nSuggested actions:");
+                    for action in &actions {
+                        chat_content.push_str(&format!("  [{}]", action.label));
+                    }
+                }
+
+                // Inject as a regular assistant message into the concierge thread
+                if let Some(thread) = self.chat.active_thread_mut() {
+                    if thread.id == "concierge" {
+                        thread.messages.push(chat::AgentMessage {
+                            role: chat::MessageRole::Assistant,
+                            content: chat_content,
+                            ..Default::default()
+                        });
+                    }
+                } else {
+                    // Thread not yet in chat state -- create a placeholder with the message
+                    self.chat.reduce(chat::ChatAction::ThreadCreated {
+                        thread_id: "concierge".to_string(),
+                        title: "Concierge".to_string(),
+                    });
+                    if let Some(thread) = self.chat.active_thread_mut() {
+                        thread.messages.push(chat::AgentMessage {
+                            role: chat::MessageRole::Assistant,
+                            content: chat_content,
+                            ..Default::default()
+                        });
+                    }
+                }
+
+                // Ensure concierge thread is selected and visible
+                if self.chat.active_thread_id().is_none()
+                    || self.chat.active_thread_id() != Some("concierge")
+                {
                     self.chat
                         .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-                    self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
-                    self.main_pane_view = MainPaneView::Conversation;
-                    self.focus = FocusArea::Chat;
-                } else if self.chat.active_thread_id() == Some("concierge") {
-                    self.focus = FocusArea::Chat;
+                    self.send_daemon_command(DaemonCommand::RequestThread(
+                        "concierge".to_string(),
+                    ));
                 }
+                self.main_pane_view = MainPaneView::Conversation;
+                self.focus = FocusArea::Chat;
             }
             ClientEvent::ConciergeWelcomeDismissed => {
                 self.concierge
