@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::capability_tier::TierConfig;
+pub type WhatsAppLinkRuntimeEvent = super::whatsapp_link::WhatsAppLinkEvent;
 
 // ---------------------------------------------------------------------------
 // Provider definitions (static registry)

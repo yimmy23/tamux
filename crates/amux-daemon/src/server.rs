@@ -45,10 +45,23 @@ fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str
 
 #[cfg(test)]
 mod tests {
-    use super::concierge_welcome_fingerprint;
+    use super::{concierge_welcome_fingerprint, handle_connection};
     use crate::agent::types::{
         AgentEvent, ConciergeAction, ConciergeActionType, ConciergeDetailLevel,
     };
+    use crate::agent::types::AgentConfig;
+    use crate::agent::AgentEngine;
+    use crate::history::HistoryStore;
+    use crate::plugin::PluginManager;
+    use crate::session_manager::SessionManager;
+    use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage};
+    use futures::{SinkExt, StreamExt};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::io::DuplexStream;
+    use tokio::task::JoinHandle;
+    use tokio::time::{timeout, Duration};
+    use tokio_util::codec::Framed;
 
     #[test]
     fn concierge_welcome_fingerprint_matches_for_identical_events() {
@@ -95,6 +108,214 @@ mod tests {
             concierge_welcome_fingerprint(&event_a),
             concierge_welcome_fingerprint(&event_b)
         );
+    }
+
+    struct TestConnection {
+        framed: Framed<DuplexStream, AmuxCodec>,
+        task: JoinHandle<anyhow::Result<()>>,
+        root: PathBuf,
+        agent: Arc<AgentEngine>,
+    }
+
+    impl TestConnection {
+        async fn recv(&mut self) -> DaemonMessage {
+            timeout(Duration::from_millis(500), self.framed.next())
+                .await
+                .expect("timed out waiting for daemon message")
+                .expect("connection closed")
+                .expect("codec failure")
+        }
+
+        async fn shutdown(self) {
+            let TestConnection {
+                framed,
+                task,
+                root,
+                agent: _,
+            } = self;
+            drop(framed);
+            let join = timeout(Duration::from_secs(2), task)
+                .await
+                .expect("server task did not shut down in time")
+                .expect("server task join failed");
+            join.expect("server task returned error");
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    async fn spawn_test_connection() -> TestConnection {
+        let root = std::env::current_dir()
+            .expect("cwd")
+            .join("tmp")
+            .join(format!("server-whatsapp-link-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let history = Arc::new(
+            HistoryStore::new_test_store(&root)
+                .await
+                .expect("create test history"),
+        );
+        let manager = SessionManager::new_with_history(history.clone(), 64);
+        let agent = AgentEngine::new_with_shared_history(manager.clone(), AgentConfig::default(), history.clone());
+        let plugin_manager = Arc::new(PluginManager::new(history, root.join("plugins")));
+
+        let (client_stream, server_stream) = tokio::io::duplex(128 * 1024);
+        let server_task = tokio::spawn(handle_connection(
+            server_stream,
+            manager,
+            agent.clone(),
+            plugin_manager,
+        ));
+
+        TestConnection {
+            framed: Framed::new(client_stream, AmuxCodec),
+            task: server_task,
+            root,
+            agent,
+        }
+    }
+
+    #[tokio::test]
+    async fn whatsapp_link_start_status_stop_send_status_responses() {
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkStatus)
+            .await
+            .expect("send status request");
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkStatus { state, .. } => {
+                assert_eq!(state, "disconnected")
+            }
+            other => panic!("expected AgentWhatsAppLinkStatus, got {other:?}"),
+        }
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkStart)
+            .await
+            .expect("send start request");
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkStatus { state, .. } => assert_eq!(state, "starting"),
+            other => panic!("expected AgentWhatsAppLinkStatus after start, got {other:?}"),
+        }
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkStop)
+            .await
+            .expect("send stop request");
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkStatus { state, .. } => {
+                assert_eq!(state, "disconnected")
+            }
+            other => panic!("expected AgentWhatsAppLinkStatus after stop, got {other:?}"),
+        }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn whatsapp_link_subscribe_then_unsubscribe_stops_forwarding() {
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkSubscribe)
+            .await
+            .expect("send subscribe request");
+        assert!(
+            matches!(
+                conn.recv().await,
+                DaemonMessage::AgentWhatsAppLinkStatus { .. }
+            ),
+            "subscribe should replay status snapshot"
+        );
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkUnsubscribe)
+            .await
+            .expect("send unsubscribe request");
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping barrier");
+        assert!(
+            matches!(conn.recv().await, DaemonMessage::Pong),
+            "ping barrier should confirm unsubscribe was processed"
+        );
+        conn.agent
+            .whatsapp_link
+            .broadcast_qr("QR-UNSUB".to_string(), Some(123))
+            .await;
+
+        let maybe_msg = timeout(Duration::from_millis(150), conn.framed.next()).await;
+        assert!(
+            maybe_msg.is_err(),
+            "no whatsapp link event should be forwarded after unsubscribe"
+        );
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn whatsapp_link_subscription_replay_status_then_incremental_events() {
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkSubscribe)
+            .await
+            .expect("send subscribe request");
+        assert!(
+            matches!(
+                conn.recv().await,
+                DaemonMessage::AgentWhatsAppLinkStatus { .. }
+            ),
+            "first replayed event should be status snapshot"
+        );
+
+        conn.agent
+            .whatsapp_link
+            .broadcast_qr("QR-ORDER".to_string(), Some(111))
+            .await;
+        conn.agent
+            .whatsapp_link
+            .broadcast_linked(Some("+15550001111".to_string()))
+            .await;
+        conn.agent
+            .whatsapp_link
+            .broadcast_error("recoverable".to_string(), true)
+            .await;
+        conn.agent
+            .whatsapp_link
+            .broadcast_disconnected(Some("operator_cancelled".to_string()))
+            .await;
+
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkQr { ascii_qr, .. } => assert_eq!(ascii_qr, "QR-ORDER"),
+            other => panic!("expected AgentWhatsAppLinkQr, got {other:?}"),
+        }
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinked { phone } => {
+                assert_eq!(phone.as_deref(), Some("+15550001111"))
+            }
+            other => panic!("expected AgentWhatsAppLinked, got {other:?}"),
+        }
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkError {
+                message,
+                recoverable,
+            } => {
+                assert_eq!(message, "recoverable");
+                assert!(recoverable);
+            }
+            other => panic!("expected AgentWhatsAppLinkError, got {other:?}"),
+        }
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
+                assert_eq!(reason.as_deref(), Some("operator_cancelled"))
+            }
+            other => panic!("expected AgentWhatsAppLinkDisconnected, got {other:?}"),
+        }
+
+        conn.shutdown().await;
     }
 }
 
@@ -363,6 +584,10 @@ where
 
     // Optional agent event subscription.
     let mut agent_event_rx: Option<broadcast::Receiver<crate::agent::types::AgentEvent>> = None;
+    let mut whatsapp_link_rx: Option<
+        broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>,
+    > = None;
+    let mut whatsapp_link_snapshot_replayed = false;
 
     loop {
         // Drain agent events if subscribed.
@@ -394,9 +619,67 @@ where
                 }
             }
         }
+        if let Some(ref mut rx) = whatsapp_link_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(event) => match event {
+                        crate::agent::types::WhatsAppLinkRuntimeEvent::Status(snapshot) => {
+                            if !whatsapp_link_snapshot_replayed {
+                                whatsapp_link_snapshot_replayed = true;
+                                framed
+                                    .send(DaemonMessage::AgentWhatsAppLinkStatus {
+                                        state: snapshot.state,
+                                        phone: snapshot.phone,
+                                        last_error: snapshot.last_error,
+                                    })
+                                    .await?;
+                            }
+                        }
+                        crate::agent::types::WhatsAppLinkRuntimeEvent::Qr {
+                            ascii_qr,
+                            expires_at_ms,
+                        } => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkQr {
+                                    ascii_qr,
+                                    expires_at_ms,
+                                })
+                                .await?;
+                        }
+                        crate::agent::types::WhatsAppLinkRuntimeEvent::Linked { phone } => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinked { phone })
+                                .await?;
+                        }
+                        crate::agent::types::WhatsAppLinkRuntimeEvent::Error {
+                            message,
+                            recoverable,
+                        } => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkError {
+                                    message,
+                                    recoverable,
+                                })
+                                .await?;
+                        }
+                        crate::agent::types::WhatsAppLinkRuntimeEvent::Disconnected { reason } => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkDisconnected { reason })
+                                .await?;
+                        }
+                    },
+                    Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "whatsapp link broadcast lagged");
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+        }
 
         // We need to select between: incoming client messages and output from attached sessions.
-        let has_subscriptions = !attached_rxs.is_empty() || agent_event_rx.is_some();
+        let has_subscriptions =
+            !attached_rxs.is_empty() || agent_event_rx.is_some() || whatsapp_link_rx.is_some();
         let msg = if !has_subscriptions {
             // No attached sessions or agent subscription — just wait for client input.
             match framed.next().await {
@@ -3149,11 +3432,83 @@ where
                         }
                     }
                 }
-                ClientMessage::AgentWhatsAppLinkStart
-                | ClientMessage::AgentWhatsAppLinkStop
-                | ClientMessage::AgentWhatsAppLinkStatus
-                | ClientMessage::AgentWhatsAppLinkSubscribe
-                | ClientMessage::AgentWhatsAppLinkUnsubscribe => {}
+                ClientMessage::AgentWhatsAppLinkStart => {
+                    match agent.whatsapp_link.start().await {
+                        Ok(()) => {
+                            let snapshot = agent.whatsapp_link.status_snapshot().await;
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkStatus {
+                                    state: snapshot.state,
+                                    phone: snapshot.phone,
+                                    last_error: snapshot.last_error,
+                                })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkError {
+                                    message: e.to_string(),
+                                    recoverable: false,
+                                })
+                                .await?;
+                        }
+                    }
+                }
+                ClientMessage::AgentWhatsAppLinkStop => {
+                    match agent
+                        .whatsapp_link
+                        .stop(Some("operator_cancelled".to_string()))
+                        .await
+                    {
+                        Ok(()) => {
+                            let snapshot = agent.whatsapp_link.status_snapshot().await;
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkStatus {
+                                    state: snapshot.state,
+                                    phone: snapshot.phone,
+                                    last_error: snapshot.last_error,
+                                })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkError {
+                                    message: e.to_string(),
+                                    recoverable: false,
+                                })
+                                .await?;
+                        }
+                    }
+                }
+                ClientMessage::AgentWhatsAppLinkStatus => {
+                    let snapshot = agent.whatsapp_link.status_snapshot().await;
+                    framed
+                        .send(DaemonMessage::AgentWhatsAppLinkStatus {
+                            state: snapshot.state,
+                            phone: snapshot.phone,
+                            last_error: snapshot.last_error,
+                        })
+                        .await?;
+                }
+                ClientMessage::AgentWhatsAppLinkSubscribe => {
+                    whatsapp_link_rx = Some(agent.whatsapp_link.subscribe().await);
+                    whatsapp_link_snapshot_replayed = false;
+                    let snapshot = agent.whatsapp_link.status_snapshot().await;
+                    framed
+                        .send(DaemonMessage::AgentWhatsAppLinkStatus {
+                            state: snapshot.state,
+                            phone: snapshot.phone,
+                            last_error: snapshot.last_error,
+                        })
+                        .await?;
+                    whatsapp_link_snapshot_replayed = true;
+                }
+                ClientMessage::AgentWhatsAppLinkUnsubscribe => {
+                    if let Some(rx) = whatsapp_link_rx.take() {
+                        agent.whatsapp_link.unsubscribe(rx);
+                    }
+                    whatsapp_link_snapshot_replayed = false;
+                }
             }
         }
     }
