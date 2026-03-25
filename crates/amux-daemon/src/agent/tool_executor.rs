@@ -2994,12 +2994,44 @@ fn should_use_managed_execution(args: &serde_json::Value) -> bool {
         return true;
     }
 
+    if args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .is_some_and(command_matches_policy_risk)
+    {
+        return true;
+    }
+
     args.get("command")
         .and_then(|value| value.as_str())
         .map(|command| {
             command_requires_managed_state(command) || command_looks_interactive(command)
         })
         .unwrap_or(false)
+}
+
+fn command_matches_policy_risk(command: &str) -> bool {
+    if command.trim().is_empty() {
+        return false;
+    }
+    let request = ManagedCommandRequest {
+        command: command.to_string(),
+        rationale: "policy preflight".to_string(),
+        allow_network: false,
+        sandbox_enabled: false,
+        security_level: SecurityLevel::Lowest,
+        cwd: None,
+        language_hint: None,
+        source: ManagedCommandSource::Agent,
+    };
+    matches!(
+        crate::policy::evaluate_command(
+            "tool-exec-routing-check".to_string(),
+            &request,
+            None
+        ),
+        crate::policy::PolicyDecision::RequireApproval(_)
+    )
 }
 
 fn command_requires_managed_state(command: &str) -> bool {
@@ -5042,10 +5074,10 @@ mod urlencoding {
 mod tests {
     use super::{
         build_list_files_script, build_write_file_command, build_write_file_script,
-        command_looks_interactive, command_requires_managed_state, execute_headless_shell_command,
-        get_available_tools, managed_alias_args, parse_capture_output, resolve_skill_path,
-        should_use_managed_execution, validate_read_path, validate_write_path,
-        wait_for_managed_command_outcome,
+        command_looks_interactive, command_matches_policy_risk, command_requires_managed_state,
+        execute_headless_shell_command, get_available_tools, managed_alias_args,
+        parse_capture_output, resolve_skill_path, should_use_managed_execution, validate_read_path,
+        validate_write_path, wait_for_managed_command_outcome,
     };
     use crate::agent::types::AgentConfig;
     use crate::history::SkillVariantRecord;
@@ -5181,6 +5213,15 @@ mod tests {
         })));
         assert!(!command_requires_managed_state("grep foo Cargo.toml"));
         assert!(!command_requires_managed_state("ls -la"));
+    }
+
+    #[test]
+    fn managed_execution_routes_policy_risky_commands_to_managed_path() {
+        assert!(command_matches_policy_risk("rm -rf /home/mkurman/to_remove"));
+        assert!(should_use_managed_execution(&serde_json::json!({
+            "command": "rm -rf /home/mkurman/to_remove"
+        })));
+        assert!(!command_matches_policy_risk("echo hello"));
     }
 
     #[tokio::test]

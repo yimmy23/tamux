@@ -390,7 +390,7 @@ fn is_local_provider(id: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Returns the default security level selection index for a given tier.
-/// - newcomer  -> 0 (highest: approve all actions)
+/// - newcomer  -> 0 (highest: approve risky actions)
 /// - familiar  -> 1 (moderate: approve risky actions)
 /// - power_user -> 2 (lowest: approve destructive only)
 /// - expert    -> 2 (lowest: approve destructive only)
@@ -418,11 +418,35 @@ fn tier_shows_step(tier: &str, step: &str) -> bool {
 /// Maps a security level selection index to its kebab-case string and label.
 fn security_level_from_index(index: usize) -> (&'static str, &'static str) {
     match index {
-        0 => ("highest", "Approve all actions"),
+        0 => ("highest", "Approve risky actions"),
         1 => ("moderate", "Approve risky actions"),
         2 => ("lowest", "Approve destructive only"),
         3 => ("yolo", "Minimize interruptions"),
         _ => ("moderate", "Approve risky actions"),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostSetupAction {
+    LaunchTui,
+    LaunchElectron,
+    NotNow,
+}
+
+fn post_setup_choices() -> [(&'static str, &'static str); 3] {
+    [
+        ("TUI", "Terminal interface"),
+        ("Electron", "Desktop app"),
+        ("Not now", "Finish setup without launching"),
+    ]
+}
+
+fn post_setup_action_from_index(index: usize) -> PostSetupAction {
+    match index {
+        0 => PostSetupAction::LaunchTui,
+        1 => PostSetupAction::LaunchElectron,
+        2 => PostSetupAction::NotNow,
+        _ => PostSetupAction::NotNow,
     }
 }
 
@@ -491,7 +515,7 @@ fn needs_setup_at(config_path: &Path) -> bool {
 
 /// Run the setup wizard. Connects to the daemon via IPC, queries provider list,
 /// and configures the agent through IPC messages. Never writes config.json.
-pub async fn run_setup_wizard() -> Result<()> {
+pub async fn run_setup_wizard() -> Result<PostSetupAction> {
     // Step 0: Ensure daemon is running
     ensure_daemon_running().await?;
 
@@ -856,7 +880,7 @@ pub async fn run_setup_wizard() -> Result<()> {
     // ----- Security preference step (per D-10, D-11) -- all tiers -----
     println!();
     let security_items: Vec<(&str, &str)> = vec![
-        ("Ask me before doing anything", "highest"),
+        ("Ask for risky actions only (strict)", "highest"),
         ("Ask for risky actions only", "moderate"),
         ("Ask for destructive actions only", "lowest"),
         ("I trust it, minimize interruptions", "yolo"),
@@ -1094,9 +1118,12 @@ pub async fn run_setup_wizard() -> Result<()> {
         println!("  Gateway:   {gw} configured");
     }
     println!();
-    println!("Run 'tamux' to start using tamux.");
+    let launch_items = post_setup_choices();
+    let launch_idx = select_list("What would you like to run now?", &launch_items, false, 0)?
+        .expect("post-setup selection is required");
+    let post_setup_action = post_setup_action_from_index(launch_idx);
 
-    Ok(())
+    Ok(post_setup_action)
 }
 
 // ---------------------------------------------------------------------------
@@ -1157,7 +1184,7 @@ mod tests {
 
     #[test]
     fn test_security_default_for_tier() {
-        // newcomer -> 0 (highest: approve all actions)
+        // newcomer -> 0 (highest: approve risky actions)
         assert_eq!(default_security_index("newcomer"), 0);
         // familiar -> 1 (moderate: approve risky actions)
         assert_eq!(default_security_index("familiar"), 1);
@@ -1184,11 +1211,33 @@ mod tests {
 
     #[test]
     fn test_security_level_from_index() {
-        assert_eq!(security_level_from_index(0), ("highest", "Approve all actions"));
+        assert_eq!(
+            security_level_from_index(0),
+            ("highest", "Approve risky actions")
+        );
         assert_eq!(security_level_from_index(1), ("moderate", "Approve risky actions"));
         assert_eq!(security_level_from_index(2), ("lowest", "Approve destructive only"));
         assert_eq!(security_level_from_index(3), ("yolo", "Minimize interruptions"));
         // Out of range falls back to moderate
         assert_eq!(security_level_from_index(99), ("moderate", "Approve risky actions"));
+    }
+
+    #[test]
+    fn test_post_setup_action_from_index() {
+        assert_eq!(post_setup_action_from_index(0), PostSetupAction::LaunchTui);
+        assert_eq!(
+            post_setup_action_from_index(1),
+            PostSetupAction::LaunchElectron
+        );
+        assert_eq!(post_setup_action_from_index(2), PostSetupAction::NotNow);
+    }
+
+    #[test]
+    fn test_post_setup_choices_include_not_now() {
+        let choices = post_setup_choices();
+        assert_eq!(choices.len(), 3);
+        assert_eq!(choices[0].0, "TUI");
+        assert_eq!(choices[1].0, "Electron");
+        assert_eq!(choices[2].0, "Not now");
     }
 }

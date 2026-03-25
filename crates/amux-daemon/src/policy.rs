@@ -6,7 +6,7 @@ static RISK_PATTERNS: LazyLock<Vec<(Regex, &'static str, &'static str, &'static 
     LazyLock::new(|| {
         vec![
             (
-                Regex::new(r"(^|\s)rm\s+-rf\s+(\/|~|\.\.?)(\s|$)").unwrap(),
+                Regex::new(r"(^|\s)rm\s+-rf\s+\S+").unwrap(),
                 "critical",
                 "filesystem-wide",
                 "destructive recursive delete",
@@ -164,6 +164,21 @@ mod tests {
                     .any(|reason| reason.contains("destructive recursive delete")));
             }
             PolicyDecision::Allow => panic!("expected approval for risky command at lowest level"),
+        }
+    }
+
+    #[test]
+    fn lowest_requires_approval_for_targeted_rm_rf_paths() {
+        let req = request("rm -rf /home/mkurman/to_remove", SecurityLevel::Lowest, false);
+        let decision = evaluate_command("exec_2b".to_string(), &req, None);
+        match decision {
+            PolicyDecision::RequireApproval(payload) => {
+                assert!(payload
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.contains("destructive recursive delete")));
+            }
+            PolicyDecision::Allow => panic!("expected approval for rm -rf on specific paths"),
         }
     }
 

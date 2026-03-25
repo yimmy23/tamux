@@ -2241,6 +2241,10 @@ fn render_advanced_tab<'a>(
         }
         lines.push(Line::from(spans));
     }
+    lines.push(Line::from(Span::styled(
+        "    Strict/highest mode prompts for risky shell commands (e.g. rm -rf).",
+        theme.fg_dim,
+    )));
 
     lines.push(Line::raw(""));
 
