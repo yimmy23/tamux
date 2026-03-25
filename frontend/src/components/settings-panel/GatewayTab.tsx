@@ -29,7 +29,7 @@ function WhatsAppConnector() {
 
             if (event.type === "whatsapp-link-status") {
                 const payload = event.data ?? event;
-                const nextStatus = normalizeWhatsAppStatus(payload?.state);
+                const nextStatus = normalizeWhatsAppStatus(payload?.status);
                 setStatus(nextStatus);
                 setPhoneInfo(payload?.phone ?? null);
                 if (nextStatus !== "qr_ready") setQrAscii(null);
@@ -73,6 +73,8 @@ function WhatsAppConnector() {
                 setPhoneInfo(null);
                 if (typeof reason === "string" && reason.trim()) {
                     setError(reason);
+                } else {
+                    setError(null);
                 }
             }
         });
@@ -124,6 +126,7 @@ function WhatsAppConnector() {
             setStatus("disconnected");
             setQrAscii(null);
             setPhoneInfo(null);
+            setError(null);
         } catch (disconnectError: any) {
             setError(disconnectError.message || "Failed to disconnect");
         }
