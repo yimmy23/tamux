@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex};
 
@@ -65,13 +66,15 @@ struct RuntimeInner {
     last_error: Option<String>,
     active_qr: Option<String>,
     process: Option<Child>,
+    stopping: bool,
     retry_count: u32,
     last_retry_at_ms: Option<u64>,
 }
 
 pub struct WhatsAppLinkRuntime {
     inner: Mutex<RuntimeInner>,
-    events_tx: broadcast::Sender<WhatsAppLinkEvent>,
+    subscribers: Mutex<HashMap<u64, broadcast::Sender<WhatsAppLinkEvent>>>,
+    next_subscriber_id: AtomicU64,
 }
 
 impl Default for WhatsAppLinkRuntime {
@@ -82,7 +85,6 @@ impl Default for WhatsAppLinkRuntime {
 
 impl WhatsAppLinkRuntime {
     pub fn new() -> Self {
-        let (events_tx, _) = broadcast::channel(64);
         Self {
             inner: Mutex::new(RuntimeInner {
                 state: WhatsAppLinkState::Disconnected,
@@ -90,10 +92,12 @@ impl WhatsAppLinkRuntime {
                 last_error: None,
                 active_qr: None,
                 process: None,
+                stopping: false,
                 retry_count: 0,
                 last_retry_at_ms: None,
             }),
-            events_tx,
+            subscribers: Mutex::new(HashMap::new()),
+            next_subscriber_id: AtomicU64::new(1),
         }
     }
 
@@ -109,6 +113,7 @@ impl WhatsAppLinkRuntime {
     pub async fn stop(&self, reason: Option<String>) -> Result<()> {
         let mut child = {
             let mut inner = self.inner.lock().await;
+            inner.stopping = true;
             inner.retry_count = 0;
             inner.last_retry_at_ms = None;
             inner.last_error = None;
@@ -117,20 +122,24 @@ impl WhatsAppLinkRuntime {
             inner.process.take()
         };
 
-        if let Some(ref mut proc) = child {
+        let kill_result = if let Some(ref mut proc) = child {
             proc.kill()
                 .await
-                .context("failed to stop whatsapp link sidecar process")?;
-        }
-
-        {
-            let mut inner = self.inner.lock().await;
-            inner.state = WhatsAppLinkState::Disconnected;
-            inner.process = None;
-        }
+                .context("failed to stop whatsapp link sidecar process")
+        } else {
+            Ok(())
+        };
 
         self.broadcast_disconnected(reason).await;
         self.broadcast_status().await;
+
+        {
+            let mut inner = self.inner.lock().await;
+            inner.process = None;
+            inner.stopping = false;
+        }
+
+        kill_result?;
         Ok(())
     }
 
@@ -144,8 +153,13 @@ impl WhatsAppLinkRuntime {
     }
 
     pub async fn subscribe(&self) -> broadcast::Receiver<WhatsAppLinkEvent> {
-        let rx = self.events_tx.subscribe();
-        self.broadcast_status().await;
+        let snapshot = self.status_snapshot().await;
+        let (tx, rx) = broadcast::channel(64);
+        let id = self.next_subscriber_id.fetch_add(1, Ordering::Relaxed);
+        let mut subscribers = self.subscribers.lock().await;
+        subscribers.insert(id, tx.clone());
+        drop(subscribers);
+        let _ = tx.send(WhatsAppLinkEvent::Status(snapshot));
         rx
     }
 
@@ -153,9 +167,33 @@ impl WhatsAppLinkRuntime {
         drop(rx);
     }
 
-    pub async fn attach_sidecar_process(&self, child: Child) {
-        let mut inner = self.inner.lock().await;
-        inner.process = Some(child);
+    pub async fn attach_sidecar_process(&self, child: Child) -> Result<()> {
+        let (mut incoming, mut previous) = {
+            let mut inner = self.inner.lock().await;
+            if inner.stopping {
+                (Some(child), None)
+            } else {
+                let previous = inner.process.take();
+                inner.process = Some(child);
+                (None, previous)
+            }
+        };
+
+        if let Some(ref mut process) = incoming {
+            process
+                .kill()
+                .await
+                .context("failed to discard whatsapp link sidecar while stop is in progress")?;
+        }
+
+        if let Some(ref mut process) = previous {
+            process
+                .kill()
+                .await
+                .context("failed to replace existing whatsapp link sidecar process")?;
+        }
+
+        Ok(())
     }
 
     pub async fn broadcast_qr(&self, ascii_qr: String, expires_at_ms: Option<u64>) {
@@ -171,10 +209,11 @@ impl WhatsAppLinkRuntime {
             }
         };
         if should_emit {
-            let _ = self.events_tx.send(WhatsAppLinkEvent::Qr {
+            self.broadcast_event(WhatsAppLinkEvent::Qr {
                 ascii_qr,
                 expires_at_ms,
-            });
+            })
+            .await;
             self.broadcast_status().await;
         }
     }
@@ -187,7 +226,7 @@ impl WhatsAppLinkRuntime {
             inner.phone = phone.clone();
             inner.active_qr = None;
         }
-        let _ = self.events_tx.send(WhatsAppLinkEvent::Linked { phone });
+        self.broadcast_event(WhatsAppLinkEvent::Linked { phone }).await;
         self.broadcast_status().await;
     }
 
@@ -201,10 +240,11 @@ impl WhatsAppLinkRuntime {
                 inner.last_retry_at_ms = Some(now_millis());
             }
         }
-        let _ = self.events_tx.send(WhatsAppLinkEvent::Error {
+        self.broadcast_event(WhatsAppLinkEvent::Error {
             message,
             recoverable,
-        });
+        })
+        .await;
         self.broadcast_status().await;
     }
 
@@ -215,14 +255,18 @@ impl WhatsAppLinkRuntime {
             inner.phone = None;
             inner.active_qr = None;
         }
-        let _ = self
-            .events_tx
-            .send(WhatsAppLinkEvent::Disconnected { reason });
+        self.broadcast_event(WhatsAppLinkEvent::Disconnected { reason })
+            .await;
     }
 
     async fn broadcast_status(&self) {
         let snapshot = self.status_snapshot().await;
-        let _ = self.events_tx.send(WhatsAppLinkEvent::Status(snapshot));
+        self.broadcast_event(WhatsAppLinkEvent::Status(snapshot)).await;
+    }
+
+    async fn broadcast_event(&self, event: WhatsAppLinkEvent) {
+        let mut subscribers = self.subscribers.lock().await;
+        subscribers.retain(|_, tx| tx.send(event.clone()).is_ok());
     }
 }
 
@@ -268,9 +312,31 @@ pub fn build_sidecar_launch_spec(node_bin: &str, bridge_path: &Path) -> Result<S
     if program.is_empty() {
         bail!("node binary path is required");
     }
+    let launcher = std::path::Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_ascii_lowercase())
+        .unwrap_or_default();
+    let node_compatible = matches!(
+        launcher.as_str(),
+        "node" | "node.exe" | "electron" | "electron.exe"
+    );
+    if !node_compatible {
+        bail!(
+            "whatsapp sidecar launcher must be node-compatible (node/electron), got: {program}"
+        );
+    }
     let bridge = bridge_path.to_string_lossy().to_string();
     if bridge.trim().is_empty() {
         bail!("bridge path is required");
+    }
+    let cjs_bridge = bridge_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("cjs"))
+        .unwrap_or(false);
+    if !cjs_bridge {
+        bail!("whatsapp bridge entrypoint must be a .cjs file for ESM-safe startup");
     }
     let mut env = HashMap::new();
     env.insert("ELECTRON_RUN_AS_NODE".to_string(), "1".to_string());
@@ -420,6 +486,70 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn subscribe_snapshot_is_not_broadcast_to_existing_subscribers() {
+        let runtime = WhatsAppLinkRuntime::new();
+        runtime.broadcast_linked(Some("+123456789".to_string())).await;
+
+        let mut existing = runtime.subscribe().await;
+        let _ = timeout(Duration::from_millis(250), existing.recv())
+            .await
+            .expect("initial snapshot should arrive for first subscriber")
+            .expect("broadcast should be open");
+
+        let mut newcomer = runtime.subscribe().await;
+        let newcomer_event = timeout(Duration::from_millis(250), newcomer.recv())
+            .await
+            .expect("new subscriber should get immediate snapshot")
+            .expect("broadcast should be open");
+        assert!(matches!(newcomer_event, WhatsAppLinkEvent::Status(_)));
+
+        let duplicate = timeout(Duration::from_millis(75), existing.recv()).await;
+        assert!(duplicate.is_err(), "existing subscriber got duplicate status");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn attach_sidecar_process_discards_incoming_child_during_stop_window() {
+        let runtime = WhatsAppLinkRuntime::new();
+        {
+            let mut inner = runtime.inner.lock().await;
+            inner.stopping = true;
+        }
+
+        let child = Command::new("sh")
+            .arg("-c")
+            .arg("sleep 10")
+            .spawn()
+            .expect("sleep process should spawn");
+        let child_pid = child.id().expect("sleep process pid should be available");
+
+        runtime
+            .attach_sidecar_process(child)
+            .await
+            .expect("attach should discard process while stop is active");
+
+        {
+            let inner = runtime.inner.lock().await;
+            assert!(
+                inner.process.is_none(),
+                "process handle should not be retained while stop is active"
+            );
+        }
+
+        let proc_path = std::path::PathBuf::from(format!("/proc/{child_pid}"));
+        for _ in 0..10 {
+            if !proc_path.exists() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(
+            !proc_path.exists(),
+            "discarded child process should be terminated"
+        );
+    }
+
     #[test]
     fn sidecar_stderr_normalization_strips_gpu_noise_only_lines_and_keeps_actionable_errors() {
         let gpu_noise_only = "[1234:ERROR:gpu_process_host.cc(991)] GPU process launch failed\n";
@@ -442,5 +572,31 @@ mod tests {
         assert_eq!(spec.program, "node");
         assert_eq!(spec.args, vec!["frontend/electron/whatsapp-bridge.cjs"]);
         assert_eq!(spec.env.get("ELECTRON_RUN_AS_NODE"), Some(&"1".to_string()));
+    }
+
+    #[test]
+    fn sidecar_launcher_rejects_non_node_compatible_programs() {
+        let err = build_sidecar_launch_spec(
+            "python",
+            Path::new("frontend/electron/whatsapp-bridge.cjs"),
+        )
+        .expect_err("non-node-compatible launchers must be rejected");
+        assert!(
+            err.to_string().contains("node-compatible"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn sidecar_launcher_rejects_non_cjs_entrypoints() {
+        let err = build_sidecar_launch_spec(
+            "node",
+            Path::new("frontend/electron/whatsapp-bridge.mjs"),
+        )
+        .expect_err("non-cjs bridge paths must be rejected");
+        assert!(
+            err.to_string().contains(".cjs"),
+            "unexpected error: {err}"
+        );
     }
 }

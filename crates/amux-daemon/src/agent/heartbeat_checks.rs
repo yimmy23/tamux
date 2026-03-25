@@ -435,6 +435,7 @@ mod tests {
             gateway_threads: RwLock::new(gateway_threads),
             gateway_seen_ids: Mutex::new(Vec::new()),
             gateway_inflight_channels: Mutex::new(HashSet::new()),
+            whatsapp_link: Arc::new(super::whatsapp_link::WhatsAppLinkRuntime::new()),
             external_runners: RwLock::new(HashMap::new()),
             subagent_runtime: RwLock::new(HashMap::new()),
             stream_cancellations: Mutex::new(HashMap::new()),

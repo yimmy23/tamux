@@ -87,6 +87,7 @@ impl AgentEngine {
             whatsapp_phone_id: gw.whatsapp_phone_id.clone(),
             command_prefix: gw.command_prefix.clone(),
             gateway_electron_bridges_enabled: gw.gateway_electron_bridges_enabled,
+            whatsapp_link_fallback_electron: gw.whatsapp_link_fallback_electron,
         };
 
         let dc = self.gateway_discord_channels.read().await.clone();
