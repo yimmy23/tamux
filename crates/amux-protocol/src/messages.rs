@@ -1142,6 +1142,9 @@ pub struct PluginInfo {
     pub settings_count: u32,
     pub installed_at: String,
     pub updated_at: String,
+    /// Auth status: "connected", "expired", or "not_configured". Per AUTH-03.
+    #[serde(default)]
+    pub auth_status: String,
 }
 
 /// Info about a registered plugin command. Per PSKL-05.
@@ -1979,6 +1982,7 @@ mod tests {
             settings_count: 2,
             installed_at: "2026-03-24T00:00:00Z".into(),
             updated_at: "2026-03-24T00:00:00Z".into(),
+            auth_status: "not_configured".into(),
         }
     }
 

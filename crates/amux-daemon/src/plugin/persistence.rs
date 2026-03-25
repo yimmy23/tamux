@@ -256,6 +256,114 @@ impl PluginPersistence {
 
 use rusqlite::OptionalExtension;
 
+impl PluginPersistence {
+    /// Get a credential from the plugin_credentials table. Returns the raw
+    /// encrypted blob and optional expiry timestamp. Decryption is the caller's
+    /// responsibility (uses crypto module).
+    pub async fn get_credential(
+        &self,
+        plugin_name: &str,
+        credential_type: &str,
+    ) -> Result<Option<(Vec<u8>, Option<String>)>> {
+        let plugin_name = plugin_name.to_string();
+        let credential_type = credential_type.to_string();
+        self.history
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT encrypted_value, expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = ?2",
+                )?;
+                let row = stmt
+                    .query_row(params![plugin_name, credential_type], |row| {
+                        Ok((
+                            row.get::<_, Vec<u8>>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                        ))
+                    })
+                    .optional()?;
+                Ok(row)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Insert or update a credential in the plugin_credentials table.
+    /// The value should already be encrypted (via crypto::encrypt).
+    pub async fn upsert_credential(
+        &self,
+        plugin_name: &str,
+        credential_type: &str,
+        encrypted_value: &[u8],
+        expires_at: Option<&str>,
+    ) -> Result<()> {
+        let plugin_name = plugin_name.to_string();
+        let credential_type = credential_type.to_string();
+        let encrypted_value = encrypted_value.to_vec();
+        let expires_at = expires_at.map(|s| s.to_string());
+        let now = chrono::Utc::now().to_rfc3339();
+        self.history
+            .conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO plugin_credentials (plugin_name, credential_type, encrypted_value, expires_at, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+                     ON CONFLICT(plugin_name, credential_type) DO UPDATE SET
+                         encrypted_value = excluded.encrypted_value,
+                         expires_at = excluded.expires_at,
+                         updated_at = excluded.updated_at",
+                    params![plugin_name, credential_type, encrypted_value, expires_at, now],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Compute auth status for a plugin based on credential state.
+    /// Returns "connected", "expired", or "not_configured".
+    /// No decryption needed -- just checks row existence and expiry.
+    pub async fn get_auth_status(&self, plugin_name: &str) -> Result<String> {
+        let plugin_name = plugin_name.to_string();
+        self.history
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'access_token'",
+                )?;
+                let row = stmt
+                    .query_row(params![plugin_name], |row| {
+                        Ok(row.get::<_, Option<String>>(0)?)
+                    })
+                    .optional()?;
+                match row {
+                    Some(Some(expires_at)) => {
+                        // Check if expired
+                        match chrono::DateTime::parse_from_rfc3339(&expires_at) {
+                            Ok(dt) => {
+                                if dt > chrono::Utc::now() {
+                                    Ok("connected".to_string())
+                                } else {
+                                    Ok("expired".to_string())
+                                }
+                            }
+                            Err(_) => {
+                                // Unparseable expiry -- treat as connected
+                                Ok("connected".to_string())
+                            }
+                        }
+                    }
+                    Some(None) => {
+                        // Row exists but no expiry -- treat as connected
+                        Ok("connected".to_string())
+                    }
+                    None => Ok("not_configured".to_string()),
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

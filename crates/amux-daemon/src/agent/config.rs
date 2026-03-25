@@ -5,6 +5,7 @@ use serde_json::Value;
 
 fn is_sensitive_config_key(key: &str) -> bool {
     let normalized = camel_to_snake_key(key);
+    let lower = normalized.to_ascii_lowercase();
     matches!(
         normalized.as_str(),
         "api_key"
@@ -16,8 +17,13 @@ fn is_sensitive_config_key(key: &str) -> bool {
             | "exa_api_key"
             | "tavily_api_key"
             | "honcho_api_key"
+            | "client_secret"
+            | "access_token"
+            | "refresh_token"
     ) || key.ends_with("_token")
         || key.ends_with("_api_key")
+        || lower.contains("oauth")
+        || lower.contains("credential")
 }
 
 fn redact_config_value(value: &Value) -> Value {

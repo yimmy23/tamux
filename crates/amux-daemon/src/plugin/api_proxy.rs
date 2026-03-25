@@ -33,6 +33,9 @@ pub enum PluginApiError {
 
     #[error("Plugin '{name}' is disabled")]
     PluginDisabled { name: String },
+
+    #[error("OAuth token expired for plugin '{plugin}'. User must re-authorize.")]
+    AuthExpired { plugin: String },
 }
 
 /// Output of template rendering: a fully-resolved HTTP request ready to execute.

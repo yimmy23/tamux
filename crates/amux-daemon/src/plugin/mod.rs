@@ -1,5 +1,6 @@
 pub mod api_proxy;
 pub mod commands;
+pub mod crypto;
 pub mod loader;
 pub mod manifest;
 pub mod persistence;
@@ -158,13 +159,17 @@ impl PluginManager {
             }
         };
 
-        records
-            .iter()
-            .map(|rec| {
-                let loaded = plugins.get(&rec.name);
-                to_plugin_info_from_record(rec, loaded)
-            })
-            .collect()
+        let mut result = Vec::with_capacity(records.len());
+        for rec in &records {
+            let loaded = plugins.get(&rec.name);
+            let auth_status = self
+                .persistence
+                .get_auth_status(&rec.name)
+                .await
+                .unwrap_or_else(|_| "not_configured".to_string());
+            result.push(to_plugin_info_from_record(rec, loaded, auth_status));
+        }
+        result
     }
 
     /// Get a single plugin by name.
@@ -184,7 +189,12 @@ impl PluginManager {
 
         let plugins = self.plugins.read().await;
         let loaded = plugins.get(name);
-        let info = to_plugin_info_from_record(&record, loaded);
+        let auth_status = self
+            .persistence
+            .get_auth_status(name)
+            .await
+            .unwrap_or_else(|_| "not_configured".to_string());
+        let info = to_plugin_info_from_record(&record, loaded, auth_status);
 
         // Extract settings schema from manifest JSON for dynamic form rendering
         let settings_schema = extract_settings_schema(&record.manifest_json);
@@ -285,6 +295,11 @@ impl PluginManager {
 
         self.persistence.upsert_plugin(&record).await?;
 
+        let auth_status = self
+            .persistence
+            .get_auth_status(&manifest.name)
+            .await
+            .unwrap_or_else(|_| "not_configured".to_string());
         let info = to_plugin_info_from_record(
             &record,
             Some(&loader::LoadedPlugin {
@@ -292,6 +307,7 @@ impl PluginManager {
                 manifest_json,
                 dir_name: dir_name.to_string(),
             }),
+            auth_status,
         );
 
         // Install bundled skills
@@ -586,6 +602,7 @@ impl PluginManager {
 fn to_plugin_info_from_record(
     record: &PluginRecord,
     loaded: Option<&LoadedPlugin>,
+    auth_status: String,
 ) -> amux_protocol::PluginInfo {
     if let Some(plugin) = loaded {
         to_plugin_info(
@@ -594,6 +611,7 @@ fn to_plugin_info_from_record(
             &record.install_source,
             &record.installed_at,
             &record.updated_at,
+            auth_status,
         )
     } else {
         // Fallback: reconstruct from manifest_json in record
@@ -612,6 +630,7 @@ fn to_plugin_info_from_record(
             settings_count: 0,
             installed_at: record.installed_at.clone(),
             updated_at: record.updated_at.clone(),
+            auth_status,
         }
     }
 }
@@ -622,6 +641,7 @@ fn to_plugin_info(
     install_source: &str,
     installed_at: &str,
     updated_at: &str,
+    auth_status: String,
 ) -> amux_protocol::PluginInfo {
     amux_protocol::PluginInfo {
         name: plugin.manifest.name.clone(),
@@ -648,6 +668,7 @@ fn to_plugin_info(
             .unwrap_or(0),
         installed_at: installed_at.to_string(),
         updated_at: updated_at.to_string(),
+        auth_status,
     }
 }
 

@@ -49,6 +49,8 @@ semver = "1"
 url = "2"
 handlebars = "6.4"
 percent-encoding = "2"
+aes-gcm = "0.10.3"
+rand = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }

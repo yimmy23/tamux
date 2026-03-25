@@ -2997,6 +2997,7 @@ where
                                 crate::plugin::PluginApiError::EndpointNotFound { .. } => "endpoint_not_found",
                                 crate::plugin::PluginApiError::PluginNotFound { .. } => "plugin_not_found",
                                 crate::plugin::PluginApiError::PluginDisabled { .. } => "plugin_disabled",
+                                crate::plugin::PluginApiError::AuthExpired { .. } => "auth_expired",
                             };
                             framed
                                 .send(DaemonMessage::PluginApiCallResult {
