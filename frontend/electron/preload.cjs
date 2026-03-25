@@ -225,7 +225,7 @@ const bridgeApi = {
         return () => ipcRenderer.removeListener('telegram-message', listener);
     },
 
-    // WhatsApp bridge
+    // WhatsApp link bridge (daemon protocol by default, Electron sidecar via fallback flag)
     whatsappConnect: () => ipcRenderer.invoke('whatsapp-connect'),
     whatsappDisconnect: () => ipcRenderer.invoke('whatsapp-disconnect'),
     whatsappStatus: () => ipcRenderer.invoke('whatsapp-status'),

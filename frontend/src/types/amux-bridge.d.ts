@@ -346,10 +346,10 @@ declare global {
         agentResolveTaskApproval?: (approvalId: string, decision: string) => Promise<unknown>;
         agentListTasks?: () => Promise<unknown[]>;
         sendDiscordMessage?: (payload: { token: string; channelId?: string; userId?: string; message: string }) => Promise<{ ok?: boolean; error?: string; channelId?: string; userId?: string; destination?: string }>;
-        whatsappSend?: (jid: string, message: string) => Promise<unknown>;
+        whatsappSend?: (jid: string, message: string) => Promise<{ ok?: boolean; error?: string }>;
         whatsappConnect?: () => Promise<{ ok?: boolean; error?: string }>;
-        whatsappDisconnect?: () => Promise<unknown>;
-        whatsappStatus?: () => Promise<{ status?: string; phone?: string; phoneNumber?: string }>;
+        whatsappDisconnect?: () => Promise<{ ok?: boolean; error?: string }>;
+        whatsappStatus?: () => Promise<{ status?: string; phone?: string; phoneNumber?: string; lastError?: string | null }>;
         onWhatsAppQR?: (cb: (dataUrl: string) => void) => (() => void) | void;
         onWhatsAppConnected?: (cb: (info: { phone: string }) => void) => (() => void) | void;
         onWhatsAppDisconnected?: (cb: () => void) => (() => void) | void;

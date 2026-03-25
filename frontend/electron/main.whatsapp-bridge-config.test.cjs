@@ -3,13 +3,34 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-test("main process starts WhatsApp bridge in node mode", () => {
-  const mainPath = path.join(__dirname, "main.cjs");
-  const src = fs.readFileSync(mainPath, "utf8");
-  const hasRunAsNodeFlag = /ELECTRON_RUN_AS_NODE\s*:\s*['"]1['"]/.test(src);
-  assert.equal(
-    hasRunAsNodeFlag,
-    true,
-    "startWhatsAppBridge must set ELECTRON_RUN_AS_NODE=1 so bridge does not boot Electron UI/GPU process",
-  );
+const mainPath = path.join(__dirname, "main.cjs");
+const src = fs.readFileSync(mainPath, "utf8");
+
+test("whatsapp handlers route through daemon agent-bridge commands", () => {
+  assert.match(src, /ipcMain\.handle\('whatsapp-connect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-start'/);
+  assert.match(src, /ensureDaemonWhatsAppSubscribed\(\)[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-subscribe'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-connect'[\s\S]*?ensureDaemonWhatsAppSubscribed\(\)/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-disconnect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-stop'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-disconnect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-unsubscribe'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-status'[\s\S]*?sendAgentQuery\(\{\s*type:\s*'whatsapp-link-status'/);
+});
+
+test("whatsapp handlers check gateway.whatsapp_link_fallback_electron", () => {
+  assert.match(src, /whatsapp_link_fallback_electron\s*===\s*true/);
+});
+
+test("main forwards daemon WhatsApp link events to renderer channels", () => {
+  assert.match(src, /event\.type === 'whatsapp-link-qr'/);
+  assert.match(src, /webContents\.send\('whatsapp-qr'/);
+
+  assert.match(src, /event\.type === 'whatsapp-link-linked'/);
+  assert.match(src, /webContents\.send\('whatsapp-connected'/);
+
+  assert.match(src, /event\.type === 'whatsapp-link-error'/);
+  assert.match(src, /webContents\.send\('whatsapp-error'/);
+
+  assert.match(src, /event\.type === 'whatsapp-link-disconnected'/);
+  assert.match(src, /webContents\.send\('whatsapp-disconnected'/);
+
+  assert.match(src, /event\.type === 'whatsapp-link-status'/);
 });

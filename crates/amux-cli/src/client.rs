@@ -223,6 +223,11 @@ enum AgentBridgeCommand {
     PluginTestConnection { name: String },
     #[serde(rename = "plugin-oauth-start")]
     PluginOAuthStart { name: String },
+    WhatsAppLinkStart,
+    WhatsAppLinkStop,
+    WhatsAppLinkStatus,
+    WhatsAppLinkSubscribe,
+    WhatsAppLinkUnsubscribe,
     Shutdown,
 }
 
@@ -1491,6 +1496,21 @@ pub async fn run_agent_bridge() -> Result<()> {
                             AgentBridgeCommand::PluginOAuthStart { name } => {
                                 framed.send(ClientMessage::PluginOAuthStart { name }).await?;
                             }
+                            AgentBridgeCommand::WhatsAppLinkStart => {
+                                framed.send(ClientMessage::AgentWhatsAppLinkStart).await?;
+                            }
+                            AgentBridgeCommand::WhatsAppLinkStop => {
+                                framed.send(ClientMessage::AgentWhatsAppLinkStop).await?;
+                            }
+                            AgentBridgeCommand::WhatsAppLinkStatus => {
+                                framed.send(ClientMessage::AgentWhatsAppLinkStatus).await?;
+                            }
+                            AgentBridgeCommand::WhatsAppLinkSubscribe => {
+                                framed.send(ClientMessage::AgentWhatsAppLinkSubscribe).await?;
+                            }
+                            AgentBridgeCommand::WhatsAppLinkUnsubscribe => {
+                                framed.send(ClientMessage::AgentWhatsAppLinkUnsubscribe).await?;
+                            }
                             AgentBridgeCommand::Shutdown => {
                                 framed.send(ClientMessage::AgentUnsubscribe).await?;
                                 break;
@@ -1713,6 +1733,55 @@ pub async fn run_agent_bridge() -> Result<()> {
                             "name": name,
                             "success": success,
                             "error": error,
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentWhatsAppLinkStatus { state, phone, last_error })) => {
+                        let msg = serde_json::json!({
+                            "type": "whatsapp-link-status",
+                            "data": {
+                                "status": state,
+                                "phone": phone,
+                                "last_error": last_error,
+                            }
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentWhatsAppLinkQr { ascii_qr, expires_at_ms })) => {
+                        let msg = serde_json::json!({
+                            "type": "whatsapp-link-qr",
+                            "data": {
+                                "ascii_qr": ascii_qr,
+                                "expires_at_ms": expires_at_ms,
+                            }
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentWhatsAppLinked { phone })) => {
+                        let msg = serde_json::json!({
+                            "type": "whatsapp-link-linked",
+                            "data": {
+                                "phone": phone,
+                            }
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentWhatsAppLinkError { message, recoverable })) => {
+                        let msg = serde_json::json!({
+                            "type": "whatsapp-link-error",
+                            "data": {
+                                "message": message,
+                                "recoverable": recoverable,
+                            }
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentWhatsAppLinkDisconnected { reason })) => {
+                        let msg = serde_json::json!({
+                            "type": "whatsapp-link-disconnected",
+                            "data": {
+                                "reason": reason,
+                            }
                         });
                         emit_agent_event(&msg.to_string())?;
                     }

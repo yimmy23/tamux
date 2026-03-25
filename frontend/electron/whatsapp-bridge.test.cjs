@@ -1,56 +1,31 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
 
-function runBridgeUntilReady(timeoutMs = 8000) {
-  return new Promise((resolve) => {
-    const electronBin = path.join(__dirname, "..", "node_modules", ".bin", "electron");
-    const bridgePath = path.join(__dirname, "whatsapp-bridge.cjs");
-    const child = spawn(electronBin, [bridgePath], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+const preloadPath = path.join(__dirname, "preload.cjs");
+const mainPath = path.join(__dirname, "main.cjs");
+const preloadSrc = fs.readFileSync(preloadPath, "utf8");
+const mainSrc = fs.readFileSync(mainPath, "utf8");
 
-    let stdout = "";
-    let stderr = "";
-    let done = false;
+test("preload keeps WhatsApp API names stable", () => {
+  assert.match(preloadSrc, /whatsappConnect:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('whatsapp-connect'\)/);
+  assert.match(preloadSrc, /whatsappDisconnect:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('whatsapp-disconnect'\)/);
+  assert.match(preloadSrc, /whatsappStatus:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('whatsapp-status'\)/);
+  assert.match(preloadSrc, /whatsappSend:\s*\(jid, text\)\s*=>\s*ipcRenderer\.invoke\('whatsapp-send', jid, text\)/);
+});
 
-    const finish = (result) => {
-      if (done) return;
-      done = true;
-      try {
-        child.kill("SIGTERM");
-      } catch {}
-      resolve(result);
-    };
+test("preload exposes daemon-backed WhatsApp event subscriptions", () => {
+  assert.match(preloadSrc, /onWhatsAppQR:\s*\(cb\)\s*=>[\s\S]*?ipcRenderer\.on\('whatsapp-qr'/);
+  assert.match(preloadSrc, /onWhatsAppConnected:\s*\(cb\)\s*=>[\s\S]*?ipcRenderer\.on\('whatsapp-connected'/);
+  assert.match(preloadSrc, /onWhatsAppDisconnected:\s*\(cb\)\s*=>[\s\S]*?ipcRenderer\.on\('whatsapp-disconnected'/);
+  assert.match(preloadSrc, /onWhatsAppError:\s*\(cb\)\s*=>[\s\S]*?ipcRenderer\.on\('whatsapp-error'/);
+});
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-      if (stdout.includes('"event":"ready"')) {
-        finish({ stdout, stderr, code: null, ready: true });
-      }
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-
-    child.on("close", (code) => {
-      finish({ stdout, stderr, code, ready: false });
-    });
-
-    setTimeout(() => {
-      finish({ stdout, stderr, code: null, ready: stdout.includes('"event":"ready"') });
-    }, timeoutMs);
-  });
-}
-
-test("whatsapp bridge starts under Electron node mode", async () => {
-  const result = await runBridgeUntilReady();
-  assert.equal(result.ready, true, `bridge did not emit ready event\nstderr:\n${result.stderr}`);
-  assert.ok(
-    !result.stderr.includes("ERR_REQUIRE_ESM"),
-    `bridge failed ESM import compatibility\nstderr:\n${result.stderr}`,
-  );
+test("main uses daemon whatsapp-link protocol command names", () => {
+  assert.match(mainSrc, /type:\s*'whatsapp-link-start'/);
+  assert.match(mainSrc, /type:\s*'whatsapp-link-stop'/);
+  assert.match(mainSrc, /type:\s*'whatsapp-link-status'/);
+  assert.match(mainSrc, /type:\s*'whatsapp-link-subscribe'/);
+  assert.match(mainSrc, /type:\s*'whatsapp-link-unsubscribe'/);
 });

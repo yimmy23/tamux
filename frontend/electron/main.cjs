@@ -36,11 +36,12 @@ let sendAgentCommandFn = null;
 let activeDaemonThreadId = null;
 
 // ---------------------------------------------------------------------------
-// WhatsApp bridge sidecar management
+// WhatsApp bridge sidecar management (legacy fallback only)
 // ---------------------------------------------------------------------------
 let whatsappProcess = null;
 let whatsappRpcId = 0;
 const whatsappPendingCalls = new Map();
+let whatsappDaemonSubscribed = false;
 let discordClient = null;
 let discordClientToken = null;
 let discordListenerAttached = false;
@@ -641,6 +642,17 @@ function stopWhatsAppBridge() {
         whatsappProcess.kill('SIGTERM');
         whatsappProcess = null;
     }
+}
+
+async function convertWhatsAppQrToDataUrl(qrPayload) {
+    if (typeof qrPayload !== 'string' || !qrPayload.trim()) {
+        throw new Error('WhatsApp QR payload is empty');
+    }
+    if (qrPayload.startsWith('data:image/')) {
+        return qrPayload;
+    }
+    const qrcode = require('qrcode');
+    return await qrcode.toDataURL(qrPayload, { margin: 1, scale: 6 });
 }
 
 function getLegacyAmuxDataDir() {
@@ -3710,11 +3722,36 @@ function registerIpcHandlers() {
     ipcMain.handle('telegram-send-message', sendTelegramMessage);
     ipcMain.handle('telegram-ensure-connected', ensureTelegramConnected);
 
-    // WhatsApp bridge
+    function isWhatsAppElectronFallbackEnabled(config) {
+        return config?.gateway?.whatsapp_link_fallback_electron === true;
+    }
+
+    async function getGatewayConfigForWhatsAppFallback() {
+        try {
+            const config = await sendAgentQuery({ type: 'get-config' }, 'config');
+            return config ?? null;
+        } catch (error) {
+            throw new Error(`Failed to read gateway config for WhatsApp fallback: ${error.message || String(error)}`);
+        }
+    }
+
+    async function ensureDaemonWhatsAppSubscribed() {
+        if (whatsappDaemonSubscribed) return;
+        sendAgentCommand({ type: 'whatsapp-link-subscribe' });
+        whatsappDaemonSubscribed = true;
+    }
+
+    // WhatsApp link bridge: daemon protocol by default, Electron sidecar if fallback flag is enabled.
     ipcMain.handle('whatsapp-connect', async () => {
         try {
-            startWhatsAppBridge();
-            await whatsappRpc('connect');
+            const config = await getGatewayConfigForWhatsAppFallback();
+            if (isWhatsAppElectronFallbackEnabled(config)) {
+                startWhatsAppBridge();
+                await whatsappRpc('connect');
+                return { ok: true };
+            }
+            await ensureDaemonWhatsAppSubscribed();
+            sendAgentCommand({ type: 'whatsapp-link-start' });
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };
@@ -3722,10 +3759,19 @@ function registerIpcHandlers() {
     });
     ipcMain.handle('whatsapp-disconnect', async () => {
         try {
-            if (whatsappProcess) {
-                await whatsappRpc('disconnect').catch(() => {});
+            const config = await getGatewayConfigForWhatsAppFallback();
+            if (isWhatsAppElectronFallbackEnabled(config)) {
+                if (whatsappProcess) {
+                    await whatsappRpc('disconnect').catch(() => {});
+                }
+                stopWhatsAppBridge();
+                return { ok: true };
             }
-            stopWhatsAppBridge();
+            sendAgentCommand({ type: 'whatsapp-link-stop' });
+            if (whatsappDaemonSubscribed) {
+                sendAgentCommand({ type: 'whatsapp-link-unsubscribe' });
+                whatsappDaemonSubscribed = false;
+            }
             return { ok: true };
         } catch (err) {
             return { ok: false, error: err.message };
@@ -3733,14 +3779,38 @@ function registerIpcHandlers() {
     });
     ipcMain.handle('whatsapp-status', async () => {
         try {
-            if (!whatsappProcess) return { status: 'disconnected', phone: null };
-            return await whatsappRpc('status');
-        } catch {
-            return { status: 'disconnected', phone: null };
+            const config = await getGatewayConfigForWhatsAppFallback();
+            if (isWhatsAppElectronFallbackEnabled(config)) {
+                if (!whatsappProcess) return { status: 'disconnected', phone: null };
+                return await whatsappRpc('status');
+            }
+            const status = await sendAgentQuery({ type: 'whatsapp-link-status' }, 'whatsapp-link-status');
+            return {
+                status: status?.status ?? 'disconnected',
+                phone: status?.phone ?? null,
+                phoneNumber: status?.phone ?? null,
+                lastError: status?.last_error ?? null,
+            };
+        } catch (error) {
+            return {
+                status: 'error',
+                phone: null,
+                phoneNumber: null,
+                lastError: error.message || String(error),
+            };
         }
     });
     ipcMain.handle('whatsapp-send', async (_event, jid, text) => {
-        return await whatsappRpc('send', { jid, text });
+        const target = typeof jid === 'string' ? jid.trim() : '';
+        const message = typeof text === 'string' ? text : '';
+        if (!target || !message) {
+            return { ok: false, error: 'whatsapp-send requires jid and text' };
+        }
+        return await handleAgentGatewaySend({
+            platform: 'whatsapp',
+            target,
+            message,
+        });
     });
 
     // -----------------------------------------------------------------
@@ -3854,6 +3924,68 @@ function registerIpcHandlers() {
                             success: event.success,
                             error: event.error,
                         });
+                    }
+                    continue;
+                }
+
+                if (event.type === 'whatsapp-link-status') {
+                    let oldest = null;
+                    for (const [reqId, handler] of agentBridge.pending.entries()) {
+                        if (handler.responseType === event.type) {
+                            if (!oldest || handler.ts < oldest.ts) {
+                                oldest = { reqId, handler, ts: handler.ts };
+                            }
+                        }
+                    }
+                    if (oldest) {
+                        oldest.handler.resolve(event.data ?? event);
+                        agentBridge.pending.delete(oldest.reqId);
+                    }
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        const statusPayload = event.data ?? {};
+                        if (typeof statusPayload.last_error === 'string' && statusPayload.last_error.trim()) {
+                            mainWindow.webContents.send('whatsapp-error', statusPayload.last_error);
+                        }
+                    }
+                    continue;
+                }
+
+                if (event.type === 'whatsapp-link-qr') {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        convertWhatsAppQrToDataUrl(event.data?.ascii_qr)
+                            .then((dataUrl) => {
+                                mainWindow?.webContents?.send('whatsapp-qr', dataUrl);
+                            })
+                            .catch((error) => {
+                                mainWindow?.webContents?.send('whatsapp-error', `Failed to render WhatsApp QR: ${error.message || String(error)}`);
+                            });
+                    }
+                    continue;
+                }
+
+                if (event.type === 'whatsapp-link-linked') {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('whatsapp-connected', {
+                            phone: event.data?.phone || null,
+                        });
+                    }
+                    continue;
+                }
+
+                if (event.type === 'whatsapp-link-error') {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('whatsapp-error', event.data?.message || 'WhatsApp link error');
+                    }
+                    continue;
+                }
+
+                if (event.type === 'whatsapp-link-disconnected') {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        const reason = event.data?.reason;
+                        if (typeof reason === 'string' && reason.trim()) {
+                            mainWindow.webContents.send('whatsapp-error', reason);
+                        }
+                        mainWindow.webContents.send('whatsapp-disconnected');
                     }
                     continue;
                 }
@@ -4023,9 +4155,21 @@ function registerIpcHandlers() {
             }
             case 'whatsapp': {
                 try {
-                    await whatsappRpc('send', { jid: target, text: message });
+                    const config = await sendAgentQuery({ type: 'get-config' }, 'config');
+                    if (isWhatsAppElectronFallbackEnabled(config)) {
+                        if (!whatsappProcess) {
+                            throw new Error('WhatsApp bridge not running');
+                        }
+                        await whatsappRpc('send', { jid: target, text: message });
+                        return { ok: true };
+                    }
+                    return {
+                        ok: false,
+                        error: 'WhatsApp send is only available when gateway.whatsapp_link_fallback_electron is true',
+                    };
                 } catch (err) {
                     logToFile('warn', 'agent gateway: WhatsApp send failed', { error: err.message });
+                    return { ok: false, error: err.message };
                 }
                 break;
             }
@@ -4655,6 +4799,14 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
     logToFile('info', 'electron before-quit');
     stopAllTerminalBridges(true, true);
+    if (whatsappDaemonSubscribed && sendAgentCommandFn) {
+        try {
+            sendAgentCommandFn({ type: 'whatsapp-link-unsubscribe' });
+        } catch {
+            // Best effort during shutdown.
+        }
+        whatsappDaemonSubscribed = false;
+    }
     stopWhatsAppBridge();
     cleanupDiscordClient();
     stopSlackBridge();
