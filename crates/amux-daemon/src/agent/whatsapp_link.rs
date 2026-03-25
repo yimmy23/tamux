@@ -153,12 +153,14 @@ impl WhatsAppLinkRuntime {
 
         match kill_result {
             Ok(()) => {
+                {
+                    let mut inner = self.inner.lock().await;
+                    inner.process = None;
+                    inner.stopping = false;
+                    inner.last_error = None;
+                }
                 self.broadcast_disconnected(reason).await;
                 self.broadcast_status().await;
-                let mut inner = self.inner.lock().await;
-                inner.process = None;
-                inner.stopping = false;
-                inner.last_error = None;
                 Ok(())
             }
             Err(err) => {
