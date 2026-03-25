@@ -6,9 +6,17 @@ import { GatewayHealth } from "./GatewaySettings";
 
 type WhatsAppStatus = "disconnected" | "connecting" | "qr_ready" | "connected" | "error";
 
+function normalizeWhatsAppStatus(raw: unknown): WhatsAppStatus {
+    if (raw === "starting" || raw === "connecting") return "connecting";
+    if (raw === "qr_ready" || raw === "connected" || raw === "error" || raw === "disconnected") {
+        return raw;
+    }
+    return "disconnected";
+}
+
 function WhatsAppConnector() {
     const [status, setStatus] = useState<WhatsAppStatus>("disconnected");
-    const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+    const [qrAscii, setQrAscii] = useState<string | null>(null);
     const [phoneInfo, setPhoneInfo] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -16,32 +24,61 @@ function WhatsAppConnector() {
         checkStatus();
 
         const amux = getBridge();
-        const unsubQr = amux?.onWhatsAppQR?.((dataUrl: string) => {
-            setQrDataUrl(dataUrl);
-            setStatus("qr_ready");
-            setError(null);
-        });
-        const unsubConnected = amux?.onWhatsAppConnected?.((info: { phone: string }) => {
-            setPhoneInfo(info.phone);
-            setStatus("connected");
-            setQrDataUrl(null);
-            setError(null);
-        });
-        const unsubDisconnected = amux?.onWhatsAppDisconnected?.(() => {
-            setStatus("disconnected");
-            setQrDataUrl(null);
-            setPhoneInfo(null);
-        });
-        const unsubError = amux?.onWhatsAppError?.((message: string) => {
-            setError(message);
-            setStatus("error");
+        const unsubAgentEvents = amux?.onAgentEvent?.((event: any) => {
+            if (!event || typeof event !== "object") return;
+
+            if (event.type === "whatsapp-link-status") {
+                const payload = event.data ?? event;
+                const nextStatus = normalizeWhatsAppStatus(payload?.state);
+                setStatus(nextStatus);
+                setPhoneInfo(payload?.phone ?? null);
+                if (nextStatus !== "qr_ready") setQrAscii(null);
+                if (typeof payload?.last_error === "string" && payload.last_error.trim()) {
+                    setError(payload.last_error);
+                } else if (nextStatus !== "error") {
+                    setError(null);
+                }
+                return;
+            }
+
+            if (event.type === "whatsapp-link-qr") {
+                const ascii = event.data?.ascii_qr;
+                if (typeof ascii === "string" && ascii.trim()) {
+                    setQrAscii(ascii);
+                    setStatus("qr_ready");
+                    setError(null);
+                }
+                return;
+            }
+
+            if (event.type === "whatsapp-link-linked") {
+                setPhoneInfo(event.data?.phone ?? null);
+                setStatus("connected");
+                setQrAscii(null);
+                setError(null);
+                return;
+            }
+
+            if (event.type === "whatsapp-link-error") {
+                const message = event.data?.message;
+                setError(typeof message === "string" ? message : "WhatsApp link error");
+                setStatus("error");
+                return;
+            }
+
+            if (event.type === "whatsapp-link-disconnected") {
+                const reason = event.data?.reason;
+                setStatus("disconnected");
+                setQrAscii(null);
+                setPhoneInfo(null);
+                if (typeof reason === "string" && reason.trim()) {
+                    setError(reason);
+                }
+            }
         });
 
         return () => {
-            unsubQr?.();
-            unsubConnected?.();
-            unsubDisconnected?.();
-            unsubError?.();
+            unsubAgentEvents?.();
         };
     }, []);
 
@@ -50,8 +87,11 @@ function WhatsAppConnector() {
             const amux = getBridge();
             if (!amux?.whatsappStatus) return;
             const result = await amux.whatsappStatus();
-            if (result.status) setStatus(result.status as WhatsAppStatus);
+            setStatus(normalizeWhatsAppStatus(result.status));
             if (result.phone) setPhoneInfo(result.phone);
+            if (typeof result.lastError === "string" && result.lastError.trim()) {
+                setError(result.lastError);
+            }
         } catch {
             // IPC not available yet
         }
@@ -63,7 +103,7 @@ function WhatsAppConnector() {
         try {
             const amux = getBridge();
             if (!amux?.whatsappConnect) {
-                setError("WhatsApp bridge not available. Install dependencies: npm install @whiskeysockets/baileys qrcode pino @hapi/boom");
+                setError("WhatsApp link bridge is not available.");
                 setStatus("error");
                 return;
             }
@@ -82,7 +122,7 @@ function WhatsAppConnector() {
         try {
             await getBridge()?.whatsappDisconnect?.();
             setStatus("disconnected");
-            setQrDataUrl(null);
+            setQrAscii(null);
             setPhoneInfo(null);
         } catch (disconnectError: any) {
             setError(disconnectError.message || "Failed to disconnect");
@@ -144,18 +184,21 @@ function WhatsAppConnector() {
                     padding: 16, borderRadius: 0,
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
                 }}>
-                    {qrDataUrl ? (
+                    {qrAscii ? (
                         <>
-                            <div style={{
-                                background: "#ffffff", padding: 12, borderRadius: 0,
-                                boxShadow: "none",
-                            }}>
-                                <img
-                                    src={qrDataUrl}
-                                    alt="WhatsApp QR Code"
-                                    style={{ width: 200, height: 200, imageRendering: "pixelated" }}
-                                />
-                            </div>
+                            <pre style={{
+                                margin: 0,
+                                width: "100%",
+                                padding: 12,
+                                background: "rgba(0,0,0,0.35)",
+                                color: "var(--text)",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                                fontSize: 8,
+                                lineHeight: 1,
+                                overflowX: "auto",
+                                whiteSpace: "pre",
+                                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
+                            }}>{qrAscii}</pre>
                             <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)", textAlign: "center", lineHeight: 1.5 }}>
                                 Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
                             </div>
