@@ -1,8 +1,8 @@
 ---
 name: gmail
 description: >
-  Full Gmail integration — read inbox, search, send, trash, manage labels,
-  view threads. Covers the two-step retrieval pattern and all write operations.
+  Full Gmail integration — read inbox, search, send, trash, archive, star,
+  mark read/unread, view threads. Two-step retrieval for messages.
 ---
 
 # Gmail Plugin
@@ -18,7 +18,10 @@ You have access to the **Gmail plugin** with these endpoints:
 | `send_message` | POST | Send email (raw_base64 RFC 2822) |
 | `trash_message` | POST | Move message to trash |
 | `untrash_message` | POST | Restore from trash |
-| `modify_labels` | POST | Add/remove labels (mark read/unread, star, etc.) |
+| `mark_read` | POST | Mark message as read (removes UNREAD label) |
+| `mark_unread` | POST | Mark message as unread (adds UNREAD label) |
+| `star_message` | POST | Star a message (adds STARRED label) |
+| `archive_message` | POST | Archive message (removes from INBOX) |
 | `list_labels` | GET | List all Gmail labels |
 | `get_thread` | GET | View full email thread |
 
@@ -61,11 +64,17 @@ Base64url-encode it (no padding, URL-safe alphabet) and pass as `raw_base64`.
 
 ## Managing Messages
 
+**Archive:** `{"plugin_name": "gmail", "endpoint_name": "archive_message", "params": {"message_id": "ID"}}`
+
 **Trash:** `{"plugin_name": "gmail", "endpoint_name": "trash_message", "params": {"message_id": "ID"}}`
 
-**Mark as read:** `{"plugin_name": "gmail", "endpoint_name": "modify_labels", "params": {"message_id": "ID", "remove_labels": ["UNREAD"]}}`
+**Mark as read:** `{"plugin_name": "gmail", "endpoint_name": "mark_read", "params": {"message_id": "ID"}}`
 
-**Star:** `{"plugin_name": "gmail", "endpoint_name": "modify_labels", "params": {"message_id": "ID", "add_labels": ["STARRED"]}}`
+**Mark as unread:** `{"plugin_name": "gmail", "endpoint_name": "mark_unread", "params": {"message_id": "ID"}}`
+
+**Star:** `{"plugin_name": "gmail", "endpoint_name": "star_message", "params": {"message_id": "ID"}}`
+
+**Restore from trash:** `{"plugin_name": "gmail", "endpoint_name": "untrash_message", "params": {"message_id": "ID"}}`
 
 ## Error Handling
 
