@@ -548,21 +548,6 @@ pub enum ClientMessage {
         tier: Option<String>,
     },
 
-    /// Start WhatsApp QR linking.
-    AgentWhatsAppLinkStart,
-
-    /// Stop WhatsApp QR linking.
-    AgentWhatsAppLinkStop,
-
-    /// Request current WhatsApp QR linking status.
-    AgentWhatsAppLinkStatus,
-
-    /// Subscribe to WhatsApp QR linking updates.
-    AgentWhatsAppLinkSubscribe,
-
-    /// Unsubscribe from WhatsApp QR linking updates.
-    AgentWhatsAppLinkUnsubscribe,
-
     /// List all installed plugins. Per PLUG-09.
     PluginList {},
 
@@ -612,6 +597,21 @@ pub enum ClientMessage {
 
     /// Start OAuth2 flow for a plugin. Per D-13/AUTH-01.
     PluginOAuthStart { name: String },
+
+    /// Start WhatsApp QR linking.
+    AgentWhatsAppLinkStart,
+
+    /// Stop WhatsApp QR linking.
+    AgentWhatsAppLinkStop,
+
+    /// Request current WhatsApp QR linking status.
+    AgentWhatsAppLinkStatus,
+
+    /// Subscribe to WhatsApp QR linking updates.
+    AgentWhatsAppLinkSubscribe,
+
+    /// Unsubscribe from WhatsApp QR linking updates.
+    AgentWhatsAppLinkUnsubscribe,
 }
 
 // ---------------------------------------------------------------------------
@@ -814,40 +814,6 @@ pub enum DaemonMessage {
 
     /// Generic error.
     Error { message: String },
-
-    /// WhatsApp link lifecycle status snapshot.
-    AgentWhatsAppLinkStatus {
-        state: String,
-        #[serde(default)]
-        phone: Option<String>,
-        #[serde(default)]
-        last_error: Option<String>,
-    },
-
-    /// WhatsApp link QR payload.
-    AgentWhatsAppLinkQr {
-        ascii_qr: String,
-        #[serde(default)]
-        expires_at_ms: Option<u64>,
-    },
-
-    /// WhatsApp link connected notification.
-    AgentWhatsAppLinked {
-        #[serde(default)]
-        phone: Option<String>,
-    },
-
-    /// WhatsApp link error notification.
-    AgentWhatsAppLinkError {
-        message: String,
-        recoverable: bool,
-    },
-
-    /// WhatsApp link disconnected notification.
-    AgentWhatsAppLinkDisconnected {
-        #[serde(default)]
-        reason: Option<String>,
-    },
 
     // -----------------------------------------------------------------------
     // Agent engine responses
@@ -1111,6 +1077,40 @@ pub enum DaemonMessage {
         name: String,
         success: bool,
         error: Option<String>,
+    },
+
+    /// WhatsApp link lifecycle status snapshot.
+    AgentWhatsAppLinkStatus {
+        state: String,
+        #[serde(default)]
+        phone: Option<String>,
+        #[serde(default)]
+        last_error: Option<String>,
+    },
+
+    /// WhatsApp link QR payload.
+    AgentWhatsAppLinkQr {
+        ascii_qr: String,
+        #[serde(default)]
+        expires_at_ms: Option<u64>,
+    },
+
+    /// WhatsApp link connected notification.
+    AgentWhatsAppLinked {
+        #[serde(default)]
+        phone: Option<String>,
+    },
+
+    /// WhatsApp link error notification.
+    AgentWhatsAppLinkError {
+        message: String,
+        recoverable: bool,
+    },
+
+    /// WhatsApp link disconnected notification.
+    AgentWhatsAppLinkDisconnected {
+        #[serde(default)]
+        reason: Option<String>,
     },
 }
 
