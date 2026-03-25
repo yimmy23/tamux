@@ -1,122 +1,73 @@
 ---
-name: gmail-inbox
+name: gmail
 description: >
-  How to check Gmail inbox and search emails using the Gmail plugin.
-  Covers the two-step retrieval pattern (list message IDs, then fetch details)
-  and search queries via the Gmail REST API.
+  Full Gmail integration — read inbox, search, send, trash, manage labels,
+  view threads. Covers the two-step retrieval pattern and all write operations.
 ---
 
-# Gmail Inbox & Search
+# Gmail Plugin
 
-You have access to the **Gmail plugin** which lets you read the user's inbox
-and search their emails. Gmail uses a **two-step retrieval pattern**: first
-list message IDs, then fetch details for each message.
+You have access to the **Gmail plugin** with these endpoints:
 
-## Checking the Inbox
+| Endpoint | Method | What it does |
+|----------|--------|-------------|
+| `list_inbox` | GET | List message IDs (two-step: list then get_message) |
+| `get_message` | GET | Get message headers, snippet, labels |
+| `get_message_full` | GET | Get full message with body parts |
+| `search_messages` | GET | Search with Gmail query syntax |
+| `send_message` | POST | Send email (raw_base64 RFC 2822) |
+| `trash_message` | POST | Move message to trash |
+| `untrash_message` | POST | Restore from trash |
+| `modify_labels` | POST | Add/remove labels (mark read/unread, star, etc.) |
+| `list_labels` | GET | List all Gmail labels |
+| `get_thread` | GET | View full email thread |
 
-**Step 1: List message IDs**
+## Reading Inbox (Two-Step Pattern)
 
-Call `plugin_api_call` to get a list of message IDs from the inbox:
-
-```json
-{
-  "tool": "plugin_api_call",
-  "params": {
-    "plugin_name": "gmail",
-    "endpoint_name": "list_inbox",
-    "params": {}
-  }
-}
-```
-
-This returns message IDs and an estimated count. The response includes a
-header like "## Inbox (N messages)" using the `resultSizeEstimate` field
-from the Gmail API. Preserve this count when presenting results to the user.
-
-You can also pass optional parameters:
+Gmail's `list_inbox` returns only IDs. Fetch details with `get_message`:
 
 ```json
-{
-  "tool": "plugin_api_call",
-  "params": {
-    "plugin_name": "gmail",
-    "endpoint_name": "list_inbox",
-    "params": {
-      "max_results": 5,
-      "query": "is:unread"
-    }
-  }
-}
+{"plugin_name": "gmail", "endpoint_name": "list_inbox", "params": {"max_results": 5}}
+```
+Then for each ID:
+```json
+{"plugin_name": "gmail", "endpoint_name": "get_message", "params": {"message_id": "ID_HERE"}}
 ```
 
-**Step 2: Fetch message details**
+Present as: **Subject** — From: sender — time ago / Preview: snippet...
 
-For each message ID returned, call `plugin_api_call` with `get_message`:
+## Searching
 
 ```json
-{
-  "tool": "plugin_api_call",
-  "params": {
-    "plugin_name": "gmail",
-    "endpoint_name": "get_message",
-    "params": {
-      "message_id": "18e1a2b3c4d5e6f7"
-    }
-  }
-}
+{"plugin_name": "gmail", "endpoint_name": "search_messages", "params": {"query": "from:alice subject:meeting", "max_results": 10}}
 ```
 
-This returns the message snippet, headers (Subject, From, Date), and labels.
-Extract the Subject, From, and Date from the headers list to build a summary.
+Query syntax: `from:`, `subject:`, `is:unread`, `after:2026/03/01`, `has:attachment`, `label:important`
 
-**Step 3: Present results**
+## Sending Email
 
-Compile results into a numbered summary for the user:
+The `send_message` endpoint requires a base64url-encoded RFC 2822 message in `raw_base64`. Build the message:
 
-1. **Subject line** -- From: sender -- 2 hours ago
-   Preview of the message snippet...
+```
+From: user@gmail.com
+To: recipient@example.com
+Subject: Hello
+Content-Type: text/plain; charset=utf-8
 
-2. **Another subject** -- From: another sender -- yesterday
-   Preview of the snippet...
-
-## Searching Emails
-
-To search, call `search_messages` with a Gmail search query:
-
-```json
-{
-  "tool": "plugin_api_call",
-  "params": {
-    "plugin_name": "gmail",
-    "endpoint_name": "search_messages",
-    "params": {
-      "query": "from:alice@example.com subject:meeting",
-      "max_results": 10
-    }
-  }
-}
+Message body here
 ```
 
-The `query` parameter uses the same syntax as the Gmail search box:
-- `from:user@example.com` -- messages from a specific sender
-- `subject:keyword` -- messages with keyword in subject
-- `is:unread` -- unread messages only
-- `after:2026/03/01` -- messages after a date
-- `has:attachment` -- messages with attachments
-- `label:important` -- messages with a specific label
+Base64url-encode it (no padding, URL-safe alphabet) and pass as `raw_base64`.
 
-After getting search results (message IDs), fetch details for each using
-`get_message` as described above, then present a numbered summary with the
-"## Search Results (N messages)" header from the response.
+## Managing Messages
+
+**Trash:** `{"plugin_name": "gmail", "endpoint_name": "trash_message", "params": {"message_id": "ID"}}`
+
+**Mark as read:** `{"plugin_name": "gmail", "endpoint_name": "modify_labels", "params": {"message_id": "ID", "remove_labels": ["UNREAD"]}}`
+
+**Star:** `{"plugin_name": "gmail", "endpoint_name": "modify_labels", "params": {"message_id": "ID", "add_labels": ["STARRED"]}}`
 
 ## Error Handling
 
-If the Gmail plugin is not connected, tell the user:
-
-> To use Gmail, connect your Google account in **Settings > Plugins > Gmail**.
-> You will need to set up a Google Cloud project with the Gmail API enabled
-> and configure OAuth credentials.
-
-If a request fails with an authentication error, the OAuth token may have
-expired. The daemon will attempt to refresh the token automatically. If
-refresh also fails, ask the user to reconnect in Settings.
+If not connected: direct user to **Settings > Plugins > Gmail** to configure OAuth.
+If auth error: token may have expired — daemon auto-refreshes, or ask user to reconnect.

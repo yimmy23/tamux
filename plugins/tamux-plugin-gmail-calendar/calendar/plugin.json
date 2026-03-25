@@ -1,8 +1,8 @@
 {
   "name": "calendar",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_version": 1,
-  "description": "View Google Calendar events",
+  "description": "Google Calendar integration — view, create, update, and delete events",
   "author": "tamux",
   "license": "MIT",
   "tamux_version": ">=2.0.0",
@@ -10,7 +10,7 @@
     "type": "oauth2",
     "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/calendar.readonly"],
+    "scopes": ["https://www.googleapis.com/auth/calendar"],
     "pkce": true
   },
   "settings": {
@@ -39,13 +39,49 @@
   "api": {
     "base_url": "https://www.googleapis.com",
     "endpoints": {
-      "list_events_today": {
+      "list_events": {
         "method": "GET",
         "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events?singleEvents=true&orderBy=startTime&timeMin={{params.time_min}}&timeMax={{params.time_max}}&maxResults={{default params.max_results \"20\"}}",
+        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "response_template": "## Calendar Events\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nStatus: {{default status \"confirmed\"}}\nID: {{id}}\n\n{{/each}}"
+      },
+      "get_event": {
+        "method": "GET",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "response_template": "## {{summary}}\n\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\nDescription: {{default description \"(none)\"}}\nStatus: {{default status \"confirmed\"}}\nCreator: {{creator.email}}\nOrganizer: {{organizer.email}}\nAttendees:\n{{#each attendees}}- {{email}} ({{default responseStatus \"unknown\"}})\n{{/each}}"
+      },
+      "create_event": {
+        "method": "POST",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events",
         "headers": {
-          "Authorization": "Bearer {{auth.access_token}}"
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
         },
-        "response_template": "## Today's Calendar\n\n{{#each items}}Event: {{summary}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLocation: {{default location \"No location\"}}\n\n{{/each}}"
+        "body": "{\"summary\": \"{{params.summary}}\", \"start\": {\"dateTime\": \"{{params.start_time}}\"}, \"end\": {\"dateTime\": \"{{params.end_time}}\"}, \"location\": \"{{default params.location \"\"}}\", \"description\": \"{{default params.description \"\"}}\"}",
+        "response_template": "Event created: **{{summary}}**\nID: {{id}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}\nLink: {{htmlLink}}"
+      },
+      "update_event": {
+        "method": "PUT",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": {
+          "Authorization": "Bearer {{auth.access_token}}",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"summary\": \"{{params.summary}}\", \"start\": {\"dateTime\": \"{{params.start_time}}\"}, \"end\": {\"dateTime\": \"{{params.end_time}}\"}, \"location\": \"{{default params.location \"\"}}\", \"description\": \"{{default params.description \"\"}}\"}",
+        "response_template": "Event updated: **{{summary}}**\nID: {{id}}\nStart: {{default start.dateTime start.date}}\nEnd: {{default end.dateTime end.date}}"
+      },
+      "delete_event": {
+        "method": "DELETE",
+        "path": "/calendar/v3/calendars/{{default params.calendar_id \"primary\"}}/events/{{params.event_id}}",
+        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "response_template": "Event deleted."
+      },
+      "list_calendars": {
+        "method": "GET",
+        "path": "/calendar/v3/users/me/calendarList",
+        "headers": { "Authorization": "Bearer {{auth.access_token}}" },
+        "response_template": "## Your Calendars\n\n{{#each items}}- **{{summary}}** (ID: {{id}}, Access: {{accessRole}})\n{{/each}}"
       }
     },
     "rate_limit": {
@@ -55,7 +91,23 @@
   "commands": {
     "today": {
       "description": "Show today's calendar events",
-      "action": "list_events_today"
+      "action": "list_events"
+    },
+    "week": {
+      "description": "Show this week's calendar events",
+      "action": "list_events"
+    },
+    "create": {
+      "description": "Create a new calendar event",
+      "action": "create_event"
+    },
+    "delete": {
+      "description": "Delete a calendar event",
+      "action": "delete_event"
+    },
+    "calendars": {
+      "description": "List all your calendars",
+      "action": "list_calendars"
     }
   },
   "skills": ["skills/calendar-today.md"]

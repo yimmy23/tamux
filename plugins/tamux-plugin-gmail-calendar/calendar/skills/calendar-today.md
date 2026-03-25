@@ -1,94 +1,86 @@
 ---
-name: calendar-today
+name: calendar
 description: >
-  How to check today's Google Calendar events using the Calendar plugin.
-  Covers RFC3339 date computation and the single-step events query.
+  Full Google Calendar integration — list events, view details, create,
+  update, delete events, and list calendars.
 ---
 
-# Calendar: Today's Events
+# Calendar Plugin
 
-You have access to the **Calendar plugin** which lets you list events from
-the user's Google Calendar. Unlike Gmail, Calendar returns full event details
-in a single API call.
+You have access to the **Calendar plugin** with these endpoints:
 
-## Listing Today's Events
+| Endpoint | Method | What it does |
+|----------|--------|-------------|
+| `list_events` | GET | List events in a time range (requires time_min, time_max) |
+| `get_event` | GET | Get full event details including attendees |
+| `create_event` | POST | Create a new event |
+| `update_event` | PUT | Update an existing event |
+| `delete_event` | DELETE | Delete an event |
+| `list_calendars` | GET | List all user's calendars |
 
-**Step 1: Compute today's date boundaries**
+## Listing Events
 
-Determine today's date boundaries in RFC3339 format. For example, if today
-is 2026-03-25, compute:
-- `time_min`: `2026-03-25T00:00:00Z` (start of day in UTC, or adjust for
-  the user's timezone if known)
-- `time_max`: `2026-03-26T00:00:00Z` (start of next day)
+**IMPORTANT:** You must compute RFC3339 date boundaries. For today (e.g., 2026-03-25):
+- `time_min`: `2026-03-25T00:00:00Z`
+- `time_max`: `2026-03-26T00:00:00Z`
 
-**Step 2: Call the calendar endpoint**
-
-```json
-{
-  "tool": "plugin_api_call",
-  "params": {
-    "plugin_name": "calendar",
-    "endpoint_name": "list_events_today",
-    "params": {
-      "time_min": "2026-03-25T00:00:00Z",
-      "time_max": "2026-03-26T00:00:00Z"
-    }
-  }
-}
-```
-
-You can optionally specify a different calendar:
+For a full week, set time_max 7 days ahead.
 
 ```json
-{
-  "tool": "plugin_api_call",
-  "params": {
-    "plugin_name": "calendar",
-    "endpoint_name": "list_events_today",
-    "params": {
-      "time_min": "2026-03-25T00:00:00Z",
-      "time_max": "2026-03-26T00:00:00Z",
-      "calendar_id": "work@group.calendar.google.com",
-      "max_results": 50
-    }
-  }
-}
+{"plugin_name": "calendar", "endpoint_name": "list_events", "params": {"time_min": "2026-03-25T00:00:00Z", "time_max": "2026-03-26T00:00:00Z"}}
 ```
 
-**Step 3: Present results**
+Present as numbered list: **10:00-11:00** — Event Title / Location: ...
 
-The API response template provides a "## Today's Calendar" header. Count
-the events from the returned list and present with a count header:
+## Event Details
 
-## Today's Calendar (N events)
+```json
+{"plugin_name": "calendar", "endpoint_name": "get_event", "params": {"event_id": "EVENT_ID"}}
+```
 
-Format each event as a numbered list:
+Returns summary, times, location, description, creator, organizer, and attendees with RSVP status.
 
-1. **9:00 AM - 10:00 AM** -- Team Standup
-   Location: Conference Room A
+## Creating Events
 
-2. **11:00 AM - 12:00 PM** -- Design Review
-   Location: https://meet.google.com/abc-defg-hij
+```json
+{"plugin_name": "calendar", "endpoint_name": "create_event", "params": {
+  "summary": "Team standup",
+  "start_time": "2026-03-26T10:00:00+01:00",
+  "end_time": "2026-03-26T10:30:00+01:00",
+  "location": "Conference Room A",
+  "description": "Daily sync"
+}}
+```
 
-3. **2:00 PM - 3:30 PM** -- Sprint Planning
-   Location: No location
+Use the user's timezone offset if known, otherwise UTC.
 
-For all-day events, the start/end fields use `start.date` and `end.date`
-instead of `start.dateTime` and `end.dateTime`. The response template
-handles this with the `default` helper, falling back from dateTime to date.
+## Updating Events
 
-Include Google Meet or Zoom links when they appear in the location field.
+Same params as create, plus `event_id`:
+```json
+{"plugin_name": "calendar", "endpoint_name": "update_event", "params": {
+  "event_id": "EVENT_ID",
+  "summary": "Updated title",
+  "start_time": "2026-03-26T11:00:00+01:00",
+  "end_time": "2026-03-26T11:30:00+01:00"
+}}
+```
 
-If there are no events, tell the user their calendar is clear for the day.
+## Deleting Events
+
+```json
+{"plugin_name": "calendar", "endpoint_name": "delete_event", "params": {"event_id": "EVENT_ID"}}
+```
+
+## Listing Calendars
+
+```json
+{"plugin_name": "calendar", "endpoint_name": "list_calendars", "params": {}}
+```
+
+Use a specific calendar by passing `calendar_id` to any endpoint.
 
 ## Error Handling
 
-If the Calendar plugin is not connected, tell the user:
-
-> To use Calendar, connect your Google account in **Settings > Plugins > Calendar**.
-> You will need to set up a Google Cloud project with the Google Calendar API
-> enabled and configure OAuth credentials.
-
-If a request fails with an authentication error, the OAuth token may have
-expired. The daemon will attempt to refresh the token automatically. If
-refresh also fails, ask the user to reconnect in Settings.
+If not connected: direct user to **Settings > Plugins > Calendar** to configure OAuth.
+If auth error: token may have expired — daemon auto-refreshes, or ask user to reconnect.
