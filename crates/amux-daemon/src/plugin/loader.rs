@@ -429,4 +429,132 @@ mod tests {
         assert!(result.loaded.is_empty());
         assert!(result.skipped.is_empty());
     }
+
+    // ── Gmail/Calendar manifest validation (Phase 20-03) ──
+
+    /// Find the project root by walking up from CARGO_MANIFEST_DIR looking for
+    /// `plugins/tamux-plugin-gmail-calendar/`.
+    fn project_root() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // amux-daemon lives at crates/amux-daemon/, project root is ../../
+        manifest_dir
+            .ancestors()
+            .find(|p| p.join("plugins/tamux-plugin-gmail-calendar").is_dir())
+            .expect("could not locate project root with plugins/ directory")
+            .to_path_buf()
+    }
+
+    #[test]
+    fn gmail_manifest_validates_through_plugin_loader() {
+        let root = project_root();
+        let path = root.join("plugins/tamux-plugin-gmail-calendar/gmail/plugin.json");
+        let raw = std::fs::read(&path).expect("gmail plugin.json should exist");
+        let validator = make_validator();
+
+        let (manifest, _raw_json) =
+            validate_manifest(&raw, &validator).expect("gmail manifest should pass validation");
+
+        // Name
+        assert_eq!(manifest.name, "gmail");
+        assert_eq!(manifest.version, "1.0.0");
+        assert_eq!(manifest.schema_version, 1);
+
+        // Auth: OAuth2
+        let auth = manifest.auth.as_ref().expect("gmail should have auth section");
+        assert_eq!(auth.auth_type, "oauth2");
+        assert!(auth.pkce);
+        assert!(auth.authorization_url.is_some());
+        assert!(auth.token_url.is_some());
+        assert_eq!(auth.scopes.as_ref().unwrap().len(), 1);
+
+        // Endpoints: exactly 3 (list_inbox, get_message, search_messages)
+        let api = manifest.api.as_ref().expect("gmail should have api section");
+        assert_eq!(
+            api.endpoints.len(),
+            3,
+            "gmail should have exactly 3 endpoints, got: {:?}",
+            api.endpoints.keys().collect::<Vec<_>>()
+        );
+        assert!(api.endpoints.contains_key("list_inbox"));
+        assert!(api.endpoints.contains_key("get_message"));
+        assert!(api.endpoints.contains_key("search_messages"));
+
+        // Commands: exactly 2 (inbox, search)
+        let commands = manifest
+            .commands
+            .as_ref()
+            .expect("gmail should have commands");
+        assert_eq!(
+            commands.len(),
+            2,
+            "gmail should have exactly 2 commands, got: {:?}",
+            commands.keys().collect::<Vec<_>>()
+        );
+        assert!(commands.contains_key("inbox"));
+        assert!(commands.contains_key("search"));
+
+        // Skills: exactly 1 reference
+        let skills = manifest.skills.as_ref().expect("gmail should have skills");
+        assert_eq!(skills.len(), 1);
+    }
+
+    #[test]
+    fn calendar_manifest_validates_through_plugin_loader() {
+        let root = project_root();
+        let path = root.join("plugins/tamux-plugin-gmail-calendar/calendar/plugin.json");
+        let raw = std::fs::read(&path).expect("calendar plugin.json should exist");
+        let validator = make_validator();
+
+        let (manifest, _raw_json) =
+            validate_manifest(&raw, &validator).expect("calendar manifest should pass validation");
+
+        // Name
+        assert_eq!(manifest.name, "calendar");
+        assert_eq!(manifest.version, "1.0.0");
+        assert_eq!(manifest.schema_version, 1);
+
+        // Auth: OAuth2
+        let auth = manifest
+            .auth
+            .as_ref()
+            .expect("calendar should have auth section");
+        assert_eq!(auth.auth_type, "oauth2");
+        assert!(auth.pkce);
+        assert!(auth.authorization_url.is_some());
+        assert!(auth.token_url.is_some());
+        assert_eq!(auth.scopes.as_ref().unwrap().len(), 1);
+
+        // Endpoints: exactly 1 (list_events_today)
+        let api = manifest
+            .api
+            .as_ref()
+            .expect("calendar should have api section");
+        assert_eq!(
+            api.endpoints.len(),
+            1,
+            "calendar should have exactly 1 endpoint, got: {:?}",
+            api.endpoints.keys().collect::<Vec<_>>()
+        );
+        assert!(api.endpoints.contains_key("list_events_today"));
+
+        // Commands: exactly 1 (today)
+        let commands = manifest
+            .commands
+            .as_ref()
+            .expect("calendar should have commands");
+        assert_eq!(
+            commands.len(),
+            1,
+            "calendar should have exactly 1 command, got: {:?}",
+            commands.keys().collect::<Vec<_>>()
+        );
+        assert!(commands.contains_key("today"));
+
+        // Skills: exactly 1 reference
+        let skills = manifest
+            .skills
+            .as_ref()
+            .expect("calendar should have skills");
+        assert_eq!(skills.len(), 1);
+    }
 }
