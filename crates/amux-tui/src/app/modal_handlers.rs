@@ -36,6 +36,34 @@ impl TuiModel {
                 return false;
             }
 
+            // Plugin settings fields use their own save path — bypass the
+            // base config handler so Enter reaches handle_plugins_settings_key.
+            if self.settings.is_editing()
+                && self.settings.active_tab() == SettingsTab::Plugins
+            {
+                match code {
+                    KeyCode::Enter => {
+                        // Delegate to plugin handler which sends PluginUpdateSetting
+                        if self.handle_plugins_settings_key(code) {
+                            return false;
+                        }
+                    }
+                    KeyCode::Esc => {
+                        self.settings.reduce(SettingsAction::CancelEdit);
+                        return false;
+                    }
+                    KeyCode::Backspace => {
+                        self.settings.reduce(SettingsAction::Backspace);
+                        return false;
+                    }
+                    KeyCode::Char(c) => {
+                        self.settings.reduce(SettingsAction::InsertChar(c));
+                        return false;
+                    }
+                    _ => return false,
+                }
+            }
+
             if self.settings.is_editing() {
                 if self.settings.is_textarea() {
                     match code {
