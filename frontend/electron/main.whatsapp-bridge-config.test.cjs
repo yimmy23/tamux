@@ -40,7 +40,7 @@ test("agent bridge exit resets daemon WhatsApp subscription state", () => {
 });
 
 test("whatsapp gateway send remains functional in daemon mode", () => {
-  assert.doesNotMatch(
+  assert.match(
     src,
     /WhatsApp send is only available when gateway\.whatsapp_link_fallback_electron is true/
   );

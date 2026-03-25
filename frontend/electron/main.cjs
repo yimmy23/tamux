@@ -4164,11 +4164,10 @@ function registerIpcHandlers() {
                         await whatsappRpc('send', { jid: target, text: message });
                         return { ok: true };
                     }
-                    if (!whatsappProcess) {
-                        startWhatsAppBridge();
-                    }
-                    await whatsappRpc('send', { jid: target, text: message });
-                    return { ok: true };
+                    return {
+                        ok: false,
+                        error: 'WhatsApp send is only available when gateway.whatsapp_link_fallback_electron is true',
+                    };
                 } catch (err) {
                     logToFile('warn', 'agent gateway: WhatsApp send failed', { error: err.message });
                     return { ok: false, error: err.message };
