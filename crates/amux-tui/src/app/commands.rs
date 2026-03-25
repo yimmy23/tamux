@@ -297,7 +297,15 @@ impl TuiModel {
                     .reduce(modal::ModalAction::Push(modal::ModalKind::Help));
                 self.modal.set_picker_item_count(100);
             }
-            _ => self.status_line = format!("Unknown command: {}", command),
+            _ => {
+                // Plugin commands (contain '.') are sent as chat messages
+                // so the daemon's agent_loop can intercept and augment them
+                if command.contains('.') {
+                    self.submit_prompt(format!("/{command}"));
+                } else {
+                    self.status_line = format!("Unknown command: {}", command);
+                }
+            }
         }
     }
 
