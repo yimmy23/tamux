@@ -30,6 +30,76 @@ fn truncate_for_display(value: &str, max_chars: usize) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LaunchTarget {
+    Tui,
+    Gui,
+}
+
+fn launch_tui() -> ! {
+    let binary = find_sibling_binary("tamux-tui");
+    match std::process::Command::new(&binary).status() {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(e) => {
+            eprintln!("Error: could not launch tamux-tui: {e}");
+            eprintln!("Install it or ensure it is on your PATH.");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn launch_gui() -> Result<()> {
+    let gui_binary = std::env::var("TAMUX_GUI_PATH")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| find_sibling_binary("tamux-desktop"));
+
+    match std::process::Command::new(&gui_binary).spawn() {
+        Ok(_child) => {
+            println!("Launched tamux desktop GUI.");
+            Ok(())
+        }
+        Err(_) => {
+            #[cfg(target_os = "macos")]
+            {
+                let status = std::process::Command::new("open")
+                    .arg("-a")
+                    .arg("tamux")
+                    .status()
+                    .map_err(|e| {
+                        eprintln!("Error: could not launch tamux GUI: {e}");
+                        eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
+                        std::process::exit(1);
+                    });
+                if let Ok(status) = status {
+                    if !status.success() {
+                        eprintln!("Error: could not launch tamux GUI.");
+                        eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
+                        std::process::exit(1);
+                    }
+                }
+                println!("Launched tamux desktop GUI.");
+                Ok(())
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                eprintln!("Error: could not launch tamux desktop GUI.");
+                eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn handle_post_setup_action(action: setup_wizard::PostSetupAction) -> Option<LaunchTarget> {
+    match action {
+        setup_wizard::PostSetupAction::LaunchTui => Some(LaunchTarget::Tui),
+        setup_wizard::PostSetupAction::LaunchElectron => Some(LaunchTarget::Gui),
+        setup_wizard::PostSetupAction::NotNow => None,
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "tamux", about = "tamux terminal multiplexer CLI")]
 struct Cli {
@@ -359,18 +429,21 @@ async fn main() -> Result<()> {
 
         if needs {
             println!("Welcome to tamux! Running first-time setup...\n");
-            setup_wizard::run_setup_wizard().await?;
-            // Wizard already ensured daemon is running and configured
-
-            println!("\nLaunching TUI...");
-            let status = std::process::Command::new("tamux-tui")
-                .status()
-                .unwrap_or_else(|e| {
-                    eprintln!("Could not launch TUI: {e}");
-                    eprintln!("Start manually with: tamux-tui");
-                    std::process::exit(1);
-                });
-            std::process::exit(status.code().unwrap_or(1));
+            let action = setup_wizard::run_setup_wizard().await?;
+            match handle_post_setup_action(action) {
+                Some(LaunchTarget::Tui) => {
+                    println!("\nLaunching TUI...");
+                    launch_tui();
+                }
+                Some(LaunchTarget::Gui) => {
+                    println!("\nLaunching desktop app...");
+                    launch_gui()?;
+                }
+                None => {
+                    println!("\nSetup complete. Start later with `tamux tui` or `tamux gui`.");
+                }
+            }
+            return Ok(());
         } else {
             // Config exists, no subcommand -- show help
             Cli::parse_from(["tamux", "--help"]);
@@ -382,54 +455,11 @@ async fn main() -> Result<()> {
 
     match command {
         Commands::Tui => {
-            let binary = find_sibling_binary("tamux-tui");
-            let status = std::process::Command::new(&binary).status();
-            match status {
-                Ok(s) => std::process::exit(s.code().unwrap_or(1)),
-                Err(e) => {
-                    eprintln!("Error: could not launch tamux-tui: {e}");
-                    eprintln!("Install it or ensure it is on your PATH.");
-                    std::process::exit(1);
-                }
-            }
+            launch_tui();
         }
 
         Commands::Gui => {
-            // Try TAMUX_GUI_PATH env var first
-            let gui_binary = std::env::var("TAMUX_GUI_PATH")
-                .map(std::path::PathBuf::from)
-                .ok()
-                .filter(|p| p.exists())
-                .unwrap_or_else(|| find_sibling_binary("tamux-desktop"));
-
-            let result = std::process::Command::new(&gui_binary).spawn();
-            match result {
-                Ok(_child) => {
-                    println!("Launched tamux desktop GUI.");
-                }
-                Err(_) => {
-                    // Platform-specific fallback
-                    #[cfg(target_os = "macos")]
-                    {
-                        let _ = std::process::Command::new("open")
-                            .arg("-a")
-                            .arg("tamux")
-                            .status()
-                            .map_err(|e| {
-                                eprintln!("Error: could not launch tamux GUI: {e}");
-                                eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
-                                std::process::exit(1);
-                            });
-                        println!("Launched tamux desktop GUI.");
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        eprintln!("Error: could not launch tamux desktop GUI.");
-                        eprintln!("Install the desktop app or set TAMUX_GUI_PATH.");
-                        std::process::exit(1);
-                    }
-                }
-            }
+            launch_gui()?;
         }
 
         Commands::List => {
@@ -812,8 +842,20 @@ async fn main() -> Result<()> {
         }
 
         Commands::Setup => {
-            setup_wizard::run_setup_wizard().await?;
-            println!("\nSetup complete! Run 'tamux' again to start.");
+            let action = setup_wizard::run_setup_wizard().await?;
+            match handle_post_setup_action(action) {
+                Some(LaunchTarget::Tui) => {
+                    println!("\nLaunching TUI...");
+                    launch_tui();
+                }
+                Some(LaunchTarget::Gui) => {
+                    println!("\nLaunching desktop app...");
+                    launch_gui()?;
+                }
+                None => {
+                    println!("\nSetup complete. Start later with `tamux tui` or `tamux gui`.");
+                }
+            }
         }
 
         Commands::Ping => {
@@ -842,29 +884,55 @@ async fn main() -> Result<()> {
             PluginAction::Add { source } => {
                 println!("Installing plugin from '{}'...", source);
 
-                // Step 1: Install files to disk
-                let (dir_name, source_label) = plugins::install_plugin_v2(&source)?;
-                println!("Files installed to ~/.tamux/plugins/{}/", dir_name);
+                // Step 1: Install files to disk (may return multiple plugins for nested packages)
+                let results = plugins::install_plugin_v2(&source)?;
 
-                // Step 2: Register with daemon via IPC
-                match client::send_plugin_install(&dir_name, &source_label).await {
-                    Ok((true, message)) => {
-                        println!("{}", message);
+                if results.is_empty() {
+                    anyhow::bail!("No plugins found in '{}'", source);
+                }
+
+                for (dir_name, _) in &results {
+                    println!("Files installed to ~/.tamux/plugins/{}/", dir_name);
+                }
+
+                // Step 2: Register each plugin with daemon via IPC
+                let mut registered = Vec::new();
+                let mut failed = false;
+
+                for (dir_name, source_label) in &results {
+                    match client::send_plugin_install(dir_name, source_label).await {
+                        Ok((true, message)) => {
+                            println!("{}", message);
+                            registered.push(dir_name.clone());
+                        }
+                        Ok((false, message)) => {
+                            eprintln!("Registration failed for '{}': {}", dir_name, message);
+                            failed = true;
+                            break;
+                        }
+                        Err(e) => {
+                            // Daemon not reachable -- files installed, warn user
+                            eprintln!(
+                                "Warning: Could not register '{}' with daemon ({}). Start the daemon to activate.",
+                                dir_name, e
+                            );
+                            // Don't mark as failed -- files are installed, daemon can load on startup
+                            registered.push(dir_name.clone());
+                        }
                     }
-                    Ok((false, message)) => {
-                        // Registration failed (e.g., conflict). Clean up files.
-                        eprintln!("Registration failed: {}", message);
-                        let _ = plugins::remove_plugin_files(&dir_name);
-                        eprintln!("Cleaned up plugin files.");
-                        std::process::exit(1);
+                }
+
+                if failed {
+                    // Transactional cleanup: remove ALL plugins from this package (Pitfall 7)
+                    for (dir_name, _) in &results {
+                        let _ = plugins::remove_plugin_files(dir_name);
                     }
-                    Err(e) => {
-                        // Daemon not reachable. Files are installed, warn user.
-                        eprintln!(
-                            "Warning: Could not register with daemon ({}). Plugin files installed. Start the daemon to activate.",
-                            e
-                        );
+                    // Also deregister any that were already registered
+                    for name in &registered {
+                        let _ = client::send_plugin_uninstall(name).await;
                     }
+                    eprintln!("Cleaned up all plugin files from this package.");
+                    std::process::exit(1);
                 }
             }
             PluginAction::Remove { name } => {
