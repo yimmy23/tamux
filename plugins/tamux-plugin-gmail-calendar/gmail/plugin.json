@@ -1,0 +1,59 @@
+{
+  "name": "gmail",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Read Gmail inbox and search emails",
+  "author": "tamux",
+  "license": "MIT",
+  "tamux_version": ">=2.0.0",
+  "auth": {
+    "type": "oauth2",
+    "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+    "pkce": true
+  },
+  "settings": {
+    "max_results": {
+      "type": "number",
+      "label": "Max Results",
+      "required": false,
+      "default": 10,
+      "description": "Maximum number of messages to return"
+    }
+  },
+  "api": {
+    "base_url": "https://gmail.googleapis.com",
+    "endpoints": {
+      "list_inbox": {
+        "method": "GET",
+        "path": "/gmail/v1/users/me/messages?maxResults={{default params.max_results \"10\"}}&q={{urlencode (default params.query \"in:inbox\")}}",
+        "response_template": "## Inbox ({{resultSizeEstimate}} messages)\n\n{{#each messages}}Message ID: {{id}} (Thread: {{threadId}})\n{{/each}}"
+      },
+      "get_message": {
+        "method": "GET",
+        "path": "/gmail/v1/users/me/messages/{{params.message_id}}?format=METADATA&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date",
+        "response_template": "Snippet: {{snippet}}\n\nHeaders:\n{{#each payload.headers}}- {{name}}: {{value}}\n{{/each}}\n\nLabels: {{join labelIds \", \"}}"
+      },
+      "search_messages": {
+        "method": "GET",
+        "path": "/gmail/v1/users/me/messages?maxResults={{default params.max_results \"10\"}}&q={{urlencode params.query}}",
+        "response_template": "## Search Results ({{resultSizeEstimate}} messages)\n\n{{#each messages}}Message ID: {{id}} (Thread: {{threadId}})\n{{/each}}"
+      }
+    },
+    "rate_limit": {
+      "requests_per_minute": 60
+    }
+  },
+  "commands": {
+    "inbox": {
+      "description": "Show recent inbox messages",
+      "action": "list_inbox"
+    },
+    "search": {
+      "description": "Search emails by query",
+      "action": "search_messages"
+    }
+  },
+  "skills": ["skills/gmail-inbox.yaml"]
+}
