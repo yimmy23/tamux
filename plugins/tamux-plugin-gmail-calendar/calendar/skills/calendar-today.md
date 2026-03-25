@@ -1,3 +1,4 @@
+---
 name: calendar-today
 description: >
   How to check today's Google Calendar events using the Calendar plugin.

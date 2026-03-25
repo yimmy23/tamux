@@ -58,5 +58,5 @@
       "action": "list_events_today"
     }
   },
-  "skills": ["skills/calendar-today.yaml"]
+  "skills": ["skills/calendar-today.md"]
 }

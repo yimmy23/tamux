@@ -1,3 +1,4 @@
+---
 name: gmail-inbox
 description: >
   How to check Gmail inbox and search emails using the Gmail plugin.
