@@ -548,6 +548,21 @@ pub enum ClientMessage {
         tier: Option<String>,
     },
 
+    /// Start WhatsApp QR linking.
+    AgentWhatsAppLinkStart,
+
+    /// Stop WhatsApp QR linking.
+    AgentWhatsAppLinkStop,
+
+    /// Request current WhatsApp QR linking status.
+    AgentWhatsAppLinkStatus,
+
+    /// Subscribe to WhatsApp QR linking updates.
+    AgentWhatsAppLinkSubscribe,
+
+    /// Unsubscribe from WhatsApp QR linking updates.
+    AgentWhatsAppLinkUnsubscribe,
+
     /// List all installed plugins. Per PLUG-09.
     PluginList {},
 
@@ -799,6 +814,40 @@ pub enum DaemonMessage {
 
     /// Generic error.
     Error { message: String },
+
+    /// WhatsApp link lifecycle status snapshot.
+    AgentWhatsAppLinkStatus {
+        state: String,
+        #[serde(default)]
+        phone: Option<String>,
+        #[serde(default)]
+        last_error: Option<String>,
+    },
+
+    /// WhatsApp link QR payload.
+    AgentWhatsAppLinkQr {
+        ascii_qr: String,
+        #[serde(default)]
+        expires_at_ms: Option<u64>,
+    },
+
+    /// WhatsApp link connected notification.
+    AgentWhatsAppLinked {
+        #[serde(default)]
+        phone: Option<String>,
+    },
+
+    /// WhatsApp link error notification.
+    AgentWhatsAppLinkError {
+        message: String,
+        recoverable: bool,
+    },
+
+    /// WhatsApp link disconnected notification.
+    AgentWhatsAppLinkDisconnected {
+        #[serde(default)]
+        reason: Option<String>,
+    },
 
     // -----------------------------------------------------------------------
     // Agent engine responses
@@ -1796,6 +1845,78 @@ mod tests {
         }
     }
 
+    #[test]
+    fn whatsapp_link_start_bincode_roundtrip() {
+        let msg = ClientMessage::AgentWhatsAppLinkStart;
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentWhatsAppLinkStart => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_stop_bincode_roundtrip() {
+        let msg = ClientMessage::AgentWhatsAppLinkStop;
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentWhatsAppLinkStop => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_status_bincode_roundtrip() {
+        let msg = ClientMessage::AgentWhatsAppLinkStatus;
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentWhatsAppLinkStatus => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_subscribe_bincode_roundtrip() {
+        let msg = ClientMessage::AgentWhatsAppLinkSubscribe;
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentWhatsAppLinkSubscribe => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_unsubscribe_bincode_roundtrip() {
+        let msg = ClientMessage::AgentWhatsAppLinkUnsubscribe;
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentWhatsAppLinkUnsubscribe => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn client_message_backward_compat_skill_list_bincode_roundtrip() {
+        let msg = ClientMessage::SkillList {
+            status: Some("active".to_string()),
+            limit: 5,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::SkillList { status, limit } => {
+                assert_eq!(status.as_deref(), Some("active"));
+                assert_eq!(limit, 5);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // DaemonMessage round-trips
     // -----------------------------------------------------------------------
@@ -1932,6 +2053,116 @@ mod tests {
 
     #[test]
     fn skill_publish_result_bincode_roundtrip() {
+        let msg = DaemonMessage::SkillPublishResult {
+            success: true,
+            message: "published".to_string(),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::SkillPublishResult { success, message } => {
+                assert!(success);
+                assert_eq!(message, "published");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_status_daemon_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentWhatsAppLinkStatus {
+            state: "qr_ready".to_string(),
+            phone: Some("+15551234567".to_string()),
+            last_error: Some("waiting for scan".to_string()),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentWhatsAppLinkStatus {
+                state,
+                phone,
+                last_error,
+            } => {
+                assert_eq!(state, "qr_ready");
+                assert_eq!(phone.as_deref(), Some("+15551234567"));
+                assert_eq!(last_error.as_deref(), Some("waiting for scan"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_qr_daemon_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentWhatsAppLinkQr {
+            ascii_qr: "QR".to_string(),
+            expires_at_ms: Some(123456789),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentWhatsAppLinkQr {
+                ascii_qr,
+                expires_at_ms,
+            } => {
+                assert_eq!(ascii_qr, "QR");
+                assert_eq!(expires_at_ms, Some(123456789));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_linked_daemon_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentWhatsAppLinked {
+            phone: Some("+15551234567".to_string()),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentWhatsAppLinked { phone } => {
+                assert_eq!(phone.as_deref(), Some("+15551234567"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_error_daemon_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentWhatsAppLinkError {
+            message: "bridge failed".to_string(),
+            recoverable: false,
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentWhatsAppLinkError {
+                message,
+                recoverable,
+            } => {
+                assert_eq!(message, "bridge failed");
+                assert!(!recoverable);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_disconnected_daemon_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentWhatsAppLinkDisconnected {
+            reason: Some("user canceled".to_string()),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
+                assert_eq!(reason.as_deref(), Some("user canceled"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn daemon_message_backward_compat_skill_publish_result_bincode_roundtrip() {
         let msg = DaemonMessage::SkillPublishResult {
             success: true,
             message: "published".to_string(),
