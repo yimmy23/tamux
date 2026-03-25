@@ -55,9 +55,14 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
                 self.send_daemon_command(DaemonCommand::ListSubAgents);
                 self.send_daemon_command(DaemonCommand::GetConciergeConfig);
-                self.concierge
-                    .reduce(crate::state::ConciergeAction::WelcomeLoading(true));
-                self.send_daemon_command(DaemonCommand::RequestConciergeWelcome);
+                if self.concierge.has_active_welcome() {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
+                } else {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::WelcomeLoading(true));
+                    self.send_daemon_command(DaemonCommand::RequestConciergeWelcome);
+                }
                 let cwd = std::env::current_dir()
                     .ok()
                     .map(|p| p.to_string_lossy().to_string());
@@ -559,6 +564,11 @@ impl TuiModel {
                         .reduce(crate::state::ConciergeAction::WelcomeDismissed);
                     return;
                 }
+                if self.concierge.is_same_welcome(&content, &actions) {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
+                    return;
+                }
                 self.ignore_pending_concierge_welcome = false;
 
                 // Keep action state for keyboard navigation (left/right arrows)
@@ -568,36 +578,40 @@ impl TuiModel {
                         actions: actions.clone(),
                     });
 
-                // Build chat message content with action buttons appended as text
-                let mut chat_content = content;
-                if !actions.is_empty() {
-                    chat_content.push_str("\n\nSuggested actions:");
-                    for action in &actions {
-                        chat_content.push_str(&format!("  [{}]", action.label));
-                    }
-                }
-
-                // Inject as a regular assistant message into the concierge thread
-                if let Some(thread) = self.chat.active_thread_mut() {
-                    if thread.id == "concierge" {
-                        thread.messages.push(chat::AgentMessage {
-                            role: chat::MessageRole::Assistant,
-                            content: chat_content,
-                            ..Default::default()
-                        });
-                    }
-                } else {
-                    // Thread not yet in chat state -- create a placeholder with the message
+                let concierge_thread_id = "concierge".to_string();
+                let existing_thread = self
+                    .chat
+                    .threads()
+                    .iter()
+                    .any(|thread| thread.id == concierge_thread_id);
+                if !existing_thread {
                     self.chat.reduce(chat::ChatAction::ThreadCreated {
-                        thread_id: "concierge".to_string(),
+                        thread_id: concierge_thread_id.clone(),
                         title: "Concierge".to_string(),
                     });
-                    if let Some(thread) = self.chat.active_thread_mut() {
-                        thread.messages.push(chat::AgentMessage {
-                            role: chat::MessageRole::Assistant,
-                            content: chat_content,
-                            ..Default::default()
-                        });
+                }
+                self.chat.reduce(chat::ChatAction::AppendMessage {
+                    thread_id: concierge_thread_id.clone(),
+                    message: chat::AgentMessage {
+                        role: chat::MessageRole::Assistant,
+                        content,
+                        actions: actions
+                            .iter()
+                            .map(|action| chat::MessageAction {
+                                label: action.label.clone(),
+                                action_type: action.action_type.clone(),
+                                thread_id: action.thread_id.clone(),
+                            })
+                            .collect(),
+                        is_concierge_welcome: true,
+                        ..Default::default()
+                    },
+                });
+                if let Some(thread) = self.chat.active_thread() {
+                    if thread.id == concierge_thread_id {
+                        let welcome_index = thread.messages.len().saturating_sub(1);
+                        self.chat
+                            .reduce(chat::ChatAction::PinMessageTop(welcome_index));
                     }
                 }
 
@@ -610,6 +624,13 @@ impl TuiModel {
                     self.send_daemon_command(DaemonCommand::RequestThread(
                         "concierge".to_string(),
                     ));
+                }
+                if let Some(thread) = self.chat.active_thread() {
+                    if thread.id == concierge_thread_id {
+                        let welcome_index = thread.messages.len().saturating_sub(1);
+                        self.chat
+                            .reduce(chat::ChatAction::PinMessageTop(welcome_index));
+                    }
                 }
                 self.main_pane_view = MainPaneView::Conversation;
                 self.focus = FocusArea::Chat;
@@ -632,6 +653,7 @@ impl TuiModel {
                         settings_count: p.settings_count,
                         description: p.description.clone(),
                         install_source: p.install_source.clone(),
+                        auth_status: p.auth_status.clone(),
                     })
                     .collect();
                 self.plugin_settings.loading = false;
@@ -704,6 +726,34 @@ impl TuiModel {
                     }
                 } else {
                     self.status_line = format!("Plugin error: {}", message);
+                }
+            }
+            ClientEvent::PluginOAuthUrl { name, url } => {
+                if crate::auth::open_external_url(&url).is_ok() {
+                    self.status_line =
+                        format!("Opening browser for {} OAuth... Waiting for callback.", name);
+                } else {
+                    self.status_line = format!(
+                        "Could not open browser. Visit: {}",
+                        if url.len() > 60 { &url[..60] } else { &url }
+                    );
+                }
+            }
+            ClientEvent::PluginOAuthComplete {
+                name,
+                success,
+                error,
+            } => {
+                if success {
+                    self.status_line = format!("{}: OAuth connected successfully.", name);
+                    // Refresh plugin list to update auth_status
+                    self.send_daemon_command(DaemonCommand::PluginList);
+                } else {
+                    self.status_line = format!(
+                        "{}: OAuth failed -- {}",
+                        name,
+                        error.as_deref().unwrap_or("unknown error")
+                    );
                 }
             }
             ClientEvent::Error(message) => {

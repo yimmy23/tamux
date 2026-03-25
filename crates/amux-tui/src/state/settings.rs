@@ -570,6 +570,7 @@ pub struct PluginListItem {
     pub settings_count: u32,
     pub description: Option<String>,
     pub install_source: String,
+    pub auth_status: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1075,6 +1076,7 @@ mod tests {
             settings_count: 2,
             description: Some("A test plugin".to_string()),
             install_source: "npm".to_string(),
+            auth_status: "not_configured".to_string(),
         });
         assert_eq!(ps.selected_plugin().unwrap().name, "test-plugin");
         // detail_field_count: 0 schema fields + 1 (has_api) + 0 (no has_auth) = 1

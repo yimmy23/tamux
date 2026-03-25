@@ -193,6 +193,15 @@ pub enum ClientEvent {
         success: bool,
         message: String,
     },
+    PluginOAuthUrl {
+        name: String,
+        url: String,
+    },
+    PluginOAuthComplete {
+        name: String,
+        success: bool,
+        error: Option<String>,
+    },
 
     Error(String),
 }
@@ -759,6 +768,24 @@ impl DaemonClient {
             DaemonMessage::PluginActionResult { success, message } => {
                 let _ = event_tx
                     .send(ClientEvent::PluginAction { success, message })
+                    .await;
+            }
+            DaemonMessage::PluginOAuthUrl { name, url } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginOAuthUrl { name, url })
+                    .await;
+            }
+            DaemonMessage::PluginOAuthComplete {
+                name,
+                success,
+                error,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginOAuthComplete {
+                        name,
+                        success,
+                        error,
+                    })
                     .await;
             }
             DaemonMessage::Error { message } => {
@@ -1334,6 +1361,10 @@ impl DaemonClient {
 
     pub fn plugin_test_connection(&self, name: String) -> Result<()> {
         self.send(ClientMessage::PluginTestConnection { name })
+    }
+
+    pub fn plugin_oauth_start(&self, name: String) -> Result<()> {
+        self.send(ClientMessage::PluginOAuthStart { name })
     }
 
     pub fn resolve_task_approval(&self, approval_id: String, decision: String) -> Result<()> {

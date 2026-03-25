@@ -118,6 +118,8 @@ pub enum DaemonCommand {
         is_secret: bool,
     },
     PluginTestConnection(String),
+    // OAuth (Plan 18-03)
+    PluginOAuthStart(String),
 }
 
 // ── Placeholder sub-action enums ──────────────────────────────────────────────

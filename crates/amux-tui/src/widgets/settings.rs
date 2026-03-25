@@ -3099,11 +3099,23 @@ fn render_plugins_tab<'a>(
             let is_selected = i == plugin_state.selected_index;
             let marker = if is_selected { "> " } else { "  " };
             let checkbox = if plugin.enabled { "[x]" } else { "[ ]" };
-            let auth_status = if plugin.has_auth {
-                // Abbreviated per TUI copywriting contract
-                "OK"
+            let auth_status = if !plugin.has_auth {
+                "N/A".to_string()
             } else {
-                "N/A"
+                match plugin.auth_status.as_str() {
+                    "connected" => "OK".to_string(),
+                    "expired" => "Expired".to_string(),
+                    _ => "Setup".to_string(),
+                }
+            };
+            let auth_style = if !plugin.has_auth {
+                theme.fg_dim
+            } else {
+                match plugin.auth_status.as_str() {
+                    "connected" => Style::default().fg(Color::Green),
+                    "expired" => Style::default().fg(Color::Yellow),
+                    _ => theme.fg_dim,
+                }
             };
             let name_style = if is_selected {
                 theme.accent_primary
@@ -3119,7 +3131,7 @@ fn render_plugins_tab<'a>(
                 Span::styled(format!("{} ", checkbox), if plugin.enabled { theme.accent_primary } else { meta_style }),
                 Span::styled(plugin.name.clone(), name_style),
                 Span::styled(format!("  v{}", plugin.version), meta_style),
-                Span::styled(format!("  {}", auth_status), meta_style),
+                Span::styled(format!("  {}", auth_status), auth_style),
             ]));
         }
     } else {
@@ -3249,10 +3261,15 @@ fn render_plugins_tab<'a>(
             } else {
                 theme.fg_dim
             };
+            let connect_label = if plugin.auth_status == "connected" {
+                "[Reconnect]"
+            } else {
+                "[Connect]"
+            };
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
                 Span::styled(
-                    "[Connect]",
+                    connect_label,
                     if is_active {
                         theme.accent_primary
                     } else {

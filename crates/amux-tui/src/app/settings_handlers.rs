@@ -1747,7 +1747,25 @@ impl TuiModel {
                                 );
                             }
                         }
-                        // Connect button: no-op in TUI (would require browser open)
+                        // Connect / Reconnect button: trigger OAuth flow (Plan 18-03)
+                        let has_auth = self
+                            .plugin_settings
+                            .selected_plugin()
+                            .map_or(false, |p| p.has_auth);
+                        let connect_offset = action_offset + if has_api { 1 } else { 0 };
+                        if has_auth && cursor == connect_offset {
+                            let name = self
+                                .plugin_settings
+                                .selected_plugin()
+                                .map(|p| p.name.clone());
+                            if let Some(name) = name {
+                                self.send_daemon_command(
+                                    DaemonCommand::PluginOAuthStart(name),
+                                );
+                                self.status_line =
+                                    "Starting OAuth flow...".to_string();
+                            }
+                        }
                     }
                     return true;
                 }
