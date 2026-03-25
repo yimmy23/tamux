@@ -20,6 +20,7 @@ export type PluginInfoItem = {
   settings_count: number;
   installed_at: string;
   updated_at: string;
+  auth_status: string;
 };
 
 export type PluginSettingValue = {
@@ -59,12 +60,17 @@ type PluginStoreState = {
   testResult: { success: boolean; message: string } | null;
   testLoading: boolean;
 
+  // OAuth state
+  oauthError: string | null;
+
   // Actions
   fetchPlugins: () => Promise<void>;
   selectPlugin: (name: string | null) => Promise<void>;
   toggleEnabled: (name: string, enabled: boolean) => Promise<void>;
   updateSetting: (pluginName: string, key: string, value: string, isSecret: boolean) => Promise<void>;
   testConnection: (name: string) => Promise<void>;
+  startOAuth: (name: string) => Promise<void>;
+  initOAuthListener: () => void;
 };
 
 export const usePluginStore = create<PluginStoreState>((set, get) => ({
@@ -80,12 +86,18 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
   testResult: null,
   testLoading: false,
 
+  oauthError: null,
+
   fetchPlugins: async () => {
     set({ loading: true, error: null });
     try {
       const bridge = getBridge();
       const result = await bridge?.pluginDaemonList?.();
-      set({ plugins: result?.plugins ?? [], loading: false });
+      const plugins = (result?.plugins ?? []).map((p) => ({
+        ...p,
+        auth_status: p.auth_status ?? "not_configured",
+      }));
+      set({ plugins, loading: false });
     } catch {
       set({ plugins: [], loading: false, error: "Could not load plugins. Ensure the daemon is running." });
     }
@@ -188,5 +200,32 @@ export const usePluginStore = create<PluginStoreState>((set, get) => ({
     } catch {
       set({ testResult: { success: false, message: "Connection test failed unexpectedly." }, testLoading: false });
     }
+  },
+
+  startOAuth: async (name) => {
+    set({ oauthError: null });
+    try {
+      const bridge = getBridge();
+      const result = await bridge?.pluginOAuthStart?.(name);
+      if (result?.url) {
+        // The Electron main process opens the browser via shell.openExternal
+        // when it receives the PluginOAuthUrl from the daemon.
+        // No need to open from renderer side.
+      }
+    } catch {
+      set({ oauthError: "Failed to start OAuth flow. Ensure the daemon is running." });
+    }
+  },
+
+  initOAuthListener: () => {
+    const bridge = getBridge();
+    bridge?.onPluginOAuthComplete?.((data) => {
+      if (data.success) {
+        // Refresh plugin list to pick up updated auth_status
+        void get().fetchPlugins();
+      } else {
+        set({ oauthError: data.error ?? "OAuth flow failed." });
+      }
+    });
   },
 }));

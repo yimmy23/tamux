@@ -228,9 +228,7 @@ function PluginCard({ plugin }: { plugin: PluginInfoItem }) {
     void toggleEnabled(plugin.name, enabled);
   }
 
-  // Phase 16: auth status is always "not_configured" (OAuth flow is Phase 18)
-  // eslint-disable-next-line prefer-const
-  let authStatus: AuthStatus = "not_configured";
+  const authStatus: AuthStatus = (plugin.auth_status as AuthStatus) || "not_configured";
 
   return (
     <div style={{ borderBottom: "1px solid var(--border)" }}>
@@ -305,11 +303,11 @@ function PluginCard({ plugin }: { plugin: PluginInfoItem }) {
               <button
                 style={smallBtnStyle}
                 onClick={() => {
-                  // Per D-07: opens system browser for OAuth
-                  window.open(`https://accounts.google.com/o/oauth2/auth?plugin=${encodeURIComponent(plugin.name)}`, "_blank");
+                  const store = usePluginStore.getState();
+                  void store.startOAuth(plugin.name);
                 }}
               >
-                {(authStatus as AuthStatus) === "expired" ? "Reconnect" : "Connect"}
+                {authStatus === "expired" ? "Reconnect" : "Connect"}
               </button>
             </div>
           ) : null}
@@ -332,10 +330,12 @@ export function PluginsTab() {
   const plugins = usePluginStore((s) => s.plugins);
   const loading = usePluginStore((s) => s.loading);
   const fetchPlugins = usePluginStore((s) => s.fetchPlugins);
+  const initOAuthListener = usePluginStore((s) => s.initOAuthListener);
 
   useEffect(() => {
     void fetchPlugins();
-  }, [fetchPlugins]);
+    initOAuthListener();
+  }, [fetchPlugins, initOAuthListener]);
 
   if (loading) return null;
 

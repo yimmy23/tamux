@@ -332,8 +332,10 @@ declare global {
         agentRequestConciergeWelcome?: () => Promise<{ ok?: boolean }>;
         listInstalledPlugins?: () => Promise<AmuxInstalledPluginRecord[]>;
         loadInstalledPlugins?: () => Promise<AmuxInstalledPluginLoadResult[]>;
-        pluginDaemonList?: () => Promise<{ plugins: Array<{ name: string; version: string; description?: string; author?: string; enabled: boolean; install_source: string; has_api: boolean; has_auth: boolean; has_commands: boolean; has_skills: boolean; endpoint_count: number; settings_count: number; installed_at: string; updated_at: string }> }>;
-        pluginDaemonGet?: (name: string) => Promise<{ plugin: { name: string; version: string; description?: string; author?: string; enabled: boolean; install_source: string; has_api: boolean; has_auth: boolean; has_commands: boolean; has_skills: boolean; endpoint_count: number; settings_count: number; installed_at: string; updated_at: string } | null; settings_schema: string | null }>;
+        pluginDaemonList?: () => Promise<{ plugins: Array<{ name: string; version: string; description?: string; author?: string; enabled: boolean; install_source: string; has_api: boolean; has_auth: boolean; has_commands: boolean; has_skills: boolean; endpoint_count: number; settings_count: number; installed_at: string; updated_at: string; auth_status?: string }> }>;
+        pluginDaemonGet?: (name: string) => Promise<{ plugin: { name: string; version: string; description?: string; author?: string; enabled: boolean; install_source: string; has_api: boolean; has_auth: boolean; has_commands: boolean; has_skills: boolean; endpoint_count: number; settings_count: number; installed_at: string; updated_at: string; auth_status?: string } | null; settings_schema: string | null }>;
+        pluginOAuthStart?: (name: string) => Promise<{ name: string; url: string }>;
+        onPluginOAuthComplete?: (callback: (data: { name: string; success: boolean; error?: string }) => void) => (() => void) | void;
         pluginDaemonEnable?: (name: string) => Promise<{ ok?: boolean; error?: string }>;
         pluginDaemonDisable?: (name: string) => Promise<{ ok?: boolean; error?: string }>;
         pluginGetSettings?: (name: string) => Promise<{ plugin_name: string; settings: Array<{ key: string; value: string; is_secret: boolean }> }>;

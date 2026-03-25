@@ -3466,6 +3466,19 @@ function registerIpcHandlers() {
             return { plugin_name: name, success: false, message: err.message || 'Bridge error' };
         }
     });
+    // Plugin OAuth start (Plan 18-03) — sends PluginOAuthStart to daemon, returns { name, url }
+    ipcMain.handle('plugin-oauth-start', async (_event, name) => {
+        try {
+            const result = await sendAgentQuery({ type: 'plugin-oauth-start', name }, 'plugin-oauth-url', 30000);
+            // Also open browser automatically
+            if (result?.url) {
+                shell.openExternal(result.url);
+            }
+            return { name: result?.name ?? name, url: result?.url ?? '' };
+        } catch (err) {
+            return { name, url: '', error: err.message || 'Failed to start OAuth flow' };
+        }
+    });
     ipcMain.handle('diagnostics-check-lsp', checkLspHealth);
     ipcMain.handle('diagnostics-check-mcp', checkMcpHealth);
     ipcMain.handle('persistence-get-data-dir', () => ensureTamuxDataDir());
@@ -3811,6 +3824,12 @@ function registerIpcHandlers() {
                     'concierge-config',
                     'concierge-welcome-dismissed',
                     'status-response',
+                    'plugin-list-result',
+                    'plugin-get-result',
+                    'plugin-settings',
+                    'plugin-action-result',
+                    'plugin-test-connection-result',
+                    'plugin-oauth-url',
                 ].includes(event.type)) {
                     let oldest = null;
                     for (const [reqId, handler] of agentBridge.pending.entries()) {
@@ -3821,8 +3840,20 @@ function registerIpcHandlers() {
                         }
                     }
                     if (oldest) {
-                        oldest.handler.resolve(event.data);
+                        oldest.handler.resolve(event.data ?? event);
                         agentBridge.pending.delete(oldest.reqId);
+                    }
+                    continue;
+                }
+
+                // Forward PluginOAuthComplete as a dedicated event to renderer (Plan 18-03)
+                if (event.type === 'plugin-oauth-complete') {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('plugin-oauth-complete', {
+                            name: event.name,
+                            success: event.success,
+                            error: event.error,
+                        });
                     }
                     continue;
                 }

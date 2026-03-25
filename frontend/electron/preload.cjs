@@ -119,6 +119,12 @@ const bridgeApi = {
     pluginGetSettings: (name) => ipcRenderer.invoke('plugin-get-settings', name),
     pluginUpdateSettings: (pluginName, key, value, isSecret) => ipcRenderer.invoke('plugin-update-settings', pluginName, key, value, isSecret),
     pluginTestConnection: (name) => ipcRenderer.invoke('plugin-test-connection', name),
+    pluginOAuthStart: (name) => ipcRenderer.invoke('plugin-oauth-start', name),
+    onPluginOAuthComplete: (callback) => {
+        const handler = (_event, data) => callback(data);
+        ipcRenderer.on('plugin-oauth-complete', handler);
+        return () => ipcRenderer.removeListener('plugin-oauth-complete', handler);
+    },
     checkLspHealth: () => ipcRenderer.invoke('diagnostics-check-lsp'),
     checkMcpHealth: (servers) => ipcRenderer.invoke('diagnostics-check-mcp', servers),
     getDataDir: () => ipcRenderer.invoke('persistence-get-data-dir'),

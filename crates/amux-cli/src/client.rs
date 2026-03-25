@@ -221,6 +221,8 @@ enum AgentBridgeCommand {
     },
     #[serde(rename = "plugin-test-connection")]
     PluginTestConnection { name: String },
+    #[serde(rename = "plugin-oauth-start")]
+    PluginOAuthStart { name: String },
     Shutdown,
 }
 
@@ -1486,6 +1488,9 @@ pub async fn run_agent_bridge() -> Result<()> {
                             AgentBridgeCommand::PluginTestConnection { name } => {
                                 framed.send(ClientMessage::PluginTestConnection { name }).await?;
                             }
+                            AgentBridgeCommand::PluginOAuthStart { name } => {
+                                framed.send(ClientMessage::PluginOAuthStart { name }).await?;
+                            }
                             AgentBridgeCommand::Shutdown => {
                                 framed.send(ClientMessage::AgentUnsubscribe).await?;
                                 break;
@@ -1649,7 +1654,7 @@ pub async fn run_agent_bridge() -> Result<()> {
                                 "has_api": p.has_api, "has_auth": p.has_auth, "has_commands": p.has_commands,
                                 "has_skills": p.has_skills, "endpoint_count": p.endpoint_count,
                                 "settings_count": p.settings_count, "installed_at": p.installed_at,
-                                "updated_at": p.updated_at,
+                                "updated_at": p.updated_at, "auth_status": p.auth_status,
                             })).collect::<Vec<_>>(),
                         });
                         emit_agent_event(&msg.to_string())?;
@@ -1663,7 +1668,7 @@ pub async fn run_agent_bridge() -> Result<()> {
                                 "has_api": p.has_api, "has_auth": p.has_auth, "has_commands": p.has_commands,
                                 "has_skills": p.has_skills, "endpoint_count": p.endpoint_count,
                                 "settings_count": p.settings_count, "installed_at": p.installed_at,
-                                "updated_at": p.updated_at,
+                                "updated_at": p.updated_at, "auth_status": p.auth_status,
                             })),
                             "settings_schema": settings_schema,
                         });
@@ -1691,6 +1696,23 @@ pub async fn run_agent_bridge() -> Result<()> {
                             "plugin_name": plugin_name,
                             "success": success,
                             "message": message,
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::PluginOAuthUrl { name, url })) => {
+                        let msg = serde_json::json!({
+                            "type": "plugin-oauth-url",
+                            "name": name,
+                            "url": url,
+                        });
+                        emit_agent_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::PluginOAuthComplete { name, success, error })) => {
+                        let msg = serde_json::json!({
+                            "type": "plugin-oauth-complete",
+                            "name": name,
+                            "success": success,
+                            "error": error,
                         });
                         emit_agent_event(&msg.to_string())?;
                     }
