@@ -62,6 +62,7 @@ mod task_scheduler;
 mod thread_crud;
 mod tool_synthesis;
 mod work_context;
+mod whatsapp_link;
 
 pub mod concierge;
 pub mod context;

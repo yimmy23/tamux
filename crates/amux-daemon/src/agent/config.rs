@@ -628,6 +628,30 @@ mod tests {
         assert_eq!(updated.gateway.whatsapp_phone_id, "phone-id");
     }
 
+    #[tokio::test]
+    async fn merge_config_patch_preserves_whatsapp_link_fallback_flag() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let baseline = engine.get_config().await;
+        assert!(!baseline.gateway.whatsapp_link_fallback_electron);
+
+        engine
+            .merge_config_patch_json(
+                r#"{
+                    "gateway": {
+                        "whatsapp_link_fallback_electron": true
+                    }
+                }"#,
+            )
+            .await
+            .unwrap();
+
+        let updated = engine.get_config().await;
+        assert!(updated.gateway.whatsapp_link_fallback_electron);
+    }
+
     #[test]
     fn agent_config_serializes_honcho_fields_in_snake_case() {
         let config = AgentConfig {

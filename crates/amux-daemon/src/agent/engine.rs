@@ -88,6 +88,7 @@ pub struct AgentEngine {
     pub data_dir: PathBuf,
     pub gateway_process: Mutex<Option<tokio::process::Child>>,
     pub gateway_state: Mutex<Option<gateway::GatewayState>>,
+    pub whatsapp_link: Arc<whatsapp_link::WhatsAppLinkRuntime>,
     /// Discord channel IDs to poll (parsed from config).
     pub gateway_discord_channels: RwLock<Vec<String>>,
     /// Slack channel IDs to poll (parsed from config).
@@ -202,6 +203,7 @@ impl AgentEngine {
             data_dir,
             gateway_process: Mutex::new(None),
             gateway_state: Mutex::new(None),
+            whatsapp_link: Arc::new(whatsapp_link::WhatsAppLinkRuntime::new()),
             gateway_discord_channels: RwLock::new(Vec::new()),
             gateway_slack_channels: RwLock::new(Vec::new()),
             gateway_threads: RwLock::new(HashMap::new()),

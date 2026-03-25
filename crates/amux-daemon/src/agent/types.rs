@@ -1498,6 +1498,8 @@ pub struct GatewayConfig {
     /// (SLACK_TOKEN, TELEGRAM_TOKEN, etc.) per D-02 migration path.
     #[serde(default)]
     pub gateway_electron_bridges_enabled: bool,
+    #[serde(default)]
+    pub whatsapp_link_fallback_electron: bool,
 }
 
 fn default_provider() -> String {
@@ -2028,6 +2030,30 @@ pub enum AgentEvent {
         last_error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         consecutive_failures: Option<u32>,
+    },
+    WhatsAppLinkStatus {
+        state: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phone: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_error: Option<String>,
+    },
+    WhatsAppLinkQr {
+        ascii_qr: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_at_ms: Option<u64>,
+    },
+    WhatsAppLinked {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phone: Option<String>,
+    },
+    WhatsAppLinkError {
+        message: String,
+        recoverable: bool,
+    },
+    WhatsAppLinkDisconnected {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     /// Sub-agent health state change detected by the supervisor.
     SubagentHealthChange {
