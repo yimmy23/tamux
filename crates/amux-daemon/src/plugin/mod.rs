@@ -3,6 +3,7 @@ pub mod commands;
 pub mod crypto;
 pub mod loader;
 pub mod manifest;
+pub mod oauth2;
 pub mod persistence;
 pub mod rate_limiter;
 pub mod schema;

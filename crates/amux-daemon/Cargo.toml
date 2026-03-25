@@ -51,6 +51,7 @@ handlebars = "6.4"
 percent-encoding = "2"
 aes-gcm = "0.10.3"
 rand = "0.8"
+oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest"] }
 
 [target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }
