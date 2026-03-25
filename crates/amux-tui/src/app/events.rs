@@ -60,6 +60,7 @@ impl TuiModel {
                 self.send_daemon_command(DaemonCommand::ListSubAgents);
                 self.send_daemon_command(DaemonCommand::GetConciergeConfig);
                 self.send_daemon_command(DaemonCommand::PluginList);
+                self.send_daemon_command(DaemonCommand::PluginListCommands);
                 let cwd = std::env::current_dir()
                     .ok()
                     .map(|p| p.to_string_lossy().to_string());
@@ -739,6 +740,16 @@ impl TuiModel {
                 } else {
                     self.status_line = format!("Plugin error: {}", message);
                 }
+            }
+            ClientEvent::PluginCommands(commands) => {
+                let items: Vec<crate::state::modal::CommandItem> = commands
+                    .into_iter()
+                    .map(|c| crate::state::modal::CommandItem {
+                        command: c.command.trim_start_matches('/').to_string(),
+                        description: format!("[{}] {}", c.plugin_name, c.description),
+                    })
+                    .collect();
+                self.modal.set_plugin_commands(items);
             }
             ClientEvent::PluginOAuthUrl { name, url } => {
                 if crate::auth::open_external_url(&url).is_ok() {

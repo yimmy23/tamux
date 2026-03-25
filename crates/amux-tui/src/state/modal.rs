@@ -80,6 +80,17 @@ impl ModalState {
         self.picker_item_count = Some(count);
     }
 
+    /// Merge plugin commands into the command palette.
+    /// Removes any previously added plugin commands, then appends the new ones.
+    pub fn set_plugin_commands(&mut self, commands: Vec<CommandItem>) {
+        // Remove old plugin commands (marked by command containing '.')
+        self.command_items.retain(|item| !item.command.contains('.'));
+        // Append new plugin commands
+        self.command_items.extend(commands);
+        // Rebuild filter
+        self.filtered_indices = (0..self.command_items.len()).collect();
+    }
+
     pub fn reduce(&mut self, action: ModalAction) {
         match action {
             ModalAction::Push(kind) => {

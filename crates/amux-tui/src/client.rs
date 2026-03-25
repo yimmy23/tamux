@@ -193,6 +193,7 @@ pub enum ClientEvent {
         success: bool,
         message: String,
     },
+    PluginCommands(Vec<amux_protocol::PluginCommandInfo>),
     PluginOAuthUrl {
         name: String,
         url: String,
@@ -770,6 +771,11 @@ impl DaemonClient {
                     .send(ClientEvent::PluginAction { success, message })
                     .await;
             }
+            DaemonMessage::PluginCommandsResult { commands } => {
+                let _ = event_tx
+                    .send(ClientEvent::PluginCommands(commands))
+                    .await;
+            }
             DaemonMessage::PluginOAuthUrl { name, url } => {
                 let _ = event_tx
                     .send(ClientEvent::PluginOAuthUrl { name, url })
@@ -1326,6 +1332,10 @@ impl DaemonClient {
     // Plugin IPC methods (Plan 16-01)
     pub fn plugin_list(&self) -> Result<()> {
         self.send(ClientMessage::PluginList {})
+    }
+
+    pub fn plugin_list_commands(&self) -> Result<()> {
+        self.send(ClientMessage::PluginListCommands {})
     }
 
     pub fn plugin_get(&self, name: String) -> Result<()> {

@@ -325,6 +325,9 @@ fn start_daemon_bridge(
                             DaemonCommand::PluginTestConnection(name) => {
                                 let _ = client.plugin_test_connection(name);
                             }
+                            DaemonCommand::PluginListCommands => {
+                                let _ = client.plugin_list_commands();
+                            }
                             DaemonCommand::PluginOAuthStart(name) => {
                                 let _ = client.plugin_oauth_start(name);
                             }

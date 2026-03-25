@@ -118,6 +118,7 @@ pub enum DaemonCommand {
         is_secret: bool,
     },
     PluginTestConnection(String),
+    PluginListCommands,
     // OAuth (Plan 18-03)
     PluginOAuthStart(String),
 }
