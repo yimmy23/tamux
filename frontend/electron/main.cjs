@@ -4028,6 +4028,7 @@ function registerIpcHandlers() {
                 handler.reject(new Error('agent bridge exited'));
             }
             agentBridge = null;
+            whatsappDaemonSubscribed = false;
         });
 
         return agentBridge;
@@ -4163,10 +4164,11 @@ function registerIpcHandlers() {
                         await whatsappRpc('send', { jid: target, text: message });
                         return { ok: true };
                     }
-                    return {
-                        ok: false,
-                        error: 'WhatsApp send is only available when gateway.whatsapp_link_fallback_electron is true',
-                    };
+                    if (!whatsappProcess) {
+                        startWhatsAppBridge();
+                    }
+                    await whatsappRpc('send', { jid: target, text: message });
+                    return { ok: true };
                 } catch (err) {
                     logToFile('warn', 'agent gateway: WhatsApp send failed', { error: err.message });
                     return { ok: false, error: err.message };

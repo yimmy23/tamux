@@ -34,3 +34,14 @@ test("main forwards daemon WhatsApp link events to renderer channels", () => {
 
   assert.match(src, /event\.type === 'whatsapp-link-status'/);
 });
+
+test("agent bridge exit resets daemon WhatsApp subscription state", () => {
+  assert.match(src, /bridgeProcess\.on\('exit'[\s\S]*?whatsappDaemonSubscribed\s*=\s*false/);
+});
+
+test("whatsapp gateway send remains functional in daemon mode", () => {
+  assert.doesNotMatch(
+    src,
+    /WhatsApp send is only available when gateway\.whatsapp_link_fallback_electron is true/
+  );
+});
