@@ -150,12 +150,14 @@ impl ModalState {
             "connected" => {
                 self.whatsapp_link.phase = WhatsAppLinkPhase::Connected;
                 self.whatsapp_link.ascii_qr = None;
+                self.whatsapp_link.expires_at_ms = None;
                 let phone_display = self.whatsapp_link.phone.as_deref().unwrap_or("device");
                 self.whatsapp_link.status_text = format!("Connected: {phone_display}");
             }
             "error" => {
                 self.whatsapp_link.phase = WhatsAppLinkPhase::Error;
                 self.whatsapp_link.ascii_qr = None;
+                self.whatsapp_link.expires_at_ms = None;
                 let message = self
                     .whatsapp_link
                     .last_error
@@ -166,6 +168,7 @@ impl ModalState {
             "disconnected" => {
                 self.whatsapp_link.phase = WhatsAppLinkPhase::Disconnected;
                 self.whatsapp_link.ascii_qr = None;
+                self.whatsapp_link.expires_at_ms = None;
                 let reason = self
                     .whatsapp_link
                     .last_error
@@ -483,5 +486,23 @@ mod tests {
         );
         assert_eq!(state.whatsapp_link().ascii_qr(), Some("██ QR"));
         assert_eq!(state.whatsapp_link().expires_at_ms(), Some(42));
+    }
+
+    #[test]
+    fn whatsapp_terminal_states_clear_qr_expiry() {
+        let mut state = ModalState::new();
+        state.set_whatsapp_link_qr("██ QR".to_string(), Some(42));
+        assert_eq!(state.whatsapp_link().expires_at_ms(), Some(42));
+
+        state.set_whatsapp_link_connected(Some("+12065550123".to_string()));
+        assert_eq!(state.whatsapp_link().expires_at_ms(), None);
+
+        state.set_whatsapp_link_qr("██ QR".to_string(), Some(77));
+        state.set_whatsapp_link_error("pairing failed".to_string());
+        assert_eq!(state.whatsapp_link().expires_at_ms(), None);
+
+        state.set_whatsapp_link_qr("██ QR".to_string(), Some(99));
+        state.set_whatsapp_link_disconnected(Some("socket closed".to_string()));
+        assert_eq!(state.whatsapp_link().expires_at_ms(), None);
     }
 }

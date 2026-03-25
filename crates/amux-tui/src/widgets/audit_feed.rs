@@ -55,7 +55,10 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
 
         // Type icon and color
         let (icon, type_style) = if is_dismissed {
-            (action_type_icon(&entry.action_type), Style::default().fg(Color::DarkGray))
+            (
+                action_type_icon(&entry.action_type),
+                Style::default().fg(Color::DarkGray),
+            )
         } else {
             action_type_style(&entry.action_type, theme)
         };
@@ -78,10 +81,7 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
                     .unwrap_or_default();
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled("\u{25cf}", dot_style));
-                spans.push(Span::styled(
-                    format!(" {}{}", band, pct),
-                    theme.fg_dim,
-                ));
+                spans.push(Span::styled(format!(" {}{}", band, pct), theme.fg_dim));
             }
         }
 
@@ -132,11 +132,11 @@ fn resolved_scroll(state: &AuditState, lines: &[Line], body_height: usize) -> us
 /// Return only the icon character for an action type (used for dismissed entries).
 fn action_type_icon(action_type: &str) -> &'static str {
     match action_type {
-        "heartbeat" => "\u{2665}",  // heart
-        "tool" => "\u{2699}",       // gear
-        "escalation" => "\u{2191}", // up arrow
+        "heartbeat" => "\u{2665}",          // heart
+        "tool" => "\u{2699}",               // gear
+        "escalation" => "\u{2191}",         // up arrow
         "skill" | "subagent" => "\u{2726}", // star
-        _ => "\u{2022}",            // bullet
+        _ => "\u{2022}",                    // bullet
     }
 }
 
@@ -213,10 +213,7 @@ pub fn escalation_status_spans(state: &AuditState, theme: &ThemeTokens) -> Vec<S
     let level_style = escalation_level_style(&esc.to_level, theme);
     vec![
         Span::styled(" Esc: ", theme.fg_dim),
-        Span::styled(
-            format!("{}->{}", esc.from_level, esc.to_level),
-            level_style,
-        ),
+        Span::styled(format!("{}->{}", esc.from_level, esc.to_level), level_style),
     ]
 }
 

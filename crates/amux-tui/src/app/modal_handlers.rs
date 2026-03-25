@@ -453,7 +453,7 @@ impl TuiModel {
                             decision: "allow_once".to_string(),
                         });
                     }
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
                 KeyCode::Char('a') | KeyCode::Char('A') => {
                     if let Some(ap) = self.approval.current_approval() {
@@ -467,7 +467,7 @@ impl TuiModel {
                             decision: "allow_session".to_string(),
                         });
                     }
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
                 KeyCode::Char('n') | KeyCode::Char('N') => {
                     if let Some(ap) = self.approval.current_approval() {
@@ -481,7 +481,7 @@ impl TuiModel {
                             decision: "reject".to_string(),
                         });
                     }
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
                 _ => {}
             }
@@ -491,7 +491,7 @@ impl TuiModel {
         if kind == modal::ModalKind::OpenAIAuth {
             match code {
                 KeyCode::Esc => {
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
                 KeyCode::Char('c') | KeyCode::Char('C') => {
                     if let Some(url) = self.openai_auth_url.as_deref() {
@@ -512,9 +512,7 @@ impl TuiModel {
         if kind == modal::ModalKind::WhatsAppLink {
             match code {
                 KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
-                    self.send_daemon_command(DaemonCommand::WhatsAppLinkStop);
-                    self.send_daemon_command(DaemonCommand::WhatsAppLinkUnsubscribe);
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                     self.status_line = "WhatsApp linking stopped".to_string();
                     return false;
                 }
@@ -531,7 +529,7 @@ impl TuiModel {
 
         match code {
             KeyCode::Esc => {
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
                 self.input.reduce(input::InputAction::Clear);
             }
             KeyCode::Down => self.modal.reduce(modal::ModalAction::Navigate(1)),
@@ -582,7 +580,7 @@ impl TuiModel {
                     self.modal.picker_cursor(),
                     self.modal.filtered_items()
                 );
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
                 self.input.reduce(input::InputAction::Clear);
                 if let Some(command) = cmd_name {
                     self.execute_command(&command);
@@ -590,7 +588,7 @@ impl TuiModel {
             }
             modal::ModalKind::ThreadPicker => {
                 let cursor = self.modal.picker_cursor();
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
                 self.input.reduce(input::InputAction::Clear);
                 if cursor == 0 {
                     self.start_new_thread_view();
@@ -614,7 +612,7 @@ impl TuiModel {
                         }
                     })
                 };
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
                 self.input.reduce(input::InputAction::Clear);
                 if cursor == 0 {
                     self.open_new_goal_view();
@@ -651,7 +649,7 @@ impl TuiModel {
                             let count =
                                 widgets::model_picker::available_models(&self.config).len() + 1;
                             self.settings_picker_target = None;
-                            self.modal.reduce(modal::ModalAction::Pop);
+                            self.close_top_modal();
                             self.modal
                                 .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
                             self.modal.set_picker_item_count(count);
@@ -688,14 +686,14 @@ impl TuiModel {
                     }
                 }
                 self.settings_picker_target = None;
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
             }
             modal::ModalKind::ModelPicker => {
                 let models = widgets::model_picker::available_models(&self.config);
                 let cursor = self.modal.picker_cursor();
                 if cursor == models.len() {
                     self.settings_picker_target = None;
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                     self.begin_custom_model_edit();
                     return;
                 }
@@ -768,7 +766,7 @@ impl TuiModel {
                     }
                 }
                 self.settings_picker_target = None;
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
             }
             modal::ModalKind::OpenAIAuth => {
                 if let Some(url) = self.openai_auth_url.clone() {
@@ -812,11 +810,11 @@ impl TuiModel {
                     };
                     self.save_settings();
                 }
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
             }
             modal::ModalKind::WhatsAppLink => {}
             _ => {
-                self.modal.reduce(modal::ModalAction::Pop);
+                self.close_top_modal();
                 self.input.reduce(input::InputAction::Clear);
             }
         }
@@ -871,6 +869,42 @@ mod tests {
 
         let quit = model.handle_key_modal(
             KeyCode::Char('c'),
+            KeyModifiers::NONE,
+            modal::ModalKind::WhatsAppLink,
+        );
+        assert!(!quit);
+        assert!(model.modal.top().is_none());
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected stop command"),
+            DaemonCommand::WhatsAppLinkStop
+        ));
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected unsubscribe command"),
+            DaemonCommand::WhatsAppLinkUnsubscribe
+        ));
+    }
+
+    #[test]
+    fn stacked_modal_pop_only_cleans_whatsapp_when_top() {
+        let (mut model, mut daemon_rx) = make_model();
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::WhatsAppLink));
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+
+        let quit = model.handle_key_modal(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+            modal::ModalKind::CommandPalette,
+        );
+        assert!(!quit);
+        assert_eq!(model.modal.top(), Some(modal::ModalKind::WhatsAppLink));
+        assert!(daemon_rx.try_recv().is_err());
+
+        let quit = model.handle_key_modal(
+            KeyCode::Esc,
             KeyModifiers::NONE,
             modal::ModalKind::WhatsAppLink,
         );

@@ -52,7 +52,8 @@ impl AgentEngine {
             if let Some(thread) = threads.get_mut(&thread_id) {
                 thread.updated_at = now_millis();
                 thread.messages.push(AgentMessage {
-                    role: MessageRole::System,
+                    id: generate_message_id(),
+                                    role: MessageRole::System,
                     content: format!(
                         "Restored goal run {} from checkpoint {} at step {}.",
                         goal_run_id, checkpoint.id, restored_step_index

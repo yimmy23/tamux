@@ -152,6 +152,9 @@ pub enum ChatAction {
         thread_id: String,
         message: AgentMessage,
     },
+    ClearThread {
+        thread_id: String,
+    },
     SelectThread(String),
     ScrollChat(i32),
     PinMessageTop(usize),
@@ -212,6 +215,20 @@ impl ChatState {
     pub fn active_thread_mut(&mut self) -> Option<&mut AgentThread> {
         let id = self.active_thread_id.as_deref()?.to_owned();
         self.threads.iter_mut().find(|t| t.id == id)
+    }
+
+    /// Actions from the last assistant message in the active thread that has any.
+    pub fn active_actions(&self) -> &[MessageAction] {
+        self.active_thread()
+            .and_then(|thread| {
+                thread
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == MessageRole::Assistant && !m.actions.is_empty())
+            })
+            .map(|m| m.actions.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn streaming_content(&self) -> &str {
@@ -520,6 +537,11 @@ impl ChatState {
             }
 
             ChatAction::ThreadDetailReceived(incoming) => {
+                // Skip merging the concierge thread — the ConciergeWelcome
+                // event is the authoritative source for its content.
+                if incoming.id == "concierge" {
+                    return;
+                }
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     // Merge: keep local user messages and local messages that carry
                     // interactive UI actions (e.g. concierge action buttons), then
@@ -603,6 +625,12 @@ impl ChatState {
                     self.threads.push(thread);
                 }
                 self.active_thread_id = Some(thread_id);
+            }
+
+            ChatAction::ClearThread { thread_id } => {
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    thread.messages.clear();
+                }
             }
 
             ChatAction::AppendMessage { thread_id, message } => {
@@ -894,7 +922,9 @@ mod tests {
             ..Default::default()
         }));
 
-        let thread = state.active_thread().expect("concierge thread should exist");
+        let thread = state
+            .active_thread()
+            .expect("concierge thread should exist");
         assert_eq!(thread.messages.len(), 1);
         assert_eq!(thread.messages[0].actions.len(), 1);
     }
@@ -925,7 +955,9 @@ mod tests {
             },
         });
 
-        let thread = state.active_thread().expect("concierge thread should exist");
+        let thread = state
+            .active_thread()
+            .expect("concierge thread should exist");
         assert_eq!(thread.messages.len(), 1);
         assert_eq!(thread.messages[0].content, "Welcome 2");
         assert!(thread.messages[0].is_concierge_welcome);

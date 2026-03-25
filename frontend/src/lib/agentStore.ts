@@ -103,6 +103,8 @@ export interface AgentProviderConfig {
   api_transport: ApiTransportMode;
   auth_source: AuthSource;
   context_window_tokens: number | null;
+  /** Custom provider modality override. Only used for "custom" provider. */
+  custom_modalities?: Modality[];
 }
 
 export interface ProviderAuthState {
@@ -207,10 +209,13 @@ function normalizeProviderConfig(
   };
 }
 
+export type Modality = "text" | "image" | "video" | "audio";
+
 export interface ModelDefinition {
   id: string;
   name: string;
   contextWindow: number;
+  modalities?: Modality[];
 }
 
 export interface ProviderDefinition {
@@ -232,13 +237,26 @@ export interface ProviderDefinition {
   supportsResponseContinuity: boolean;
 }
 
+/** Resolve effective modalities for a model (defaults to text-only). */
+export function getModelModalities(model: ModelDefinition | undefined): Modality[] {
+  return model?.modalities ?? ["text"];
+}
+
+/** Check if a model supports a specific modality. */
+export function modelSupports(model: ModelDefinition | undefined, modality: Modality): boolean {
+  return getModelModalities(model).includes(modality);
+}
+
+const M_MULTI: Modality[] = ["text", "image", "video", "audio"];
+const M_TI: Modality[] = ["text", "image"];
+
 const OPENAI_API_MODELS: ModelDefinition[] = [
-  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000 },
-  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000 },
-  { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000 },
-  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000 },
-  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000 },
-  { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000 },
+  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_MULTI },
+  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000 },
   { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", contextWindow: 400_000 },
   { id: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini", contextWindow: 400_000 },
@@ -293,11 +311,11 @@ const ALIBABA_CODING_MODELS: ModelDefinition[] = [
 ];
 
 const OPENCODE_ZEN_MODELS: ModelDefinition[] = [
-  { id: "claude-opus-4-6", name: "Claude Opus 4.6", contextWindow: 200000 },
-  { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", contextWindow: 200000 },
-  { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 200000 },
-  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 128000 },
-  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 128000 },
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6", contextWindow: 200000, modalities: M_TI },
+  { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", contextWindow: 200000, modalities: M_TI },
+  { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 200000, modalities: M_TI },
+  { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 128000, modalities: M_MULTI },
+  { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 128000, modalities: M_TI },
   { id: "minimax-m2.5", name: "MiniMax M2.5", contextWindow: 205000 },
   { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
@@ -529,6 +547,7 @@ export interface AgentSettings {
   tavily_api_key: string;
   search_max_results: number;
   search_timeout_secs: number;
+  browse_provider: "auto" | "lightpanda" | "chrome" | "none";
 
   enable_streaming: boolean;
   enable_conversation_memory: boolean;
@@ -625,6 +644,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   tavily_api_key: "",
   search_max_results: 8,
   search_timeout_secs: 20,
+  browse_provider: "auto",
 
   enable_streaming: true,
   enable_conversation_memory: true,

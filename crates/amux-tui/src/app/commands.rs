@@ -212,9 +212,23 @@ impl TuiModel {
     pub(super) fn is_builtin_command(&self, command: &str) -> bool {
         matches!(
             command,
-            "provider" | "model" | "tools" | "effort" | "thread" | "new"
-            | "goals" | "tasks" | "conversation" | "chat" | "settings"
-            | "view" | "quit" | "prompt" | "goal" | "attach" | "help"
+            "provider"
+                | "model"
+                | "tools"
+                | "effort"
+                | "thread"
+                | "new"
+                | "goals"
+                | "tasks"
+                | "conversation"
+                | "chat"
+                | "settings"
+                | "view"
+                | "quit"
+                | "prompt"
+                | "goal"
+                | "attach"
+                | "help"
         )
     }
 
@@ -523,28 +537,33 @@ impl TuiModel {
     }
 
     pub(super) fn delete_message(&mut self, index: usize) {
-        let Some(thread) = self.chat.active_thread_mut() else {
-            return;
+        let (thread_id, msg_id) = {
+            let Some(thread) = self.chat.active_thread() else {
+                return;
+            };
+            if index >= thread.messages.len() {
+                return;
+            }
+            let mid = thread.messages[index]
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("{}:{}", thread.id, index));
+            (thread.id.clone(), mid)
         };
-        if index >= thread.messages.len() {
-            return;
-        }
-        let thread_id = thread.id.clone();
-        let msg_id = thread.messages[index]
-            .id
-            .clone()
-            .unwrap_or_else(|| format!("{}:{}", thread_id, index));
-        thread.messages.remove(index);
 
-        // Deselect after removal
-        self.chat.select_message(None);
-        self.status_line = format!("Deleted message {}", index + 1);
-
-        // Persist to daemon
         self.send_daemon_command(DaemonCommand::DeleteMessages {
             thread_id,
             message_ids: vec![msg_id],
         });
+
+        // Remove locally.
+        if let Some(thread) = self.chat.active_thread_mut() {
+            if index < thread.messages.len() {
+                thread.messages.remove(index);
+            }
+        }
+        self.chat.select_message(None);
+        self.status_line = format!("Deleted message {}", index + 1);
     }
 
     pub(super) fn regenerate_from_message(&mut self, index: usize) {

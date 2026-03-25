@@ -128,6 +128,17 @@ pub(super) fn compact_messages_for_request(
     provider_config: &ProviderConfig,
 ) -> Vec<AgentMessage> {
     let Some(candidate) = compaction_candidate(messages, config, provider_config) else {
+        // Even when compaction is disabled, enforce a hard token limit
+        // so we never exceed the model's context window.
+        let model_window = model_context_window(
+            &config.provider,
+            &provider_config.model,
+            provider_config.context_window_tokens.max(config.context_window_tokens),
+        ) as usize;
+        let current = estimate_message_tokens(messages);
+        if current > model_window {
+            return hard_truncate_to_fit(messages, model_window);
+        }
         return messages.to_vec();
     };
     let max_messages = config.max_context_messages.max(1) as usize;
@@ -140,6 +151,7 @@ pub(super) fn compact_messages_for_request(
         if !summary.is_empty() {
             has_summary = true;
             compacted.push(AgentMessage {
+                id: generate_message_id(),
                 role: MessageRole::Assistant,
                 content: summary,
                 tool_calls: None,
@@ -188,7 +200,17 @@ pub(super) fn compaction_candidate(
         .keep_recent_on_compact
         .max(1)
         .min(messages.len() as u32) as usize;
-    let split_at = messages.len().saturating_sub(keep_recent);
+    let mut split_at = messages.len().saturating_sub(keep_recent);
+    if split_at == 0 {
+        return None;
+    }
+
+    // Never split inside a tool-call / tool-result pair.
+    // If the first kept message is a tool result, move split_at back to include
+    // the assistant message that made the tool call.
+    while split_at > 0 && messages[split_at].role == MessageRole::Tool {
+        split_at -= 1;
+    }
     if split_at == 0 {
         return None;
     }
@@ -211,8 +233,26 @@ fn trim_compacted_messages(
         && messages.len() > removable_floor
     {
         let remove_index = if has_summary { 1 } else { 0 };
-        total_tokens -= estimate_single_message_tokens(&messages[remove_index]);
-        messages.remove(remove_index);
+
+        // Don't remove an assistant message if the next message is a tool
+        // result — that would orphan the tool result.
+        if remove_index < messages.len()
+            && messages[remove_index].role == MessageRole::Assistant
+            && messages[remove_index].tool_calls.is_some()
+        {
+            // Remove the entire tool-call/result group together.
+            let mut end = remove_index + 1;
+            while end < messages.len() && messages[end].role == MessageRole::Tool {
+                end += 1;
+            }
+            for i in (remove_index..end).rev() {
+                total_tokens -= estimate_single_message_tokens(&messages[i]);
+                messages.remove(i);
+            }
+        } else {
+            total_tokens -= estimate_single_message_tokens(&messages[remove_index]);
+            messages.remove(remove_index);
+        }
     }
 
     if has_summary
@@ -392,4 +432,45 @@ fn summarize_compacted_message(message: &AgentMessage) -> String {
     } else {
         format!("{role} [{details}]: {content}")
     }
+}
+
+/// Hard-truncate messages from the front to fit within a token limit.
+/// Keeps the most recent messages. Respects tool-call/result pairs.
+fn hard_truncate_to_fit(messages: &[AgentMessage], max_tokens: usize) -> Vec<AgentMessage> {
+    // Walk backwards, accumulating tokens until we hit the limit.
+    let mut kept: Vec<AgentMessage> = Vec::new();
+    let mut total = 0usize;
+    for msg in messages.iter().rev() {
+        let msg_tokens = estimate_single_message_tokens(msg);
+        if total + msg_tokens > max_tokens && !kept.is_empty() {
+            break;
+        }
+        total += msg_tokens;
+        kept.push(msg.clone());
+    }
+    kept.reverse();
+
+    // Ensure we don't start with orphaned tool results.
+    while !kept.is_empty() && kept[0].role == super::types::MessageRole::Tool {
+        kept.remove(0);
+    }
+
+    tracing::warn!(
+        "hard_truncate_to_fit: trimmed {} -> {} messages ({} -> {} est tokens)",
+        messages.len(),
+        kept.len(),
+        estimate_message_tokens(messages),
+        estimate_message_tokens(&kept),
+    );
+
+    kept
+}
+
+/// Get the model's context window from its definition, falling back to config.
+pub(super) fn model_context_window(provider_id: &str, model_id: &str, config_fallback: u32) -> u32 {
+    super::types::get_provider_definition(provider_id)
+        .and_then(|def| def.models.iter().find(|m| m.id == model_id))
+        .map(|m| m.context_window)
+        .unwrap_or(config_fallback)
+        .max(1)
 }

@@ -72,6 +72,12 @@ pub struct ConfigState {
     pub search_max_results: u32,
     pub search_timeout_secs: u32,
 
+    // Web browse config
+    pub browse_provider: String, // "auto", "lightpanda", "chrome", "none"
+
+    // Custom provider modalities (only used when provider == "custom")
+    pub custom_modalities: String, // "text", "text,image", "text,image,video,audio"
+
     // Gateway config
     pub gateway_enabled: bool,
     pub gateway_prefix: String,
@@ -164,6 +170,8 @@ impl ConfigState {
             tavily_api_key: String::new(),
             search_max_results: 8,
             search_timeout_secs: 20,
+            browse_provider: "auto".to_string(),
+            custom_modalities: "text".to_string(),
             gateway_enabled: false,
             gateway_prefix: "!tamux".to_string(),
             slack_token: String::new(),
@@ -278,10 +286,8 @@ impl ConfigState {
                     self.base_url = def.default_base_url.to_string();
                     self.model = def.default_model.to_string();
                     self.custom_model_name = String::new();
-                    self.api_transport =
-                        providers::default_transport_for(&provider).to_string();
-                    self.auth_source =
-                        providers::default_auth_source_for(&provider).to_string();
+                    self.api_transport = providers::default_transport_for(&provider).to_string();
+                    self.auth_source = providers::default_auth_source_for(&provider).to_string();
                 }
                 self.provider = provider;
             }

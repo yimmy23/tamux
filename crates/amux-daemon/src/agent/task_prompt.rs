@@ -252,6 +252,14 @@ pub(super) fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
             "builtin/building/plugin-development.md",
             include_str!("../../../../docs/skills/building/plugin-development.md"),
         ),
+        (
+            "builtin/setup/lightpanda.md",
+            include_str!("../../../../docs/skills/setup/lightpanda.md"),
+        ),
+        (
+            "builtin/setup/web-browsing.md",
+            include_str!("../../../../docs/skills/setup/web-browsing.md"),
+        ),
     ];
 
     let root = skills_dir(agent_data_dir);

@@ -316,6 +316,9 @@ impl AgentEngine {
         let mut termination_consecutive_errors: u32 = 0;
         let mut termination_total_errors: u32 = 0;
         let loop_started_at = now_millis();
+        let mut stream_timeout_count = 0u32;
+        let mut tool_ack_emitted = false;
+        let mut tool_sequence_repaired = false;
 
         'agent_loop: while max_loops == 0 || loop_count < max_loops {
             if stream_cancel_token.is_cancelled() {
@@ -410,6 +413,11 @@ impl AgentEngine {
                 prepared
             };
 
+            // Rate-limit pause: avoid hammering the provider between loop iterations.
+            if loop_count > 1 {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+
             // Call LLM
             // Circuit breaker check: reject fast if the provider is unhealthy.
             if let Err(e) = self.check_circuit_breaker(&config.provider).await {
@@ -448,10 +456,22 @@ impl AgentEngine {
             let mut accumulated_reasoning = String::new();
             let mut final_chunk: Option<CompletionChunk> = None;
 
+            // Timeout for individual chunk reads — if a provider stops sending
+            // data mid-stream, we don't hang forever. The agent retries automatically.
+            const LLM_STREAM_CHUNK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+            const MAX_STREAM_TIMEOUTS: u32 = 3;
+            let mut stream_timed_out = false;
+
             loop {
                 tokio::select! {
                     _ = stream_cancel_token.cancelled() => {
                         was_cancelled = true;
+                        break;
+                    }
+                    _ = tokio::time::sleep(LLM_STREAM_CHUNK_TIMEOUT) => {
+                        tracing::warn!("LLM stream timeout — no data for {}s", LLM_STREAM_CHUNK_TIMEOUT.as_secs());
+                        self.record_llm_outcome(&config.provider, false).await;
+                        stream_timed_out = true;
                         break;
                     }
                     maybe_chunk = stream.next() => {
@@ -462,6 +482,25 @@ impl AgentEngine {
                         let chunk = match chunk_result {
                             Ok(chunk) => chunk,
                             Err(e) => {
+                                let err_str = e.to_string();
+                                // Detect "tool call result does not follow tool call" —
+                                // repair the thread's message sequence and retry.
+                                if err_str.contains("tool call result does not follow tool call")
+                                    && !tool_sequence_repaired
+                                {
+                                    tracing::warn!(
+                                        "detected broken tool call sequence — repairing thread and retrying"
+                                    );
+                                    tool_sequence_repaired = true;
+                                    self.repair_tool_call_sequence(&tid).await;
+                                    let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                                        thread_id: tid.clone(),
+                                        kind: "tool-repair".to_string(),
+                                        message: "Repairing message sequence, retrying...".to_string(),
+                                        details: None,
+                                    });
+                                    continue 'agent_loop;
+                                }
                                 self.record_llm_outcome(&config.provider, false).await;
                                 self.finish_stream_cancellation(&tid, stream_generation).await;
                                 return Err(e);
@@ -581,6 +620,38 @@ impl AgentEngine {
                 break 'agent_loop;
             }
 
+            // On stream timeout, notify the user and retry (up to MAX_STREAM_TIMEOUTS).
+            if stream_timed_out {
+                stream_timeout_count += 1;
+                if stream_timeout_count >= MAX_STREAM_TIMEOUTS {
+                    let msg = format!(
+                        "Connection timed out {} times \u{2014} giving up. The provider may be overloaded.",
+                        stream_timeout_count
+                    );
+                    let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                        thread_id: tid.clone(),
+                        kind: "stream-timeout".to_string(),
+                        message: msg.clone(),
+                        details: None,
+                    });
+                    self.finish_stream_cancellation(&tid, stream_generation).await;
+                    return Err(anyhow::anyhow!("{}", msg));
+                }
+                let msg = format!(
+                    "Connection timed out (attempt {}/{}). Retrying...",
+                    stream_timeout_count, MAX_STREAM_TIMEOUTS
+                );
+                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                    thread_id: tid.clone(),
+                    kind: "stream-timeout".to_string(),
+                    message: msg,
+                    details: None,
+                });
+                // Small backoff before retry
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue 'agent_loop;
+            }
+
             // Record successful LLM outcome for circuit breaker tracking.
             if final_chunk.is_some() {
                 self.record_llm_outcome(&config.provider, true).await;
@@ -669,6 +740,33 @@ impl AgentEngine {
                     response_id,
                     upstream_thread_id,
                 }) => {
+                    // If this is the first tool-call turn and no content was
+                    // streamed yet, emit a quick acknowledgment via WorkflowNotice
+                    // so the user knows the agent is working. WorkflowNotice is
+                    // display-only (status line) — never saved to thread messages,
+                    // so it won't pollute the Anthropic message sequence.
+                    if !tool_ack_emitted && accumulated_content.trim().is_empty() {
+                        tool_ack_emitted = true;
+                        let tool_names: Vec<&str> = tool_calls
+                            .iter()
+                            .map(|tc| tc.function.name.as_str())
+                            .collect();
+                        let ack = match tool_names.as_slice() {
+                            [single] => format!("On it \u{2014} using {single}..."),
+                            names if names.len() <= 3 => {
+                                format!("Working on it \u{2014} using {}...",
+                                    names.join(", "))
+                            }
+                            names => format!("Working on it \u{2014} running {} tools...", names.len()),
+                        };
+                        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                            thread_id: tid.clone(),
+                            kind: "tool-ack".to_string(),
+                            message: ack,
+                            details: None,
+                        });
+                    }
+
                     // Add assistant message with tool calls
                     let msg_content = content.unwrap_or(accumulated_content.clone());
                     let msg_reasoning = reasoning.or(if accumulated_reasoning.is_empty() {
@@ -688,7 +786,8 @@ impl AgentEngine {
                         let mut threads = self.threads.write().await;
                         if let Some(thread) = threads.get_mut(&tid) {
                             thread.messages.push(AgentMessage {
-                                role: MessageRole::Assistant,
+                                id: generate_message_id(),
+                                    role: MessageRole::Assistant,
                                 content: msg_content,
                                 tool_calls: Some(tool_calls.clone()),
                                 tool_call_id: None,
@@ -749,7 +848,8 @@ impl AgentEngine {
                                     let mut threads = self.threads.write().await;
                                     if let Some(thread) = threads.get_mut(&tid) {
                                         thread.messages.push(AgentMessage {
-                                            role: MessageRole::Tool,
+                                            id: generate_message_id(),
+                                    role: MessageRole::Tool,
                                             content: denied_content,
                                             tool_calls: None,
                                             tool_call_id: Some(tc.id.clone()),
@@ -938,6 +1038,7 @@ impl AgentEngine {
                             let mut threads = self.threads.write().await;
                             if let Some(thread) = threads.get_mut(&tid) {
                                 thread.messages.push(AgentMessage {
+                                    id: generate_message_id(),
                                     role: MessageRole::Tool,
                                     content: result.content,
                                     tool_calls: None,
@@ -1188,6 +1289,83 @@ impl AgentEngine {
         resolve_provider_config_for(config, sub_agent_provider, None)
     }
 
+    /// Repair a thread's message sequence by removing broken tool-call/result
+    /// pairs. Walks messages and ensures every Assistant with tool_calls is
+    /// immediately followed by matching Tool results. Drops orphaned messages.
+    async fn repair_tool_call_sequence(&self, thread_id: &str) {
+        let removed = {
+            let mut threads = self.threads.write().await;
+            let Some(thread) = threads.get_mut(thread_id) else {
+                return;
+            };
+            let before = thread.messages.len();
+            let mut repaired = Vec::with_capacity(before);
+            let mut i = 0;
+            while i < thread.messages.len() {
+                let msg = &thread.messages[i];
+                if msg.role == MessageRole::Assistant && msg.tool_calls.is_some() {
+                    let tool_calls = msg.tool_calls.as_ref().unwrap();
+                    let expected: std::collections::HashSet<&str> =
+                        tool_calls.iter().map(|tc| tc.id.as_str()).collect();
+                    // Scan forward for matching tool results.
+                    let mut results = Vec::new();
+                    let mut matched = std::collections::HashSet::new();
+                    let mut j = i + 1;
+                    while j < thread.messages.len()
+                        && thread.messages[j].role == MessageRole::Tool
+                    {
+                        if thread.messages[j]
+                            .tool_call_id
+                            .as_deref()
+                            .map(|id| expected.contains(id))
+                            .unwrap_or(false)
+                        {
+                            results.push(thread.messages[j].clone());
+                            if let Some(id) = thread.messages[j].tool_call_id.as_deref() {
+                                matched.insert(id);
+                            }
+                        }
+                        j += 1;
+                    }
+                    let has_complete_batch = matched.len() == expected.len();
+                    let saw_no_followup_messages = j == i + 1;
+                    let is_unanswered_latest_tool_turn =
+                        saw_no_followup_messages && j == thread.messages.len();
+                    if has_complete_batch || is_unanswered_latest_tool_turn {
+                        repaired.push(msg.clone());
+                        if has_complete_batch {
+                            repaired.extend(results);
+                        }
+                    }
+                    i = j;
+                } else if msg.role == MessageRole::Tool {
+                    // Orphaned tool result — skip.
+                    i += 1;
+                } else {
+                    repaired.push(msg.clone());
+                    i += 1;
+                }
+            }
+            let removed = before - repaired.len();
+            if removed > 0 {
+                tracing::info!(
+                    "repair_tool_call_sequence: removed {} broken messages from thread {}",
+                    removed,
+                    thread_id
+                );
+                thread.messages = repaired;
+                thread.updated_at = now_millis();
+                thread.total_input_tokens = thread.messages.iter().map(|m| m.input_tokens).sum();
+                thread.total_output_tokens = thread.messages.iter().map(|m| m.output_tokens).sum();
+            }
+            removed
+        };
+
+        if removed > 0 {
+            self.persist_thread_by_id(thread_id).await;
+        }
+    }
+
     pub(super) async fn add_assistant_message(
         &self,
         thread_id: &str,
@@ -1203,7 +1381,8 @@ impl AgentEngine {
         let mut threads = self.threads.write().await;
         if let Some(thread) = threads.get_mut(thread_id) {
             thread.messages.push(AgentMessage {
-                role: MessageRole::Assistant,
+                id: generate_message_id(),
+                                    role: MessageRole::Assistant,
                 content: content.into(),
                 tool_calls: None,
                 tool_call_id: None,
@@ -1341,6 +1520,8 @@ pub(super) fn parse_plugin_command(content: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
 
     #[test]
     fn parse_plugin_command_basic() {
@@ -1377,5 +1558,104 @@ mod tests {
     fn parse_plugin_command_slash_no_dot_with_args() {
         let result = parse_plugin_command("/help me please");
         assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn repair_tool_call_sequence_updates_persisted_history() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_repair";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Repair test".to_string(),
+                    created_at: 1,
+                    updated_at: 1,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("start", 1),
+                        AgentMessage {
+                            id: "assistant-tool-turn".to_string(),
+                            role: MessageRole::Assistant,
+                            content: "checking".to_string(),
+                            tool_calls: Some(vec![
+                                ToolCall {
+                                    id: "2013".to_string(),
+                                    function: ToolFunction {
+                                        name: "tool_a".to_string(),
+                                        arguments: "{}".to_string(),
+                                    },
+                                },
+                                ToolCall {
+                                    id: "2014".to_string(),
+                                    function: ToolFunction {
+                                        name: "tool_b".to_string(),
+                                        arguments: "{}".to_string(),
+                                    },
+                                },
+                            ]),
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_arguments: None,
+                            tool_status: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: None,
+                            model: None,
+                            api_transport: None,
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 2,
+                        },
+                        AgentMessage {
+                            id: "tool-result-2013".to_string(),
+                            role: MessageRole::Tool,
+                            content: "partial".to_string(),
+                            tool_calls: None,
+                            tool_call_id: Some("2013".to_string()),
+                            tool_name: Some("tool_a".to_string()),
+                            tool_arguments: Some("{}".to_string()),
+                            tool_status: Some("done".to_string()),
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: None,
+                            model: None,
+                            api_transport: None,
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 3,
+                        },
+                        AgentMessage::user("continue", 4),
+                    ],
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        engine.repair_tool_call_sequence(thread_id).await;
+
+        let live = engine.threads.read().await;
+        let thread = live.get(thread_id).expect("thread should still exist");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].content, "start");
+        assert_eq!(thread.messages[1].content, "continue");
+        drop(live);
+
+        let persisted = engine.history.list_messages(thread_id, Some(10)).await.unwrap();
+        assert_eq!(persisted.len(), 2);
+        assert_eq!(persisted[0].content, "start");
+        assert_eq!(persisted[1].content, "continue");
     }
 }

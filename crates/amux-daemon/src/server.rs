@@ -2605,27 +2605,38 @@ where
                             .unwrap_or(crate::agent::capability_tier::CapabilityTier::Newcomer);
                         (done, t)
                     };
+                    let mut onboarding_just_delivered = false;
                     if !onboarding_done {
-                        if let Err(e) = agent.concierge.deliver_onboarding(tier).await {
+                        if let Err(e) = agent.concierge.deliver_onboarding(tier, &agent.threads).await {
                             tracing::warn!("onboarding delivery failed, falling back to generic welcome: {e}");
+                        } else {
+                            onboarding_just_delivered = true;
+                            agent
+                                .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
+                                .await;
                         }
                         // Mark onboarding as completed so it doesn't re-trigger on reconnect
                         {
                             let mut cfg = agent.config.write().await;
                             cfg.tier.onboarding_completed = true;
-                            // Config will be persisted on next heartbeat or config change
                         }
                     }
 
+                    // Skip welcome generation if onboarding was just delivered —
+                    // otherwise we'd emit two concierge messages back to back.
+                    if onboarding_just_delivered {
+                        continue;
+                    }
+
                     // Generate welcome inline (awaits LLM call for non-Minimal levels).
-                    // We send the result directly as a DaemonMessage rather than going
-                    // through the broadcast event channel, because the connection handler's
-                    // try_recv loop won't drain until the next client message arrives.
                     let welcome = agent
                         .concierge
                         .generate_welcome(&agent.threads, &agent.tasks)
                         .await;
                     if let Some((content, detail_level, actions)) = welcome {
+                        agent
+                            .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
+                            .await;
                         let event = crate::agent::types::AgentEvent::ConciergeWelcome {
                             thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),
                             content,
@@ -2654,6 +2665,9 @@ where
 
                 ClientMessage::AgentDismissConciergeWelcome => {
                     agent.concierge.prune_welcome_messages(&agent.threads).await;
+                    agent
+                        .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
+                        .await;
                     last_concierge_welcome_fingerprint = None;
                     framed
                         .send(DaemonMessage::AgentConciergeWelcomeDismissed)

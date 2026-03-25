@@ -376,6 +376,228 @@ fn text_input(prompt_text: &str, default: &str, masked: bool) -> Result<Option<S
     result
 }
 
+const WHATSAPP_LINK_TIMEOUT_SECS: u64 = 120;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WhatsAppLinkAttemptOutcome {
+    Linked(Option<String>),
+    TimedOut,
+    CancelledByUser,
+}
+
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn new() -> Result<Self> {
+        terminal::enable_raw_mode().context("Failed to enable raw mode")?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = terminal::disable_raw_mode();
+    }
+}
+
+fn gateway_choice_items() -> [(&'static str, &'static str); 5] {
+    [
+        ("Slack", "slack"),
+        ("Discord", "discord"),
+        ("Telegram", "telegram"),
+        ("WhatsApp", "whatsapp"),
+        ("Skip", ""),
+    ]
+}
+
+fn whatsapp_timeout_choices() -> [(&'static str, &'static str); 2] {
+    [
+        ("Retry WhatsApp linking", ""),
+        ("Skip for now", "continue setup"),
+    ]
+}
+
+fn whatsapp_timeout_retry_selected(index: usize) -> bool {
+    index == 0
+}
+
+fn poll_for_setup_cancel_key() -> Result<bool> {
+    if event::poll(std::time::Duration::from_millis(0)).context("Failed to poll keyboard input")?
+    {
+        if let Event::Key(KeyEvent { code, modifiers, .. }) =
+            event::read().context("Failed to read keyboard input")?
+        {
+            match code {
+                KeyCode::Esc => return Ok(true),
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    anyhow::bail!("Setup cancelled by user");
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(false)
+}
+
+async fn whatsapp_link_unsubscribe(
+    framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
+) -> Result<()> {
+    wizard_send(framed, ClientMessage::AgentWhatsAppLinkUnsubscribe)
+        .await
+        .context("Failed to unsubscribe from WhatsApp link updates")
+}
+
+async fn whatsapp_link_stop_and_unsubscribe(
+    framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
+) -> Result<()> {
+    wizard_send(framed, ClientMessage::AgentWhatsAppLinkStop)
+        .await
+        .context("Failed to stop WhatsApp link workflow")?;
+    wizard_send(framed, ClientMessage::AgentWhatsAppLinkUnsubscribe)
+        .await
+        .context("Failed to unsubscribe from WhatsApp link updates")
+}
+
+async fn run_whatsapp_link_attempt(
+    framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
+) -> Result<WhatsAppLinkAttemptOutcome> {
+    println!();
+    println!("{}", "Starting WhatsApp linking...".bold());
+    println!("Scan the QR code when it appears. Press Esc to skip.");
+
+    wizard_send(framed, ClientMessage::AgentWhatsAppLinkSubscribe)
+        .await
+        .context("Failed to subscribe to WhatsApp link updates")?;
+    wizard_send(framed, ClientMessage::AgentWhatsAppLinkStart)
+        .await
+        .context("Failed to start WhatsApp link workflow")?;
+
+    let _raw_mode = RawModeGuard::new()?;
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(WHATSAPP_LINK_TIMEOUT_SECS);
+    let mut last_qr: Option<String> = None;
+    let mut last_status: Option<String> = None;
+
+    loop {
+        if poll_for_setup_cancel_key()? {
+            whatsapp_link_stop_and_unsubscribe(framed).await?;
+            println!();
+            println!("Skipped WhatsApp linking.");
+            return Ok(WhatsAppLinkAttemptOutcome::CancelledByUser);
+        }
+
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            whatsapp_link_stop_and_unsubscribe(framed).await?;
+            return Ok(WhatsAppLinkAttemptOutcome::TimedOut);
+        }
+
+        let wait = deadline
+            .saturating_duration_since(now)
+            .min(std::time::Duration::from_millis(500));
+        let message = match tokio::time::timeout(wait, wizard_recv(framed)).await {
+            Ok(result) => result?,
+            Err(_) => continue,
+        };
+
+        match message {
+            DaemonMessage::AgentWhatsAppLinkQr {
+                ascii_qr,
+                expires_at_ms,
+            } => {
+                if last_qr.as_deref() != Some(ascii_qr.as_str()) {
+                    println!();
+                    println!("{}", "WhatsApp QR:".bold());
+                    println!("{ascii_qr}");
+                    if let Some(expires_at) = expires_at_ms {
+                        println!("QR update expires at {expires_at} ms epoch.");
+                    }
+                    last_qr = Some(ascii_qr);
+                }
+            }
+            DaemonMessage::AgentWhatsAppLinked { phone } => {
+                whatsapp_link_unsubscribe(framed).await?;
+                println!(
+                    "WhatsApp linked: {}",
+                    phone.as_deref().unwrap_or("device")
+                );
+                return Ok(WhatsAppLinkAttemptOutcome::Linked(phone));
+            }
+            DaemonMessage::AgentWhatsAppLinkStatus {
+                state,
+                phone,
+                last_error,
+            } => {
+                if state == "connected" {
+                    whatsapp_link_unsubscribe(framed).await?;
+                    println!(
+                        "WhatsApp linked: {}",
+                        phone.as_deref().unwrap_or("device")
+                    );
+                    return Ok(WhatsAppLinkAttemptOutcome::Linked(phone));
+                }
+                if last_status.as_deref() != Some(state.as_str()) {
+                    match state.as_str() {
+                        "starting" => println!("Preparing WhatsApp link session..."),
+                        "qr_ready" | "awaiting_qr" => {
+                            println!("QR is ready. Scan it in WhatsApp on your phone.")
+                        }
+                        "error" => println!(
+                            "WhatsApp link error: {}",
+                            last_error.as_deref().unwrap_or("unknown")
+                        ),
+                        "disconnected" => println!(
+                            "WhatsApp link disconnected: {}",
+                            last_error.as_deref().unwrap_or("none")
+                        ),
+                        _ => println!("WhatsApp link status: {state}"),
+                    }
+                    last_status = Some(state);
+                }
+            }
+            DaemonMessage::AgentWhatsAppLinkError { message, .. } => {
+                println!("WhatsApp link error: {message}");
+            }
+            DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
+                println!(
+                    "WhatsApp link disconnected: {}",
+                    reason.as_deref().unwrap_or("none")
+                );
+            }
+            DaemonMessage::Error { message } => {
+                println!("WhatsApp link error: {message}");
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn run_whatsapp_link_subflow(
+    framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
+) -> Result<bool> {
+    loop {
+        match run_whatsapp_link_attempt(framed).await? {
+            WhatsAppLinkAttemptOutcome::Linked(_) => return Ok(true),
+            WhatsAppLinkAttemptOutcome::CancelledByUser => return Ok(false),
+            WhatsAppLinkAttemptOutcome::TimedOut => {
+                println!();
+                let timeout_items = whatsapp_timeout_choices();
+                let choice = select_list(
+                    "WhatsApp linking timed out. What would you like to do?",
+                    &timeout_items,
+                    false,
+                    0,
+                )?
+                .expect("timeout choice is required");
+                if !whatsapp_timeout_retry_selected(choice) {
+                    println!("Skipped WhatsApp linking for now.");
+                    return Ok(false);
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helper: is local provider (no API key required)
 // ---------------------------------------------------------------------------
@@ -707,6 +929,7 @@ pub async fn run_setup_wizard() -> Result<PostSetupAction> {
     let mut summary_model: Option<String> = None;
     let mut summary_web_search: Option<String> = None;
     let mut summary_gateway: Option<String> = None;
+    let mut summary_whatsapp_linked = false;
 
     // ----- Step 5: Model selection (all tiers) -----
     println!();
@@ -1032,64 +1255,67 @@ pub async fn run_setup_wizard() -> Result<PostSetupAction> {
         };
 
         if should_configure_gw {
-            let gateway_items: Vec<(&str, &str)> = vec![
-                ("Slack", "slack"),
-                ("Discord", "discord"),
-                ("Telegram", "telegram"),
-                ("Skip", ""),
-            ];
+            let gateway_items = gateway_choice_items();
 
             match select_list(
-                "Configure a chat gateway? (Slack, Discord, Telegram)",
+                "Configure a chat gateway? (Slack, Discord, Telegram, WhatsApp)",
                 &gateway_items,
                 true,
                 0,
             )? {
-                Some(idx) if idx < 3 => {
+                Some(idx) if idx + 1 < gateway_items.len() => {
                     let (platform_label, platform) = gateway_items[idx];
-                    match text_input(
-                        &format!("Enter {platform_label} token"),
-                        "",
-                        true,
-                    )? {
-                        Some(token) if !token.is_empty() => {
-                        // Enable gateway
-                        wizard_send(
-                            &mut framed,
-                            ClientMessage::AgentSetConfigItem {
-                                key_path: "/gateway/enabled".to_string(),
-                                value_json: "true".to_string(),
-                            },
-                        )
-                        .await
-                        .context("Failed to enable gateway")?;
+                    // Enable gateway for any selected platform.
+                    wizard_send(
+                        &mut framed,
+                        ClientMessage::AgentSetConfigItem {
+                            key_path: "/gateway/enabled".to_string(),
+                            value_json: "true".to_string(),
+                        },
+                    )
+                    .await
+                    .context("Failed to enable gateway")?;
 
-                        // Set the platform token
-                        let token_key = format!("/gateway/{}_token", platform);
-                        wizard_send(
-                            &mut framed,
-                            ClientMessage::AgentSetConfigItem {
-                                key_path: token_key,
-                                value_json: format!("\"{}\"", token),
-                            },
-                        )
-                        .await
-                        .context("Failed to set gateway token")?;
-
+                    if platform == "whatsapp" {
+                        let linked = run_whatsapp_link_subflow(&mut framed)
+                            .await
+                            .context("WhatsApp link flow failed during setup")?;
                         summary_gateway = Some(platform_label.to_string());
-                        println!("{platform_label} gateway configured.");
-                    }
-                    _ => {
-                        println!(
-                            "Skipped -- you can configure gateways later with `tamux setup`."
-                        );
+                        summary_whatsapp_linked = linked;
+                        if linked {
+                            println!("WhatsApp gateway linked.");
+                        } else {
+                            println!("WhatsApp gateway selected (link skipped).");
+                        }
+                    } else {
+                        match text_input(&format!("Enter {platform_label} token"), "", true)? {
+                            Some(token) if !token.is_empty() => {
+                                let token_key = format!("/gateway/{}_token", platform);
+                                wizard_send(
+                                    &mut framed,
+                                    ClientMessage::AgentSetConfigItem {
+                                        key_path: token_key,
+                                        value_json: format!("\"{}\"", token),
+                                    },
+                                )
+                                .await
+                                .context("Failed to set gateway token")?;
+
+                                summary_gateway = Some(platform_label.to_string());
+                                println!("{platform_label} gateway configured.");
+                            }
+                            _ => {
+                                println!(
+                                    "Skipped -- you can configure gateways later with `tamux setup`."
+                                );
+                            }
+                        }
                     }
                 }
+                _ => {
+                    println!("Skipped -- you can configure gateways later with `tamux setup`.");
+                }
             }
-            _ => {
-                println!("Skipped -- you can configure gateways later with `tamux setup`.");
-            }
-        }
         } // end if should_configure_gw
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1115,7 +1341,15 @@ pub async fn run_setup_wizard() -> Result<PostSetupAction> {
         println!("  Web Search: Enabled ({ws})");
     }
     if let Some(ref gw) = summary_gateway {
-        println!("  Gateway:   {gw} configured");
+        if gw == "WhatsApp" {
+            if summary_whatsapp_linked {
+                println!("  Gateway:   WhatsApp linked");
+            } else {
+                println!("  Gateway:   WhatsApp selected (link skipped)");
+            }
+        } else {
+            println!("  Gateway:   {gw} configured");
+        }
     }
     println!();
     let launch_items = post_setup_choices();
@@ -1239,5 +1473,21 @@ mod tests {
         assert_eq!(choices[0].0, "TUI");
         assert_eq!(choices[1].0, "Electron");
         assert_eq!(choices[2].0, "Not now");
+    }
+
+    #[test]
+    fn test_gateway_choice_items_include_whatsapp_and_skip() {
+        let items = gateway_choice_items();
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[3], ("WhatsApp", "whatsapp"));
+        assert_eq!(items[4], ("Skip", ""));
+    }
+
+    #[test]
+    fn test_whatsapp_timeout_choice_mapping() {
+        let choices = whatsapp_timeout_choices();
+        assert_eq!(choices.len(), 2);
+        assert!(whatsapp_timeout_retry_selected(0));
+        assert!(!whatsapp_timeout_retry_selected(1));
     }
 }

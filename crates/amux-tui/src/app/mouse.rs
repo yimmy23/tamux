@@ -108,7 +108,8 @@ impl TuiModel {
                     if let Some(widgets::concierge::ConciergeHitTarget::Action(index)) =
                         widgets::concierge::hit_test(
                             concierge_area,
-                            &self.concierge,
+                            self.chat.active_actions(),
+                            self.concierge.selected_action,
                             Position::new(mouse.column, mouse.row),
                         )
                     {
@@ -488,7 +489,7 @@ impl TuiModel {
                         | modal::ModalKind::ErrorViewer
                         | modal::ModalKind::EffortPicker
                 ) {
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
             }
             MouseEventKind::Down(MouseButton::Right) if inside => {
@@ -763,7 +764,7 @@ impl TuiModel {
                     }
                 }
                 modal::ModalKind::Help => {
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
                 _ => {}
             },

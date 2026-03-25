@@ -1094,7 +1094,6 @@ impl TuiModel {
             "whatsapp_link_device" => {
                 self.modal.set_whatsapp_link_starting();
                 self.send_daemon_command(DaemonCommand::WhatsAppLinkSubscribe);
-                self.send_daemon_command(DaemonCommand::WhatsAppLinkStatus);
                 self.send_daemon_command(DaemonCommand::WhatsAppLinkStart);
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::WhatsAppLink));
@@ -1860,5 +1859,43 @@ impl TuiModel {
                 | "feat_skill_discovery_enabled"
                 | "whatsapp_link_device"
         ) || self.settings.current_field_name().starts_with("tool_")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    fn make_model() -> (
+        TuiModel,
+        tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+    ) {
+        let (_event_tx, event_rx) = std::sync::mpsc::channel();
+        let (daemon_tx, daemon_rx) = unbounded_channel();
+        (TuiModel::new(event_rx, daemon_tx), daemon_rx)
+    }
+
+    #[test]
+    fn whatsapp_link_device_sends_subscribe_and_start_without_status_probe() {
+        let (mut model, mut daemon_rx) = make_model();
+        model
+            .settings
+            .reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
+        model.settings.reduce(SettingsAction::NavigateField(12));
+        assert_eq!(model.settings.current_field_name(), "whatsapp_link_device");
+
+        model.activate_settings_field();
+
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected subscribe command"),
+            DaemonCommand::WhatsAppLinkSubscribe
+        ));
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected start command"),
+            DaemonCommand::WhatsAppLinkStart
+        ));
+        assert!(daemon_rx.try_recv().is_err());
+        assert_eq!(model.modal.top(), Some(modal::ModalKind::WhatsAppLink));
     }
 }

@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, RwLock};
 
 /// Well-known thread ID for the concierge.
 pub const CONCIERGE_THREAD_ID: &str = "concierge";
+const WELCOME_REUSE_WINDOW_MS: u64 = 2 * 60 * 60 * 1000;
 
 /// Result of concierge triage on a gateway message.
 pub enum GatewayTriage {
@@ -45,12 +46,18 @@ impl ConciergeEngine {
     }
 
     /// Initialize the concierge — ensure the pinned thread exists.
+    /// Clears any stale messages from previous daemon sessions.
     pub async fn initialize(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
     ) {
         let mut threads_guard = threads.write().await;
-        if !threads_guard.contains_key(CONCIERGE_THREAD_ID) {
+        if let Some(thread) = threads_guard.get_mut(CONCIERGE_THREAD_ID) {
+            // Clear stale messages from previous daemon sessions —
+            // a fresh welcome will be generated on first client connect.
+            thread.messages.clear();
+            tracing::info!("concierge: cleared stale messages from existing thread");
+        } else {
             let now = super::now_millis();
             let thread = AgentThread {
                 id: CONCIERGE_THREAD_ID.to_string(),
@@ -95,17 +102,15 @@ impl ConciergeEngine {
             context.recent_threads.len(),
             context.pending_tasks.len()
         );
-        let welcome_signature = build_welcome_signature(detail_level, &context);
-        let (content, actions) =
-            if let Some(cached) = self.cached_welcome(&welcome_signature).await {
-                tracing::info!("concierge: reusing cached welcome payload");
-                cached
-            } else {
-                let composed = self.compose_welcome(detail_level, &context).await;
-                self.cache_welcome(&welcome_signature, &composed.0, &composed.1)
-                    .await;
-                composed
-            };
+        let (content, actions) = if let Some(existing) = self
+            .reuse_welcome_from_history(threads, detail_level, &context)
+            .await
+        {
+            tracing::info!("concierge: reusing persisted welcome payload");
+            existing
+        } else {
+            self.compose_welcome(detail_level, &context).await
+        };
 
         if content.is_empty() {
             tracing::warn!("concierge: empty welcome content, skipping emit");
@@ -148,17 +153,15 @@ impl ConciergeEngine {
 
         tracing::info!("concierge: generate_welcome at level {:?}", detail_level);
         let context = self.gather_context(threads, tasks, detail_level).await;
-        let welcome_signature = build_welcome_signature(detail_level, &context);
-        let (content, actions) =
-            if let Some(cached) = self.cached_welcome(&welcome_signature).await {
-                tracing::info!("concierge: generate_welcome reusing cached payload");
-                cached
-            } else {
-                let composed = self.compose_welcome(detail_level, &context).await;
-                self.cache_welcome(&welcome_signature, &composed.0, &composed.1)
-                    .await;
-                composed
-            };
+        let (content, actions) = if let Some(existing) = self
+            .reuse_welcome_from_history(threads, detail_level, &context)
+            .await
+        {
+            tracing::info!("concierge: generate_welcome reusing persisted payload");
+            existing
+        } else {
+            self.compose_welcome(detail_level, &context).await
+        };
 
         if content.is_empty() {
             return None;
@@ -200,11 +203,11 @@ impl ConciergeEngine {
     ) {
         let mut threads_guard = threads.write().await;
         if let Some(thread) = threads_guard.get_mut(CONCIERGE_THREAD_ID) {
-            thread.messages.retain(|msg| {
-                !(msg.role == MessageRole::Assistant
-                    && msg.provider.as_deref() == Some("concierge"))
-            });
+            // Clear ALL messages — the concierge thread should only ever
+            // contain the single latest welcome message.
+            thread.messages.clear();
             thread.messages.push(AgentMessage {
+                id: generate_message_id(),
                 role: MessageRole::Assistant,
                 content: content.to_string(),
                 tool_calls: None,
@@ -225,10 +228,38 @@ impl ConciergeEngine {
         }
     }
 
-    async fn cached_welcome(
+    async fn reuse_welcome_from_history(
         &self,
-        signature: &str,
+        threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+        detail_level: ConciergeDetailLevel,
+        context: &WelcomeContext,
     ) -> Option<(String, Vec<ConciergeAction>)> {
+        let threads_guard = threads.read().await;
+        let concierge_thread = threads_guard.get(CONCIERGE_THREAD_ID)?;
+        let latest_welcome = concierge_thread.messages.iter().rev().find(|msg| {
+            msg.role == MessageRole::Assistant && msg.provider.as_deref() == Some("concierge")
+        })?;
+
+        let now = super::now_millis();
+        if now.saturating_sub(latest_welcome.timestamp) >= WELCOME_REUSE_WINDOW_MS {
+            return None;
+        }
+
+        let has_user_message_after_welcome = threads_guard
+            .values()
+            .flat_map(|thread| thread.messages.iter())
+            .any(|msg| msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp);
+        if has_user_message_after_welcome {
+            return None;
+        }
+
+        Some((
+            latest_welcome.content.clone(),
+            self.build_welcome_actions(detail_level, context),
+        ))
+    }
+
+    async fn cached_welcome(&self, signature: &str) -> Option<(String, Vec<ConciergeAction>)> {
         let cache = self.welcome_cache.read().await;
         let entry = cache.as_ref()?;
         if entry.signature != signature || entry.created_at.elapsed() > WELCOME_CACHE_TTL {
@@ -237,12 +268,7 @@ impl ConciergeEngine {
         Some((entry.content.clone(), entry.actions.clone()))
     }
 
-    async fn cache_welcome(
-        &self,
-        signature: &str,
-        content: &str,
-        actions: &[ConciergeAction],
-    ) {
+    async fn cache_welcome(&self, signature: &str, content: &str, actions: &[ConciergeAction]) {
         *self.welcome_cache.write().await = Some(WelcomeCacheEntry {
             signature: signature.to_string(),
             content: content.to_string(),
@@ -260,25 +286,39 @@ impl ConciergeEngine {
         detail_level: ConciergeDetailLevel,
     ) -> WelcomeContext {
         let threads_guard = threads.read().await;
+        let thread_limit = match detail_level {
+            ConciergeDetailLevel::Minimal => 1,
+            ConciergeDetailLevel::ContextSummary => 1,
+            ConciergeDetailLevel::ProactiveTriage | ConciergeDetailLevel::DailyBriefing => 5,
+        };
+        let message_limit = match detail_level {
+            ConciergeDetailLevel::Minimal => 0,
+            ConciergeDetailLevel::ContextSummary => 5,
+            ConciergeDetailLevel::ProactiveTriage | ConciergeDetailLevel::DailyBriefing => 5,
+        };
 
         let mut recent_threads: Vec<ThreadSummary> = threads_guard
             .values()
             .filter(|t| t.id != CONCIERGE_THREAD_ID && !t.messages.is_empty())
             .map(|t| {
+                let opening_message = t
+                    .messages
+                    .iter()
+                    .find(|message| {
+                        message.role == MessageRole::User && !message.content.is_empty()
+                    })
+                    .or_else(|| {
+                        t.messages
+                            .iter()
+                            .find(|message| !message.content.is_empty())
+                    })
+                    .map(format_message_snippet);
                 let last_messages: Vec<String> = t
                     .messages
                     .iter()
                     .rev()
-                    .take(5)
-                    .map(|m| {
-                        let role = match m.role {
-                            MessageRole::User => "User",
-                            MessageRole::Assistant => "Assistant",
-                            _ => "System",
-                        };
-                        let snippet: String = m.content.chars().take(120).collect();
-                        format!("{}: {}", role, snippet)
-                    })
+                    .take(message_limit)
+                    .map(format_message_snippet)
                     .collect::<Vec<_>>()
                     .into_iter()
                     .rev()
@@ -288,44 +328,72 @@ impl ConciergeEngine {
                     title: t.title.clone(),
                     updated_at: t.updated_at,
                     message_count: t.messages.len(),
+                    opening_message,
                     last_messages,
                 }
             })
             .collect();
         recent_threads.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        recent_threads.truncate(5);
+        recent_threads.truncate(thread_limit);
         drop(threads_guard);
 
-        // Gather tasks for ProactiveTriage and DailyBriefing.
-        let pending_tasks = if matches!(
+        let (pending_task_total, pending_tasks) = if matches!(
             detail_level,
-            ConciergeDetailLevel::ProactiveTriage | ConciergeDetailLevel::DailyBriefing
+            ConciergeDetailLevel::ContextSummary
+                | ConciergeDetailLevel::ProactiveTriage
+                | ConciergeDetailLevel::DailyBriefing
         ) {
             let tasks_guard = tasks.lock().await;
-            tasks_guard
-                .iter()
-                .filter(|t| {
-                    matches!(
-                        t.status,
-                        TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked
-                    )
-                })
-                .map(|t| {
-                    format!(
-                        "- [{}] {} ({})",
-                        format!("{:?}", t.status),
-                        t.title,
-                        format_timestamp(t.created_at)
-                    )
-                })
-                .collect()
+            sample_pending_tasks(tasks_guard.iter())
         } else {
-            Vec::new()
+            (0, Vec::new())
         };
 
         WelcomeContext {
             recent_threads,
+            pending_task_total,
             pending_tasks,
+        }
+    }
+
+    async fn gather_gateway_context(
+        &self,
+        threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
+    ) -> WelcomeContext {
+        let threads_guard = threads.read().await;
+        let recent_threads = threads_guard
+            .values()
+            .filter(|t| t.id != CONCIERGE_THREAD_ID && !t.messages.is_empty())
+            .max_by_key(|thread| thread.updated_at)
+            .map(|thread| {
+                vec![ThreadSummary {
+                    id: thread.id.clone(),
+                    title: thread.title.clone(),
+                    updated_at: thread.updated_at,
+                    message_count: thread.messages.len(),
+                    opening_message: None,
+                    last_messages: Vec::new(),
+                }]
+            })
+            .unwrap_or_default();
+        drop(threads_guard);
+
+        let tasks_guard = tasks.lock().await;
+        let pending_task_total = tasks_guard
+            .iter()
+            .filter(|task| {
+                matches!(
+                    task.status,
+                    TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked
+                )
+            })
+            .count();
+
+        WelcomeContext {
+            recent_threads,
+            pending_task_total,
+            pending_tasks: Vec::new(),
         }
     }
 
@@ -336,9 +404,42 @@ impl ConciergeEngine {
         detail_level: ConciergeDetailLevel,
         context: &WelcomeContext,
     ) -> (String, Vec<ConciergeAction>) {
-        let mut actions = Vec::new();
+        let actions = self.build_welcome_actions(detail_level, context);
 
-        // Always add actions based on session history.
+        // Minimal: pure template, no LLM call.
+        if detail_level == ConciergeDetailLevel::Minimal {
+            let content = if let Some(last) = context.recent_threads.first() {
+                format!(
+                    "Welcome back! Last session: **{}** ({}). {} messages.",
+                    last.title,
+                    format_timestamp(last.updated_at),
+                    last.message_count
+                )
+            } else {
+                "Welcome to tamux! Ready to start your first session.".into()
+            };
+            return (content, actions);
+        }
+
+        // ContextSummary / ProactiveTriage / DailyBriefing: LLM call.
+        let content = match self.call_llm_for_welcome(detail_level, context).await {
+            Ok(response) => strip_trailing_actions(&response),
+            Err(e) => {
+                tracing::warn!("concierge LLM call failed, falling back to template: {e}");
+                self.template_fallback(context)
+            }
+        };
+
+        (content, actions)
+    }
+
+    fn build_welcome_actions(
+        &self,
+        detail_level: ConciergeDetailLevel,
+        context: &WelcomeContext,
+    ) -> Vec<ConciergeAction> {
+        let _ = detail_level;
+        let mut actions = Vec::new();
         if let Some(last) = context.recent_threads.first() {
             actions.push(ConciergeAction {
                 label: format!("Continue: {}", truncate_str(&last.title, 40)),
@@ -361,33 +462,7 @@ impl ConciergeEngine {
             action_type: ConciergeActionType::Dismiss,
             thread_id: None,
         });
-
-        // Minimal: pure template, no LLM call.
-        if detail_level == ConciergeDetailLevel::Minimal {
-            let content = if let Some(last) = context.recent_threads.first() {
-                format!(
-                    "Welcome back! Last session: **{}** ({}). {} messages.",
-                    last.title,
-                    format_timestamp(last.updated_at),
-                    last.message_count
-                )
-            } else {
-                "Welcome to tamux! Ready to start your first session.".into()
-            };
-            return (content, actions);
-        }
-
-        // ContextSummary / ProactiveTriage / DailyBriefing: LLM call.
-        let content = match self.call_llm_for_welcome(detail_level, context).await {
-            Ok(response) => response,
-            Err(e) => {
-                tracing::warn!("concierge LLM call failed, falling back to template: {e}");
-                // Fallback to a template if LLM fails.
-                self.template_fallback(context)
-            }
-        };
-
-        (content, actions)
+        actions
     }
 
     /// Make an LLM call to generate the welcome message.
@@ -397,7 +472,7 @@ impl ConciergeEngine {
         context: &WelcomeContext,
     ) -> Result<String> {
         let config = self.config.read().await;
-        let provider_config = resolve_concierge_provider(&config)?;
+        let provider_config = fast_concierge_provider_config(&resolve_concierge_provider(&config)?);
         let provider_id = config
             .concierge
             .provider
@@ -480,7 +555,10 @@ impl ConciergeEngine {
         let mut prompt = String::new();
 
         prompt.push_str(
-            "Generate a concise welcome greeting for the user who just opened tamux.\n\n",
+            "Generate a concise welcome greeting for the user who just opened tamux.\n\
+             IMPORTANT: Do NOT include action buttons, next steps, or numbered suggestions \
+             at the end — the UI renders interactive buttons separately. \
+             Just provide the status summary and context.\n\n",
         );
 
         // Session context.
@@ -491,6 +569,12 @@ impl ConciergeEngine {
                 format_timestamp(last.updated_at),
                 last.message_count
             ));
+            if let Some(opening_message) = &last.opening_message {
+                prompt.push_str(&format!(
+                    "Conversation opened with:\n  {}\n",
+                    opening_message
+                ));
+            }
             if !last.last_messages.is_empty() {
                 prompt.push_str("Recent conversation:\n");
                 for msg in &last.last_messages {
@@ -513,26 +597,26 @@ impl ConciergeEngine {
             }
         }
 
+        if context.pending_task_total > 0 {
+            prompt.push_str(&format!(
+                "\nUnresolved tasks: {} total\n",
+                context.pending_task_total
+            ));
+            for task in &context.pending_tasks {
+                prompt.push_str(&format!("{task}\n"));
+            }
+        }
+
         match detail_level {
             ConciergeDetailLevel::ContextSummary => {
-                prompt.push_str("\nSummarize what the user was working on in 1-2 sentences. Then ask what they'd like to do.");
+                prompt.push_str(
+                    "\nSummarize what the user was working on in 1-2 sentences. Mention the most relevant open work if helpful. Then ask what they'd like to do.",
+                );
             }
             ConciergeDetailLevel::ProactiveTriage => {
-                if !context.pending_tasks.is_empty() {
-                    prompt.push_str("\nPending tasks:\n");
-                    for task in &context.pending_tasks {
-                        prompt.push_str(&format!("{}\n", task));
-                    }
-                }
                 prompt.push_str("\nProvide a smart triage: summarize the last session, mention any pending tasks or unfinished work, and suggest 2-3 prioritized next steps.");
             }
             ConciergeDetailLevel::DailyBriefing => {
-                if !context.pending_tasks.is_empty() {
-                    prompt.push_str("\nPending tasks:\n");
-                    for task in &context.pending_tasks {
-                        prompt.push_str(&format!("{}\n", task));
-                    }
-                }
                 prompt.push_str("\nProvide a full operational briefing: session summary, pending tasks, and actionable recommendations. Be comprehensive but concise.");
             }
             ConciergeDetailLevel::Minimal => unreachable!(),
@@ -549,11 +633,8 @@ impl ConciergeEngine {
                 format_timestamp(last.updated_at),
                 last.message_count
             )];
-            if !context.pending_tasks.is_empty() {
-                parts.push(format!(
-                    "**Pending tasks:** {}",
-                    context.pending_tasks.len()
-                ));
+            if context.pending_task_total > 0 {
+                parts.push(format!("**Pending tasks:** {}", context.pending_task_total));
             }
             parts.push("What would you like to work on?".into());
             parts.join("\n")
@@ -580,7 +661,7 @@ impl ConciergeEngine {
             return GatewayTriage::Complex;
         }
         let provider_config = match resolve_concierge_provider(&config) {
-            Ok(pc) => pc,
+            Ok(pc) => fast_concierge_provider_config(&pc),
             Err(e) => {
                 tracing::warn!("concierge: triage provider resolution failed: {e}");
                 return GatewayTriage::Complex;
@@ -594,9 +675,7 @@ impl ConciergeEngine {
             .to_string();
         drop(config);
 
-        let context = self
-            .gather_context(threads, tasks, ConciergeDetailLevel::ContextSummary)
-            .await;
+        let context = self.gather_gateway_context(threads, tasks).await;
 
         let user_prompt = build_gateway_triage_prompt(platform, sender, content, &context);
 
@@ -734,21 +813,34 @@ impl ConciergeEngine {
     /// Generate and deliver a tier-adapted onboarding message.
     /// Falls back to static template if LLM fails (Pitfall 5).
     /// Per D-09: one-shot, skippable, never re-appears.
-    pub async fn deliver_onboarding(&self, tier: super::capability_tier::CapabilityTier) -> Result<()> {
-        // Try LLM-powered onboarding
-        let content = match self.generate_onboarding_llm(tier).await {
-            Ok(text) => text,
-            Err(e) => {
-                tracing::warn!(error = %e, "concierge: LLM onboarding failed, using template fallback");
-                onboarding_template_fallback(tier)
+    pub async fn deliver_onboarding(
+        &self,
+        tier: super::capability_tier::CapabilityTier,
+        threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+    ) -> Result<()> {
+        let config = self.config.read().await;
+        let detail_level = config.concierge.detail_level;
+        drop(config);
+
+        let content = if detail_level == ConciergeDetailLevel::Minimal {
+            onboarding_template_fallback(tier)
+        } else {
+            match self.generate_onboarding_llm(tier).await {
+                Ok(text) => text,
+                Err(e) => {
+                    tracing::warn!(error = %e, "concierge: LLM onboarding failed, using template fallback");
+                    onboarding_template_fallback(tier)
+                }
             }
         };
 
-        // Broadcast as ConciergeWelcome event
+        // Replace any existing welcome in the thread first.
+        self.replace_welcome_message(threads, &content).await;
+
         let _ = self.event_tx.send(AgentEvent::ConciergeWelcome {
             thread_id: CONCIERGE_THREAD_ID.to_string(),
             content,
-            detail_level: ConciergeDetailLevel::ContextSummary,
+            detail_level,
             actions: self.onboarding_actions(tier),
         });
 
@@ -756,7 +848,10 @@ impl ConciergeEngine {
     }
 
     /// Generate onboarding content via LLM (follows existing generate_welcome pattern).
-    async fn generate_onboarding_llm(&self, tier: super::capability_tier::CapabilityTier) -> Result<String> {
+    async fn generate_onboarding_llm(
+        &self,
+        tier: super::capability_tier::CapabilityTier,
+    ) -> Result<String> {
         let config = self.config.read().await;
         let provider_config = resolve_concierge_provider(&config)?;
         let provider_id = config
@@ -829,20 +924,47 @@ impl ConciergeEngine {
     }
 
     /// Return tier-appropriate action buttons for onboarding.
-    fn onboarding_actions(&self, tier: super::capability_tier::CapabilityTier) -> Vec<ConciergeAction> {
+    fn onboarding_actions(
+        &self,
+        tier: super::capability_tier::CapabilityTier,
+    ) -> Vec<ConciergeAction> {
         use super::capability_tier::CapabilityTier;
         match tier {
             CapabilityTier::Newcomer => vec![
-                ConciergeAction { label: "Send a message".into(), action_type: ConciergeActionType::FocusChat, thread_id: None },
-                ConciergeAction { label: "Skip onboarding".into(), action_type: ConciergeActionType::DismissWelcome, thread_id: None },
+                ConciergeAction {
+                    label: "Send a message".into(),
+                    action_type: ConciergeActionType::FocusChat,
+                    thread_id: None,
+                },
+                ConciergeAction {
+                    label: "Skip onboarding".into(),
+                    action_type: ConciergeActionType::DismissWelcome,
+                    thread_id: None,
+                },
             ],
             CapabilityTier::Familiar => vec![
-                ConciergeAction { label: "Start a goal run".into(), action_type: ConciergeActionType::StartGoalRun, thread_id: None },
-                ConciergeAction { label: "Skip".into(), action_type: ConciergeActionType::DismissWelcome, thread_id: None },
+                ConciergeAction {
+                    label: "Start a goal run".into(),
+                    action_type: ConciergeActionType::StartGoalRun,
+                    thread_id: None,
+                },
+                ConciergeAction {
+                    label: "Skip".into(),
+                    action_type: ConciergeActionType::DismissWelcome,
+                    thread_id: None,
+                },
             ],
             CapabilityTier::PowerUser => vec![
-                ConciergeAction { label: "Open settings".into(), action_type: ConciergeActionType::OpenSettings, thread_id: None },
-                ConciergeAction { label: "Skip".into(), action_type: ConciergeActionType::DismissWelcome, thread_id: None },
+                ConciergeAction {
+                    label: "Open settings".into(),
+                    action_type: ConciergeActionType::OpenSettings,
+                    thread_id: None,
+                },
+                ConciergeAction {
+                    label: "Skip".into(),
+                    action_type: ConciergeActionType::DismissWelcome,
+                    thread_id: None,
+                },
             ],
             CapabilityTier::Expert => vec![],
         }
@@ -864,11 +986,13 @@ impl ConciergeEngine {
             new_tier.replace('_', " "),
         );
 
-        let _ = self.event_tx.send(AgentEvent::ConciergeWelcome {
+        // Use WorkflowNotice (status line) instead of ConciergeWelcome
+        // to avoid stacking on top of the welcome message.
+        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
             thread_id: CONCIERGE_THREAD_ID.to_string(),
-            content: message,
-            detail_level: ConciergeDetailLevel::ContextSummary,
-            actions: vec![],
+            kind: "tier-transition".to_string(),
+            message,
+            details: None,
         });
 
         Ok(())
@@ -888,11 +1012,11 @@ impl ConciergeEngine {
             );
             let feature_id = feature.feature_id.clone();
 
-            let _ = self.event_tx.send(AgentEvent::ConciergeWelcome {
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
                 thread_id: CONCIERGE_THREAD_ID.to_string(),
-                content: message,
-                detail_level: ConciergeDetailLevel::Minimal,
-                actions: vec![],
+                kind: "feature-disclosure".to_string(),
+                message,
+                details: None,
             });
 
             queue.mark_disclosed(&feature_id, current_session);
@@ -998,8 +1122,8 @@ fn build_gateway_triage_prompt(
             format_timestamp(last.updated_at),
         ));
     }
-    if !context.pending_tasks.is_empty() {
-        prompt.push_str(&format!(" {} pending tasks.", context.pending_tasks.len()));
+    if context.pending_task_total > 0 {
+        prompt.push_str(&format!(" {} pending tasks.", context.pending_task_total));
     }
     prompt
 }
@@ -1008,6 +1132,7 @@ fn build_gateway_triage_prompt(
 
 struct WelcomeContext {
     recent_threads: Vec<ThreadSummary>,
+    pending_task_total: usize,
     pending_tasks: Vec<String>,
 }
 
@@ -1027,7 +1152,71 @@ struct ThreadSummary {
     title: String,
     updated_at: u64,
     message_count: usize,
+    opening_message: Option<String>,
     last_messages: Vec<String>,
+}
+
+fn format_message_snippet(message: &AgentMessage) -> String {
+    let role = match message.role {
+        MessageRole::User => "User",
+        MessageRole::Assistant => "Assistant",
+        _ => "System",
+    };
+    let snippet: String = message.content.chars().take(120).collect();
+    format!("{role}: {snippet}")
+}
+
+fn sample_pending_tasks<'a, I>(tasks: I) -> (usize, Vec<String>)
+where
+    I: IntoIterator<Item = &'a AgentTask>,
+{
+    let unresolved: Vec<&AgentTask> = tasks
+        .into_iter()
+        .filter(|task| {
+            matches!(
+                task.status,
+                TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked
+            )
+        })
+        .collect();
+    let total = unresolved.len();
+    if total == 0 {
+        return (0, Vec::new());
+    }
+
+    let mut sorted = unresolved;
+    sorted.sort_by_key(|task| task.created_at);
+
+    let mut sampled = Vec::new();
+    for task in sorted.iter().take(2) {
+        sampled.push(*task);
+    }
+    for task in sorted.iter().rev().take(3).rev() {
+        if sampled.iter().any(|existing| existing.id == task.id) {
+            continue;
+        }
+        sampled.push(*task);
+    }
+
+    let entries = sampled
+        .into_iter()
+        .map(|task| {
+            format!(
+                "- [{}] {} ({})",
+                format!("{:?}", task.status),
+                task.title,
+                format_timestamp(task.created_at)
+            )
+        })
+        .collect();
+
+    (total, entries)
+}
+
+fn fast_concierge_provider_config(config: &ProviderConfig) -> ProviderConfig {
+    let mut fast = config.clone();
+    fast.reasoning_effort = "off".to_string();
+    fast
 }
 
 const CONCIERGE_SYSTEM_PROMPT: &str = "\
@@ -1052,6 +1241,30 @@ fn resolve_concierge_provider(config: &AgentConfig) -> Result<ProviderConfig> {
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────
+
+/// Strip trailing "Next Steps" / "Recommended Actions" / numbered suggestions
+/// from LLM-generated concierge messages — the UI renders action buttons separately.
+fn strip_trailing_actions(content: &str) -> String {
+    let patterns = [
+        "\nNext Steps",
+        "\n**Next Steps",
+        "\nRecommended Next Steps",
+        "\n**Recommended Next Steps",
+        "\nRecommended Actions",
+        "\n**Recommended Actions",
+        "\nSuggested Actions",
+        "\n**Suggested Actions",
+        "\nAction Items",
+        "\n**Action Items",
+    ];
+    let mut result = content.to_string();
+    for pat in &patterns {
+        if let Some(pos) = result.find(pat) {
+            result.truncate(pos);
+        }
+    }
+    result.trim_end().to_string()
+}
 
 fn truncate_str(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
@@ -1085,13 +1298,21 @@ fn build_welcome_signature(detail_level: ConciergeDetailLevel, context: &Welcome
         .iter()
         .map(|thread| {
             format!(
-                "{}|{}|{}|{}",
-                thread.id, thread.title, thread.updated_at, thread.message_count
+                "{}|{}|{}|{}|{}",
+                thread.id,
+                thread.title,
+                thread.updated_at,
+                thread.message_count,
+                thread.opening_message.as_deref().unwrap_or("")
             )
         })
         .collect::<Vec<_>>()
         .join(";");
-    let task_sig = context.pending_tasks.join(";");
+    let task_sig = format!(
+        "{}|{}",
+        context.pending_task_total,
+        context.pending_tasks.join(";")
+    );
     format!("{detail_level:?}::{thread_sig}::{task_sig}")
 }
 
@@ -1176,6 +1397,14 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use tokio::sync::Mutex;
+
+    fn test_now_millis() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
 
     fn concierge_thread(messages: Vec<AgentMessage>) -> AgentThread {
         AgentThread {
@@ -1195,6 +1424,78 @@ mod tests {
         }
     }
 
+    fn assistant_message(content: &str, timestamp: u64) -> AgentMessage {
+        AgentMessage {
+            id: format!("assistant-{timestamp}"),
+            role: MessageRole::Assistant,
+            content: content.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            reasoning: None,
+            timestamp,
+        }
+    }
+
+    fn sample_task(id: &str, title: &str, created_at: u64) -> AgentTask {
+        AgentTask {
+            id: id.to_string(),
+            title: title.to_string(),
+            description: title.to_string(),
+            status: TaskStatus::InProgress,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "user".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 3,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        }
+    }
+
     #[tokio::test]
     async fn prune_welcome_messages_removes_all_concierge_welcomes() {
         let config = Arc::new(RwLock::new(AgentConfig::default()));
@@ -1202,11 +1503,13 @@ mod tests {
         let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
             std::iter::empty(),
         ));
-        let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
         let threads = RwLock::new(HashMap::from([(
             CONCIERGE_THREAD_ID.to_string(),
             concierge_thread(vec![
                 AgentMessage {
+                    id: String::new(),
                     role: MessageRole::Assistant,
                     content: "hello".to_string(),
                     tool_calls: None,
@@ -1224,6 +1527,7 @@ mod tests {
                     timestamp: 1,
                 },
                 AgentMessage {
+                    id: String::new(),
                     role: MessageRole::Assistant,
                     content: "welcome 1".to_string(),
                     tool_calls: None,
@@ -1241,6 +1545,7 @@ mod tests {
                     timestamp: 2,
                 },
                 AgentMessage {
+                    id: String::new(),
                     role: MessageRole::Assistant,
                     content: "welcome 2".to_string(),
                     tool_calls: None,
@@ -1275,7 +1580,8 @@ mod tests {
         let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
             std::iter::empty(),
         ));
-        let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
         let action = ConciergeAction {
             label: "Dismiss".to_string(),
             action_type: ConciergeActionType::DismissWelcome,
@@ -1298,8 +1604,10 @@ mod tests {
                 title: "Thread One".to_string(),
                 updated_at: 100,
                 message_count: 3,
+                opening_message: Some("User: kickoff".to_string()),
                 last_messages: vec!["hello".to_string()],
             }],
+            pending_task_total: 1,
             pending_tasks: vec!["task-a".to_string()],
         };
         let mut changed_context = WelcomeContext {
@@ -1308,8 +1616,10 @@ mod tests {
                 title: "Thread One".to_string(),
                 updated_at: 100,
                 message_count: 3,
+                opening_message: Some("User: kickoff".to_string()),
                 last_messages: vec!["hello".to_string()],
             }],
+            pending_task_total: 1,
             pending_tasks: vec!["task-a".to_string()],
         };
         changed_context.pending_tasks.push("task-b".to_string());
@@ -1345,13 +1655,11 @@ mod tests {
             },
         );
 
-        let resolved = resolve_concierge_provider(&config).expect("concierge provider should resolve");
-        let shared = resolve_provider_config_for(
-            &config,
-            "alibaba-coding-plan",
-            Some("qwen3.5-plus"),
-        )
-        .expect("shared provider resolution should succeed");
+        let resolved =
+            resolve_concierge_provider(&config).expect("concierge provider should resolve");
+        let shared =
+            resolve_provider_config_for(&config, "alibaba-coding-plan", Some("qwen3.5-plus"))
+                .expect("shared provider resolution should succeed");
         assert_eq!(resolved.base_url, shared.base_url);
         assert_eq!(resolved.model, shared.model);
         assert_eq!(resolved.api_key, shared.api_key);
@@ -1359,5 +1667,359 @@ mod tests {
         assert_eq!(resolved.assistant_id, shared.assistant_id);
         assert_eq!(resolved.context_window_tokens, shared.context_window_tokens);
         assert_eq!(resolved.api_transport, shared.api_transport);
+    }
+
+    #[test]
+    fn concierge_fast_profile_disables_reasoning_without_touching_model() {
+        let base = ProviderConfig {
+            base_url: "https://api.openai.com/v1".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            api_key: "secret".to_string(),
+            assistant_id: "assistant-1".to_string(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 128_000,
+            response_schema: None,
+        };
+
+        let fast = fast_concierge_provider_config(&base);
+
+        assert_eq!(fast.reasoning_effort, "off");
+        assert_eq!(fast.model, base.model);
+        assert_eq!(fast.base_url, base.base_url);
+        assert_eq!(fast.api_transport, base.api_transport);
+        assert_eq!(fast.context_window_tokens, base.context_window_tokens);
+    }
+
+    #[tokio::test]
+    async fn context_summary_gathers_opening_message_recent_messages_and_bounded_tasks() {
+        let config = Arc::new(RwLock::new(AgentConfig::default()));
+        let (event_tx, _) = broadcast::channel(8);
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+            std::iter::empty(),
+        ));
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let now = test_now_millis();
+        let threads = RwLock::new(HashMap::from([
+            (
+                "thread-1".to_string(),
+                AgentThread {
+                    id: "thread-1".to_string(),
+                    title: "Newest".to_string(),
+                    created_at: 1,
+                    updated_at: now,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("kickoff scope", now - 8),
+                        assistant_message("reply-1", now - 7),
+                        AgentMessage::user("msg-2", now - 6),
+                        assistant_message("msg-3", now - 5),
+                        AgentMessage::user("msg-4", now - 4),
+                        assistant_message("msg-5", now - 3),
+                        AgentMessage::user("msg-6", now - 2),
+                    ],
+                },
+            ),
+            (
+                "thread-2".to_string(),
+                AgentThread {
+                    id: "thread-2".to_string(),
+                    title: "Older".to_string(),
+                    created_at: 1,
+                    updated_at: now - 1_000,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![assistant_message("old", now - 1_000)],
+                },
+            ),
+        ]));
+        let tasks = Mutex::new(std::collections::VecDeque::from([
+            sample_task("task-1", "oldest-1", now - 600),
+            sample_task("task-2", "oldest-2", now - 500),
+            sample_task("task-3", "middle", now - 400),
+            sample_task("task-4", "newest-3", now - 300),
+            sample_task("task-5", "newest-2", now - 200),
+            sample_task("task-6", "newest-1", now - 100),
+        ]));
+
+        let context = engine
+            .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+            .await;
+
+        assert_eq!(context.recent_threads.len(), 1);
+        assert_eq!(context.recent_threads[0].title, "Newest");
+        assert_eq!(
+            context.recent_threads[0].opening_message.as_deref(),
+            Some("User: kickoff scope")
+        );
+        assert_eq!(context.recent_threads[0].last_messages.len(), 5);
+        assert_eq!(context.pending_task_total, 6);
+        assert_eq!(context.pending_tasks.len(), 5);
+        assert!(context
+            .pending_tasks
+            .iter()
+            .any(|task| task.contains("oldest-1")));
+        assert!(context
+            .pending_tasks
+            .iter()
+            .any(|task| task.contains("oldest-2")));
+        assert!(context
+            .pending_tasks
+            .iter()
+            .any(|task| task.contains("newest-3")));
+        assert!(context
+            .pending_tasks
+            .iter()
+            .any(|task| task.contains("newest-2")));
+        assert!(context
+            .pending_tasks
+            .iter()
+            .any(|task| task.contains("newest-1")));
+        assert!(!context
+            .pending_tasks
+            .iter()
+            .any(|task| task.contains("middle")));
+    }
+
+    #[tokio::test]
+    async fn generate_welcome_reuses_recent_persisted_welcome_without_new_user_message() {
+        let mut config_value = AgentConfig::default();
+        config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
+        let config = Arc::new(RwLock::new(config_value));
+        let (event_tx, _) = broadcast::channel(8);
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+            std::iter::empty(),
+        ));
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let now = test_now_millis();
+        let threads = RwLock::new(HashMap::from([
+            (
+                CONCIERGE_THREAD_ID.to_string(),
+                concierge_thread(vec![AgentMessage {
+                    id: "welcome".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "persisted welcome".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    provider: Some("concierge".into()),
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    reasoning: None,
+                    timestamp: now - 60_000,
+                }]),
+            ),
+            (
+                "thread-1".to_string(),
+                AgentThread {
+                    id: "thread-1".to_string(),
+                    title: "Thread One".to_string(),
+                    created_at: 1,
+                    updated_at: now - 120_000,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![AgentMessage {
+                        id: "assistant-old".to_string(),
+                        role: MessageRole::Assistant,
+                        content: "old reply".to_string(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        tool_name: None,
+                        tool_arguments: None,
+                        tool_status: None,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        provider: None,
+                        model: None,
+                        api_transport: None,
+                        response_id: None,
+                        reasoning: None,
+                        timestamp: now - 120_000,
+                    }],
+                },
+            ),
+        ]));
+
+        let result = engine
+            .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+            .await
+            .expect("welcome should be returned");
+        assert_eq!(result.0, "persisted welcome");
+
+        let guard = threads.read().await;
+        let concierge = guard.get(CONCIERGE_THREAD_ID).unwrap();
+        assert_eq!(concierge.messages.len(), 1);
+        assert_eq!(concierge.messages[0].content, "persisted welcome");
+    }
+
+    #[tokio::test]
+    async fn generate_welcome_regenerates_when_user_messaged_after_welcome() {
+        let mut config_value = AgentConfig::default();
+        config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
+        let config = Arc::new(RwLock::new(config_value));
+        let (event_tx, _) = broadcast::channel(8);
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+            std::iter::empty(),
+        ));
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let now = test_now_millis();
+        let threads = RwLock::new(HashMap::from([
+            (
+                CONCIERGE_THREAD_ID.to_string(),
+                concierge_thread(vec![AgentMessage {
+                    id: "welcome".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "persisted welcome".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    provider: Some("concierge".into()),
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    reasoning: None,
+                    timestamp: now - 60_000,
+                }]),
+            ),
+            (
+                "thread-1".to_string(),
+                AgentThread {
+                    id: "thread-1".to_string(),
+                    title: "Thread One".to_string(),
+                    created_at: 1,
+                    updated_at: now - 30_000,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![AgentMessage::user("new user message", now - 30_000)],
+                },
+            ),
+        ]));
+
+        let result = engine
+            .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+            .await
+            .expect("welcome should be returned");
+        assert_ne!(result.0, "persisted welcome");
+
+        let guard = threads.read().await;
+        let concierge = guard.get(CONCIERGE_THREAD_ID).unwrap();
+        assert_eq!(concierge.messages.len(), 1);
+        assert_eq!(concierge.messages[0].content, result.0);
+    }
+
+    #[tokio::test]
+    async fn generate_welcome_regenerates_when_persisted_welcome_is_stale() {
+        let mut config_value = AgentConfig::default();
+        config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
+        let config = Arc::new(RwLock::new(config_value));
+        let (event_tx, _) = broadcast::channel(8);
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+            std::iter::empty(),
+        ));
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let now = test_now_millis();
+        let threads = RwLock::new(HashMap::from([
+            (
+                CONCIERGE_THREAD_ID.to_string(),
+                concierge_thread(vec![AgentMessage {
+                    id: "welcome".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "persisted welcome".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    provider: Some("concierge".into()),
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    reasoning: None,
+                    timestamp: now - WELCOME_REUSE_WINDOW_MS - 1,
+                }]),
+            ),
+            (
+                "thread-1".to_string(),
+                AgentThread {
+                    id: "thread-1".to_string(),
+                    title: "Thread One".to_string(),
+                    created_at: 1,
+                    updated_at: now - 30_000,
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![AgentMessage {
+                        id: "assistant-old".to_string(),
+                        role: MessageRole::Assistant,
+                        content: "old reply".to_string(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        tool_name: None,
+                        tool_arguments: None,
+                        tool_status: None,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        provider: None,
+                        model: None,
+                        api_transport: None,
+                        response_id: None,
+                        reasoning: None,
+                        timestamp: now - 30_000,
+                    }],
+                },
+            ),
+        ]));
+
+        let result = engine
+            .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+            .await
+            .expect("welcome should be returned");
+        assert_ne!(result.0, "persisted welcome");
     }
 }

@@ -225,10 +225,7 @@ fn build_rows(
             if heartbeat_items.is_empty() {
                 // Only show separator if Zone 3 didn't already render one
                 rows.push(SidebarRow {
-                    line: Line::from(Span::styled(
-                        "\u{2500}".repeat(width.min(40)),
-                        theme.fg_dim,
-                    )),
+                    line: Line::from(Span::styled("\u{2500}".repeat(width.min(40)), theme.fg_dim)),
                     target: None,
                     selectable_index: None,
                 });

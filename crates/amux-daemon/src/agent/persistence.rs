@@ -35,6 +35,7 @@ impl AgentEngine {
                         .map(|message| {
                             let metadata = parse_message_metadata(message.metadata_json.as_deref());
                             AgentMessage {
+                                id: message.id.clone(),
                                 role: match message.role.as_str() {
                                     "system" => MessageRole::System,
                                     "assistant" => MessageRole::Assistant,
@@ -456,7 +457,7 @@ impl AgentEngine {
         for (index, message) in thread.messages.iter().enumerate() {
             let metadata_json = build_message_metadata_json(message);
             let row = amux_protocol::AgentDbMessage {
-                id: format!("{}:{}", thread.id, index),
+                id: message.id.clone(),
                 thread_id: thread.id.clone(),
                 created_at: message.timestamp as i64,
                 role: match message.role {
@@ -485,7 +486,7 @@ impl AgentEngine {
         }
     }
 
-    pub(super) async fn persist_thread_by_id(&self, thread_id: &str) {
+    pub(crate) async fn persist_thread_by_id(&self, thread_id: &str) {
         let thread = {
             let threads = self.threads.read().await;
             threads.get(thread_id).cloned()

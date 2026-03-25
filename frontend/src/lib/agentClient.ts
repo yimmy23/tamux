@@ -715,7 +715,7 @@ async function* sendOpenAIResponses(
 async function* sendAnthropic(req: ChatRequest): AsyncGenerator<ChatChunk> {
   const url = `${req.config.base_url.replace(/\/$/, "")}/v1/messages`;
 
-  const anthropicMessages = req.messages.map((m) => {
+  const anthropicMessages = sanitizeAnthropicMessages(req.messages).map((m) => {
     const role = m.role === "system" ? "user" : (m.role === "tool" ? "user" : m.role);
 
     if (m.role === "tool") {
@@ -832,6 +832,57 @@ async function* sendAnthropic(req: ChatRequest): AsyncGenerator<ChatChunk> {
       };
     }
   }
+}
+
+function sanitizeAnthropicMessages(messages: ApiChatMessage[]): ApiChatMessage[] {
+  const out: ApiChatMessage[] = [];
+
+  for (let index = 0; index < messages.length;) {
+    const message = messages[index];
+
+    if (message.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+      const expectedIds = new Set(
+        message.tool_calls
+          .map((toolCall) => toolCall.id)
+          .filter((id): id is string => Boolean(id)),
+      );
+      const results: ApiChatMessage[] = [];
+      const matchedIds = new Set<string>();
+      let nextIndex = index + 1;
+
+      while (nextIndex < messages.length && messages[nextIndex].role === "tool") {
+        const toolMessage = messages[nextIndex];
+        if (toolMessage.tool_call_id && expectedIds.has(toolMessage.tool_call_id)) {
+          results.push(toolMessage);
+          matchedIds.add(toolMessage.tool_call_id);
+        }
+        nextIndex += 1;
+      }
+
+      const hasCompleteBatch = matchedIds.size === expectedIds.size;
+      const sawNoFollowupMessages = nextIndex === index + 1;
+      const isUnansweredLatestToolTurn = sawNoFollowupMessages && nextIndex === messages.length;
+
+      if (hasCompleteBatch) {
+        out.push(message, ...results);
+      } else if (isUnansweredLatestToolTurn) {
+        out.push(message);
+      }
+
+      index = nextIndex;
+      continue;
+    }
+
+    if (message.role === "tool") {
+      index += 1;
+      continue;
+    }
+
+    out.push(message);
+    index += 1;
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------------

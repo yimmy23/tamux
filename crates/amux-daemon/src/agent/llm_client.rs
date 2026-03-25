@@ -677,6 +677,8 @@ fn build_chat_completion_messages(
     system_prompt: &str,
     messages: &[ApiMessage],
 ) -> Result<Vec<serde_json::Value>> {
+    let messages = sanitize_api_messages(messages);
+
     let mut out = Vec::with_capacity(messages.len() + 1);
     out.push(serde_json::json!({
         "role": "system",
@@ -1341,7 +1343,78 @@ fn build_anthropic_message_content(message: &ApiMessage) -> serde_json::Value {
     }
 }
 
+/// Repair message sequence so every assistant tool_use is immediately followed
+/// by its tool_results, and no orphaned tool results appear without a parent.
+/// Drops broken pairs entirely rather than sending malformed sequences.
+fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
+    let mut out: Vec<ApiMessage> = Vec::with_capacity(messages.len());
+    let mut i = 0;
+    while i < messages.len() {
+        let msg = &messages[i];
+        if msg.role == "assistant" {
+            if let Some(tool_calls) = &msg.tool_calls {
+                if !tool_calls.is_empty() {
+                    // Collect expected tool_call IDs.
+                    let expected_ids: std::collections::HashSet<&str> =
+                        tool_calls.iter().map(|tc| tc.id.as_str()).collect();
+                    // Gather subsequent tool results that match.
+                    let mut results = Vec::new();
+                    let mut matched_ids = std::collections::HashSet::new();
+                    let mut j = i + 1;
+                    while j < messages.len() && messages[j].role == "tool" {
+                        if let Some(id) = messages[j].tool_call_id.as_deref() {
+                            if expected_ids.contains(id) {
+                                results.push(messages[j].clone());
+                                matched_ids.insert(id);
+                            }
+                        }
+                        j += 1;
+                    }
+                    let has_complete_batch = matched_ids.len() == expected_ids.len();
+                    let saw_no_followup_messages = j == i + 1;
+                    let is_unanswered_latest_tool_turn =
+                        saw_no_followup_messages && j == messages.len();
+                    if has_complete_batch {
+                        out.push(msg.clone());
+                        out.extend(results);
+                    } else if is_unanswered_latest_tool_turn {
+                        // Keep only the current unfinished tool-use turn so the caller
+                        // can execute the tools and append results before the next retry.
+                        out.push(msg.clone());
+                    } else {
+                        // Anthropic requires all tool_results for an assistant tool_use
+                        // turn to arrive together in the next user message. Drop any
+                        // partial or stale batch entirely.
+                        tracing::warn!(
+                            "sanitize_api_messages: dropping incomplete assistant tool_use with {} calls (matched {}/{})",
+                            tool_calls.len(),
+                            matched_ids.len(),
+                            expected_ids.len()
+                        );
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+            // Regular assistant message (no tool calls).
+            out.push(msg.clone());
+        } else if msg.role == "tool" {
+            // Orphaned tool result — skip it.
+            tracing::warn!(
+                "sanitize_api_messages: dropping orphaned tool result (id={:?})",
+                msg.tool_call_id
+            );
+        } else {
+            out.push(msg.clone());
+        }
+        i += 1;
+    }
+    out
+}
+
 fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {
+    let messages = sanitize_api_messages(messages);
+
     let mut out = Vec::new();
     let mut index = 0usize;
 
@@ -2563,9 +2636,59 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_drops_incomplete_tool_result_batches() {
+        let messages = vec![
+            ApiMessage {
+                role: "assistant".to_string(),
+                content: ApiContent::Text("Checking both".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: Some(vec![
+                    ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "list_files".to_string(),
+                            arguments: "{\"path\":\".\"}".to_string(),
+                        },
+                    },
+                    ApiToolCall {
+                        id: "call_2".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "read_file".to_string(),
+                            arguments: "{\"path\":\"README.md\"}".to_string(),
+                        },
+                    },
+                ]),
+            },
+            ApiMessage {
+                role: "tool".to_string(),
+                content: ApiContent::Text("file list".to_string()),
+                tool_call_id: Some("call_1".to_string()),
+                name: Some("list_files".to_string()),
+                tool_calls: None,
+            },
+            ApiMessage {
+                role: "user".to_string(),
+                content: ApiContent::Text("Continue".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            },
+        ];
+
+        let anthropic = build_anthropic_messages(&messages);
+        assert_eq!(anthropic.len(), 1);
+        assert_eq!(anthropic[0]["role"], "user");
+        assert_eq!(anthropic[0]["content"], "Continue");
+    }
+
+    #[test]
     fn messages_to_api_format_keeps_reused_tool_ids_across_turns() {
         let messages = vec![
             AgentMessage {
+                id: String::new(),
                 role: MessageRole::Assistant,
                 content: "first".to_string(),
                 tool_calls: Some(vec![ToolCall {
@@ -2589,6 +2712,7 @@ mod tests {
                 timestamp: 1,
             },
             AgentMessage {
+                id: String::new(),
                 role: MessageRole::Tool,
                 content: "ok 1".to_string(),
                 tool_calls: None,
@@ -2607,6 +2731,7 @@ mod tests {
             },
             AgentMessage::user("next", 3),
             AgentMessage {
+                id: String::new(),
                 role: MessageRole::Assistant,
                 content: "second".to_string(),
                 tool_calls: Some(vec![ToolCall {
@@ -2630,6 +2755,7 @@ mod tests {
                 timestamp: 4,
             },
             AgentMessage {
+                id: String::new(),
                 role: MessageRole::Tool,
                 content: "ok 2".to_string(),
                 tool_calls: None,
@@ -2660,6 +2786,7 @@ mod tests {
     fn messages_to_api_format_normalizes_empty_tool_ids() {
         let messages = vec![
             AgentMessage {
+                id: String::new(),
                 role: MessageRole::Assistant,
                 content: String::new(),
                 tool_calls: Some(vec![ToolCall {
@@ -2683,6 +2810,7 @@ mod tests {
                 timestamp: 42,
             },
             AgentMessage {
+                id: String::new(),
                 role: MessageRole::Tool,
                 content: "ok".to_string(),
                 tool_calls: None,

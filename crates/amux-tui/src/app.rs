@@ -296,13 +296,27 @@ impl TuiModel {
         self.chat.is_streaming() || self.agent_activity.is_some()
     }
 
+    fn actions_bar_visible(&self) -> bool {
+        self.concierge.loading || !self.chat.active_actions().is_empty()
+    }
+
     fn concierge_banner_visible(&self) -> bool {
-        self.concierge.loading || self.concierge.welcome_visible
+        self.actions_bar_visible()
+    }
+
+    fn should_show_concierge_hero_loading(&self) -> bool {
+        self.concierge.loading
+            && matches!(self.main_pane_view, MainPaneView::Conversation)
+            && self.chat.active_thread().is_none()
+            && self.chat.streaming_content().is_empty()
+            && !self.concierge.has_active_welcome()
     }
 
     fn concierge_banner_height(&self) -> u16 {
-        if self.concierge_banner_visible() {
-            4
+        if self.should_show_concierge_hero_loading() {
+            0
+        } else if self.actions_bar_visible() {
+            1
         } else {
             0
         }
@@ -351,6 +365,15 @@ impl TuiModel {
             self.input.reduce(input::InputAction::InsertChar(ch));
         }
         self.input.set_mode(input::InputMode::Insert);
+    }
+
+    fn close_top_modal(&mut self) {
+        if self.modal.top() == Some(modal::ModalKind::WhatsAppLink) {
+            self.send_daemon_command(DaemonCommand::WhatsAppLinkStop);
+            self.send_daemon_command(DaemonCommand::WhatsAppLinkUnsubscribe);
+            self.modal.reset_whatsapp_link();
+        }
+        self.modal.reduce(modal::ModalAction::Pop);
     }
 
     fn cleanup_concierge_on_navigate(&mut self) {
@@ -702,6 +725,30 @@ mod tests {
         model.auth.entries = vec![entry];
 
         assert!(!model.should_show_provider_onboarding());
+    }
+
+    #[test]
+    fn concierge_hero_loading_shows_only_for_empty_conversation_state() {
+        let mut model = build_model();
+        model.concierge.loading = true;
+
+        assert!(model.should_show_concierge_hero_loading());
+
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        assert!(!model.should_show_concierge_hero_loading());
+
+        model.chat.reduce(chat::ChatAction::SelectThread(String::new()));
+        model.chat.reduce(chat::ChatAction::ResetStreaming);
+        model.chat.reduce(chat::ChatAction::ThreadListReceived(Vec::new()));
+        model.concierge.welcome_visible = true;
+        model.concierge.welcome_content = Some("ready".to_string());
+        assert!(!model.should_show_concierge_hero_loading());
     }
 
     #[test]

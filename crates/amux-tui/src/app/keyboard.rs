@@ -27,7 +27,7 @@ impl TuiModel {
         if code == KeyCode::Char('e') && ctrl {
             if self.last_error.is_some() {
                 if self.modal.top() == Some(modal::ModalKind::ErrorViewer) {
-                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.close_top_modal();
                 } else {
                     self.modal
                         .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
@@ -335,18 +335,20 @@ impl TuiModel {
             }
             // Dismiss selected audit entry with 'd' key (BEAT-07)
             KeyCode::Char('d')
-                if self.focus == FocusArea::Chat
-                    || self.focus == FocusArea::Sidebar =>
+                if self.focus == FocusArea::Chat || self.focus == FocusArea::Sidebar =>
             {
                 if let Some(entry_id) = self.audit.selected_entry_id().map(String::from) {
                     self.audit
                         .reduce(crate::state::audit::AuditAction::DismissEntry(
                             entry_id.clone(),
                         ));
-                    self.send_daemon_command(DaemonCommand::AuditDismiss {
-                        entry_id,
-                    });
-                    self.show_input_notice("Audit entry dismissed", InputNoticeKind::Success, 40, true);
+                    self.send_daemon_command(DaemonCommand::AuditDismiss { entry_id });
+                    self.show_input_notice(
+                        "Audit entry dismissed",
+                        InputNoticeKind::Success,
+                        40,
+                        true,
+                    );
                 }
             }
             KeyCode::Char('r') if self.focus == FocusArea::Chat => {

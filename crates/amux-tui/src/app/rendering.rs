@@ -7,6 +7,11 @@ impl TuiModel {
             return;
         }
 
+        if self.should_show_concierge_hero_loading() {
+            widgets::concierge_loading::render(frame, area, &self.theme, self.tick_counter);
+            return;
+        }
+
         widgets::chat::render(
             frame,
             area,
@@ -170,8 +175,9 @@ impl TuiModel {
                 frame,
                 chunks[3],
                 &self.concierge,
+                &self.chat,
                 &self.theme,
-                self.focus == FocusArea::Chat && self.chat.active_thread_id() == Some("concierge"),
+                self.focus == FocusArea::Chat,
             );
         }
 

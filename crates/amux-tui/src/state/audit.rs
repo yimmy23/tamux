@@ -180,9 +180,7 @@ impl AuditState {
     /// Get the ID of the currently selected entry (if any).
     pub fn selected_entry_id(&self) -> Option<&str> {
         let filtered = self.filtered_entries();
-        filtered
-            .get(self.selected_index)
-            .map(|e| e.id.as_str())
+        filtered.get(self.selected_index).map(|e| e.id.as_str())
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -276,10 +274,7 @@ mod tests {
         }
         assert_eq!(state.entries().len(), MAX_AUDIT_ENTRIES);
         // newest first
-        assert_eq!(
-            state.entries()[0].id,
-            format!("a{}", MAX_AUDIT_ENTRIES)
-        );
+        assert_eq!(state.entries()[0].id, format!("a{}", MAX_AUDIT_ENTRIES));
     }
 
     #[test]

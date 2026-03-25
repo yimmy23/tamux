@@ -126,10 +126,7 @@ fn message_block_style(msg: &AgentMessage, theme: &ThemeTokens) -> Style {
     }
 }
 
-fn message_action_targets(
-    msg_index: usize,
-    msg: &AgentMessage,
-) -> Vec<(String, ChatHitTarget)> {
+fn message_action_targets(msg_index: usize, msg: &AgentMessage) -> Vec<(String, ChatHitTarget)> {
     if !msg.actions.is_empty() {
         return msg
             .actions
@@ -150,7 +147,10 @@ fn message_action_targets(
     let mut actions = vec![("[Copy]".to_string(), ChatHitTarget::CopyMessage(msg_index))];
     match msg.role {
         MessageRole::User => {
-            actions.push(("[Resend]".to_string(), ChatHitTarget::ResendMessage(msg_index)));
+            actions.push((
+                "[Resend]".to_string(),
+                ChatHitTarget::ResendMessage(msg_index),
+            ));
         }
         MessageRole::Assistant => {
             actions.push((
@@ -160,7 +160,10 @@ fn message_action_targets(
         }
         _ => {}
     }
-    actions.push(("[Delete]".to_string(), ChatHitTarget::DeleteMessage(msg_index)));
+    actions.push((
+        "[Delete]".to_string(),
+        ChatHitTarget::DeleteMessage(msg_index),
+    ));
     actions
 }
 
@@ -377,7 +380,12 @@ fn build_rendered_lines(
                 });
             }
 
-            if chat.selected_message() == Some(idx) || !msg.actions.is_empty() {
+            // Show inline action bar for selected messages, but NOT for messages
+            // whose actions are already rendered in the actions bar widget
+            // (the last message with actions in the thread).
+            let is_last_actionable = !msg.actions.is_empty()
+                && chat.active_actions().first().map(|a| &a.label) == msg.actions.first().map(|a| &a.label);
+            if (chat.selected_message() == Some(idx) || !msg.actions.is_empty()) && !is_last_actionable {
                 if let Some(action_line) = message_action_line(idx, msg, theme) {
                     all_lines.push(RenderedChatLine {
                         line: pad_message_line(action_line, inner_width, block_style),

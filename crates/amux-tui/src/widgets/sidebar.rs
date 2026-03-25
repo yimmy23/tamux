@@ -222,7 +222,9 @@ fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTokens) -> Ve
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
         " Gateway",
-        Style::default().fg(Color::Indexed(245)).add_modifier(ratatui::style::Modifier::BOLD),
+        Style::default()
+            .fg(Color::Indexed(245))
+            .add_modifier(ratatui::style::Modifier::BOLD),
     )));
 
     for gw in &active {
@@ -270,17 +272,14 @@ fn recent_actions_lines(actions: &[RecentActionVm], theme: &ThemeTokens) -> Vec<
     )));
     for action in actions.iter().take(3) {
         let icon = match action.action_type.as_str() {
-            "stale_todo" => "\u{2611}",      // ballot box with check
-            "stuck_goal" => "\u{26A0}",      // warning
-            "morning_brief" => "\u{2600}",   // sun
-            _ => "\u{25CB}",                 // circle
+            "stale_todo" => "\u{2611}",    // ballot box with check
+            "stuck_goal" => "\u{26A0}",    // warning
+            "morning_brief" => "\u{2600}", // sun
+            _ => "\u{25CB}",               // circle
         };
         let mut summary = action.summary.clone();
         if summary.chars().count() > 40 {
-            summary = format!(
-                "{}...",
-                summary.chars().take(37).collect::<String>()
-            );
+            summary = format!("{}...", summary.chars().take(37).collect::<String>());
         }
         lines.push(Line::from(vec![
             Span::styled("  ", theme.fg_dim),
@@ -325,26 +324,20 @@ fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
 
 fn agent_status_line(activity: Option<&str>, tier: &str) -> Line<'static> {
     let status_span = match activity {
-        Some("thinking" | "reasoning" | "writing") => Span::styled(
-            "\u{25CF} Thinking",
-            Style::default().fg(Color::Yellow),
-        ),
-        Some(s) if s.starts_with('\u{2699}') => Span::styled(
-            format!("\u{25CF} {}", s),
-            Style::default().fg(Color::Blue),
-        ),
+        Some("thinking" | "reasoning" | "writing") => {
+            Span::styled("\u{25CF} Thinking", Style::default().fg(Color::Yellow))
+        }
+        Some(s) if s.starts_with('\u{2699}') => {
+            Span::styled(format!("\u{25CF} {}", s), Style::default().fg(Color::Blue))
+        }
         Some("waiting_for_approval") => Span::styled(
             "\u{25CF} Awaiting approval",
             Style::default().fg(Color::Rgb(255, 165, 0)),
         ),
-        Some("running_goal" | "goal_running") => Span::styled(
-            "\u{25CF} Running goal",
-            Style::default().fg(Color::Green),
-        ),
-        Some("idle") | None => Span::styled(
-            "\u{25CF} Idle",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Some("running_goal" | "goal_running") => {
+            Span::styled("\u{25CF} Running goal", Style::default().fg(Color::Green))
+        }
+        Some("idle") | None => Span::styled("\u{25CF} Idle", Style::default().fg(Color::DarkGray)),
         Some(other) => Span::styled(
             format!("\u{25CF} {}", other),
             Style::default().fg(Color::DarkGray),
@@ -405,7 +398,7 @@ pub fn render(
             Constraint::Length(1), // status line (activity + tier)
             Constraint::Length(1), // tab bar
             Constraint::Length(1), // tab hints
-            Constraint::Min(1),   // body
+            Constraint::Min(1),    // body
             Constraint::Length(gw_height),
             Constraint::Length(ra_height),
             Constraint::Length(tier_height),
@@ -491,7 +484,7 @@ pub fn hit_test(
             Constraint::Length(1), // status line
             Constraint::Length(1), // tab bar
             Constraint::Length(1), // tab hints
-            Constraint::Min(1),   // body
+            Constraint::Min(1),    // body
         ])
         .split(area);
 

@@ -307,6 +307,7 @@ impl TuiModel {
             serde_json::Value::Number(self.config.search_max_results.into());
         raw["search_timeout_secs"] =
             serde_json::Value::Number(self.config.search_timeout_secs.into());
+        raw["browse_provider"] = serde_json::Value::String(self.config.browse_provider.clone());
         raw["enable_streaming"] = serde_json::Value::Bool(self.config.enable_streaming);
         raw["enable_conversation_memory"] =
             serde_json::Value::Bool(self.config.enable_conversation_memory);
@@ -624,6 +625,14 @@ impl TuiModel {
         self.config.tavily_api_key = get_str("tavily_api_key", "tavily_api_key");
         self.config.search_max_results = get_u32("search_max_results", "search_max_results", 8);
         self.config.search_timeout_secs = get_u32("search_timeout_secs", "search_timeout_secs", 20);
+        self.config.browse_provider = {
+            let provider = get_str("browse_provider", "browse_provider");
+            if provider.is_empty() {
+                "auto".to_string()
+            } else {
+                provider
+            }
+        };
         self.config.enable_streaming = get_bool("enable_streaming", "enable_streaming", true);
         self.config.enable_conversation_memory = get_bool(
             "enable_conversation_memory",

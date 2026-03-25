@@ -8,22 +8,14 @@ impl AgentEngine {
             return Ok(0);
         }
 
+        let id_set: std::collections::HashSet<&str> =
+            message_ids.iter().map(String::as_str).collect();
+
         let removed = {
             let mut threads = self.threads.write().await;
             if let Some(thread) = threads.get_mut(thread_id) {
-                let id_set: std::collections::HashSet<&str> =
-                    message_ids.iter().map(String::as_str).collect();
                 let before = thread.messages.len();
-                thread.messages = thread
-                    .messages
-                    .iter()
-                    .cloned()
-                    .enumerate()
-                    .filter_map(|(index, message)| {
-                        let synthetic_id = format!("{thread_id}:{index}");
-                        (!id_set.contains(synthetic_id.as_str())).then_some(message)
-                    })
-                    .collect();
+                thread.messages.retain(|msg| !id_set.contains(msg.id.as_str()));
                 let removed = before.saturating_sub(thread.messages.len());
                 if removed > 0 {
                     thread.updated_at = now_millis();
@@ -37,13 +29,17 @@ impl AgentEngine {
             }
         };
 
-        if removed > 0 {
-            self.persist_thread_by_id(thread_id).await;
-            return Ok(removed);
-        }
-
+        // Also delete from SQLite (by synthetic ID or direct ID).
         let id_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
-        self.history.delete_messages(thread_id, &id_refs).await
+        let db_removed = self.history.delete_messages(thread_id, &id_refs).await.unwrap_or(0);
+
+        let total = removed.max(db_removed);
+        if total > 0 {
+            // Re-persist the thread to sync SQLite with in-memory state.
+            self.persist_thread_by_id(thread_id).await;
+            tracing::info!(thread_id, in_memory = removed, sqlite = db_removed, "deleted messages and persisted");
+        }
+        Ok(total)
     }
 
     pub async fn seed_thread_context(
@@ -82,6 +78,7 @@ impl AgentEngine {
                     .and_then(|json| serde_json::from_str(json).ok());
                 let metadata = parse_message_metadata(msg.metadata_json.as_deref());
                 Some(AgentMessage {
+                    id: msg.id.clone(),
                     role,
                     content: msg.content.clone(),
                     tool_calls,
@@ -207,6 +204,7 @@ impl AgentEngine {
                 let metadata = parse_message_metadata(msg.metadata_json.as_deref());
 
                 Some(AgentMessage {
+                    id: msg.id.clone(),
                     role,
                     content: msg.content,
                     tool_calls,
@@ -329,8 +327,13 @@ mod tests {
         }
         engine.persist_thread_by_id(thread_id).await;
 
+        // Get the actual UUID of the second message to delete.
+        let msg_id = {
+            let threads = engine.threads.read().await;
+            threads.get(thread_id).unwrap().messages[1].id.clone()
+        };
         let deleted = engine
-            .delete_thread_messages(thread_id, &[format!("{thread_id}:1")])
+            .delete_thread_messages(thread_id, &[msg_id])
             .await
             .expect("delete should succeed");
         assert_eq!(deleted, 1);

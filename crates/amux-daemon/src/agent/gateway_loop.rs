@@ -855,9 +855,12 @@ impl AgentEngine {
                 "[{platform} message from {sender}]: {content}\n\n\
                  YOU MUST CALL {reply_tool} to reply. Do NOT just write a text response — \
                  the user is on {platform} and will ONLY see messages sent via the tool. \
-                 Your text response here is invisible to them. \
-                 If you use other tools first (bash, read_file, etc), that's fine, \
-                 but your FINAL action MUST be calling {reply_tool_short} to send the reply.",
+                 Your text response here is invisible to them.\n\
+                 IMPORTANT: If you need to use tools before replying (bash, read_file, \
+                 web_search, etc.), FIRST call {reply_tool_short} with a brief acknowledgment \
+                 like \"On it, give me a moment...\" so the user knows you're working. \
+                 Then do your work, then call {reply_tool_short} again with the full answer.\n\
+                 Your FINAL action MUST be calling {reply_tool_short} to send the reply.",
                 platform = msg.platform,
                 sender = msg.sender,
                 content = msg.content,

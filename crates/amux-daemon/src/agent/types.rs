@@ -67,11 +67,61 @@ impl AuthMethod {
     }
 }
 
+/// Input modalities a model supports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Modality {
+    Text,
+    Image,
+    Video,
+    Audio,
+}
+
+/// Shorthand constants for common modality sets.
+pub const TEXT_ONLY: &[Modality] = &[Modality::Text];
+pub const TEXT_IMAGE: &[Modality] = &[Modality::Text, Modality::Image];
+pub const TEXT_IMAGE_AUDIO: &[Modality] = &[Modality::Text, Modality::Image, Modality::Audio];
+pub const MULTIMODAL: &[Modality] = &[
+    Modality::Text,
+    Modality::Image,
+    Modality::Video,
+    Modality::Audio,
+];
+
+/// Look up the modalities for a model by provider and model ID.
+/// Returns TEXT_ONLY if the model is not in the known list.
+pub fn model_modalities(provider_id: &str, model_id: &str) -> &'static [Modality] {
+    get_provider_definition(provider_id)
+        .and_then(|def| def.models.iter().find(|m| m.id == model_id))
+        .map(|m| m.modalities)
+        .unwrap_or(TEXT_ONLY)
+}
+
+/// Check if a model supports a specific modality.
+pub fn model_supports(provider_id: &str, model_id: &str, modality: Modality) -> bool {
+    model_modalities(provider_id, model_id).contains(&modality)
+}
+
+/// Return model names from the same provider that support the given modality.
+pub fn models_supporting(provider_id: &str, modality: Modality) -> Vec<&'static str> {
+    get_provider_definition(provider_id)
+        .map(|def| {
+            def.models
+                .iter()
+                .filter(|m| m.modalities.contains(&modality))
+                .map(|m| m.id)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelDefinition {
     pub id: &'static str,
     pub name: &'static str,
     pub context_window: u32,
+    /// Input modalities this model accepts.
+    pub modalities: &'static [Modality],
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,81 +147,97 @@ pub const OPENAI_MODELS: &[ModelDefinition] = &[
         id: "gpt-5.4",
         name: "GPT-5.4",
         context_window: 1_000_000,
+        modalities: MULTIMODAL,
     },
     ModelDefinition {
         id: "gpt-5.4-mini",
         name: "GPT-5.4 Mini",
         context_window: 400000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.4-nano",
         name: "GPT-5.4 Nano",
         context_window: 400000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.3-codex",
         name: "GPT-5.3 Codex",
         context_window: 400000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.2-codex",
         name: "GPT-5.2 Codex",
         context_window: 400000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.2",
         name: "GPT-5.2",
         context_window: 400000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.1-codex-max",
         name: "GPT-5.1 Codex Max",
         context_window: 400000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "gpt-5.1-codex",
         name: "GPT-5.1 Codex",
         context_window: 400000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "gpt-5.1-codex-mini",
         name: "GPT-5.1 Codex Mini",
         context_window: 400000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "gpt-5.1",
         name: "GPT-5.1",
         context_window: 400000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "gpt-5-codex",
         name: "GPT-5 Codex",
         context_window: 400000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "gpt-5-codex-mini",
         name: "GPT-5 Codex Mini",
         context_window: 200000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "gpt-5",
         name: "GPT-5",
         context_window: 400000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "codex-mini-latest",
         name: "Codex Mini Latest",
         context_window: 200000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "o3",
         name: "o3",
         context_window: 200000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "o4-mini",
         name: "o4 Mini",
         context_window: 200000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -180,21 +246,25 @@ pub const QWEN_MODELS: &[ModelDefinition] = &[
         id: "qwen-max",
         name: "Qwen Max",
         context_window: 32768,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "qwen-plus",
         name: "Qwen Plus",
         context_window: 32768,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "qwen-turbo",
         name: "Qwen Turbo",
         context_window: 8192,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "qwen-long",
         name: "Qwen Long",
         context_window: 1000000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -203,26 +273,31 @@ pub const ZAI_MODELS: &[ModelDefinition] = &[
         id: "glm-5",
         name: "GLM-5",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "glm-4-plus",
         name: "GLM-4 Plus",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "glm-4",
         name: "GLM-4",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "glm-4-air",
         name: "GLM-4 Air",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "glm-4-flash",
         name: "GLM-4 Flash",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -231,16 +306,19 @@ pub const KIMI_MODELS: &[ModelDefinition] = &[
         id: "moonshot-v1-8k",
         name: "Moonshot V1 8K",
         context_window: 8192,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "moonshot-v1-32k",
         name: "Moonshot V1 32K",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "moonshot-v1-128k",
         name: "Moonshot V1 128K",
         context_window: 131072,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -249,16 +327,19 @@ pub const KIMI_CODING_MODELS: &[ModelDefinition] = &[
         id: "kimi-for-coding",
         name: "Kimi for Coding",
         context_window: 262144,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "kimi-k2.5",
         name: "Kimi K2.5",
         context_window: 262144,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "kimi-k2-turbo-preview",
         name: "Kimi K2 Turbo Preview",
         context_window: 262144,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -267,21 +348,25 @@ pub const MINIMAX_MODELS: &[ModelDefinition] = &[
         id: "MiniMax-M2.7",
         name: "MiniMax M2.7",
         context_window: 205000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "MiniMax-M2.5",
         name: "MiniMax M2.5",
         context_window: 205000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "MiniMax-M2.5-highspeed",
         name: "MiniMax M2.5 High Speed",
         context_window: 205000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "MiniMax-M1-80k",
         name: "MiniMax M1 80K",
         context_window: 80000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -290,31 +375,37 @@ pub const ALIBABA_CODING_MODELS: &[ModelDefinition] = &[
         id: "qwen3-coder-plus",
         name: "Qwen3 Coder Plus",
         context_window: 997952,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "qwen3-coder-next",
         name: "Qwen3 Coder Next",
         context_window: 204800,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "qwen3.5-plus",
         name: "Qwen3.5 Plus",
         context_window: 983616,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "glm-5",
         name: "GLM-5",
         context_window: 202752,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "kimi-k2.5",
         name: "Kimi K2.5",
         context_window: 262144,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "MiniMax-M2.5",
         name: "MiniMax M2.5",
         context_window: 205000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -323,46 +414,55 @@ pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
         id: "claude-opus-4-6",
         name: "Claude Opus 4.6",
         context_window: 200000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "claude-sonnet-4-5",
         name: "Claude Sonnet 4.5",
         context_window: 200000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "claude-sonnet-4",
         name: "Claude Sonnet 4",
         context_window: 200000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.4",
         name: "GPT-5.4",
         context_window: 128000,
+        modalities: MULTIMODAL,
     },
     ModelDefinition {
         id: "gpt-5.4-mini",
         name: "GPT-5.4 Mini",
         context_window: 128000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "gpt-5.3-codex",
         name: "GPT-5.3 Codex",
         context_window: 128000,
+        modalities: TEXT_IMAGE,
     },
     ModelDefinition {
         id: "minimax-m2.5",
         name: "MiniMax M2.5",
         context_window: 205000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "glm-5",
         name: "GLM-5",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "kimi-k2.5",
         name: "Kimi K2.5",
         context_window: 262144,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -371,31 +471,37 @@ pub const OPENROUTER_MODELS: &[ModelDefinition] = &[
         id: "anthropic/claude-sonnet-4",
         name: "Claude Sonnet 4",
         context_window: 200000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "anthropic/claude-3.5-sonnet",
         name: "Claude 3.5 Sonnet",
         context_window: 200000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "openai/gpt-4o",
         name: "GPT-4o",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "google/gemini-pro-1.5",
         name: "Gemini Pro 1.5",
         context_window: 1000000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "meta-llama/llama-3.3-70b-instruct",
         name: "Llama 3.3 70B",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "deepseek/deepseek-chat",
         name: "DeepSeek Chat",
         context_window: 64000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -404,21 +510,25 @@ pub const GROQ_MODELS: &[ModelDefinition] = &[
         id: "llama-3.3-70b-versatile",
         name: "Llama 3.3 70B Versatile",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "llama-3.3-70b-specdec",
         name: "Llama 3.3 70B Speculative",
         context_window: 8192,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "llama-3.1-8b-instant",
         name: "Llama 3.1 8B",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "mixtral-8x7b-32768",
         name: "Mixtral 8x7B",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -427,11 +537,13 @@ pub const CEREBRAS_MODELS: &[ModelDefinition] = &[
         id: "llama-3.3-70b",
         name: "Llama 3.3 70B",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "llama-3.1-8b",
         name: "Llama 3.1 8B",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -440,21 +552,25 @@ pub const TOGETHER_MODELS: &[ModelDefinition] = &[
         id: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         name: "Llama 3.3 70B Turbo",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
         name: "Llama 3.2 90B Vision",
         context_window: 131072,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "Qwen/Qwen2.5-72B-Instruct-Turbo",
         name: "Qwen 2.5 72B Turbo",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "deepseek-ai/DeepSeek-V3",
         name: "DeepSeek V3",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -463,26 +579,31 @@ pub const OLLAMA_MODELS: &[ModelDefinition] = &[
         id: "llama3.1",
         name: "Llama 3.1",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "llama3.2",
         name: "Llama 3.2",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "qwen2.5",
         name: "Qwen 2.5",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "codellama",
         name: "Code Llama",
         context_window: 16384,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "mistral",
         name: "Mistral",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -490,6 +611,7 @@ pub const CHUTES_MODELS: &[ModelDefinition] = &[ModelDefinition {
     id: "deepseek-ai/DeepSeek-V3",
     name: "DeepSeek V3",
     context_window: 128000,
+    modalities: TEXT_ONLY,
 }];
 
 pub const HUGGINGFACE_MODELS: &[ModelDefinition] = &[
@@ -497,16 +619,19 @@ pub const HUGGINGFACE_MODELS: &[ModelDefinition] = &[
         id: "meta-llama/Llama-3.3-70B-Instruct",
         name: "Llama 3.3 70B",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "Qwen/Qwen2.5-72B-Instruct",
         name: "Qwen 2.5 72B",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "mistralai/Mistral-7B-Instruct-v0.3",
         name: "Mistral 7B",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -515,16 +640,19 @@ pub const FEATHERLESS_MODELS: &[ModelDefinition] = &[
         id: "meta-llama/Llama-3.3-70B-Instruct",
         name: "Llama 3.3 70B",
         context_window: 128000,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "Qwen/Qwen2.5-72B-Instruct",
         name: "Qwen 2.5 72B",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "mistralai/Mistral-Small-24B-Instruct-2501",
         name: "Mistral Small 24B",
         context_window: 32768,
+        modalities: TEXT_ONLY,
     },
 ];
 
@@ -1743,8 +1871,8 @@ pub struct ProviderAuthState {
 #[serde(rename_all = "snake_case")]
 pub enum ConciergeDetailLevel {
     Minimal,
-    ContextSummary,
     #[default]
+    ContextSummary,
     ProactiveTriage,
     DailyBriefing,
 }
@@ -2172,6 +2300,9 @@ pub struct AgentThread {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
+    /// Stable unique ID for persistence and deletion. Generated on creation.
+    #[serde(default = "generate_message_id")]
+    pub id: String,
     pub role: MessageRole,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2201,9 +2332,14 @@ pub struct AgentMessage {
     pub timestamp: u64,
 }
 
+pub fn generate_message_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 impl AgentMessage {
     pub fn user(content: impl Into<String>, now: u64) -> Self {
         Self {
+            id: generate_message_id(),
             role: MessageRole::User,
             content: content.into(),
             tool_calls: None,
@@ -3120,6 +3256,10 @@ mod tests {
         let parsed: AgentConfig = serde_json::from_str(json_minimal).unwrap();
         assert_eq!(parsed.pty_channel_capacity, 1024);
         assert_eq!(parsed.agent_event_channel_capacity, 512);
+        assert_eq!(
+            parsed.concierge.detail_level,
+            ConciergeDetailLevel::ContextSummary
+        );
 
         // Test serde roundtrip with custom values
         let json = r#"{"pty_channel_capacity": 2048, "agent_event_channel_capacity": 1024}"#;
@@ -3424,10 +3564,22 @@ mod tests {
 
     #[test]
     fn skill_maturity_status_serde_snake_case() {
-        assert_eq!(serde_json::to_string(&SkillMaturityStatus::Draft).unwrap(), r#""draft""#);
-        assert_eq!(serde_json::to_string(&SkillMaturityStatus::Testing).unwrap(), r#""testing""#);
-        assert_eq!(serde_json::to_string(&SkillMaturityStatus::Active).unwrap(), r#""active""#);
-        assert_eq!(serde_json::to_string(&SkillMaturityStatus::Proven).unwrap(), r#""proven""#);
+        assert_eq!(
+            serde_json::to_string(&SkillMaturityStatus::Draft).unwrap(),
+            r#""draft""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SkillMaturityStatus::Testing).unwrap(),
+            r#""testing""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SkillMaturityStatus::Active).unwrap(),
+            r#""active""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SkillMaturityStatus::Proven).unwrap(),
+            r#""proven""#
+        );
         assert_eq!(
             serde_json::to_string(&SkillMaturityStatus::PromotedToCanonical).unwrap(),
             r#""promoted_to_canonical""#
@@ -3478,8 +3630,12 @@ mod tests {
     #[test]
     fn heartbeat_check_type_skill_lifecycle_serializes() {
         let check = HeartbeatCheckType::SkillLifecycle;
-        assert_eq!(serde_json::to_string(&check).unwrap(), r#""skill_lifecycle""#);
-        let roundtripped: HeartbeatCheckType = serde_json::from_str(r#""skill_lifecycle""#).unwrap();
+        assert_eq!(
+            serde_json::to_string(&check).unwrap(),
+            r#""skill_lifecycle""#
+        );
+        let roundtripped: HeartbeatCheckType =
+            serde_json::from_str(r#""skill_lifecycle""#).unwrap();
         assert_eq!(roundtripped, HeartbeatCheckType::SkillLifecycle);
     }
 
@@ -3489,17 +3645,38 @@ mod tests {
         assert_eq!(SkillMaturityStatus::Testing.as_str(), "testing");
         assert_eq!(SkillMaturityStatus::Active.as_str(), "active");
         assert_eq!(SkillMaturityStatus::Proven.as_str(), "proven");
-        assert_eq!(SkillMaturityStatus::PromotedToCanonical.as_str(), "promoted_to_canonical");
+        assert_eq!(
+            SkillMaturityStatus::PromotedToCanonical.as_str(),
+            "promoted_to_canonical"
+        );
     }
 
     #[test]
     fn skill_maturity_status_from_status_str() {
-        assert_eq!(SkillMaturityStatus::from_status_str("draft"), Some(SkillMaturityStatus::Draft));
-        assert_eq!(SkillMaturityStatus::from_status_str("testing"), Some(SkillMaturityStatus::Testing));
-        assert_eq!(SkillMaturityStatus::from_status_str("active"), Some(SkillMaturityStatus::Active));
-        assert_eq!(SkillMaturityStatus::from_status_str("proven"), Some(SkillMaturityStatus::Proven));
-        assert_eq!(SkillMaturityStatus::from_status_str("promoted_to_canonical"), Some(SkillMaturityStatus::PromotedToCanonical));
-        assert_eq!(SkillMaturityStatus::from_status_str("promoted-to-canonical"), Some(SkillMaturityStatus::PromotedToCanonical));
+        assert_eq!(
+            SkillMaturityStatus::from_status_str("draft"),
+            Some(SkillMaturityStatus::Draft)
+        );
+        assert_eq!(
+            SkillMaturityStatus::from_status_str("testing"),
+            Some(SkillMaturityStatus::Testing)
+        );
+        assert_eq!(
+            SkillMaturityStatus::from_status_str("active"),
+            Some(SkillMaturityStatus::Active)
+        );
+        assert_eq!(
+            SkillMaturityStatus::from_status_str("proven"),
+            Some(SkillMaturityStatus::Proven)
+        );
+        assert_eq!(
+            SkillMaturityStatus::from_status_str("promoted_to_canonical"),
+            Some(SkillMaturityStatus::PromotedToCanonical)
+        );
+        assert_eq!(
+            SkillMaturityStatus::from_status_str("promoted-to-canonical"),
+            Some(SkillMaturityStatus::PromotedToCanonical)
+        );
         assert_eq!(SkillMaturityStatus::from_status_str("bogus"), None);
     }
 

@@ -431,7 +431,7 @@ pub fn get_available_tools(
     if config.tools.web_browse {
         tools.push(tool_def(
             "fetch_url",
-            "Fetch a URL and return its text content (HTML stripped to text).",
+            "Browse a URL and return its text content. Uses a headless browser (Lightpanda or Chrome) when available for JS-rendered pages, falls back to raw HTTP.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -442,6 +442,32 @@ pub fn get_available_tools(
             }),
         ));
     }
+
+    // Always available — the agent can detect, install, and configure web browsing.
+    tools.push(tool_def(
+        "setup_web_browsing",
+        "Detect, install, and configure a headless browser for web browsing. \
+         action=detect: check what browsers are on PATH (always safe). \
+         action=install: install Lightpanda via npm (requires approval). \
+         action=configure: set the browse_provider in agent config. \
+         Call with detect first, then install if needed, then configure.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["detect", "install", "configure"],
+                    "description": "detect: check available browsers. install: install Lightpanda via npm. configure: set browse_provider."
+                },
+                "provider": {
+                    "type": "string",
+                    "enum": ["auto", "lightpanda", "chrome", "none"],
+                    "description": "For configure action: which browse_provider to set (default: auto)"
+                }
+            },
+            "required": ["action"]
+        }),
+    ));
 
     if config.tools.gateway_messaging {
         for (name, desc, params) in [
@@ -1101,7 +1127,20 @@ pub async fn execute_tool(
             drop(config);
             execute_web_search(&args, http_client, &search_provider, &exa_api_key, &tavily_api_key).await
         }
-        "fetch_url" => execute_fetch_url(&args, http_client).await,
+        "fetch_url" => {
+            let config = agent.config.read().await;
+            let browse_provider = config
+                .extra
+                .get("browse_provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("auto")
+                .to_string();
+            drop(config);
+            execute_fetch_url(&args, http_client, &browse_provider).await
+        }
+        "setup_web_browsing" => {
+            execute_setup_web_browsing(&args, agent).await
+        }
         "plugin_api_call" => {
             let plugin_name = match get_string_arg(&args, &["plugin_name"]) {
                 Some(name) => name.to_string(),
@@ -2933,6 +2972,7 @@ async fn resolve_skill_context_tags(
 async fn execute_fetch_url(
     args: &serde_json::Value,
     http_client: &reqwest::Client,
+    browse_provider: &str,
 ) -> Result<String> {
     let url = args
         .get("url")
@@ -2944,18 +2984,21 @@ async fn execute_fetch_url(
         .and_then(|v| v.as_u64())
         .unwrap_or(10_000) as usize;
 
-    let resp = http_client
-        .get(url)
-        .header("User-Agent", "tamux-agent/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await?;
+    // Try headless browser for JS-rendered content, fall back to raw HTTP.
+    let raw_html = match resolve_browser(browse_provider) {
+        Some(browser) => {
+            match fetch_with_headless_browser(&browser, url).await {
+                Ok(html) => html,
+                Err(e) => {
+                    tracing::warn!("headless browser fetch failed, falling back to HTTP: {e}");
+                    fetch_raw_http(http_client, url).await?
+                }
+            }
+        }
+        None => fetch_raw_http(http_client, url).await?,
+    };
 
-    let status = resp.status();
-    let text = resp.text().await?;
-
-    // Basic HTML tag stripping
-    let stripped = strip_html_tags(&text);
+    let stripped = strip_html_tags(&raw_html);
     let truncated = if stripped.len() > max_length {
         format!(
             "{}...\n\n(truncated, {} chars total)",
@@ -2966,7 +3009,233 @@ async fn execute_fetch_url(
         stripped
     };
 
-    Ok(format!("HTTP {status}\n\n{truncated}"))
+    Ok(truncated)
+}
+
+async fn fetch_raw_http(http_client: &reqwest::Client, url: &str) -> Result<String> {
+    let resp = http_client
+        .get(url)
+        .header("User-Agent", "tamux-agent/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await?;
+    let status = resp.status();
+    let text = resp.text().await?;
+    Ok(format!("HTTP {status}\n\n{text}"))
+}
+
+/// Detected headless browser binary and its args for dump-dom mode.
+struct HeadlessBrowser {
+    bin: String,
+    /// Extra args to produce DOM text on stdout for a given URL.
+    args_prefix: Vec<String>,
+}
+
+/// Resolve which headless browser to use.
+/// "auto" tries lightpanda → chrome → chromium → none.
+fn resolve_browser(preference: &str) -> Option<HeadlessBrowser> {
+    match preference {
+        "none" | "off" | "" => None,
+        "lightpanda" => detect_lightpanda(),
+        "chrome" | "chromium" => detect_chrome(),
+        "auto" | _ => detect_lightpanda().or_else(detect_chrome),
+    }
+}
+
+fn detect_lightpanda() -> Option<HeadlessBrowser> {
+    which::which("lightpanda").ok().map(|path| HeadlessBrowser {
+        bin: path.to_string_lossy().to_string(),
+        args_prefix: vec![
+            "fetch".to_string(),
+            "--output".to_string(),
+            "dom-text".to_string(),
+        ],
+    })
+}
+
+fn detect_chrome() -> Option<HeadlessBrowser> {
+    let candidates = [
+        "google-chrome-stable",
+        "google-chrome",
+        "chromium-browser",
+        "chromium",
+    ];
+    for name in candidates {
+        if let Ok(path) = which::which(name) {
+            return Some(HeadlessBrowser {
+                bin: path.to_string_lossy().to_string(),
+                args_prefix: vec![
+                    "--headless=new".to_string(),
+                    "--no-sandbox".to_string(),
+                    "--disable-gpu".to_string(),
+                    "--dump-dom".to_string(),
+                ],
+            });
+        }
+    }
+    None
+}
+
+async fn fetch_with_headless_browser(browser: &HeadlessBrowser, url: &str) -> Result<String> {
+    let mut args = browser.args_prefix.clone();
+    args.push(url.to_string());
+
+    let output = tokio::process::Command::new(&browser.bin)
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "headless browser exited with {}: {}",
+            output.status,
+            &stderr[..stderr.len().min(200)]
+        );
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Web browsing setup tool
+// ---------------------------------------------------------------------------
+
+async fn execute_setup_web_browsing(
+    args: &serde_json::Value,
+    agent: &super::engine::AgentEngine,
+) -> Result<String> {
+    let action = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("detect");
+
+    match action {
+        "detect" => {
+            let mut report = Vec::new();
+            if let Some(b) = detect_lightpanda() {
+                report.push(format!("lightpanda: FOUND at {}", b.bin));
+            } else {
+                report.push("lightpanda: not found".to_string());
+            }
+            if let Some(b) = detect_chrome() {
+                report.push(format!("chrome/chromium: FOUND at {}", b.bin));
+            } else {
+                report.push("chrome/chromium: not found".to_string());
+            }
+            // Check npm availability for install
+            let npm_available = which::which("npm").is_ok();
+            report.push(format!(
+                "npm: {}",
+                if npm_available {
+                    "available (can install Lightpanda)"
+                } else {
+                    "not found (cannot auto-install Lightpanda)"
+                }
+            ));
+            // Current config
+            let config = agent.config.read().await;
+            let current = config
+                .extra
+                .get("browse_provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("auto");
+            report.push(format!("current browse_provider: {}", current));
+            drop(config);
+
+            Ok(report.join("\n"))
+        }
+        "install" => {
+            // Install Lightpanda via npm
+            if detect_lightpanda().is_some() {
+                return Ok("Lightpanda is already installed.".to_string());
+            }
+            if !which::which("npm").is_ok() {
+                anyhow::bail!(
+                    "npm is not available on PATH. Install Node.js/npm first, \
+                     or install Lightpanda manually."
+                );
+            }
+
+            let output = tokio::process::Command::new("npm")
+                .args(["install", "-g", "@nicholasgasior/lightpanda"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true)
+                .output()
+                .await?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            if !output.status.success() {
+                return Ok(format!(
+                    "npm install failed (exit {}):\n{}\n{}",
+                    output.status,
+                    stdout.chars().take(500).collect::<String>(),
+                    stderr.chars().take(500).collect::<String>(),
+                ));
+            }
+
+            // Verify
+            let installed = detect_lightpanda().is_some();
+            Ok(format!(
+                "npm install completed.\nLightpanda available: {}{}",
+                installed,
+                if !stdout.is_empty() {
+                    format!("\n{}", stdout.chars().take(300).collect::<String>())
+                } else {
+                    String::new()
+                }
+            ))
+        }
+        "configure" => {
+            let provider = args
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("auto");
+
+            // Validate the provider value
+            if !matches!(provider, "auto" | "lightpanda" | "chrome" | "none") {
+                anyhow::bail!(
+                    "Invalid browse_provider: '{}'. Must be auto, lightpanda, chrome, or none.",
+                    provider
+                );
+            }
+
+            // Write to config
+            {
+                let mut config = agent.config.write().await;
+                config.extra.insert(
+                    "browse_provider".to_string(),
+                    serde_json::Value::String(provider.to_string()),
+                );
+            }
+
+            // Verify the chosen provider works
+            let works = match provider {
+                "lightpanda" => detect_lightpanda().is_some(),
+                "chrome" => detect_chrome().is_some(),
+                "auto" => detect_lightpanda().or_else(detect_chrome).is_some(),
+                _ => true, // "none" always works
+            };
+
+            Ok(format!(
+                "browse_provider set to '{}'.\nBrowser available: {}{}",
+                provider,
+                works,
+                if !works && provider != "none" {
+                    "\nWarning: chosen browser not found on PATH. fetch_url will fall back to raw HTTP."
+                } else {
+                    ""
+                }
+            ))
+        }
+        _ => anyhow::bail!("Unknown action '{}'. Use detect, install, or configure.", action),
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -146,7 +146,7 @@ impl TuiModel {
                 if self.approval.current_approval().is_none()
                     && self.modal.top() == Some(crate::state::modal::ModalKind::ApprovalOverlay)
                 {
-                    self.modal.reduce(crate::state::modal::ModalAction::Pop);
+                    self.close_top_modal();
                 }
                 self.status_line = "Approval resolved".to_string();
             }
@@ -647,6 +647,11 @@ impl TuiModel {
                         title: "Concierge".to_string(),
                     });
                 }
+                // Clear existing messages in the concierge thread before
+                // adding the new welcome — prevents duplicate stacking.
+                self.chat.reduce(chat::ChatAction::ClearThread {
+                    thread_id: concierge_thread_id.clone(),
+                });
                 self.chat.reduce(chat::ChatAction::AppendMessage {
                     thread_id: concierge_thread_id.clone(),
                     message: chat::AgentMessage {

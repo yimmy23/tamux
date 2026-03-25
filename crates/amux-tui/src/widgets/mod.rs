@@ -5,6 +5,7 @@ pub mod audit_feed;
 pub mod chat;
 pub mod command_palette;
 pub mod concierge;
+pub mod concierge_loading;
 pub mod footer;
 pub mod goal_picker;
 pub mod header;

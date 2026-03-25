@@ -22,7 +22,7 @@ export function ConciergeSection() {
         refreshProviderAuthStates();
     }, []);
 
-    const selectedLevel = DETAIL_LEVELS.find((l) => l.value === config.detail_level) || DETAIL_LEVELS[2];
+    const selectedLevel = DETAIL_LEVELS.find((l) => l.value === config.detail_level) || DETAIL_LEVELS[1];
 
     return (
         <Section title="Concierge">
