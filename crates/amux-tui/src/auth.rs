@@ -160,8 +160,13 @@ pub fn open_external_url(url: &str) -> Result<()> {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn open_external_url(url: &str) -> Result<()> {
+    // Redirect stdout/stderr to /dev/null so browser process output
+    // (DBus errors, Chromium warnings) doesn't corrupt the TUI alternate screen.
     std::process::Command::new("xdg-open")
         .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
         .spawn()
         .context("failed to open browser")?;
     Ok(())

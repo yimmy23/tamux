@@ -50,19 +50,16 @@ impl TuiModel {
                 self.agent_config_loaded = false;
                 self.ignore_pending_concierge_welcome = false;
                 self.status_line = "Connected to daemon".to_string();
+                // Fetch fast data first so UI is responsive immediately.
+                // Concierge welcome triggers an LLM call on the daemon which blocks
+                // the single-connection response stream — send it LAST so settings,
+                // plugins, and session spawn aren't queued behind it.
                 self.send_daemon_command(DaemonCommand::Refresh);
                 self.send_daemon_command(DaemonCommand::RefreshServices);
                 self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
                 self.send_daemon_command(DaemonCommand::ListSubAgents);
                 self.send_daemon_command(DaemonCommand::GetConciergeConfig);
-                if self.concierge.has_active_welcome() {
-                    self.concierge
-                        .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
-                } else {
-                    self.concierge
-                        .reduce(crate::state::ConciergeAction::WelcomeLoading(true));
-                    self.send_daemon_command(DaemonCommand::RequestConciergeWelcome);
-                }
+                self.send_daemon_command(DaemonCommand::PluginList);
                 let cwd = std::env::current_dir()
                     .ok()
                     .map(|p| p.to_string_lossy().to_string());
@@ -73,6 +70,15 @@ impl TuiModel {
                     cols: self.width.max(80),
                     rows: self.height.max(24),
                 });
+                // Concierge welcome last — this may trigger an LLM call
+                if self.concierge.has_active_welcome() {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
+                } else {
+                    self.concierge
+                        .reduce(crate::state::ConciergeAction::WelcomeLoading(true));
+                    self.send_daemon_command(DaemonCommand::RequestConciergeWelcome);
+                }
             }
             ClientEvent::Disconnected => {
                 self.connected = false;
