@@ -305,14 +305,14 @@ impl TuiModel {
             } => {
                 let vm_items: Vec<task::HeartbeatDigestItemVm> = items
                     .into_iter()
-                    .map(|(priority, check_type, title, suggestion)| {
-                        task::HeartbeatDigestItemVm {
+                    .map(
+                        |(priority, check_type, title, suggestion)| task::HeartbeatDigestItemVm {
                             priority,
                             check_type,
                             title,
                             suggestion,
-                        }
-                    })
+                        },
+                    )
                     .collect();
                 let item_count = vm_items.len();
 
@@ -330,17 +330,16 @@ impl TuiModel {
                     self.recent_actions = self.recent_actions.split_off(start);
                 }
 
-                self.tasks
-                    .reduce(task::TaskAction::HeartbeatDigestReceived(
-                        task::HeartbeatDigestVm {
-                            cycle_id,
-                            actionable,
-                            digest: digest.clone(),
-                            items: vm_items,
-                            checked_at,
-                            explanation,
-                        },
-                    ));
+                self.tasks.reduce(task::TaskAction::HeartbeatDigestReceived(
+                    task::HeartbeatDigestVm {
+                        cycle_id,
+                        actionable,
+                        digest: digest.clone(),
+                        items: vm_items,
+                        checked_at,
+                        explanation,
+                    },
+                ));
                 if actionable && item_count > 0 {
                     self.status_line = format!("\u{2665} Heartbeat: {}", digest);
                 }
@@ -380,10 +379,7 @@ impl TuiModel {
                 attempts,
                 audit_id,
             } => {
-                self.status_line = format!(
-                    "Escalating: {}->{} {}",
-                    from_level, to_level, reason
-                );
+                self.status_line = format!("Escalating: {}->{} {}", from_level, to_level, reason);
                 self.audit
                     .reduce(crate::state::audit::AuditAction::EscalationUpdate(
                         crate::state::audit::EscalationVm {
@@ -421,8 +417,64 @@ impl TuiModel {
                 } else {
                     self.gateway_statuses.push(vm);
                 }
+                self.status_line = format!("\u{1F310} Gateway {}: {}", platform, status);
+            }
+            ClientEvent::WhatsAppLinkStatus {
+                state,
+                phone,
+                last_error,
+            } => {
+                self.modal
+                    .set_whatsapp_link_status(&state, phone.clone(), last_error.clone());
+                self.status_line = match state.as_str() {
+                    "connected" => {
+                        format!("WhatsApp linked: {}", phone.as_deref().unwrap_or("device"))
+                    }
+                    "error" => format!(
+                        "WhatsApp link error: {}",
+                        last_error.as_deref().unwrap_or("unknown")
+                    ),
+                    "disconnected" => format!(
+                        "WhatsApp link disconnected: {}",
+                        last_error.as_deref().unwrap_or("none")
+                    ),
+                    "awaiting_qr" => "WhatsApp link awaiting QR scan".to_string(),
+                    "starting" => "WhatsApp link starting".to_string(),
+                    _ => "WhatsApp link status updated".to_string(),
+                };
+            }
+            ClientEvent::WhatsAppLinkQr {
+                ascii_qr,
+                expires_at_ms,
+            } => {
+                self.modal.set_whatsapp_link_qr(ascii_qr, expires_at_ms);
+                if self.modal.top() != Some(crate::state::modal::ModalKind::WhatsAppLink) {
+                    self.modal.reduce(crate::state::modal::ModalAction::Push(
+                        crate::state::modal::ModalKind::WhatsAppLink,
+                    ));
+                }
+                self.status_line = "WhatsApp QR ready — scan with your phone".to_string();
+            }
+            ClientEvent::WhatsAppLinked { phone } => {
+                self.modal.set_whatsapp_link_connected(phone.clone());
                 self.status_line =
-                    format!("\u{1F310} Gateway {}: {}", platform, status);
+                    format!("WhatsApp linked: {}", phone.as_deref().unwrap_or("device"));
+            }
+            ClientEvent::WhatsAppLinkError { message, .. } => {
+                self.modal.set_whatsapp_link_error(message.clone());
+                if self.modal.top() != Some(crate::state::modal::ModalKind::WhatsAppLink) {
+                    self.modal.reduce(crate::state::modal::ModalAction::Push(
+                        crate::state::modal::ModalKind::WhatsAppLink,
+                    ));
+                }
+                self.status_line = format!("WhatsApp link error: {message}");
+            }
+            ClientEvent::WhatsAppLinkDisconnected { reason } => {
+                self.modal.set_whatsapp_link_disconnected(reason.clone());
+                self.status_line = format!(
+                    "WhatsApp link disconnected: {}",
+                    reason.as_deref().unwrap_or("none")
+                );
             }
             ClientEvent::TierChanged { new_tier } => {
                 self.tier.on_tier_changed(&new_tier);
@@ -626,9 +678,7 @@ impl TuiModel {
                 {
                     self.chat
                         .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
-                    self.send_daemon_command(DaemonCommand::RequestThread(
-                        "concierge".to_string(),
-                    ));
+                    self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
                 }
                 if let Some(thread) = self.chat.active_thread() {
                     if thread.id == concierge_thread_id {
@@ -694,13 +744,11 @@ impl TuiModel {
                                     .get("secret")
                                     .and_then(|v| v.as_bool())
                                     .unwrap_or(false),
-                                options: val.get("options").and_then(|v| v.as_array()).map(
-                                    |arr| {
-                                        arr.iter()
-                                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                            .collect()
-                                    },
-                                ),
+                                options: val.get("options").and_then(|v| v.as_array()).map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect()
+                                }),
                                 description: val
                                     .get("description")
                                     .and_then(|v| v.as_str())
@@ -751,8 +799,10 @@ impl TuiModel {
             }
             ClientEvent::PluginOAuthUrl { name, url } => {
                 if crate::auth::open_external_url(&url).is_ok() {
-                    self.status_line =
-                        format!("Opening browser for {} OAuth... Waiting for callback.", name);
+                    self.status_line = format!(
+                        "Opening browser for {} OAuth... Waiting for callback.",
+                        name
+                    );
                 } else {
                     self.status_line = format!(
                         "Could not open browser. Visit: {}",
@@ -822,5 +872,76 @@ impl TuiModel {
                 };
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    fn make_model() -> TuiModel {
+        let (_event_tx, event_rx) = std::sync::mpsc::channel();
+        let (daemon_tx, _daemon_rx) = unbounded_channel();
+        TuiModel::new(event_rx, daemon_tx)
+    }
+
+    #[test]
+    fn whatsapp_qr_event_opens_modal_and_sets_ascii_payload() {
+        let mut model = make_model();
+        assert!(model.modal.top().is_none());
+
+        model.handle_client_event(ClientEvent::WhatsAppLinkQr {
+            ascii_qr: "██\n██".to_string(),
+            expires_at_ms: Some(123),
+        });
+
+        assert_eq!(
+            model.modal.top(),
+            Some(crate::state::modal::ModalKind::WhatsAppLink)
+        );
+        assert_eq!(model.modal.whatsapp_link().ascii_qr(), Some("██\n██"));
+        assert_eq!(model.modal.whatsapp_link().expires_at_ms(), Some(123));
+    }
+
+    #[test]
+    fn whatsapp_status_events_update_modal_state() {
+        let mut model = make_model();
+        model.handle_client_event(ClientEvent::WhatsAppLinkStatus {
+            state: "connected".to_string(),
+            phone: Some("+12065550123".to_string()),
+            last_error: None,
+        });
+        assert_eq!(
+            model.modal.whatsapp_link().phase(),
+            crate::state::modal::WhatsAppLinkPhase::Connected
+        );
+
+        model.handle_client_event(ClientEvent::WhatsAppLinkError {
+            message: "scan timeout".to_string(),
+            recoverable: true,
+        });
+        assert_eq!(
+            model.modal.whatsapp_link().phase(),
+            crate::state::modal::WhatsAppLinkPhase::Error
+        );
+        assert!(model
+            .modal
+            .whatsapp_link()
+            .status_text()
+            .contains("scan timeout"));
+
+        model.handle_client_event(ClientEvent::WhatsAppLinkDisconnected {
+            reason: Some("socket closed".to_string()),
+        });
+        assert_eq!(
+            model.modal.whatsapp_link().phase(),
+            crate::state::modal::WhatsAppLinkPhase::Disconnected
+        );
+        assert!(model
+            .modal
+            .whatsapp_link()
+            .status_text()
+            .contains("socket closed"));
     }
 }

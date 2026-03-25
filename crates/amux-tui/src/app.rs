@@ -540,6 +540,7 @@ impl TuiModel {
                 modal::ModalKind::ToolsPicker => "modal:tools_picker".to_string(),
                 modal::ModalKind::ViewPicker => "modal:view_picker".to_string(),
                 modal::ModalKind::Help => "modal:help".to_string(),
+                modal::ModalKind::WhatsAppLink => "modal:whatsapp_link".to_string(),
             };
             return (
                 surface,

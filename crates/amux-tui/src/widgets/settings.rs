@@ -443,6 +443,7 @@ fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usi
             "whatsapp_allowed_contacts" => Some((21, 19)),
             "whatsapp_token" => Some((22, 19)),
             "whatsapp_phone_id" => Some((23, 19)),
+            "whatsapp_link_device" => Some((24, 19)),
             _ => None,
         },
         SettingsTab::Auth => None,
@@ -533,6 +534,7 @@ fn settings_row_hit(
             21 => Some((9, None)),
             22 => Some((10, None)),
             23 => Some((11, None)),
+            24 => Some((12, None)),
             _ => None,
         },
         SettingsTab::Auth => row
@@ -1164,6 +1166,39 @@ fn render_websearch_tab<'a>(
         ];
         if is_selected && !is_editing {
             spans.push(Span::styled("  [Enter: edit]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  Web Browsing", theme.fg_active)));
+
+    // Field 7: browse_provider (cycle on Enter)
+    {
+        let is_selected = settings.field_cursor() == 7;
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let provider_val = if config.browse_provider.is_empty() {
+            "auto".to_string()
+        } else {
+            config.browse_provider.clone()
+        };
+        let value_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(format!("{:<16} ", "Browser:"), theme.fg_dim),
+            Span::styled(provider_val, value_style),
+        ];
+        if is_selected {
+            spans.push(Span::styled("  [Enter: cycle]", theme.fg_dim));
         }
         lines.push(Line::from(spans));
     }
@@ -2097,7 +2132,14 @@ fn render_features_tab<'a>(
         .and_then(|c| c.get("enabled"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    render_feature_toggle_line(&mut lines, settings, 9, "Consolidation", consol_enabled, theme);
+    render_feature_toggle_line(
+        &mut lines,
+        settings,
+        9,
+        "Consolidation",
+        consol_enabled,
+        theme,
+    );
 
     // Field 10: consolidation.decay_half_life_hours
     let decay_val = raw
@@ -2144,7 +2186,14 @@ fn render_features_tab<'a>(
         .and_then(|s| s.get("enabled"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    render_feature_toggle_line(&mut lines, settings, 12, "Auto-Discovery", skill_enabled, theme);
+    render_feature_toggle_line(
+        &mut lines,
+        settings,
+        12,
+        "Auto-Discovery",
+        skill_enabled,
+        theme,
+    );
 
     // Field 13: skill_discovery.promotion_threshold
     let promo_val = raw
@@ -2686,12 +2735,34 @@ fn render_gateway_tab<'a>(
         "whatsapp_phone_id",
         false,
     );
+    {
+        let is_selected = settings.field_cursor() == 12;
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let label_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled("Link Device", label_style),
+        ];
+        if is_selected {
+            spans.push(Span::styled("  [Enter]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
     lines.push(Line::from(Span::styled(
-        "  QR linking is available in Electron (Settings -> Gateway -> Link Device).",
+        "  QR linking is available in TUI and Electron (Settings -> Gateway -> Link Device).",
         theme.fg_dim,
     )));
     lines.push(Line::from(Span::styled(
-        "  In TUI, configure WhatsApp Cloud API token + phone number ID for send tools.",
+        "  Configure WhatsApp Cloud API token + phone number ID for send tools.",
         theme.fg_dim,
     )));
 
@@ -3135,8 +3206,22 @@ fn render_plugins_tab<'a>(
             let meta_style = theme.fg_dim;
 
             lines.push(Line::from(vec![
-                Span::styled(marker, if is_selected { theme.accent_primary } else { theme.fg_dim }),
-                Span::styled(format!("{} ", checkbox), if plugin.enabled { theme.accent_primary } else { meta_style }),
+                Span::styled(
+                    marker,
+                    if is_selected {
+                        theme.accent_primary
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
+                Span::styled(
+                    format!("{} ", checkbox),
+                    if plugin.enabled {
+                        theme.accent_primary
+                    } else {
+                        meta_style
+                    },
+                ),
                 Span::styled(plugin.name.clone(), name_style),
                 Span::styled(format!("  v{}", plugin.version), meta_style),
                 Span::styled(format!("  {}", auth_status), auth_style),
@@ -3154,7 +3239,10 @@ fn render_plugins_tab<'a>(
 
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
-            Span::styled(format!("  {} v{}", plugin.name, plugin.version), theme.fg_active),
+            Span::styled(
+                format!("  {} v{}", plugin.name, plugin.version),
+                theme.fg_active,
+            ),
             Span::styled("  [Esc] Back", theme.fg_dim),
         ]));
         if let Some(ref desc) = plugin.description {
@@ -3167,8 +3255,7 @@ fn render_plugins_tab<'a>(
 
         // Settings fields
         for (i, field) in plugin_state.schema_fields.iter().enumerate() {
-            let is_active = !plugin_state.list_mode
-                && i == plugin_state.detail_cursor;
+            let is_active = !plugin_state.list_mode && i == plugin_state.detail_cursor;
             let marker = if is_active { "> " } else { "  " };
             let required_mark = if field.required { " *" } else { "" };
             let label = if field.label.is_empty() {
@@ -3177,19 +3264,11 @@ fn render_plugins_tab<'a>(
                 field.label.clone()
             };
 
-            let value = if settings.is_editing()
-                && settings.editing_field() == Some(&field.key)
-            {
+            let value = if settings.is_editing() && settings.editing_field() == Some(&field.key) {
                 if field.secret {
-                    render_edit_buffer_with_cursor(
-                        settings.edit_buffer(),
-                        settings.edit_cursor(),
-                    )
+                    render_edit_buffer_with_cursor(settings.edit_buffer(), settings.edit_cursor())
                 } else {
-                    render_edit_buffer_with_cursor(
-                        settings.edit_buffer(),
-                        settings.edit_cursor(),
-                    )
+                    render_edit_buffer_with_cursor(settings.edit_buffer(), settings.edit_cursor())
                 }
             } else if field.secret {
                 let raw = plugin_state.value_for_key(&field.key).unwrap_or("");
@@ -3218,7 +3297,10 @@ fn render_plugins_tab<'a>(
 
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
-                Span::styled(format!("{:<18}{}", format!("{}{}", label, required_mark), " "), theme.fg_dim),
+                Span::styled(
+                    format!("{:<18}{}", format!("{}{}", label, required_mark), " "),
+                    theme.fg_dim,
+                ),
                 Span::styled(value, value_style),
             ]));
         }
@@ -3260,8 +3342,7 @@ fn render_plugins_tab<'a>(
             }
         }
         if plugin.has_auth {
-            let btn_idx = action_offset
-                + if plugin.has_api { 1 } else { 0 };
+            let btn_idx = action_offset + if plugin.has_api { 1 } else { 0 };
             let is_active = plugin_state.detail_cursor == btn_idx;
             let marker = if is_active { "> " } else { "  " };
             let marker_style = if is_active {
@@ -3370,8 +3451,25 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            text.contains("QR linking is available in Electron"),
-            "Gateway tab should explain where WhatsApp QR linking works"
+            text.contains("QR linking is available in TUI and Electron"),
+            "Gateway tab should mention TUI QR linking support"
         );
+    }
+
+    #[test]
+    fn gateway_tab_contains_selectable_link_device_row() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Gateway,
+        ));
+        settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
+        let config = ConfigState::new();
+        let lines = render_gateway_tab(&settings, &config, &ThemeTokens::default());
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("> Link Device"));
     }
 }

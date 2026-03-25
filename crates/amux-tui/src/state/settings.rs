@@ -255,6 +255,7 @@ impl SettingsState {
                 4 => "tavily_api_key",
                 5 => "search_max_results",
                 6 => "search_timeout",
+                7 => "browse_provider",
                 _ => "",
             },
             SettingsTab::Chat => match self.field_cursor {
@@ -295,6 +296,7 @@ impl SettingsState {
                 9 => "whatsapp_allowed_contacts",
                 10 => "whatsapp_token",
                 11 => "whatsapp_phone_id",
+                12 => "whatsapp_link_device",
                 _ => "",
             },
             SettingsTab::Auth => match self.field_cursor {
@@ -367,9 +369,9 @@ impl SettingsState {
         match self.active_tab {
             SettingsTab::Provider => 8,
             SettingsTab::Tools => 7,
-            SettingsTab::WebSearch => 7,
+            SettingsTab::WebSearch => 8,
             SettingsTab::Chat => 22,
-            SettingsTab::Gateway => 12,
+            SettingsTab::Gateway => 13,
             SettingsTab::Auth => 1,
             SettingsTab::Agent => 3,
             SettingsTab::SubAgents => 1,
@@ -1005,11 +1007,11 @@ mod tests {
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
         assert_eq!(state.field_count(), 7); // 7 tool checkboxes
         state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
-        assert_eq!(state.field_count(), 7); // enabled, provider, 3 keys, max_results, timeout
+        assert_eq!(state.field_count(), 8); // enabled, provider, 3 keys, max_results, timeout, browse_provider
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
         assert_eq!(state.field_count(), 22); // streaming, memory, Honcho, and capability controls
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
-        assert_eq!(state.field_count(), 12); // enabled, prefix, slack×2, telegram×2, discord×3, whatsapp×3
+        assert_eq!(state.field_count(), 13); // enabled, prefix, slack×2, telegram×2, discord×3, whatsapp×4
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
         assert_eq!(state.field_count(), 1); // provider list with row-level actions handled separately
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));

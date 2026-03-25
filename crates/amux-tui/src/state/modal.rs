@@ -15,6 +15,7 @@ pub enum ModalKind {
     ToolsPicker,
     ViewPicker,
     Help,
+    WhatsAppLink,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,40 @@ pub struct ModalState {
     picker_cursor: usize,
     /// Override item count for non-command-palette pickers (providers, models, etc.)
     picker_item_count: Option<usize>,
+    whatsapp_link: WhatsAppLinkState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhatsAppLinkPhase {
+    Idle,
+    Starting,
+    AwaitingScan,
+    Connected,
+    Error,
+    Disconnected,
+}
+
+#[derive(Debug, Clone)]
+pub struct WhatsAppLinkState {
+    phase: WhatsAppLinkPhase,
+    status_text: String,
+    ascii_qr: Option<String>,
+    expires_at_ms: Option<u64>,
+    phone: Option<String>,
+    last_error: Option<String>,
+}
+
+impl Default for WhatsAppLinkState {
+    fn default() -> Self {
+        Self {
+            phase: WhatsAppLinkPhase::Idle,
+            status_text: "Ready to start WhatsApp device linking".to_string(),
+            ascii_qr: None,
+            expires_at_ms: None,
+            phone: None,
+            last_error: None,
+        }
+    }
 }
 
 impl ModalState {
@@ -54,6 +89,7 @@ impl ModalState {
             filtered_indices: filtered,
             picker_cursor: 0,
             picker_item_count: None,
+            whatsapp_link: WhatsAppLinkState::default(),
         }
     }
 
@@ -79,12 +115,91 @@ impl ModalState {
     pub fn set_picker_item_count(&mut self, count: usize) {
         self.picker_item_count = Some(count);
     }
+    pub fn whatsapp_link(&self) -> &WhatsAppLinkState {
+        &self.whatsapp_link
+    }
+    pub fn reset_whatsapp_link(&mut self) {
+        self.whatsapp_link = WhatsAppLinkState::default();
+    }
+    pub fn set_whatsapp_link_starting(&mut self) {
+        self.whatsapp_link.phase = WhatsAppLinkPhase::Starting;
+        self.whatsapp_link.status_text = "Starting WhatsApp linking…".to_string();
+        self.whatsapp_link.ascii_qr = None;
+        self.whatsapp_link.expires_at_ms = None;
+        self.whatsapp_link.phone = None;
+        self.whatsapp_link.last_error = None;
+    }
+    pub fn set_whatsapp_link_status(
+        &mut self,
+        state: &str,
+        phone: Option<String>,
+        last_error: Option<String>,
+    ) {
+        self.whatsapp_link.phone = phone;
+        self.whatsapp_link.last_error = last_error;
+        match state {
+            "starting" => {
+                self.whatsapp_link.phase = WhatsAppLinkPhase::Starting;
+                self.whatsapp_link.status_text = "Starting WhatsApp linking…".to_string();
+            }
+            "awaiting_qr" => {
+                self.whatsapp_link.phase = WhatsAppLinkPhase::AwaitingScan;
+                self.whatsapp_link.status_text =
+                    "Scan the QR code in WhatsApp on your phone".to_string();
+            }
+            "connected" => {
+                self.whatsapp_link.phase = WhatsAppLinkPhase::Connected;
+                self.whatsapp_link.ascii_qr = None;
+                let phone_display = self.whatsapp_link.phone.as_deref().unwrap_or("device");
+                self.whatsapp_link.status_text = format!("Connected: {phone_display}");
+            }
+            "error" => {
+                self.whatsapp_link.phase = WhatsAppLinkPhase::Error;
+                self.whatsapp_link.ascii_qr = None;
+                let message = self
+                    .whatsapp_link
+                    .last_error
+                    .as_deref()
+                    .unwrap_or("Unknown WhatsApp linking error");
+                self.whatsapp_link.status_text = format!("Error: {message}");
+            }
+            "disconnected" => {
+                self.whatsapp_link.phase = WhatsAppLinkPhase::Disconnected;
+                self.whatsapp_link.ascii_qr = None;
+                let reason = self
+                    .whatsapp_link
+                    .last_error
+                    .as_deref()
+                    .unwrap_or("Disconnected");
+                self.whatsapp_link.status_text = format!("Disconnected: {reason}");
+            }
+            _ => {}
+        }
+    }
+    pub fn set_whatsapp_link_qr(&mut self, ascii_qr: String, expires_at_ms: Option<u64>) {
+        self.whatsapp_link.phase = WhatsAppLinkPhase::AwaitingScan;
+        self.whatsapp_link.status_text = "Scan the QR code in WhatsApp on your phone".to_string();
+        self.whatsapp_link.ascii_qr = Some(ascii_qr);
+        self.whatsapp_link.expires_at_ms = expires_at_ms;
+        self.whatsapp_link.last_error = None;
+    }
+    pub fn set_whatsapp_link_connected(&mut self, phone: Option<String>) {
+        self.whatsapp_link.phone = phone;
+        self.set_whatsapp_link_status("connected", self.whatsapp_link.phone.clone(), None);
+    }
+    pub fn set_whatsapp_link_error(&mut self, message: String) {
+        self.set_whatsapp_link_status("error", self.whatsapp_link.phone.clone(), Some(message));
+    }
+    pub fn set_whatsapp_link_disconnected(&mut self, reason: Option<String>) {
+        self.set_whatsapp_link_status("disconnected", self.whatsapp_link.phone.clone(), reason);
+    }
 
     /// Merge plugin commands into the command palette.
     /// Removes any previously added plugin commands, then appends the new ones.
     pub fn set_plugin_commands(&mut self, commands: Vec<CommandItem>) {
         // Remove old plugin commands (marked by command containing '.')
-        self.command_items.retain(|item| !item.command.contains('.'));
+        self.command_items
+            .retain(|item| !item.command.contains('.'));
         // Append new plugin commands
         self.command_items.extend(commands);
         // Rebuild filter
@@ -158,6 +273,27 @@ impl ModalState {
                 .map(|(idx, _)| idx)
                 .collect();
         }
+    }
+}
+
+impl WhatsAppLinkState {
+    pub fn phase(&self) -> WhatsAppLinkPhase {
+        self.phase
+    }
+    pub fn status_text(&self) -> &str {
+        &self.status_text
+    }
+    pub fn ascii_qr(&self) -> Option<&str> {
+        self.ascii_qr.as_deref()
+    }
+    pub fn expires_at_ms(&self) -> Option<u64> {
+        self.expires_at_ms
+    }
+    pub fn phone(&self) -> Option<&str> {
+        self.phone.as_deref()
+    }
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
     }
 }
 
@@ -310,5 +446,42 @@ mod tests {
     fn empty_filter_shows_all_items() {
         let state = ModalState::new();
         assert_eq!(state.filtered_items().len(), state.command_items().len());
+    }
+
+    #[test]
+    fn whatsapp_status_maps_to_connected_error_and_disconnected() {
+        let mut state = ModalState::new();
+        state.set_whatsapp_link_status("connected", Some("+12065550123".to_string()), None);
+        assert_eq!(state.whatsapp_link().phase(), WhatsAppLinkPhase::Connected);
+        assert!(state.whatsapp_link().status_text().contains("Connected"));
+
+        state.set_whatsapp_link_error("pairing failed".to_string());
+        assert_eq!(state.whatsapp_link().phase(), WhatsAppLinkPhase::Error);
+        assert!(state
+            .whatsapp_link()
+            .status_text()
+            .contains("pairing failed"));
+
+        state.set_whatsapp_link_disconnected(Some("socket closed".to_string()));
+        assert_eq!(
+            state.whatsapp_link().phase(),
+            WhatsAppLinkPhase::Disconnected
+        );
+        assert!(state
+            .whatsapp_link()
+            .status_text()
+            .contains("socket closed"));
+    }
+
+    #[test]
+    fn whatsapp_qr_updates_ascii_payload() {
+        let mut state = ModalState::new();
+        state.set_whatsapp_link_qr("██ QR".to_string(), Some(42));
+        assert_eq!(
+            state.whatsapp_link().phase(),
+            WhatsAppLinkPhase::AwaitingScan
+        );
+        assert_eq!(state.whatsapp_link().ascii_qr(), Some("██ QR"));
+        assert_eq!(state.whatsapp_link().expires_at_ms(), Some(42));
     }
 }

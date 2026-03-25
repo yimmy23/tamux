@@ -93,6 +93,11 @@ pub enum DaemonCommand {
     SetConciergeConfig(String), // config_json
     RequestConciergeWelcome,
     DismissConciergeWelcome,
+    WhatsAppLinkStart,
+    WhatsAppLinkStop,
+    WhatsAppLinkStatus,
+    WhatsAppLinkSubscribe,
+    WhatsAppLinkUnsubscribe,
     DeleteMessages {
         thread_id: String,
         message_ids: Vec<String>,

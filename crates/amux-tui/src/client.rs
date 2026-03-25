@@ -103,6 +103,25 @@ pub enum ClientEvent {
         last_error: Option<String>,
         consecutive_failures: u32,
     },
+    WhatsAppLinkStatus {
+        state: String,
+        phone: Option<String>,
+        last_error: Option<String>,
+    },
+    WhatsAppLinkQr {
+        ascii_qr: String,
+        expires_at_ms: Option<u64>,
+    },
+    WhatsAppLinked {
+        phone: Option<String>,
+    },
+    WhatsAppLinkError {
+        message: String,
+        recoverable: bool,
+    },
+    WhatsAppLinkDisconnected {
+        reason: Option<String>,
+    },
 
     Delta {
         thread_id: String,
@@ -772,9 +791,7 @@ impl DaemonClient {
                     .await;
             }
             DaemonMessage::PluginCommandsResult { commands } => {
-                let _ = event_tx
-                    .send(ClientEvent::PluginCommands(commands))
-                    .await;
+                let _ = event_tx.send(ClientEvent::PluginCommands(commands)).await;
             }
             DaemonMessage::PluginOAuthUrl { name, url } => {
                 let _ = event_tx
@@ -792,6 +809,49 @@ impl DaemonClient {
                         success,
                         error,
                     })
+                    .await;
+            }
+            DaemonMessage::AgentWhatsAppLinkStatus {
+                state,
+                phone,
+                last_error,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::WhatsAppLinkStatus {
+                        state,
+                        phone,
+                        last_error,
+                    })
+                    .await;
+            }
+            DaemonMessage::AgentWhatsAppLinkQr {
+                ascii_qr,
+                expires_at_ms,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::WhatsAppLinkQr {
+                        ascii_qr,
+                        expires_at_ms,
+                    })
+                    .await;
+            }
+            DaemonMessage::AgentWhatsAppLinked { phone } => {
+                let _ = event_tx.send(ClientEvent::WhatsAppLinked { phone }).await;
+            }
+            DaemonMessage::AgentWhatsAppLinkError {
+                message,
+                recoverable,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::WhatsAppLinkError {
+                        message,
+                        recoverable,
+                    })
+                    .await;
+            }
+            DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
+                let _ = event_tx
+                    .send(ClientEvent::WhatsAppLinkDisconnected { reason })
                     .await;
             }
             DaemonMessage::Error { message } => {
@@ -1023,20 +1083,14 @@ impl DaemonClient {
                             .unwrap_or(false),
                         digest: get_string(&event, "digest").unwrap_or_default(),
                         items,
-                        checked_at: event
-                            .get("checked_at")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0),
+                        checked_at: event.get("checked_at").and_then(Value::as_u64).unwrap_or(0),
                         explanation,
                     })
                     .await;
             }
             "audit_action" => {
                 let id = get_string(&event, "id").unwrap_or_default();
-                let timestamp = event
-                    .get("timestamp")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
+                let timestamp = event.get("timestamp").and_then(Value::as_u64).unwrap_or(0);
                 let action_type = get_string(&event, "action_type").unwrap_or_default();
                 let summary = get_string(&event, "summary").unwrap_or_default();
                 let explanation = get_string(&event, "explanation");
@@ -1063,8 +1117,7 @@ impl DaemonClient {
                 let from_level = get_string(&event, "from_level").unwrap_or_default();
                 let to_level = get_string(&event, "to_level").unwrap_or_default();
                 let reason = get_string(&event, "reason").unwrap_or_default();
-                let attempts =
-                    event.get("attempts").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let attempts = event.get("attempts").and_then(Value::as_u64).unwrap_or(0) as u32;
                 let audit_id = get_string(&event, "audit_id");
                 let _ = event_tx
                     .send(ClientEvent::EscalationUpdate {
@@ -1081,8 +1134,10 @@ impl DaemonClient {
                 let platform = get_string(&event, "platform").unwrap_or_default();
                 let status = get_string(&event, "status").unwrap_or_default();
                 let last_error = get_string(&event, "last_error");
-                let consecutive_failures =
-                    event.get("consecutive_failures").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let consecutive_failures = event
+                    .get("consecutive_failures")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32;
                 let _ = event_tx
                     .send(ClientEvent::GatewayStatus {
                         platform,
@@ -1100,9 +1155,7 @@ impl DaemonClient {
                     .and_then(Value::as_str)
                     .unwrap_or("newcomer")
                     .to_string();
-                let _ = event_tx
-                    .send(ClientEvent::TierChanged { new_tier })
-                    .await;
+                let _ = event_tx.send(ClientEvent::TierChanged { new_tier }).await;
             }
             _ => {}
         }
@@ -1377,6 +1430,26 @@ impl DaemonClient {
         self.send(ClientMessage::PluginOAuthStart { name })
     }
 
+    pub fn whatsapp_link_start(&self) -> Result<()> {
+        self.send(ClientMessage::AgentWhatsAppLinkStart)
+    }
+
+    pub fn whatsapp_link_stop(&self) -> Result<()> {
+        self.send(ClientMessage::AgentWhatsAppLinkStop)
+    }
+
+    pub fn whatsapp_link_status(&self) -> Result<()> {
+        self.send(ClientMessage::AgentWhatsAppLinkStatus)
+    }
+
+    pub fn whatsapp_link_subscribe(&self) -> Result<()> {
+        self.send(ClientMessage::AgentWhatsAppLinkSubscribe)
+    }
+
+    pub fn whatsapp_link_unsubscribe(&self) -> Result<()> {
+        self.send(ClientMessage::AgentWhatsAppLinkUnsubscribe)
+    }
+
     pub fn resolve_task_approval(&self, approval_id: String, decision: String) -> Result<()> {
         use amux_protocol::ApprovalDecision;
         let decision = match decision.as_str() {
@@ -1406,5 +1479,53 @@ fn get_string_lossy(value: &Value, key: &str) -> String {
         Some(Value::String(inner)) => inner.clone(),
         Some(other) => other.to_string(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amux_protocol::ClientMessage;
+    use tokio::sync::mpsc;
+
+    fn drain_request(rx: &mut mpsc::UnboundedReceiver<ClientMessage>) -> ClientMessage {
+        rx.try_recv().expect("expected queued client message")
+    }
+
+    #[test]
+    fn whatsapp_link_methods_send_expected_protocol_messages() {
+        let (event_tx, _event_rx) = mpsc::channel(8);
+        let client = DaemonClient::new(event_tx);
+        let mut rx = client.request_rx.lock().unwrap().take().unwrap();
+
+        client.whatsapp_link_start().unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentWhatsAppLinkStart
+        ));
+
+        client.whatsapp_link_status().unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentWhatsAppLinkStatus
+        ));
+
+        client.whatsapp_link_subscribe().unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentWhatsAppLinkSubscribe
+        ));
+
+        client.whatsapp_link_unsubscribe().unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentWhatsAppLinkUnsubscribe
+        ));
+
+        client.whatsapp_link_stop().unwrap();
+        assert!(matches!(
+            drain_request(&mut rx),
+            ClientMessage::AgentWhatsAppLinkStop
+        ));
     }
 }

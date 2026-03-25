@@ -331,6 +331,21 @@ fn start_daemon_bridge(
                             DaemonCommand::PluginOAuthStart(name) => {
                                 let _ = client.plugin_oauth_start(name);
                             }
+                            DaemonCommand::WhatsAppLinkStart => {
+                                let _ = client.whatsapp_link_start();
+                            }
+                            DaemonCommand::WhatsAppLinkStop => {
+                                let _ = client.whatsapp_link_stop();
+                            }
+                            DaemonCommand::WhatsAppLinkStatus => {
+                                let _ = client.whatsapp_link_status();
+                            }
+                            DaemonCommand::WhatsAppLinkSubscribe => {
+                                let _ = client.whatsapp_link_subscribe();
+                            }
+                            DaemonCommand::WhatsAppLinkUnsubscribe => {
+                                let _ = client.whatsapp_link_unsubscribe();
+                            }
                         }
                     }
                 }

@@ -1091,6 +1091,15 @@ impl TuiModel {
                 self.settings
                     .start_editing("whatsapp_phone_id", &self.config.whatsapp_phone_id.clone());
             }
+            "whatsapp_link_device" => {
+                self.modal.set_whatsapp_link_starting();
+                self.send_daemon_command(DaemonCommand::WhatsAppLinkSubscribe);
+                self.send_daemon_command(DaemonCommand::WhatsAppLinkStatus);
+                self.send_daemon_command(DaemonCommand::WhatsAppLinkStart);
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::WhatsAppLink));
+                self.status_line = "Starting WhatsApp link workflow".to_string();
+            }
             "search_provider" => {
                 let next = match self.config.search_provider.as_str() {
                     "none" | "" => "firecrawl",
@@ -1118,6 +1127,16 @@ impl TuiModel {
                 "search_timeout",
                 &self.config.search_timeout_secs.to_string(),
             ),
+            "browse_provider" => {
+                let next = match self.config.browse_provider.as_str() {
+                    "auto" | "" => "lightpanda",
+                    "lightpanda" => "chrome",
+                    "chrome" => "none",
+                    _ => "auto",
+                };
+                self.config.browse_provider = next.to_string();
+                self.sync_config_to_daemon();
+            }
             "honcho_api_key" => self
                 .settings
                 .start_editing("honcho_api_key", &self.config.honcho_api_key.clone()),
@@ -1582,6 +1601,9 @@ impl TuiModel {
                     raw["skill_discovery"]["enabled"] = serde_json::Value::Bool(next);
                 }
             }
+            "whatsapp_link_device" => {
+                self.activate_settings_field();
+            }
             "concierge_enabled" => {
                 self.concierge.enabled = !self.concierge.enabled;
                 self.send_concierge_config();
@@ -1768,9 +1790,7 @@ impl TuiModel {
                                 .map(|p| p.name.clone());
                             if let Some(name) = name {
                                 self.plugin_settings.test_result = None;
-                                self.send_daemon_command(
-                                    DaemonCommand::PluginTestConnection(name),
-                                );
+                                self.send_daemon_command(DaemonCommand::PluginTestConnection(name));
                             }
                         }
                         // Connect / Reconnect button: trigger OAuth flow (Plan 18-03)
@@ -1785,11 +1805,8 @@ impl TuiModel {
                                 .selected_plugin()
                                 .map(|p| p.name.clone());
                             if let Some(name) = name {
-                                self.send_daemon_command(
-                                    DaemonCommand::PluginOAuthStart(name),
-                                );
-                                self.status_line =
-                                    "Starting OAuth flow...".to_string();
+                                self.send_daemon_command(DaemonCommand::PluginOAuthStart(name));
+                                self.status_line = "Starting OAuth flow...".to_string();
                             }
                         }
                     }
@@ -1841,6 +1858,7 @@ impl TuiModel {
                 | "feat_check_repo_changes"
                 | "feat_consolidation_enabled"
                 | "feat_skill_discovery_enabled"
+                | "whatsapp_link_device"
         ) || self.settings.current_field_name().starts_with("tool_")
     }
 }

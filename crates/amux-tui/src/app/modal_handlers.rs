@@ -38,9 +38,7 @@ impl TuiModel {
 
             // Plugin settings fields use their own save path — bypass the
             // base config handler so Enter reaches handle_plugins_settings_key.
-            if self.settings.is_editing()
-                && self.settings.active_tab() == SettingsTab::Plugins
-            {
+            if self.settings.is_editing() && self.settings.active_tab() == SettingsTab::Plugins {
                 match code {
                     KeyCode::Enter => {
                         // Delegate to plugin handler which sends PluginUpdateSetting
@@ -268,8 +266,7 @@ impl TuiModel {
                                     if raw.get("heartbeat").is_none() {
                                         raw["heartbeat"] = serde_json::json!({});
                                     }
-                                    raw["heartbeat"]["cron"] =
-                                        serde_json::Value::String(value);
+                                    raw["heartbeat"]["cron"] = serde_json::Value::String(value);
                                 }
                             }
                             "feat_heartbeat_quiet_start" => {
@@ -319,17 +316,15 @@ impl TuiModel {
                                 if let Ok(n) = value.parse::<u64>() {
                                     let clamped = n.clamp(1, 100);
                                     self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                        key_path:
-                                            "/consolidation/heuristic_promotion_threshold"
-                                                .to_string(),
+                                        key_path: "/consolidation/heuristic_promotion_threshold"
+                                            .to_string(),
                                         value_json: format!("{}", clamped),
                                     });
                                     if let Some(ref mut raw) = self.config.agent_config_raw {
                                         if raw.get("consolidation").is_none() {
                                             raw["consolidation"] = serde_json::json!({});
                                         }
-                                        raw["consolidation"]
-                                            ["heuristic_promotion_threshold"] =
+                                        raw["consolidation"]["heuristic_promotion_threshold"] =
                                             serde_json::json!(clamped);
                                     }
                                 }
@@ -512,6 +507,19 @@ impl TuiModel {
                 _ => {}
             }
             return false;
+        }
+
+        if kind == modal::ModalKind::WhatsAppLink {
+            match code {
+                KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {
+                    self.send_daemon_command(DaemonCommand::WhatsAppLinkStop);
+                    self.send_daemon_command(DaemonCommand::WhatsAppLinkUnsubscribe);
+                    self.modal.reduce(modal::ModalAction::Pop);
+                    self.status_line = "WhatsApp linking stopped".to_string();
+                    return false;
+                }
+                _ => return false,
+            }
         }
 
         let is_searchable = matches!(
@@ -806,10 +814,75 @@ impl TuiModel {
                 }
                 self.modal.reduce(modal::ModalAction::Pop);
             }
+            modal::ModalKind::WhatsAppLink => {}
             _ => {
                 self.modal.reduce(modal::ModalAction::Pop);
                 self.input.reduce(input::InputAction::Clear);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    fn make_model() -> (
+        TuiModel,
+        tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+    ) {
+        let (_event_tx, event_rx) = std::sync::mpsc::channel();
+        let (daemon_tx, daemon_rx) = unbounded_channel();
+        (TuiModel::new(event_rx, daemon_tx), daemon_rx)
+    }
+
+    #[test]
+    fn whatsapp_modal_esc_sends_stop_and_closes() {
+        let (mut model, mut daemon_rx) = make_model();
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::WhatsAppLink));
+        assert_eq!(model.modal.top(), Some(modal::ModalKind::WhatsAppLink));
+
+        let quit = model.handle_key_modal(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+            modal::ModalKind::WhatsAppLink,
+        );
+        assert!(!quit);
+        assert!(model.modal.top().is_none());
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected stop command"),
+            DaemonCommand::WhatsAppLinkStop
+        ));
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected unsubscribe command"),
+            DaemonCommand::WhatsAppLinkUnsubscribe
+        ));
+    }
+
+    #[test]
+    fn whatsapp_modal_cancel_sends_stop_and_closes() {
+        let (mut model, mut daemon_rx) = make_model();
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::WhatsAppLink));
+
+        let quit = model.handle_key_modal(
+            KeyCode::Char('c'),
+            KeyModifiers::NONE,
+            modal::ModalKind::WhatsAppLink,
+        );
+        assert!(!quit);
+        assert!(model.modal.top().is_none());
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected stop command"),
+            DaemonCommand::WhatsAppLinkStop
+        ));
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected unsubscribe command"),
+            DaemonCommand::WhatsAppLinkUnsubscribe
+        ));
     }
 }
