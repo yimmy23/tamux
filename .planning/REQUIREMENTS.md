@@ -138,11 +138,11 @@ Requirements for the "Plugin Ecosystem" milestone. Each maps to roadmap phases 1
 
 - [ ] **AUTH-01**: Daemon manages OAuth2 authorization code + PKCE flow for plugins declaring `auth.type: "oauth2"`
 - [ ] **AUTH-02**: Daemon starts temporary localhost HTTP listener for OAuth callback redirect
-- [ ] **AUTH-03**: Access tokens and refresh tokens encrypted at rest in SQLite `plugin_credentials` table
+- [x] **AUTH-03**: Access tokens and refresh tokens encrypted at rest in SQLite `plugin_credentials` table
 - [ ] **AUTH-04**: Automatic token refresh before expiry (at 80% of TTL), with fallback to user re-authorization on refresh failure
 - [ ] **AUTH-05**: OAuth tokens never included in agent context or LLM API calls — injected internally by API proxy
-- [ ] **AUTH-06**: Plugin credential keys redacted in all daemon logging (extend existing sensitive key redaction)
-- [ ] **AUTH-07**: UI shows plugin auth status: "Not Configured" / "Connected" / "Token Expired — Reconnect"
+- [x] **AUTH-06**: Plugin credential keys redacted in all daemon logging (extend existing sensitive key redaction)
+- [x] **AUTH-07**: UI shows plugin auth status: "Not Configured" / "Connected" / "Token Expired — Reconnect"
 
 ### Plugin Skills & Commands
 
@@ -151,7 +151,7 @@ Requirements for the "Plugin Ecosystem" milestone. Each maps to roadmap phases 1
 - [x] **PSKL-03**: Bundled skills can reference plugin API endpoints by name (e.g., `plugin:gmail-calendar:list_events`)
 - [x] **PSKL-04**: Plugin commands registered as slash commands accessible from CLI, TUI, and Electron
 - [x] **PSKL-05**: Plugin commands namespaced: `/pluginname.command` to prevent conflicts
-- [ ] **PSKL-06**: Agent discovers plugin capabilities through standard skill system (no special plugin awareness needed)
+- [x] **PSKL-06**: Agent discovers plugin capabilities through standard skill system (no special plugin awareness needed)
 
 ### Validation: Gmail/Calendar Plugin
 
@@ -321,17 +321,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | APRX-07 | Phase 17 | Complete |
 | AUTH-01 | Phase 18 | Pending |
 | AUTH-02 | Phase 18 | Pending |
-| AUTH-03 | Phase 18 | Pending |
+| AUTH-03 | Phase 18 | Complete |
 | AUTH-04 | Phase 18 | Pending |
 | AUTH-05 | Phase 18 | Pending |
-| AUTH-06 | Phase 18 | Pending |
-| AUTH-07 | Phase 18 | Pending |
+| AUTH-06 | Phase 18 | Complete |
+| AUTH-07 | Phase 18 | Complete |
 | PSKL-01 | Phase 19 | Complete |
 | PSKL-02 | Phase 19 | Complete |
 | PSKL-03 | Phase 19 | Complete |
 | PSKL-04 | Phase 19 | Complete |
 | PSKL-05 | Phase 19 | Complete |
-| PSKL-06 | Phase 19 | Pending |
+| PSKL-06 | Phase 19 | Complete |
 | GMAI-01 | Phase 20 | Pending |
 | GMAI-02 | Phase 20 | Pending |
 | GMAI-03 | Phase 20 | Pending |

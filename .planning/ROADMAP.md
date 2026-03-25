@@ -351,11 +351,11 @@ Plans:
   5. Tokens never appear in agent context or LLM API calls
   6. Plugin credentials redacted in all daemon logging
   7. UI shows auth status per plugin: Not Configured / Connected / Token Expired
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 **UI hint**: yes
 
 Plans:
-- [ ] 18-01-PLAN.md — Crypto module, credential persistence, IPC protocol messages, auth_status on PluginInfo
+- [x] 18-01-PLAN.md — Crypto module, credential persistence, IPC protocol messages, auth_status on PluginInfo
 - [ ] 18-02-PLAN.md — OAuth2 flow module, server handler, api_call() token injection and refresh
 - [ ] 18-03-PLAN.md — Electron and TUI OAuth Connect wiring, real auth_status display
 
@@ -422,6 +422,6 @@ Phase 14 (Manifest & Loader) ─────┬──► Phase 15 (CLI & Install
 | 15. Plugin CLI & Install | 2/2 | Complete    | 2026-03-24 |
 | 16. Plugin Settings UI | 3/3 | Complete    | 2026-03-24 |
 | 17. API Proxy Layer | 2/2 | Complete    | 2026-03-24 |
-| 18. OAuth2 Flow | 0/3 | Not started | - |
+| 18. OAuth2 Flow | 1/3 | In Progress|  |
 | 19. Plugin Skills & Commands | 1/2 | Complete    | 2026-03-24 |
 | 20. Gmail/Calendar Validation | 0/? | Not started | - |

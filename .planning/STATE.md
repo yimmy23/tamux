@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Plugin Ecosystem
-status: Phase complete — ready for verification
-stopped_at: Completed 19-01-PLAN.md
-last_updated: "2026-03-24T23:39:20.853Z"
+status: Ready to execute
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-03-25T07:36:53.063Z"
 progress:
   total_phases: 20
-  completed_phases: 15
-  total_plans: 58
-  completed_plans: 55
+  completed_phases: 16
+  total_plans: 61
+  completed_plans: 57
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** An agent that feels alive and gets smarter over time -- while remaining simple enough that anyone can understand what it's doing and why.
-**Current focus:** Phase 19 — plugin-skills-commands
+**Current focus:** Phase 18 — oauth2-flow
 
 ## Current Position
 
-Phase: 19 (plugin-skills-commands) — COMPLETE
-Plan: 2 of 2 (all complete)
+Phase: 18 (oauth2-flow) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -101,6 +101,8 @@ Plan: 2 of 2 (all complete)
 | Phase 17 P01 | 9min | 2 tasks | 8 files |
 | Phase 17 P02 | 8min | 2 tasks | 6 files |
 | Phase 19 P01 | 4min | 2 tasks | 7 files |
+| Phase 19 P02 | 6min | 2 tasks | 5 files |
+| Phase 18 P01 | 8min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -211,6 +213,12 @@ Recent decisions affecting current work:
 - [Phase 17]: plugin_api_call tool always available (not gated on config); PluginManager handles disabled/missing checks internally
 - [Phase 19]: LLM augmentation over bypass: plugin commands inject system hints so LLM naturally uses plugin API tool, preserving agent tool-calling loop
 - [Phase 19]: OnceLock for plugin_manager on AgentEngine: set after both are constructed in server.rs, avoids circular dependency
+- [Phase 19]: Plugin commands function takes pre-fetched data (sync) rather than calling async IPC directly, keeping plugins.rs free of client module dependency
+- [Phase 19]: send_plugin_list_commands returns empty vec on error for graceful degradation
+- [Phase 19]: Plugin skills auto-discovered by existing collect_skill_stems (no skip for plugins/ prefix), no code change needed per PSKL-06
+- [Phase 18]: Nonce-prefixed blob format: 12-byte nonce || AES-256-GCM ciphertext for all credential storage
+- [Phase 18]: skip_serializing_if removed from bincode-serialized Option fields (bincode is not self-describing)
+- [Phase 18]: auth_status computed from DB row existence and expiry (no decryption needed)
 
 ### Pending Todos
 
@@ -224,6 +232,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T23:39:20.850Z
-Stopped at: Completed 19-01-PLAN.md
+Last session: 2026-03-25T07:36:53.058Z
+Stopped at: Completed 18-01-PLAN.md
 Resume file: None
