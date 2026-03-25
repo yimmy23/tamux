@@ -65,6 +65,7 @@ struct RuntimeInner {
     phone: Option<String>,
     last_error: Option<String>,
     active_qr: Option<String>,
+    active_qr_expires_at_ms: Option<u64>,
     process: Option<Child>,
     stopping: bool,
     retry_count: u32,
@@ -93,6 +94,7 @@ impl WhatsAppLinkRuntime {
                 phone: None,
                 last_error: None,
                 active_qr: None,
+                active_qr_expires_at_ms: None,
                 process: None,
                 stopping: false,
                 retry_count: 0,
@@ -192,23 +194,48 @@ impl WhatsAppLinkRuntime {
         }
     }
 
-    pub async fn subscribe(&self) -> broadcast::Receiver<WhatsAppLinkEvent> {
+    pub async fn subscribe_with_id(&self) -> (u64, broadcast::Receiver<WhatsAppLinkEvent>) {
         let (tx, rx) = broadcast::channel(64);
         let id = self.next_subscriber_id.fetch_add(1, Ordering::Relaxed);
-        let inner = self.inner.lock().await;
-        let snapshot = WhatsAppLinkStatusSnapshot {
-            state: inner.state.as_str().to_string(),
-            phone: inner.phone.clone(),
-            last_error: inner.last_error.clone(),
+        let (snapshot, replay_qr, replay_qr_expires_at_ms) = {
+            let inner = self.inner.lock().await;
+            let snapshot = WhatsAppLinkStatusSnapshot {
+                state: inner.state.as_str().to_string(),
+                phone: inner.phone.clone(),
+                last_error: inner.last_error.clone(),
+            };
+            let replay_qr = if inner.state == WhatsAppLinkState::QrReady {
+                inner.active_qr.clone()
+            } else {
+                None
+            };
+            let replay_qr_expires_at_ms = if replay_qr.is_some() {
+                inner.active_qr_expires_at_ms
+            } else {
+                None
+            };
+            let mut subscribers = self.subscribers.lock().await;
+            subscribers.insert(id, tx.clone());
+            (snapshot, replay_qr, replay_qr_expires_at_ms)
         };
-        let mut subscribers = self.subscribers.lock().await;
-        subscribers.insert(id, tx.clone());
         let _ = tx.send(WhatsAppLinkEvent::Status(snapshot));
+        if let Some(ascii_qr) = replay_qr {
+            let _ = tx.send(WhatsAppLinkEvent::Qr {
+                ascii_qr,
+                expires_at_ms: replay_qr_expires_at_ms,
+            });
+        }
+        (id, rx)
+    }
+
+    pub async fn subscribe(&self) -> broadcast::Receiver<WhatsAppLinkEvent> {
+        let (_, rx) = self.subscribe_with_id().await;
         rx
     }
 
-    pub fn unsubscribe(&self, rx: broadcast::Receiver<WhatsAppLinkEvent>) {
-        drop(rx);
+    pub async fn unsubscribe(&self, subscriber_id: u64) {
+        let mut subscribers = self.subscribers.lock().await;
+        subscribers.remove(&subscriber_id);
     }
 
     pub async fn attach_sidecar_process(&self, child: Child) -> Result<()> {
@@ -247,6 +274,7 @@ impl WhatsAppLinkRuntime {
                 false
             } else {
                 inner.active_qr = Some(ascii_qr.clone());
+                inner.active_qr_expires_at_ms = expires_at_ms;
                 inner.state = WhatsAppLinkState::QrReady;
                 inner.last_error = None;
                 true
@@ -269,6 +297,7 @@ impl WhatsAppLinkRuntime {
             inner.last_error = None;
             inner.phone = phone.clone();
             inner.active_qr = None;
+            inner.active_qr_expires_at_ms = None;
         }
         self.broadcast_event(WhatsAppLinkEvent::Linked { phone }).await;
         self.broadcast_status().await;
@@ -298,6 +327,7 @@ impl WhatsAppLinkRuntime {
             inner.state = WhatsAppLinkState::Disconnected;
             inner.phone = None;
             inner.active_qr = None;
+            inner.active_qr_expires_at_ms = None;
         }
         self.broadcast_event(WhatsAppLinkEvent::Disconnected { reason })
             .await;
@@ -550,6 +580,38 @@ mod tests {
 
         let duplicate = timeout(Duration::from_millis(75), existing.recv()).await;
         assert!(duplicate.is_err(), "existing subscriber got duplicate status");
+    }
+
+    #[tokio::test]
+    async fn new_subscriber_replays_qr_after_status_snapshot() {
+        let runtime = WhatsAppLinkRuntime::new();
+        runtime.start().await.expect("start should succeed");
+        runtime.broadcast_qr("QR-REPLAY".to_string(), Some(4242)).await;
+
+        let mut rx = runtime.subscribe().await;
+        let first = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("first replay event should arrive")
+            .expect("broadcast should be open");
+        match first {
+            WhatsAppLinkEvent::Status(snapshot) => assert_eq!(snapshot.state, "qr_ready"),
+            other => panic!("expected status replay, got {other:?}"),
+        }
+
+        let second = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("second replay event should arrive")
+            .expect("broadcast should be open");
+        match second {
+            WhatsAppLinkEvent::Qr {
+                ascii_qr,
+                expires_at_ms,
+            } => {
+                assert_eq!(ascii_qr, "QR-REPLAY");
+                assert_eq!(expires_at_ms, Some(4242));
+            }
+            other => panic!("expected qr replay, got {other:?}"),
+        }
     }
 
     #[tokio::test]

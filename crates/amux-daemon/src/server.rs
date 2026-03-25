@@ -587,6 +587,7 @@ where
     let mut whatsapp_link_rx: Option<
         broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>,
     > = None;
+    let mut whatsapp_link_subscriber_id: Option<u64> = None;
     let mut whatsapp_link_snapshot_replayed = false;
 
     loop {
@@ -3491,7 +3492,9 @@ where
                         .await?;
                 }
                 ClientMessage::AgentWhatsAppLinkSubscribe => {
-                    whatsapp_link_rx = Some(agent.whatsapp_link.subscribe().await);
+                    let (subscriber_id, rx) = agent.whatsapp_link.subscribe_with_id().await;
+                    whatsapp_link_subscriber_id = Some(subscriber_id);
+                    whatsapp_link_rx = Some(rx);
                     whatsapp_link_snapshot_replayed = false;
                     let snapshot = agent.whatsapp_link.status_snapshot().await;
                     framed
@@ -3504,9 +3507,10 @@ where
                     whatsapp_link_snapshot_replayed = true;
                 }
                 ClientMessage::AgentWhatsAppLinkUnsubscribe => {
-                    if let Some(rx) = whatsapp_link_rx.take() {
-                        agent.whatsapp_link.unsubscribe(rx);
+                    if let Some(subscriber_id) = whatsapp_link_subscriber_id.take() {
+                        agent.whatsapp_link.unsubscribe(subscriber_id).await;
                     }
+                    whatsapp_link_rx = None;
                     whatsapp_link_snapshot_replayed = false;
                 }
             }
