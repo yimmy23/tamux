@@ -125,6 +125,15 @@ pub enum ClientEvent {
         message: String,
         details: Option<String>,
     },
+    RetryStatus {
+        thread_id: String,
+        phase: String,
+        attempt: u32,
+        max_retries: u32,
+        delay_ms: u64,
+        failure_class: String,
+        message: String,
+    },
     ApprovalRequired {
         approval_id: String,
         command: String,
@@ -260,6 +269,7 @@ impl DaemonProjection {
             ClientEvent::AnticipatoryItems(_) => vec![],
             ClientEvent::GatewayStatus { .. } => vec![],
             ClientEvent::WorkflowNotice { message, .. } => vec![AppAction::Status(message)],
+            ClientEvent::RetryStatus { message, .. } => vec![AppAction::Status(message)],
             ClientEvent::ProviderAuthStates(_) => vec![],
             ClientEvent::ProviderValidation { .. } => vec![],
             ClientEvent::SubAgentList(_) => vec![],

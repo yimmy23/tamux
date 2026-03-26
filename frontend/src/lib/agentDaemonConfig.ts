@@ -99,6 +99,7 @@ export function buildDaemonAgentConfig(
     max_tool_loops: agentSettings.max_tool_loops,
     max_retries: agentSettings.max_retries,
     retry_delay_ms: agentSettings.retry_delay_ms,
+    auto_retry: agentSettings.auto_retry,
     context_window_tokens: providerConfig
       ? getEffectiveContextWindow(providerKey, providerConfig)
       : 128000,

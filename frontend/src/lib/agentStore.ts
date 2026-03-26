@@ -594,6 +594,7 @@ export interface AgentSettings {
   max_tool_loops: number;
   max_retries: number;
   retry_delay_ms: number;
+  auto_retry: boolean;
   context_window_tokens: number;
   context_budget_tokens: number;
   compact_threshold_pct: number;
@@ -691,6 +692,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   max_tool_loops: 0,
   max_retries: 3,
   retry_delay_ms: 2000,
+  auto_retry: true,
   context_window_tokens: 128000,
   context_budget_tokens: 100000,
   compact_threshold_pct: 80,
@@ -837,6 +839,7 @@ type DiskAgentSettings = Partial<AgentSettings> & {
   max_tool_loops?: number;
   max_retries?: number;
   retry_delay_ms?: number;
+  auto_retry?: boolean;
   context_window_tokens?: number;
   context_budget_tokens?: number;
   compact_threshold_pct?: number;
@@ -1164,6 +1167,7 @@ function normalizeAgentSettingsFromSource(source: DiskAgentSettings): AgentSetti
     max_tool_loops: source.max_tool_loops ?? source.max_tool_loops ?? DEFAULT_AGENT_SETTINGS.max_tool_loops,
     max_retries: source.max_retries ?? source.max_retries ?? DEFAULT_AGENT_SETTINGS.max_retries,
     retry_delay_ms: source.retry_delay_ms ?? source.retry_delay_ms ?? DEFAULT_AGENT_SETTINGS.retry_delay_ms,
+    auto_retry: source.auto_retry ?? DEFAULT_AGENT_SETTINGS.auto_retry,
     context_window_tokens: source.context_window_tokens ?? source.context_window_tokens ?? DEFAULT_AGENT_SETTINGS.context_window_tokens,
     context_budget_tokens: source.context_budget_tokens ?? source.context_budget_tokens ?? DEFAULT_AGENT_SETTINGS.context_budget_tokens,
     compact_threshold_pct: source.compact_threshold_pct ?? source.compact_threshold_pct ?? DEFAULT_AGENT_SETTINGS.compact_threshold_pct,

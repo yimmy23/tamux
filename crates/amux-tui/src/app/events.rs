@@ -28,7 +28,8 @@ impl TuiModel {
                 ClientEvent::Delta { thread_id, .. }
                 | ClientEvent::Reasoning { thread_id, .. }
                 | ClientEvent::ToolCall { thread_id, .. }
-                | ClientEvent::ToolResult { thread_id, .. } => thread_id == cancelled_id,
+                | ClientEvent::ToolResult { thread_id, .. }
+                | ClientEvent::RetryStatus { thread_id, .. } => thread_id == cancelled_id,
                 ClientEvent::Done { thread_id, .. } => {
                     if thread_id == cancelled_id {
                         self.cancelled_thread_id = None;
@@ -857,6 +858,42 @@ impl TuiModel {
                 } else {
                     self.status_line = "Error recorded. Press Ctrl+E for details".to_string();
                 }
+            }
+            ClientEvent::RetryStatus {
+                thread_id,
+                phase,
+                attempt,
+                max_retries,
+                delay_ms,
+                failure_class,
+                message,
+            } => {
+                if phase == "cleared" {
+                    self.chat
+                        .reduce(chat::ChatAction::ClearRetryStatus { thread_id });
+                    if !self.chat.is_streaming() {
+                        self.agent_activity = None;
+                    }
+                    return;
+                }
+                self.agent_activity = Some(match phase.as_str() {
+                    "waiting" => "retry wait".to_string(),
+                    _ => "retrying".to_string(),
+                });
+                self.chat.reduce(chat::ChatAction::SetRetryStatus {
+                    thread_id,
+                    phase: if phase == "waiting" {
+                        chat::RetryPhase::Waiting
+                    } else {
+                        chat::RetryPhase::Retrying
+                    },
+                    attempt,
+                    max_retries,
+                    delay_ms,
+                    failure_class,
+                    message,
+                    received_at_tick: self.tick_counter,
+                });
             }
             ClientEvent::WorkflowNotice {
                 kind,

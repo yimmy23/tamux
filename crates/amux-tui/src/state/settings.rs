@@ -345,15 +345,16 @@ impl SettingsState {
                 4 => "max_tool_loops",
                 5 => "max_retries",
                 6 => "retry_delay_ms",
-                7 => "context_window_tokens",
-                8 => "context_budget_tokens",
-                9 => "compact_threshold_pct",
-                10 => "keep_recent_on_compact",
-                11 => "bash_timeout_secs",
-                12 => "snapshot_auto_cleanup",
-                13 => "snapshot_max_count",
-                14 => "snapshot_max_size_mb",
-                15 => "snapshot_stats",
+                7 => "auto_retry",
+                8 => "context_window_tokens",
+                9 => "context_budget_tokens",
+                10 => "compact_threshold_pct",
+                11 => "keep_recent_on_compact",
+                12 => "bash_timeout_secs",
+                13 => "snapshot_auto_cleanup",
+                14 => "snapshot_max_count",
+                15 => "snapshot_max_size_mb",
+                16 => "snapshot_stats",
                 _ => "",
             },
             SettingsTab::Plugins => {
@@ -377,7 +378,7 @@ impl SettingsState {
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 4,
             SettingsTab::Features => 14,
-            SettingsTab::Advanced => 16,
+            SettingsTab::Advanced => 17,
             SettingsTab::Plugins => 1,
         }
     }
@@ -975,6 +976,8 @@ mod tests {
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "retry_delay_ms");
         state.reduce(SettingsAction::NavigateField(1));
+        assert_eq!(state.current_field_name(), "auto_retry");
+        state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "context_window_tokens");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "context_budget_tokens");
@@ -992,10 +995,10 @@ mod tests {
         assert_eq!(state.current_field_name(), "snapshot_max_size_mb");
         state.reduce(SettingsAction::NavigateField(1));
         assert_eq!(state.current_field_name(), "snapshot_stats");
-        // 16 fields total, can't navigate past it
+        // 17 fields total, can't navigate past it
         state.reduce(SettingsAction::NavigateField(5));
         assert_eq!(state.current_field_name(), "snapshot_stats");
-        assert_eq!(state.field_cursor(), 15);
+        assert_eq!(state.field_cursor(), 16);
     }
 
     #[test]
@@ -1023,7 +1026,7 @@ mod tests {
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
         assert_eq!(state.field_count(), 14); // tier, security, heartbeat (5), memory (3), skills (2), check toggles (4 already counted)
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
-        assert_eq!(state.field_count(), 16); // managed execution + advanced + snapshot fields
+        assert_eq!(state.field_count(), 17); // managed execution + advanced + snapshot fields
         state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
         assert_eq!(state.field_count(), 1); // plugin list with dynamic fields handled externally
     }

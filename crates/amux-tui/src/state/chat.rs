@@ -75,6 +75,7 @@ pub enum ChatHitTarget {
     Message(usize),
     ReasoningToggle(usize),
     ToolToggle(usize),
+    RetryStop,
     MessageAction {
         message_index: usize,
         action_index: usize,
@@ -105,6 +106,23 @@ pub struct ToolCallVm {
     pub result: Option<String>,
     pub is_error: bool,
     pub started_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryPhase {
+    Retrying,
+    Waiting,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetryStatusVm {
+    pub phase: RetryPhase,
+    pub attempt: u32,
+    pub max_retries: u32,
+    pub delay_ms: u64,
+    pub failure_class: String,
+    pub message: String,
+    pub received_at_tick: u64,
 }
 
 // ── ChatAction ────────────────────────────────────────────────────────────────
@@ -142,6 +160,19 @@ pub enum ChatAction {
         tps: Option<f64>,
         generation_ms: Option<u64>,
     },
+    SetRetryStatus {
+        thread_id: String,
+        phase: RetryPhase,
+        attempt: u32,
+        max_retries: u32,
+        delay_ms: u64,
+        failure_class: String,
+        message: String,
+        received_at_tick: u64,
+    },
+    ClearRetryStatus {
+        thread_id: String,
+    },
     ThreadListReceived(Vec<AgentThread>),
     ThreadDetailReceived(AgentThread),
     ThreadCreated {
@@ -175,6 +206,7 @@ pub struct ChatState {
     active_tool_calls: Vec<ToolCallVm>,
     scroll_offset: usize,
     scroll_locked: bool,
+    retry_status: Option<RetryStatusVm>,
     transcript_mode: TranscriptMode,
     expanded_reasoning: std::collections::HashSet<usize>,
     selected_message: Option<usize>,
@@ -193,6 +225,7 @@ impl ChatState {
             scroll_offset: 0,
             expanded_reasoning: std::collections::HashSet::new(),
             scroll_locked: false,
+            retry_status: None,
             transcript_mode: TranscriptMode::Compact,
             selected_message: None,
             expanded_tools: std::collections::HashSet::new(),
@@ -254,6 +287,10 @@ impl ChatState {
 
     pub fn transcript_mode(&self) -> TranscriptMode {
         self.transcript_mode
+    }
+
+    pub fn retry_status(&self) -> Option<&RetryStatusVm> {
+        self.retry_status.as_ref()
     }
 
     pub fn pinned_message_top(&self) -> Option<usize> {
@@ -365,11 +402,17 @@ impl ChatState {
         match action {
             ChatAction::Delta { thread_id, content } => {
                 self.pinned_message_top = None;
+                self.retry_status = None;
                 // Set active thread if not set, or if it matches the incoming thread
                 if self.active_thread_id.is_none()
                     || self.active_thread_id.as_deref() == Some(&thread_id)
                 {
                     self.active_thread_id = Some(thread_id);
+                }
+                if self.scroll_locked {
+                    self.scroll_offset = self
+                        .scroll_offset
+                        .saturating_add(content.matches('\n').count());
                 }
                 self.streaming_content.push_str(&content);
             }
@@ -379,6 +422,7 @@ impl ChatState {
                 content,
             } => {
                 self.pinned_message_top = None;
+                self.retry_status = None;
                 self.streaming_reasoning.push_str(&content);
             }
 
@@ -389,6 +433,7 @@ impl ChatState {
                 args,
             } => {
                 self.pinned_message_top = None;
+                self.retry_status = None;
                 // Flush any accumulated streaming content as an ASST message first
                 // (the assistant said something before calling the tool)
                 if !self.streaming_content.is_empty() {
@@ -451,6 +496,7 @@ impl ChatState {
                 is_error,
             } => {
                 self.pinned_message_top = None;
+                self.retry_status = None;
                 // Update the active tracker
                 if let Some(tc) = self
                     .active_tool_calls
@@ -492,6 +538,7 @@ impl ChatState {
                 generation_ms,
             } => {
                 self.pinned_message_top = None;
+                self.retry_status = None;
                 // Only finalize if this is for the active thread
                 if self.active_thread_id.as_deref() == Some(&thread_id) {
                     // Tool calls are already pushed to thread messages inline
@@ -524,6 +571,38 @@ impl ChatState {
                             thread.total_output_tokens += output_tokens;
                         }
                     }
+                }
+            }
+
+            ChatAction::SetRetryStatus {
+                thread_id,
+                phase,
+                attempt,
+                max_retries,
+                delay_ms,
+                failure_class,
+                message,
+                received_at_tick,
+            } => {
+                if self.active_thread_id.is_none()
+                    || self.active_thread_id.as_deref() == Some(thread_id.as_str())
+                {
+                    self.active_thread_id = Some(thread_id);
+                    self.retry_status = Some(RetryStatusVm {
+                        phase,
+                        attempt,
+                        max_retries,
+                        delay_ms,
+                        failure_class,
+                        message,
+                        received_at_tick,
+                    });
+                }
+            }
+
+            ChatAction::ClearRetryStatus { thread_id } => {
+                if self.active_thread_id.as_deref() == Some(thread_id.as_str()) {
+                    self.retry_status = None;
                 }
             }
 
@@ -690,6 +769,7 @@ impl ChatState {
             ChatAction::NewThread => {
                 self.pinned_message_top = None;
                 self.active_thread_id = None;
+                self.retry_status = None;
             }
 
             ChatAction::SetTranscriptMode(mode) => {
@@ -700,6 +780,7 @@ impl ChatState {
                 self.streaming_content.clear();
                 self.streaming_reasoning.clear();
                 self.active_tool_calls.clear();
+                self.retry_status = None;
             }
 
             ChatAction::ForceStopStreaming => {
@@ -728,6 +809,7 @@ impl ChatState {
                 self.streaming_content.clear();
                 self.streaming_reasoning.clear();
                 self.active_tool_calls.clear();
+                self.retry_status = None;
             }
         }
     }
@@ -806,6 +888,58 @@ mod tests {
         state.reduce(ChatAction::ScrollChat(-5));
         assert!(!state.scroll_locked());
         assert_eq!(state.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn locked_scroll_offset_grows_with_streamed_newlines() {
+        let mut state = ChatState::new();
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        state.reduce(ChatAction::ScrollChat(4));
+
+        state.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: "\nnext\nchunk".into(),
+        });
+
+        assert_eq!(state.scroll_offset(), 6);
+        assert!(state.scroll_locked());
+    }
+
+    #[test]
+    fn retry_status_replaces_previous_status_for_active_thread() {
+        let mut state = ChatState::new();
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        state.reduce(ChatAction::SetRetryStatus {
+            thread_id: "t1".into(),
+            phase: RetryPhase::Retrying,
+            attempt: 1,
+            max_retries: 3,
+            delay_ms: 2_000,
+            failure_class: "rate_limit".into(),
+            message: "429".into(),
+            received_at_tick: 10,
+        });
+        state.reduce(ChatAction::SetRetryStatus {
+            thread_id: "t1".into(),
+            phase: RetryPhase::Waiting,
+            attempt: 3,
+            max_retries: 3,
+            delay_ms: 30_000,
+            failure_class: "rate_limit".into(),
+            message: "retrying automatically".into(),
+            received_at_tick: 20,
+        });
+
+        let status = state.retry_status().expect("retry status should exist");
+        assert_eq!(status.phase, RetryPhase::Waiting);
+        assert_eq!(status.delay_ms, 30_000);
+        assert_eq!(status.received_at_tick, 20);
     }
 
     #[test]

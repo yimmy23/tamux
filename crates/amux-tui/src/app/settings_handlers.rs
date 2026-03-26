@@ -1187,6 +1187,10 @@ impl TuiModel {
             "retry_delay_ms" => self
                 .settings
                 .start_editing("retry_delay_ms", &self.config.retry_delay_ms.to_string()),
+            "auto_retry" => {
+                self.config.auto_retry = !self.config.auto_retry;
+                self.sync_config_to_daemon();
+            }
             "context_budget_tokens" => self.settings.start_editing(
                 "context_budget_tokens",
                 &self.config.context_budget_tokens.to_string(),
@@ -1442,6 +1446,10 @@ impl TuiModel {
             }
             "enable_streaming" => {
                 self.config.enable_streaming = !self.config.enable_streaming;
+                self.sync_config_to_daemon();
+            }
+            "auto_retry" => {
+                self.config.auto_retry = !self.config.auto_retry;
                 self.sync_config_to_daemon();
             }
             "enable_conversation_memory" => {
@@ -1832,6 +1840,7 @@ impl TuiModel {
                 | "gateway_enabled"
                 | "web_search_enabled"
                 | "enable_streaming"
+                | "auto_retry"
                 | "enable_conversation_memory"
                 | "enable_honcho_memory"
                 | "anticipatory_enabled"

@@ -458,12 +458,13 @@ fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usi
             "max_tool_loops" => Some((9, 20)),
             "max_retries" => Some((10, 20)),
             "retry_delay_ms" => Some((11, 20)),
-            "context_budget_tokens" => Some((13, 20)),
-            "compact_threshold_pct" => Some((14, 20)),
-            "keep_recent_on_compact" => Some((15, 20)),
-            "bash_timeout_secs" => Some((16, 20)),
-            "snapshot_max_count" => Some((20, 20)),
-            "snapshot_max_size_mb" => Some((21, 20)),
+            "auto_retry" => Some((12, 20)),
+            "context_budget_tokens" => Some((14, 20)),
+            "compact_threshold_pct" => Some((15, 20)),
+            "keep_recent_on_compact" => Some((16, 20)),
+            "bash_timeout_secs" => Some((17, 20)),
+            "snapshot_max_count" => Some((21, 20)),
+            "snapshot_max_size_mb" => Some((22, 20)),
             _ => None,
         },
         SettingsTab::Tools => None,
@@ -2334,7 +2335,7 @@ fn render_advanced_tab<'a>(
     }
 
     // Fields 3–11: numeric inline-edit fields
-    let numeric_fields: [(usize, &str, String, &str); 9] = [
+    let numeric_fields: [(usize, &str, String, &str); 10] = [
         (
             3,
             "Max Context Msgs:",
@@ -2361,30 +2362,40 @@ fn render_advanced_tab<'a>(
         ),
         (
             7,
+            "Auto Retry:      ",
+            if config.auto_retry {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            },
+            "auto_retry",
+        ),
+        (
+            8,
             "Context Len Tok: ",
             config.context_window_tokens.to_string(),
             "context_window_tokens",
         ),
         (
-            8,
+            9,
             "Budget Tokens:   ",
             config.context_budget_tokens.to_string(),
             "context_budget_tokens",
         ),
         (
-            9,
+            10,
             "Compact Thres %: ",
             config.compact_threshold_pct.to_string(),
             "compact_threshold_pct",
         ),
         (
-            10,
+            11,
             "Keep Recent:     ",
             config.keep_recent_on_compact.to_string(),
             "keep_recent_on_compact",
         ),
         (
-            11,
+            12,
             "Bash Timeout (s):",
             config.bash_timeout_secs.to_string(),
             "bash_timeout_secs",

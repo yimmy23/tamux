@@ -284,7 +284,12 @@ impl AgentEngine {
         if let Some(task) = current_task_snapshot.as_ref() {
             self.ensure_subagent_runtime(task, Some(&tid)).await;
         }
-        let retry_strategy = if is_durable_goal_task {
+        let retry_strategy = if !config.auto_retry {
+            RetryStrategy::Bounded {
+                max_retries: 0,
+                retry_delay_ms: config.retry_delay_ms,
+            }
+        } else if is_durable_goal_task {
             RetryStrategy::DurableRateLimited
         } else {
             RetryStrategy::Bounded {
@@ -323,6 +328,7 @@ impl AgentEngine {
         let mut stream_timeout_count = 0u32;
         let mut tool_ack_emitted = false;
         let mut tool_sequence_repaired = false;
+        let mut retry_status_visible = false;
 
         'agent_loop: while max_loops == 0 || loop_count < max_loops {
             if stream_cancel_token.is_cancelled() {
@@ -515,6 +521,18 @@ impl AgentEngine {
 
                         match chunk {
                             CompletionChunk::Delta { content, reasoning } => {
+                                if retry_status_visible {
+                                    let _ = self.event_tx.send(AgentEvent::RetryStatus {
+                                        thread_id: tid.clone(),
+                                        phase: "cleared".to_string(),
+                                        attempt: 0,
+                                        max_retries: 0,
+                                        delay_ms: 0,
+                                        failure_class: String::new(),
+                                        message: String::new(),
+                                    });
+                                    retry_status_visible = false;
+                                }
                                 if first_token_at.is_none()
                                     && (!content.is_empty()
                                         || reasoning
@@ -543,20 +561,33 @@ impl AgentEngine {
                                 attempt,
                                 max_retries,
                                 delay_ms,
+                                failure_class,
+                                message,
                             } => {
-                                let retry_target = if max_retries == 0 {
-                                    "∞".to_string()
-                                } else {
-                                    max_retries.to_string()
-                                };
-                                let _ = self.event_tx.send(AgentEvent::Delta {
+                                let _ = self.event_tx.send(AgentEvent::RetryStatus {
                                     thread_id: tid.clone(),
-                                    content: format!(
-                                        "\n[tamux] rate limited, running retry {attempt}/{retry_target} in {delay_ms}ms...\n"
-                                    ),
+                                    phase: "retrying".to_string(),
+                                    attempt,
+                                    max_retries,
+                                    delay_ms,
+                                    failure_class,
+                                    message,
                                 });
+                                retry_status_visible = true;
                             }
                             CompletionChunk::TransportFallback { from, to, message } => {
+                                if retry_status_visible {
+                                    let _ = self.event_tx.send(AgentEvent::RetryStatus {
+                                        thread_id: tid.clone(),
+                                        phase: "cleared".to_string(),
+                                        attempt: 0,
+                                        max_retries: 0,
+                                        delay_ms: 0,
+                                        failure_class: String::new(),
+                                        message: String::new(),
+                                    });
+                                    retry_status_visible = false;
+                                }
                                 effective_transport_for_turn = to;
                                 {
                                     let mut stored_config = self.config.write().await;
@@ -592,6 +623,43 @@ impl AgentEngine {
                                 break;
                             }
                             CompletionChunk::Error { message } => {
+                                if config.auto_retry
+                                    && is_transient_retry_message(&message)
+                                {
+                                    let delay_ms = 30_000u64;
+                                    let _ = self.event_tx.send(AgentEvent::RetryStatus {
+                                        thread_id: tid.clone(),
+                                        phase: "waiting".to_string(),
+                                        attempt: config.max_retries,
+                                        max_retries: config.max_retries,
+                                        delay_ms,
+                                        failure_class: retry_failure_class_from_message(&message)
+                                            .to_string(),
+                                        message: message.clone(),
+                                    });
+                                    retry_status_visible = true;
+                                    tokio::select! {
+                                        _ = stream_cancel_token.cancelled() => {
+                                            was_cancelled = true;
+                                            break;
+                                        }
+                                        _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {
+                                            continue 'agent_loop;
+                                        }
+                                    }
+                                }
+                                if retry_status_visible {
+                                    let _ = self.event_tx.send(AgentEvent::RetryStatus {
+                                        thread_id: tid.clone(),
+                                        phase: "cleared".to_string(),
+                                        attempt: 0,
+                                        max_retries: 0,
+                                        delay_ms: 0,
+                                        failure_class: String::new(),
+                                        message: String::new(),
+                                    });
+                                    retry_status_visible = false;
+                                }
                                 self.record_llm_outcome(&config.provider, false).await;
                                 // Add error as assistant message
                                 self.add_assistant_message(
@@ -629,7 +697,7 @@ impl AgentEngine {
             // On stream timeout, notify the user and retry (up to MAX_STREAM_TIMEOUTS).
             if stream_timed_out {
                 stream_timeout_count += 1;
-                if stream_timeout_count >= MAX_STREAM_TIMEOUTS {
+                if stream_timeout_count >= MAX_STREAM_TIMEOUTS && !config.auto_retry {
                     let msg = format!(
                         "Connection timed out {} times \u{2014} giving up. The provider may be overloaded.",
                         stream_timeout_count
@@ -644,19 +712,35 @@ impl AgentEngine {
                         .await;
                     return Err(anyhow::anyhow!("{}", msg));
                 }
-                let msg = format!(
-                    "Connection timed out (attempt {}/{}). Retrying...",
-                    stream_timeout_count, MAX_STREAM_TIMEOUTS
-                );
-                let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                let delay_ms = if stream_timeout_count >= MAX_STREAM_TIMEOUTS {
+                    30_000u64
+                } else {
+                    2_000u64
+                };
+                let phase = if stream_timeout_count >= MAX_STREAM_TIMEOUTS {
+                    "waiting"
+                } else {
+                    "retrying"
+                };
+                let _ = self.event_tx.send(AgentEvent::RetryStatus {
                     thread_id: tid.clone(),
-                    kind: "stream-timeout".to_string(),
-                    message: msg,
-                    details: None,
+                    phase: phase.to_string(),
+                    attempt: stream_timeout_count,
+                    max_retries: MAX_STREAM_TIMEOUTS,
+                    delay_ms,
+                    failure_class: "timeout".to_string(),
+                    message: "Connection timed out while waiting for streamed output".to_string(),
                 });
-                // Small backoff before retry
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                continue 'agent_loop;
+                retry_status_visible = true;
+                tokio::select! {
+                    _ = stream_cancel_token.cancelled() => {
+                        was_cancelled = true;
+                        break 'agent_loop;
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {
+                        continue 'agent_loop;
+                    }
+                }
             }
 
             // Record successful LLM outcome for circuit breaker tracking.
@@ -695,6 +779,18 @@ impl AgentEngine {
                     } else {
                         Some(accumulated_reasoning)
                     });
+                    if retry_status_visible {
+                        let _ = self.event_tx.send(AgentEvent::RetryStatus {
+                            thread_id: tid.clone(),
+                            phase: "cleared".to_string(),
+                            attempt: 0,
+                            max_retries: 0,
+                            delay_ms: 0,
+                            failure_class: String::new(),
+                            message: String::new(),
+                        });
+                        retry_status_visible = false;
+                    }
 
                     self.add_assistant_message(
                         &tid,
@@ -1498,6 +1594,39 @@ impl AgentEngine {
             args_part,
         ))
     }
+}
+
+fn retry_failure_class_from_message(message: &str) -> &'static str {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("429") || lower.contains("rate limit") || lower.contains("too many requests")
+    {
+        "rate_limit"
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        "timeout"
+    } else if lower.contains("connection")
+        || lower.contains("broken pipe")
+        || lower.contains("unexpected eof")
+        || lower.contains("reset")
+    {
+        "transport"
+    } else {
+        "upstream"
+    }
+}
+
+fn is_transient_retry_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("too many requests")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("connection")
+        || lower.contains("broken pipe")
+        || lower.contains("unexpected eof")
+        || lower.contains("overloaded")
+        || lower.contains("unavailable")
+        || lower.contains("try again later")
 }
 
 /// Parse a plugin command from user input.

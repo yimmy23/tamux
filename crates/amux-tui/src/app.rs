@@ -297,11 +297,23 @@ impl TuiModel {
     }
 
     fn actions_bar_visible(&self) -> bool {
+        if self.should_show_local_landing() {
+            return false;
+        }
+
         self.concierge.loading || !self.chat.active_actions().is_empty()
     }
 
     fn concierge_banner_visible(&self) -> bool {
         self.actions_bar_visible()
+    }
+
+    fn should_show_local_landing(&self) -> bool {
+        matches!(self.main_pane_view, MainPaneView::Conversation)
+            && self.chat.active_thread().is_none()
+            && !self.chat.is_streaming()
+            && !self.concierge.loading
+            && !self.should_show_provider_onboarding()
     }
 
     fn should_show_concierge_hero_loading(&self) -> bool {
@@ -412,7 +424,8 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::NewThread);
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Input;
-        self.request_concierge_welcome();
+        self.concierge
+            .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
     }
 
     fn request_concierge_welcome(&mut self) {
@@ -570,6 +583,11 @@ impl TuiModel {
             }
             "dismiss" | "dismiss_welcome" => {
                 self.cleanup_concierge_on_navigate();
+                if self.chat.active_thread_id() == Some("concierge") {
+                    self.chat.reduce(chat::ChatAction::NewThread);
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Input;
+                }
             }
             "start_goal_run" => {
                 self.cleanup_concierge_on_navigate();
@@ -836,11 +854,10 @@ mod tests {
     }
 
     #[test]
-    fn concierge_hero_loading_shows_only_for_empty_conversation_state() {
+    fn local_landing_shows_only_for_empty_conversation_state() {
         let mut model = build_model();
-        model.concierge.loading = true;
 
-        assert!(model.should_show_concierge_hero_loading());
+        assert!(model.should_show_local_landing());
 
         model.chat.reduce(chat::ChatAction::ThreadCreated {
             thread_id: "thread-1".to_string(),
@@ -849,18 +866,37 @@ mod tests {
         model
             .chat
             .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
-        assert!(!model.should_show_concierge_hero_loading());
+        assert!(!model.should_show_local_landing());
 
         model
             .chat
             .reduce(chat::ChatAction::SelectThread(String::new()));
+        model.chat.reduce(chat::ChatAction::Delta {
+            thread_id: "stream".to_string(),
+            content: "hello".to_string(),
+        });
+        assert!(!model.should_show_local_landing());
+
         model.chat.reduce(chat::ChatAction::ResetStreaming);
         model
             .chat
             .reduce(chat::ChatAction::ThreadListReceived(Vec::new()));
-        model.concierge.welcome_visible = true;
-        model.concierge.welcome_content = Some("ready".to_string());
-        assert!(!model.should_show_concierge_hero_loading());
+        model.connected = true;
+        model.auth.loaded = true;
+        model.auth.entries = vec![unauthenticated_entry()];
+        assert!(!model.should_show_local_landing());
+    }
+
+    #[test]
+    fn local_landing_yields_to_concierge_loading() {
+        let mut model = build_model();
+        model.concierge.loading = true;
+
+        assert!(model.should_show_concierge_hero_loading());
+        assert!(
+            !model.should_show_local_landing(),
+            "local landing should not hide concierge loading animation"
+        );
     }
 
     #[test]
@@ -1032,7 +1068,7 @@ mod tests {
     }
 
     #[test]
-    fn start_new_thread_requests_concierge_welcome_and_shows_loading() {
+    fn start_new_thread_shows_local_landing_and_does_not_request_concierge() {
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();
         let mut model = TuiModel::new(daemon_rx, cmd_tx);
@@ -1057,16 +1093,16 @@ mod tests {
 
         model.start_new_thread_view();
 
-        assert!(model.should_show_concierge_hero_loading());
+        assert!(model.should_show_local_landing());
         assert_eq!(model.chat.active_thread_id(), None);
         match cmd_rx.try_recv() {
             Ok(DaemonCommand::DismissConciergeWelcome) => {}
             other => panic!("expected dismiss command first, got {:?}", other),
         }
-        match cmd_rx.try_recv() {
-            Ok(DaemonCommand::RequestConciergeWelcome) => {}
-            other => panic!("expected concierge welcome request, got {:?}", other),
-        }
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "unexpected daemon command after /new"
+        );
     }
 
     #[test]
@@ -1163,6 +1199,133 @@ mod tests {
         assert_eq!(model.focus, FocusArea::Input);
         assert_eq!(model.input.buffer(), "/goal ");
         assert!(model.chat.active_actions().is_empty());
+    }
+
+    #[test]
+    fn dismissing_concierge_welcome_returns_to_local_landing() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.focus = FocusArea::Chat;
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "concierge".to_string(),
+            title: "Concierge".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "concierge".to_string(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                content: "Welcome".to_string(),
+                actions: vec![chat::MessageAction {
+                    label: "Dismiss".to_string(),
+                    action_type: "dismiss".to_string(),
+                    thread_id: None,
+                }],
+                is_concierge_welcome: true,
+                ..Default::default()
+            },
+        });
+        model
+            .concierge
+            .reduce(crate::state::ConciergeAction::WelcomeReceived {
+                content: "Welcome".to_string(),
+                actions: vec![crate::state::ConciergeActionVm {
+                    label: "Dismiss".to_string(),
+                    action_type: "dismiss".to_string(),
+                    thread_id: None,
+                }],
+            });
+
+        model.run_concierge_action(crate::state::ConciergeActionVm {
+            label: "Dismiss".to_string(),
+            action_type: "dismiss".to_string(),
+            thread_id: None,
+        });
+
+        assert_eq!(model.chat.active_thread_id(), None);
+        assert!(model.should_show_local_landing());
+        assert_eq!(model.focus, FocusArea::Input);
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            other => panic!("expected dismiss command, got {:?}", other),
+        }
+        assert!(cmd_rx.try_recv().is_err(), "unexpected follow-up command");
+    }
+
+    #[test]
+    fn drag_selection_keeps_original_anchor_point_when_chat_scrolls() {
+        let mut model = build_model();
+        model.show_sidebar_override = Some(false);
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "thread-1".to_string(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::User,
+                content: (1..=80)
+                    .map(|idx| format!("line {idx}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                ..Default::default()
+            },
+        });
+
+        let input_start_row = model.height.saturating_sub(model.input_height() + 1);
+        let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
+        let preferred_row = chat_area.y.saturating_add(chat_area.height / 2);
+        let start_row = (preferred_row..chat_area.y.saturating_add(chat_area.height))
+            .chain(chat_area.y..preferred_row)
+            .find(|row| {
+                widgets::chat::selection_point_from_mouse(
+                    chat_area,
+                    &model.chat,
+                    &model.theme,
+                    model.tick_counter,
+                    Position::new(3, *row),
+                )
+                .is_some()
+            })
+            .expect("chat transcript should expose at least one selectable row");
+
+        model.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 3,
+            row: start_row,
+            modifiers: KeyModifiers::NONE,
+        });
+        let anchor_point = model
+            .chat_drag_anchor_point
+            .expect("mouse down should capture a document anchor point");
+
+        for _ in 0..4 {
+            model.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: 3,
+                row: start_row,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+
+        let current_point = model
+            .chat_drag_current_point
+            .expect("dragging should keep updating the current document point");
+        assert_eq!(
+            model.chat_drag_anchor_point,
+            Some(anchor_point),
+            "autoscroll should not rewrite the original selection anchor"
+        );
+        assert!(
+            current_point.row < anchor_point.row,
+            "dragging upward with autoscroll should extend the selection into older transcript rows: anchor={anchor_point:?} current={current_point:?}"
+        );
     }
 
     #[test]

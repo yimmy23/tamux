@@ -159,6 +159,15 @@ pub enum ClientEvent {
         message: String,
         details: Option<String>,
     },
+    RetryStatus {
+        thread_id: String,
+        phase: String,
+        attempt: u32,
+        max_retries: u32,
+        delay_ms: u64,
+        failure_class: String,
+        message: String,
+    },
     ApprovalRequired {
         approval_id: String,
         command: String,
@@ -954,6 +963,24 @@ impl DaemonClient {
                         kind: get_string(&event, "kind").unwrap_or_default(),
                         message: get_string(&event, "message").unwrap_or_default(),
                         details: get_string(&event, "details"),
+                    })
+                    .await;
+            }
+            "retry_status" => {
+                let _ = event_tx
+                    .send(ClientEvent::RetryStatus {
+                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        phase: get_string(&event, "phase")
+                            .unwrap_or_else(|| "retrying".to_string()),
+                        attempt: event.get("attempt").and_then(Value::as_u64).unwrap_or(0) as u32,
+                        max_retries: event
+                            .get("max_retries")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as u32,
+                        delay_ms: event.get("delay_ms").and_then(Value::as_u64).unwrap_or(0),
+                        failure_class: get_string(&event, "failure_class")
+                            .unwrap_or_else(|| "transient".to_string()),
+                        message: get_string(&event, "message").unwrap_or_default(),
                     })
                     .await;
             }

@@ -67,6 +67,7 @@ fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str
         | AgentEvent::ThreadCreated { thread_id, .. }
         | AgentEvent::TodoUpdate { thread_id, .. }
         | AgentEvent::WorkContextUpdate { thread_id, .. }
+        | AgentEvent::RetryStatus { thread_id, .. }
         | AgentEvent::WorkflowNotice { thread_id, .. } => Some(thread_id.as_str()),
         AgentEvent::TaskUpdate {
             task: Some(task), ..

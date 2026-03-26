@@ -7,6 +7,11 @@ impl TuiModel {
             return;
         }
 
+        if self.should_show_local_landing() {
+            widgets::landing::render(frame, area, &self.theme);
+            return;
+        }
+
         if self.should_show_concierge_hero_loading() {
             widgets::concierge_loading::render(frame, area, &self.theme, self.tick_counter);
             return;
@@ -17,18 +22,25 @@ impl TuiModel {
             area,
             &self.chat,
             &self.theme,
+            self.tick_counter,
             self.focus == FocusArea::Chat,
-            self.chat_drag_anchor.and_then(|anchor| {
-                self.chat_drag_current.and_then(|current| {
-                    widgets::chat::selection_points_from_mouse(
-                        area,
-                        &self.chat,
-                        &self.theme,
-                        anchor,
-                        current,
-                    )
+            self.chat_drag_anchor_point
+                .zip(self.chat_drag_current_point)
+                .or_else(|| {
+                    self.chat_drag_anchor.and_then(|anchor| {
+                        self.chat_drag_current.and_then(|current| {
+                            widgets::chat::selection_points_from_mouse(
+                                area,
+                                &self.chat,
+                                &self.theme,
+                                self.tick_counter,
+                                anchor,
+                                current,
+                            )
+                        })
+                    })
                 })
-            }),
+                .filter(|(start, end)| start != end),
         );
     }
 

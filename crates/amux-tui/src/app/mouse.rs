@@ -71,7 +71,16 @@ impl TuiModel {
                     } else {
                         self.chat.reduce(chat::ChatAction::ScrollChat(3));
                         if self.chat_drag_anchor.is_some() {
-                            self.chat_drag_current = Some(Position::new(mouse.column, mouse.row));
+                            let pos = Position::new(mouse.column, mouse.row);
+                            self.chat_drag_current = Some(pos);
+                            self.chat_drag_current_point =
+                                widgets::chat::selection_point_from_mouse(
+                                    chat_area,
+                                    &self.chat,
+                                    &self.theme,
+                                    self.tick_counter,
+                                    pos,
+                                );
                         }
                     }
                 } else if cursor_in_sidebar {
@@ -92,7 +101,16 @@ impl TuiModel {
                     } else {
                         self.chat.reduce(chat::ChatAction::ScrollChat(-3));
                         if self.chat_drag_anchor.is_some() {
-                            self.chat_drag_current = Some(Position::new(mouse.column, mouse.row));
+                            let pos = Position::new(mouse.column, mouse.row);
+                            self.chat_drag_current = Some(pos);
+                            self.chat_drag_current_point =
+                                widgets::chat::selection_point_from_mouse(
+                                    chat_area,
+                                    &self.chat,
+                                    &self.theme,
+                                    self.tick_counter,
+                                    pos,
+                                );
                         }
                     }
                 } else if cursor_in_sidebar {
@@ -124,6 +142,15 @@ impl TuiModel {
                         let pos = Position::new(mouse.column, mouse.row);
                         self.chat_drag_anchor = Some(pos);
                         self.chat_drag_current = Some(pos);
+                        let point = widgets::chat::selection_point_from_mouse(
+                            chat_area,
+                            &self.chat,
+                            &self.theme,
+                            self.tick_counter,
+                            pos,
+                        );
+                        self.chat_drag_anchor_point = point;
+                        self.chat_drag_current_point = point;
                     } else if matches!(self.main_pane_view, MainPaneView::WorkContext) {
                         if let Some(
                             widgets::work_context_view::WorkContextHitTarget::ClosePreview,
@@ -240,7 +267,15 @@ impl TuiModel {
                     {
                         self.chat.reduce(chat::ChatAction::ScrollChat(-1));
                     }
-                    self.chat_drag_current = Some(Position::new(mouse.column, mouse.row));
+                    let pos = Position::new(mouse.column, mouse.row);
+                    self.chat_drag_current = Some(pos);
+                    self.chat_drag_current_point = widgets::chat::selection_point_from_mouse(
+                        chat_area,
+                        &self.chat,
+                        &self.theme,
+                        self.tick_counter,
+                        pos,
+                    );
                 } else if self.work_context_drag_anchor.is_some()
                     && matches!(self.main_pane_view, MainPaneView::WorkContext)
                 {
@@ -259,18 +294,26 @@ impl TuiModel {
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 if let Some(anchor) = self.chat_drag_anchor.take() {
-                    let current = self
-                        .chat_drag_current
-                        .take()
-                        .unwrap_or(Position::new(mouse.column, mouse.row));
-                    let Some((anchor_point, current_point)) =
-                        widgets::chat::selection_points_from_mouse(
+                    let current = self.chat_drag_current.take().unwrap_or(anchor);
+                    let anchor_point = self.chat_drag_anchor_point.take().or_else(|| {
+                        widgets::chat::selection_point_from_mouse(
                             chat_area,
                             &self.chat,
                             &self.theme,
+                            self.tick_counter,
                             anchor,
+                        )
+                    });
+                    let current_point = self.chat_drag_current_point.take().or_else(|| {
+                        widgets::chat::selection_point_from_mouse(
+                            chat_area,
+                            &self.chat,
+                            &self.theme,
+                            self.tick_counter,
                             current,
                         )
+                    });
+                    let Some((anchor_point, current_point)) = anchor_point.zip(current_point)
                     else {
                         if cursor_in_chat {
                             self.handle_chat_click(
@@ -286,6 +329,7 @@ impl TuiModel {
                             chat_area,
                             &self.chat,
                             &self.theme,
+                            self.tick_counter,
                             anchor_point,
                             current_point,
                         ) {
@@ -348,11 +392,15 @@ impl TuiModel {
     fn clear_chat_drag_selection(&mut self) {
         self.chat_drag_anchor = None;
         self.chat_drag_current = None;
+        self.chat_drag_anchor_point = None;
+        self.chat_drag_current_point = None;
     }
 
     fn clear_work_context_drag_selection(&mut self) {
         self.work_context_drag_anchor = None;
         self.work_context_drag_current = None;
+        self.work_context_drag_anchor_point = None;
+        self.work_context_drag_current_point = None;
     }
 
     fn byte_offset_for_display_col(text: &str, target_col: usize) -> usize {
@@ -405,7 +453,8 @@ impl TuiModel {
     }
 
     fn handle_chat_click(&mut self, chat_area: Rect, mouse: Position) {
-        match widgets::chat::hit_test(chat_area, &self.chat, &self.theme, mouse) {
+        match widgets::chat::hit_test(chat_area, &self.chat, &self.theme, self.tick_counter, mouse)
+        {
             Some(chat::ChatHitTarget::Message(idx)) => self.chat.toggle_message_selection(idx),
             Some(chat::ChatHitTarget::ReasoningToggle(idx)) => {
                 self.chat.select_message(Some(idx));
@@ -414,6 +463,15 @@ impl TuiModel {
             Some(chat::ChatHitTarget::ToolToggle(idx)) => {
                 self.chat.select_message(Some(idx));
                 self.chat.toggle_tool_expansion(idx);
+            }
+            Some(chat::ChatHitTarget::RetryStop) => {
+                if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
+                    self.cancelled_thread_id = Some(thread_id.clone());
+                    self.chat.reduce(chat::ChatAction::ForceStopStreaming);
+                    self.agent_activity = None;
+                    self.send_daemon_command(DaemonCommand::StopStream { thread_id });
+                    self.status_line = "Stopped retry loop".to_string();
+                }
             }
             Some(chat::ChatHitTarget::MessageAction {
                 message_index,

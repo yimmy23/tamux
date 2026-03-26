@@ -655,6 +655,10 @@ export function AgentTab({
                     <NumberInput value={settings.retry_delay_ms} min={100} max={60000} step={100}
                         onChange={(value) => updateSetting("retry_delay_ms", value)} />
                 </SettingRow>
+                <SettingRow label="Auto Retry">
+                    <Toggle value={settings.auto_retry}
+                        onChange={(value) => updateSetting("auto_retry", value)} />
+                </SettingRow>
                 <SettingRow label="Budget Tokens">
                     <NumberInput value={settings.context_budget_tokens} min={10000} max={500000} step={10000}
                         onChange={(value) => updateSetting("context_budget_tokens", value)} />

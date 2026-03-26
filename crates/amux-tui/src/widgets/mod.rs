@@ -9,6 +9,7 @@ pub mod concierge_loading;
 pub mod footer;
 pub mod goal_picker;
 pub mod header;
+pub mod landing;
 pub mod message;
 pub mod model_picker;
 pub mod onboarding;

@@ -5,7 +5,9 @@ use ratatui::widgets::Paragraph;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::message::wrap_text;
-use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, TranscriptMode};
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
 use crate::theme::ThemeTokens;
 
 const MESSAGE_PADDING_X: usize = 2;
@@ -32,6 +34,8 @@ enum RenderedLineKind {
     Separator,
     Padding,
     Streaming,
+    RetryStatus,
+    RetryAction,
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +213,34 @@ fn action_hit_target(
     None
 }
 
+fn retry_wait_remaining_secs(status: &crate::state::chat::RetryStatusVm, current_tick: u64) -> u64 {
+    let elapsed_ticks = current_tick.saturating_sub(status.received_at_tick);
+    let elapsed_ms = elapsed_ticks.saturating_mul(1_000);
+    status
+        .delay_ms
+        .saturating_sub(elapsed_ms)
+        .div_ceil(1_000)
+        .max(1)
+}
+
+fn retry_action_line(
+    status: &crate::state::chat::RetryStatusVm,
+    theme: &ThemeTokens,
+    current_tick: u64,
+) -> Line<'static> {
+    match status.phase {
+        RetryPhase::Retrying => Line::from(vec![Span::styled("[Stop]", theme.accent_primary)]),
+        RetryPhase::Waiting => {
+            let yes_label = format!("[Yes {}s]", retry_wait_remaining_secs(status, current_tick));
+            Line::from(vec![
+                Span::styled(yes_label, theme.fg_dim),
+                Span::raw(" "),
+                Span::styled("[No]", theme.accent_primary),
+            ])
+        }
+    }
+}
+
 fn classify_message_lines(
     msg: &AgentMessage,
     msg_index: usize,
@@ -326,6 +358,7 @@ fn build_rendered_lines(
     chat: &ChatState,
     theme: &ThemeTokens,
     inner_width: usize,
+    current_tick: u64,
 ) -> (Vec<RenderedChatLine>, Vec<(usize, usize)>) {
     let mut all_lines = Vec::new();
     let mut message_line_ranges = Vec::new();
@@ -472,6 +505,59 @@ fn build_rendered_lines(
         }
     }
 
+    if let Some(status) = chat.retry_status() {
+        let summary = match status.phase {
+            RetryPhase::Retrying => format!(
+                "[tamux] retry {}/{} in {}s · {}",
+                status.attempt,
+                if status.max_retries == 0 {
+                    "∞".to_string()
+                } else {
+                    status.max_retries.to_string()
+                },
+                status.delay_ms.div_ceil(1000).max(1),
+                status.failure_class.replace('_', " ")
+            ),
+            RetryPhase::Waiting => format!(
+                "[tamux] retrying automatically in {}s · {}",
+                status.delay_ms.div_ceil(1000).max(1),
+                status.failure_class.replace('_', " ")
+            ),
+        };
+        all_lines.push(RenderedChatLine {
+            line: blank_message_line(inner_width, assistant_style),
+            message_index: None,
+            kind: RenderedLineKind::RetryStatus,
+        });
+        all_lines.push(RenderedChatLine {
+            line: pad_message_line(
+                Line::from(vec![Span::styled(summary, theme.fg_dim)]),
+                inner_width,
+                assistant_style,
+            ),
+            message_index: None,
+            kind: RenderedLineKind::RetryStatus,
+        });
+        all_lines.push(RenderedChatLine {
+            line: pad_message_line(
+                Line::from(vec![Span::raw(status.message.clone())]),
+                inner_width,
+                assistant_style,
+            ),
+            message_index: None,
+            kind: RenderedLineKind::RetryStatus,
+        });
+        all_lines.push(RenderedChatLine {
+            line: pad_message_line(
+                retry_action_line(status, theme, current_tick),
+                inner_width,
+                assistant_style,
+            ),
+            message_index: None,
+            kind: RenderedLineKind::RetryAction,
+        });
+    }
+
     (all_lines, message_line_ranges)
 }
 
@@ -569,6 +655,7 @@ fn visible_rendered_lines(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
 ) -> Option<(Rect, Vec<RenderedChatLine>)> {
     if (chat.active_thread().is_none() && chat.streaming_content().is_empty())
         || area.width == 0
@@ -578,7 +665,8 @@ fn visible_rendered_lines(
     }
 
     let inner = content_inner(area);
-    let (all_lines, message_line_ranges) = build_rendered_lines(chat, theme, inner.width as usize);
+    let (all_lines, message_line_ranges) =
+        build_rendered_lines(chat, theme, inner.width as usize, current_tick);
     let scroll = resolved_scroll(
         chat,
         all_lines.len(),
@@ -594,13 +682,15 @@ fn selection_snapshot(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
 ) -> Option<SelectionSnapshot> {
     let inner = content_inner(area);
     if inner.width == 0 || inner.height == 0 {
         return None;
     }
 
-    let (all_lines, message_line_ranges) = build_rendered_lines(chat, theme, inner.width as usize);
+    let (all_lines, message_line_ranges) =
+        build_rendered_lines(chat, theme, inner.width as usize, current_tick);
     if all_lines.is_empty() {
         return None;
     }
@@ -798,11 +888,13 @@ pub fn selected_text(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
     start: SelectionPoint,
     end: SelectionPoint,
 ) -> Option<String> {
     let inner = content_inner(area);
-    let (all_lines, message_line_ranges) = build_rendered_lines(chat, theme, inner.width as usize);
+    let (all_lines, message_line_ranges) =
+        build_rendered_lines(chat, theme, inner.width as usize, current_tick);
     if all_lines.is_empty() {
         return None;
     }
@@ -864,9 +956,10 @@ pub fn selection_point_from_mouse(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
     mouse: Position,
 ) -> Option<SelectionPoint> {
-    let snapshot = selection_snapshot(area, chat, theme)?;
+    let snapshot = selection_snapshot(area, chat, theme, current_tick)?;
     selection_point_from_snapshot(&snapshot, mouse)
 }
 
@@ -874,10 +967,11 @@ pub fn selection_points_from_mouse(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
     start: Position,
     end: Position,
 ) -> Option<(SelectionPoint, SelectionPoint)> {
-    let snapshot = selection_snapshot(area, chat, theme)?;
+    let snapshot = selection_snapshot(area, chat, theme, current_tick)?;
     Some((
         selection_point_from_snapshot(&snapshot, start)?,
         selection_point_from_snapshot(&snapshot, end)?,
@@ -927,9 +1021,10 @@ pub fn hit_test(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
     mouse: Position,
 ) -> Option<ChatHitTarget> {
-    let (inner, visible) = visible_rendered_lines(area, chat, theme)?;
+    let (inner, visible) = visible_rendered_lines(area, chat, theme, current_tick)?;
 
     if mouse.x < inner.x
         || mouse.y < inner.y
@@ -957,12 +1052,42 @@ pub fn hit_test(
         }
     }
     let hit = visible.get(resolved_row)?;
-    let message_index = hit.message_index?;
 
     match hit.kind {
-        RenderedLineKind::ReasoningToggle => Some(ChatHitTarget::ReasoningToggle(message_index)),
-        RenderedLineKind::ToolToggle => Some(ChatHitTarget::ToolToggle(message_index)),
+        RenderedLineKind::RetryAction => {
+            let content_col = mouse.x.saturating_sub(inner.x) as usize;
+            let (_, content_start, _) = rendered_line_content_bounds(hit);
+            let action_col = content_col.saturating_sub(content_start);
+            let status = chat.retry_status()?;
+            match status.phase {
+                RetryPhase::Retrying => {
+                    let label_width = UnicodeWidthStr::width("[Stop]");
+                    if action_col < label_width {
+                        Some(ChatHitTarget::RetryStop)
+                    } else {
+                        None
+                    }
+                }
+                RetryPhase::Waiting => {
+                    let yes_label =
+                        format!("[Yes {}s]", retry_wait_remaining_secs(status, current_tick));
+                    let yes_width = UnicodeWidthStr::width(yes_label.as_str());
+                    let no_start = yes_width.saturating_add(1);
+                    let no_width = UnicodeWidthStr::width("[No]");
+                    if action_col >= no_start && action_col < no_start.saturating_add(no_width) {
+                        Some(ChatHitTarget::RetryStop)
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+        RenderedLineKind::ReasoningToggle => {
+            Some(ChatHitTarget::ReasoningToggle(hit.message_index?))
+        }
+        RenderedLineKind::ToolToggle => Some(ChatHitTarget::ToolToggle(hit.message_index?)),
         RenderedLineKind::ActionBar => {
+            let message_index = hit.message_index?;
             let content_col = mouse.x.saturating_sub(inner.x) as usize;
             let (_, content_start, _) = rendered_line_content_bounds(hit);
             let message = chat
@@ -976,10 +1101,11 @@ pub fn hit_test(
         }
         RenderedLineKind::MessageBody
         | RenderedLineKind::ReasoningContent
-        | RenderedLineKind::ToolDetail => Some(ChatHitTarget::Message(message_index)),
-        RenderedLineKind::Separator | RenderedLineKind::Padding | RenderedLineKind::Streaming => {
-            None
-        }
+        | RenderedLineKind::ToolDetail => Some(ChatHitTarget::Message(hit.message_index?)),
+        RenderedLineKind::Separator
+        | RenderedLineKind::Padding
+        | RenderedLineKind::Streaming
+        | RenderedLineKind::RetryStatus => None,
     }
 }
 
@@ -988,6 +1114,7 @@ pub fn render(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
+    current_tick: u64,
     _focused: bool,
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
@@ -1003,7 +1130,8 @@ pub fn render(
     let inner_width = inner.width as usize;
     let inner_height = inner.height as usize;
     let selected_msg = chat.selected_message();
-    let (mut all_lines, message_line_ranges) = build_rendered_lines(chat, theme, inner_width);
+    let (mut all_lines, message_line_ranges) =
+        build_rendered_lines(chat, theme, inner_width, current_tick);
 
     // Apply selection highlight
     if let Some(sel_idx) = selected_msg {
@@ -1124,6 +1252,7 @@ mod tests {
             Rect::new(0, 0, 80, 6),
             &chat,
             &ThemeTokens::default(),
+            0,
             Position::new(2, 4),
         );
 
@@ -1143,6 +1272,7 @@ mod tests {
             Rect::new(0, 0, 80, 5),
             &chat,
             &ThemeTokens::default(),
+            0,
             Position::new(2, 2),
         );
 
@@ -1163,10 +1293,54 @@ mod tests {
             Rect::new(0, 0, 80, 4),
             &chat,
             &ThemeTokens::default(),
+            0,
             Position::new(2, 2),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::ToolToggle(0)));
+    }
+
+    #[test]
+    fn streaming_append_preserves_locked_viewport() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        let initial = (1..=40)
+            .map(|idx| format!("line {idx}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        chat.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: initial,
+        });
+
+        let inner_height = 8usize;
+        let inner_width = 80usize;
+        chat.reduce(ChatAction::ScrollChat(3));
+        let (before_lines, before_ranges) =
+            build_rendered_lines(&chat, &ThemeTokens::default(), inner_width, 0);
+        let before_scroll =
+            resolved_scroll(&chat, before_lines.len(), inner_height, &before_ranges);
+        let (_, before_start, _) =
+            visible_window_bounds(before_lines.len(), inner_height, before_scroll);
+
+        chat.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: "\nline 41".into(),
+        });
+
+        let (after_lines, after_ranges) =
+            build_rendered_lines(&chat, &ThemeTokens::default(), inner_width, 0);
+        let after_scroll = resolved_scroll(&chat, after_lines.len(), inner_height, &after_ranges);
+        let (_, after_start, _) =
+            visible_window_bounds(after_lines.len(), inner_height, after_scroll);
+
+        assert_eq!(
+            after_start, before_start,
+            "locked viewport should stay anchored while new streamed lines append"
+        );
     }
 
     #[test]
@@ -1183,9 +1357,60 @@ mod tests {
             Rect::new(0, 0, 80, 6),
             &chat,
             &ThemeTokens::default(),
+            0,
             Position::new(2, 2),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::Message(0)));
+    }
+
+    #[test]
+    fn waiting_retry_row_shows_yes_countdown_and_no_action() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        chat.reduce(ChatAction::SetRetryStatus {
+            thread_id: "t1".into(),
+            phase: RetryPhase::Waiting,
+            attempt: 3,
+            max_retries: 3,
+            delay_ms: 30_000,
+            failure_class: "rate_limit".into(),
+            message: "429 Too Many Requests".into(),
+            received_at_tick: 0,
+        });
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 1);
+        let action_line = lines
+            .iter()
+            .find(|line| matches!(line.kind, RenderedLineKind::RetryAction))
+            .expect("retry action line should be rendered");
+        let action_text = rendered_line_plain_text(action_line);
+        assert!(action_text.contains("[Yes 29s]"));
+        assert!(action_text.contains("[No]"));
+
+        let area = Rect::new(0, 0, 80, 8);
+        let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 1)
+            .expect("retry state should render visible lines");
+        let retry_row = visible
+            .iter()
+            .position(|line| matches!(line.kind, RenderedLineKind::RetryAction))
+            .expect("retry action row should be visible");
+        let hit_line = &visible[retry_row];
+        let (_, content_start, _) = rendered_line_content_bounds(hit_line);
+        let yes_width = UnicodeWidthStr::width("[Yes 29s]");
+        let no_x = inner.x + (content_start + yes_width + 2) as u16;
+        let no_y = inner.y + retry_row as u16;
+
+        let hit = hit_test(
+            area,
+            &chat,
+            &ThemeTokens::default(),
+            1,
+            Position::new(no_x, no_y),
+        );
+        assert_eq!(hit, Some(ChatHitTarget::RetryStop));
     }
 }

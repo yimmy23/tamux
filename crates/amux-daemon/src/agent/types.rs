@@ -1145,6 +1145,8 @@ pub struct AgentConfig {
     pub max_retries: u32,
     #[serde(default = "default_retry_delay_ms")]
     pub retry_delay_ms: u64,
+    #[serde(default = "default_auto_retry")]
+    pub auto_retry: bool,
     #[serde(default = "default_auto_compact_context")]
     pub auto_compact_context: bool,
     #[serde(default = "default_max_context_messages")]
@@ -1681,6 +1683,9 @@ fn default_max_retries() -> u32 {
 fn default_retry_delay_ms() -> u64 {
     2000
 }
+fn default_auto_retry() -> bool {
+    true
+}
 fn default_auto_compact_context() -> bool {
     true
 }
@@ -1764,6 +1769,7 @@ impl Default for AgentConfig {
             max_tool_loops: default_max_tool_loops(),
             max_retries: default_max_retries(),
             retry_delay_ms: default_retry_delay_ms(),
+            auto_retry: default_auto_retry(),
             auto_compact_context: default_auto_compact_context(),
             max_context_messages: default_max_context_messages(),
             context_budget_tokens: default_context_budget_tokens(),
@@ -2123,6 +2129,15 @@ pub enum AgentEvent {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<String>,
+    },
+    RetryStatus {
+        thread_id: String,
+        phase: String,
+        attempt: u32,
+        max_retries: u32,
+        delay_ms: u64,
+        failure_class: String,
+        message: String,
     },
     AnticipatoryUpdate {
         items: Vec<AnticipatoryItem>,
@@ -3238,6 +3253,8 @@ pub enum CompletionChunk {
         attempt: u32,
         max_retries: u32,
         delay_ms: u64,
+        failure_class: String,
+        message: String,
     },
     Error {
         message: String,
@@ -3256,6 +3273,7 @@ mod tests {
         let parsed: AgentConfig = serde_json::from_str(json_minimal).unwrap();
         assert_eq!(parsed.pty_channel_capacity, 1024);
         assert_eq!(parsed.agent_event_channel_capacity, 512);
+        assert!(parsed.auto_retry);
         assert_eq!(
             parsed.concierge.detail_level,
             ConciergeDetailLevel::ContextSummary

@@ -196,6 +196,22 @@ fn is_transient_transport_error(err: &anyhow::Error) -> bool {
         || message.contains("unexpected eof")
 }
 
+fn is_temporary_upstream_error(err: &anyhow::Error) -> bool {
+    let message = err.to_string().to_ascii_lowercase();
+    message.contains(" 408")
+        || message.contains(" 409")
+        || message.contains(" 425")
+        || message.contains(" 500")
+        || message.contains(" 502")
+        || message.contains(" 503")
+        || message.contains(" 504")
+        || message.contains("service unavailable")
+        || message.contains("temporarily unavailable")
+        || message.contains("server overloaded")
+        || message.contains("overloaded")
+        || message.contains("try again later")
+}
+
 impl Stream for CompletionStream {
     type Item = Result<CompletionChunk>;
 
@@ -511,7 +527,16 @@ pub fn send_completion_request(
                 Err(e) => {
                     let is_rate_limited = e.downcast_ref::<RateLimitError>().is_some();
                     let is_transient_transport = is_transient_transport_error(&e);
-                    if is_rate_limited || is_transient_transport {
+                    let is_temporary_upstream = is_temporary_upstream_error(&e);
+                    if is_rate_limited || is_transient_transport || is_temporary_upstream {
+                        let failure_class = if is_rate_limited {
+                            "rate_limit"
+                        } else if is_transient_transport {
+                            "transport"
+                        } else {
+                            "upstream"
+                        };
+                        let retry_message = e.to_string();
                         match retry_strategy {
                             RetryStrategy::Bounded {
                                 max_retries,
@@ -523,6 +548,8 @@ pub fn send_completion_request(
                                         attempt: retry_attempt,
                                         max_retries,
                                         delay_ms: retry_delay_ms,
+                                        failure_class: failure_class.to_string(),
+                                        message: retry_message.clone(),
                                     }))
                                     .await;
                                 tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
@@ -536,6 +563,8 @@ pub fn send_completion_request(
                                         attempt: retry_attempt,
                                         max_retries: 0,
                                         delay_ms,
+                                        failure_class: failure_class.to_string(),
+                                        message: retry_message.clone(),
                                     }))
                                     .await;
                                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
