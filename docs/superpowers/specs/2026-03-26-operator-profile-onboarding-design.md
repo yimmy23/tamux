@@ -88,6 +88,20 @@ Rules:
 - ask only missing/uncertain fields,
 - respect user fatigue caps (max questions per session/check-in).
 
+### 2.1) Integration With Existing Concierge Onboarding
+
+The daemon already has tier onboarding (`AgentRequestConciergeWelcome` -> `deliver_onboarding`, gated by `tier.onboarding_completed`).
+
+Integration contract:
+
+- Keep current tier onboarding as pre-flight orientation.
+- Trigger profile onboarding immediately after successful pre-flight onboarding in the same concierge flow.
+- Mark profile onboarding completion separately from `tier.onboarding_completed` to avoid coupling unrelated readiness states.
+- `AgentRequestConciergeWelcome` remains the single entry point and may emit:
+  - tier onboarding message(s),
+  - profile onboarding question(s),
+  - standard concierge welcome when both are complete.
+
 ### 3) Daemon `ProfileLearningEngine`
 
 Consumes passive signals from existing interaction streams:
@@ -103,17 +117,53 @@ Outputs:
 - resonance scores (what tends to land well),
 - contextual check-in recommendations.
 
+### 3.1) Learning Signal Instrumentation (MVP)
+
+Each passive signal maps to a concrete source:
+
+- phrasing/verbosity shifts:
+  - source: operator message ingestion pipeline (`record_operator_message`),
+  - feature: message length deltas and direct preference phrases ("call me", "I prefer", "don't").
+- correction/revision patterns:
+  - source: existing implicit feedback detection (`detect_revision_signal` path),
+  - feature: correction frequency and correction topic extraction.
+- approval acceptance/risk preference trends:
+  - source: approval request/resolution tracking (`record_operator_approval_requested` / `record_operator_approval_resolution`),
+  - feature: category-specific acceptance change.
+- topic recurrence:
+  - source: thread/task content summaries and behavioral events stream,
+  - feature: repeated topic entities across sessions.
+- proactive suggestion resonance:
+  - source: suggestion events + follow-up user response classification,
+  - feature: accepted/ignored/declined counters per topic.
+
+MVP constraint: phase 1 consumes already-emitted daemon signals first; additional telemetry events are phased in later.
+
 ### 4) Protocol Extensions (`amux-protocol`)
 
-Add message types for:
+Add concrete message contracts so clients stay thin and daemon logic remains centralized.
 
-- start onboarding/check-in session,
-- fetch next concierge question,
-- submit answer,
-- fetch profile summary/consent status,
-- acknowledge/skip/defer question.
+Proposed `ClientMessage` additions:
 
-Message design keeps clients thin and daemon logic centralized.
+- `AgentStartOperatorProfileSession { kind: OperatorProfileSessionKind }`
+- `AgentNextOperatorProfileQuestion { session_id: String }`
+- `AgentSubmitOperatorProfileAnswer { session_id: String, question_id: String, answer_json: String }`
+- `AgentSkipOperatorProfileQuestion { session_id: String, question_id: String, reason: Option<String> }`
+- `AgentDeferOperatorProfileQuestion { session_id: String, question_id: String, defer_until_unix_ms: Option<u64> }`
+- `AgentGetOperatorProfileSummary`
+- `AgentSetOperatorProfileConsent { consent_key: String, granted: bool }`
+
+Proposed `DaemonMessage` additions:
+
+- `AgentOperatorProfileSessionStarted { session_id: String, kind: OperatorProfileSessionKind }`
+- `AgentOperatorProfileQuestion { session_id: String, question_id: String, field_key: String, prompt: String, input_kind: String, optional: bool }`
+- `AgentOperatorProfileProgress { session_id: String, answered: u32, remaining: u32, completion_ratio: f64 }`
+- `AgentOperatorProfileSummary { summary_json: String }`
+- `AgentOperatorProfileSessionCompleted { session_id: String, updated_fields: Vec<String> }`
+
+Supporting enum:
+
+- `OperatorProfileSessionKind` = `first_run_onboarding | weekly_checkin | contextual_checkin | manual_settings_review`
 
 ### 5) UI Adapters
 
@@ -156,6 +206,16 @@ SQLite is source of truth. Proposed tables:
 - stores sync metadata (last render hash/time) to avoid unnecessary rewrites,
 - if sync fails, DB remains canonical and sync is retried.
 
+### USER.md Write-Path Arbitration and Migration
+
+Current daemon memory flows can append to `USER.md` (including reflection/memory updates). To prevent dual-writer conflicts:
+
+- Introduce one canonical write path: profile DB -> deterministic renderer -> `USER.md`.
+- During migration, treat direct `MemoryTarget::User` appends as ingest signals to profile tables, not direct final writes.
+- Track internal sync state (`clean | dirty | reconciling`) to avoid concurrent contradictory writes.
+- If a legacy direct write path is invoked, daemon records an event, stages profile candidates, then re-renders `USER.md` from DB snapshot.
+- One-time bootstrap imports existing `USER.md` content into `operator_profile_fields` with `source = legacy_import`.
+
 ## End-to-End Data Flow
 
 1. First TUI/React launch triggers `StartOperatorOnboarding`.
@@ -178,6 +238,19 @@ SQLite is source of truth. Proposed tables:
   - contextual check-in (confidence gap/behavior shift).
 - Proactive suggestion/news behavior is opt-in only.
 - User can decline or defer any question without blocking core product use.
+
+### Contextual Trigger Specification (Initial Thresholds)
+
+- Field confidence decay trigger:
+  - ask when `confidence < 0.60` and last explicit update is older than 30 days.
+- Behavior delta trigger:
+  - ask when 7-day rolling metric diverges by >= 20% from 30-day baseline for tone/topic/risk signals.
+- Missing critical fields trigger:
+  - ask if any of `{preferred_name, primary_goals}` remains unset after onboarding completion.
+- Anti-spam guards:
+  - max 1 contextual question per 72 hours,
+  - max 2 profile questions per active session outside onboarding,
+  - do not ask contextual check-ins during critical active goal execution windows.
 
 ## Error Handling
 
@@ -216,6 +289,10 @@ SQLite is source of truth. Proposed tables:
 - protocol roundtrip for onboarding/check-in messages,
 - migration tests on existing DB fixtures,
 - sync-dirty recovery path for `USER.md` write failures.
+- `USER.md` dual-write collision test (legacy memory write invoked during sync),
+- profile table missing/corruption recovery test,
+- migration partial-failure rollback test (transaction safety),
+- contextual trigger flood-prevention test validating anti-spam guards.
 
 ### Client Smoke Tests
 
