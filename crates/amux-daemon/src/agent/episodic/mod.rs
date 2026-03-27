@@ -3,6 +3,7 @@
 
 pub mod links;
 pub mod privacy;
+pub mod retrieval;
 pub mod schema;
 pub mod store;
 
