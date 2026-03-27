@@ -2869,6 +2869,9 @@ impl HistoryStore {
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)",
             [],
         )?;
+        // Episodic memory schema (Phase v3.0).
+        crate::agent::episodic::schema::init_episodic_schema(connection)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
         Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
@@ -3187,7 +3190,7 @@ impl HistoryStore {
 
     /// Verify the hash-chain integrity of all WORM telemetry ledger files.
     pub fn verify_worm_integrity(&self) -> Result<Vec<WormIntegrityResult>> {
-        let ledger_kinds = ["operational", "cognitive", "contextual", "provenance"];
+        let ledger_kinds = ["operational", "cognitive", "contextual", "provenance", "episodic"];
         let mut results = Vec::with_capacity(ledger_kinds.len());
 
         for kind in &ledger_kinds {

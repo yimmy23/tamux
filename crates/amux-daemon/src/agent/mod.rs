@@ -66,6 +66,7 @@ mod work_context;
 
 pub mod concierge;
 pub mod context;
+pub mod episodic;
 pub mod learning;
 pub mod liveness;
 pub mod metacognitive;

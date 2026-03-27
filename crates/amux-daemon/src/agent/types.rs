@@ -1243,6 +1243,9 @@ pub struct AgentConfig {
     /// Capability tier configuration (Phase 10).
     #[serde(default)]
     pub tier: TierConfig,
+    /// Episodic memory configuration (Phase v3.0).
+    #[serde(default)]
+    pub episodic: super::episodic::EpisodicConfig,
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -1805,6 +1808,7 @@ impl Default for AgentConfig {
             skill_discovery: SkillDiscoveryConfig::default(),
             skill_promotion: SkillPromotionConfig::default(),
             tier: TierConfig::default(),
+            episodic: super::episodic::EpisodicConfig::default(),
             extra: HashMap::new(),
         }
     }
@@ -2283,6 +2287,20 @@ pub enum AgentEvent {
         previous_tier: String,
         new_tier: String,
         reason: String,
+    },
+    /// An episode was recorded in episodic memory (Phase v3.0).
+    EpisodeRecorded {
+        episode_id: String,
+        episode_type: String,
+        outcome: String,
+        summary: String,
+    },
+    /// Counter-who detected a repeated correction pattern (Phase v3.0).
+    CounterWhoAlert {
+        thread_id: String,
+        pattern: String,
+        attempt_count: u32,
+        suggestion: String,
     },
 }
 

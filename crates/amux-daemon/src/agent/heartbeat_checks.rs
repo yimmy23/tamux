@@ -445,6 +445,7 @@ mod tests {
             pattern_store: RwLock::new(super::learning::patterns::PatternStore::default()),
             disclosure_queue: RwLock::new(super::capability_tier::DisclosureQueue::default()),
             plugin_manager: std::sync::OnceLock::new(),
+            episodic_store: RwLock::new(super::episodic::EpisodicStore::default()),
         })
     }
 

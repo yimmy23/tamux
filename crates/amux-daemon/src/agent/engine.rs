@@ -128,6 +128,8 @@ pub struct AgentEngine {
     /// Plugin manager for API proxy tool executor access (Phase 17).
     /// Set after both AgentEngine and PluginManager are constructed in server.rs.
     pub plugin_manager: std::sync::OnceLock<Arc<crate::plugin::PluginManager>>,
+    /// Episodic memory subsystem state (Phase v3.0).
+    pub(super) episodic_store: RwLock<super::episodic::EpisodicStore>,
 }
 
 impl AgentEngine {
@@ -226,6 +228,7 @@ impl AgentEngine {
             pattern_store: RwLock::new(super::learning::patterns::PatternStore::default()),
             disclosure_queue: RwLock::new(super::capability_tier::DisclosureQueue::default()),
             plugin_manager: std::sync::OnceLock::new(),
+            episodic_store: RwLock::new(super::episodic::EpisodicStore::default()),
         })
     }
 
