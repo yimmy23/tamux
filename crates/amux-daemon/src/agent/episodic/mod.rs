@@ -1,6 +1,7 @@
 //! Episodic memory — structured episode records, causal chains, negative knowledge,
 //! counter-who state, and episode linking for cross-session learning.
 
+pub mod counter_who;
 pub mod links;
 pub mod privacy;
 pub mod retrieval;

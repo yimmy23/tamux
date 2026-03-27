@@ -1130,6 +1130,12 @@ impl AgentEngine {
                         )
                         .await;
 
+                        // Update counter-who self-model with tool result (Phase 1: Memory Foundation - CWHO-01)
+                        {
+                            let args_summary: String = tc.function.arguments.chars().take(100).collect();
+                            self.update_counter_who_on_tool_result(&tid, &tc.function.name, &args_summary, !result.is_error).await;
+                        }
+
                         let _ = self.event_tx.send(AgentEvent::ToolResult {
                             thread_id: tid.clone(),
                             call_id: tc.id.clone(),

@@ -690,6 +690,14 @@ impl AgentEngine {
             None,
         )
         .await;
+
+        // Track operator correction in counter-who (Phase 1: Memory Foundation - CWHO-03)
+        if matches!(decision, amux_protocol::ApprovalDecision::Deny) {
+            let correction_desc = format!("Denied approval for task: {}", updated.title);
+            let thread_id = updated.thread_id.clone().unwrap_or_default();
+            self.update_counter_who_on_correction(&thread_id, &correction_desc).await;
+        }
+
         true
     }
 
