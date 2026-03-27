@@ -23,17 +23,17 @@ Requirements for v3.0 release. Each maps to roadmap phases.
 
 ### Counter-Who (Persistent Self-Model)
 
-- [ ] **CWHO-01**: Background self-model tracks what the agent is doing, what's changed, and what's been tried across turns
-- [ ] **CWHO-02**: Counter-who detects repeated approaches ("we tried 3 variants of this in the last hour, all failed") and suggests pivots
-- [ ] **CWHO-03**: Counter-who tracks operator corrections and flags persistent patterns ("operator corrected me twice on the same thing")
-- [ ] **CWHO-04**: Counter-who state persists across session within a goal run, rehydrates from episodic store on restart
+- [x] **CWHO-01**: Background self-model tracks what the agent is doing, what's changed, and what's been tried across turns
+- [x] **CWHO-02**: Counter-who detects repeated approaches ("we tried 3 variants of this in the last hour, all failed") and suggests pivots
+- [x] **CWHO-03**: Counter-who tracks operator corrections and flags persistent patterns ("operator corrected me twice on the same thing")
+- [x] **CWHO-04**: Counter-who state persists across session within a goal run, rehydrates from episodic store on restart
 
 ### Negative Knowledge (Constraint Graph)
 
-- [ ] **NKNO-01**: Constraint graph stores ruled-out approaches with reasons (dead, dying, impossible, suspicious)
-- [ ] **NKNO-02**: Constraint graph entries include the class of solutions eliminated ("approach A failed -> all approaches depending on assumption Z are eliminated")
-- [ ] **NKNO-03**: Agent consults constraint graph before planning, avoids ruled-out approaches
-- [ ] **NKNO-04**: Constraint entries have TTL-based expiry (default 30 days) to prevent stale constraints blocking valid approaches
+- [x] **NKNO-01**: Constraint graph stores ruled-out approaches with reasons (dead, dying, impossible, suspicious)
+- [x] **NKNO-02**: Constraint graph entries include the class of solutions eliminated ("approach A failed -> all approaches depending on assumption Z are eliminated")
+- [x] **NKNO-03**: Agent consults constraint graph before planning, avoids ruled-out approaches
+- [x] **NKNO-04**: Constraint entries have TTL-based expiry (default 30 days) to prevent stale constraints blocking valid approaches
 
 ### Multi-Agent Handoffs
 
@@ -159,14 +159,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EPIS-09 | Phase 1 | Pending |
 | EPIS-10 | Phase 1 | Pending |
 | EPIS-11 | Phase 1 | Pending |
-| CWHO-01 | Phase 1 | Pending |
-| CWHO-02 | Phase 1 | Pending |
-| CWHO-03 | Phase 1 | Pending |
-| CWHO-04 | Phase 1 | Pending |
-| NKNO-01 | Phase 1 | Pending |
-| NKNO-02 | Phase 1 | Pending |
-| NKNO-03 | Phase 1 | Pending |
-| NKNO-04 | Phase 1 | Pending |
+| CWHO-01 | Phase 1 | Complete |
+| CWHO-02 | Phase 1 | Complete |
+| CWHO-03 | Phase 1 | Complete |
+| CWHO-04 | Phase 1 | Complete |
+| NKNO-01 | Phase 1 | Complete |
+| NKNO-02 | Phase 1 | Complete |
+| NKNO-03 | Phase 1 | Complete |
+| NKNO-04 | Phase 1 | Complete |
 | AWAR-01 | Phase 2 | Pending |
 | AWAR-02 | Phase 2 | Pending |
 | AWAR-03 | Phase 2 | Pending |

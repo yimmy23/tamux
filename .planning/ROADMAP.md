@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01-PLAN.md -- Foundation: episodic module types, SQLite schema, basic CRUD, WORM, privacy, config
 - [x] 01-02-PLAN.md -- FTS5 retrieval engine, goal boundary recording hooks, system prompt integration
-- [ ] 01-03-PLAN.md -- Counter-who self-model, negative knowledge constraint graph, agent loop wiring
+- [x] 01-03-PLAN.md -- Counter-who self-model, negative knowledge constraint graph, agent loop wiring
 
 ### Phase 2: Awareness and Judgment
 **Goal**: The agent senses when it is stuck, tracks the texture of its own activity, and expresses honest confidence grounded in structural evidence

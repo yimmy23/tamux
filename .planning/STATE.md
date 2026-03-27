@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-27T01:21:31.842Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-03-27T01:35:05.407Z"
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -48,6 +48,7 @@ Plan: 3 of 3
 *Updated after each plan completion*
 | Phase 01 P01 | 17min | 2 tasks | 10 files |
 | Phase 01 P02 | 7min | 2 tasks | 7 files |
+| Phase 01 P03 | 9min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,8 @@ Recent decisions affecting current work:
 - [Phase 01]: FTS5 detail=column with .ok() tolerance for builds without FTS5 -- matches context_archive_fts pattern
 - [Phase 01]: FTS5 over-fetch 3x then re-rank with recency weighting for episode retrieval
 - [Phase 01]: Episodic context injected into goal planning prompt, not system prompt -- keeps system prompt lean
+- [Phase 01]: Counter-who wired into agent_loop after tool provenance, corrections via task_crud approval denial
+- [Phase 01]: Negative knowledge constraints injected into goal planning prompt (goal_llm.rs) not system prompt
 
 ### Pending Todos
 
@@ -75,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T01:21:31.840Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-03-27T01:35:05.405Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
