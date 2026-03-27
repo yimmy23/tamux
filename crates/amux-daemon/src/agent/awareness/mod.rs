@@ -154,6 +154,74 @@ impl AwarenessMonitor {
     }
 }
 
+// ---------------------------------------------------------------------------
+// AgentEngine integration methods
+// ---------------------------------------------------------------------------
+
+use crate::agent::engine::AgentEngine;
+use crate::agent::types::AgentEvent;
+
+impl AgentEngine {
+    /// Record a tool call outcome in the awareness monitor (AWAR-01).
+    pub(crate) async fn record_awareness_outcome(
+        &self,
+        entity_id: &str,
+        entity_type: &str,
+        tool_name: &str,
+        args_hash: &str,
+        success: bool,
+        is_progress: bool,
+    ) {
+        let now = super::now_millis();
+        let mut monitor = self.awareness.write().await;
+        monitor.record_outcome(entity_id, entity_type, tool_name, args_hash, success, is_progress, now);
+    }
+
+    /// Check for diminishing returns and evaluate mode shift (AWAR-02 + AWAR-03).
+    ///
+    /// Consults counter-who before firing any mode shift (locked decision AWAR-03).
+    pub(crate) async fn check_awareness_mode_shift(&self, entity_id: &str, thread_id: &str) {
+        // 1. Check diminishing returns from awareness
+        let diminishing = {
+            let monitor = self.awareness.read().await;
+            monitor.check_diminishing_returns(entity_id)
+        };
+        if diminishing.is_none() {
+            return;
+        }
+
+        // 2. Consult counter-who (AWAR-03 locked decision)
+        let counter_who_confirms = {
+            let store = self.episodic_store.read().await;
+            super::episodic::counter_who::detect_repeated_approaches(
+                &store.counter_who.tried_approaches, 3
+            )
+            .is_some()
+        };
+
+        // 3. Evaluate mode shift
+        let decision = mode_shift::evaluate_mode_shift(diminishing, counter_who_confirms);
+
+        if decision.should_shift {
+            let _ = self.event_tx.send(AgentEvent::ModeShift {
+                thread_id: thread_id.to_string(),
+                reason: decision.reason,
+                previous_strategy: "current".to_string(),
+                new_strategy: decision.suggested_strategy,
+            });
+        }
+    }
+
+    /// Get the trajectory state for the given entity, if tracked.
+    pub(crate) async fn get_awareness_trajectory(
+        &self,
+        entity_id: &str,
+    ) -> Option<trajectory::TrajectoryState> {
+        let monitor = self.awareness.read().await;
+        monitor.get_trajectory(entity_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

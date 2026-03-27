@@ -130,6 +130,8 @@ pub struct AgentEngine {
     pub plugin_manager: std::sync::OnceLock<Arc<crate::plugin::PluginManager>>,
     /// Episodic memory subsystem state (Phase v3.0).
     pub(super) episodic_store: RwLock<super::episodic::EpisodicStore>,
+    /// Situational awareness monitor (Phase v3.0: AWAR-01).
+    pub(super) awareness: RwLock<super::awareness::AwarenessMonitor>,
 }
 
 impl AgentEngine {
@@ -229,6 +231,7 @@ impl AgentEngine {
             disclosure_queue: RwLock::new(super::capability_tier::DisclosureQueue::default()),
             plugin_manager: std::sync::OnceLock::new(),
             episodic_store: RwLock::new(super::episodic::EpisodicStore::default()),
+            awareness: RwLock::new(super::awareness::AwarenessMonitor::new()),
         })
     }
 

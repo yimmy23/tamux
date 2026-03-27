@@ -446,6 +446,7 @@ mod tests {
             disclosure_queue: RwLock::new(super::capability_tier::DisclosureQueue::default()),
             plugin_manager: std::sync::OnceLock::new(),
             episodic_store: RwLock::new(super::episodic::EpisodicStore::default()),
+            awareness: RwLock::new(super::awareness::AwarenessMonitor::new()),
         })
     }
 

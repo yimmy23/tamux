@@ -1138,6 +1138,21 @@ impl AgentEngine {
                             self.update_counter_who_on_tool_result(&tid, &tc.function.name, &args_summary, !result.is_error).await;
                         }
 
+                        // Record outcome for situational awareness (Phase 2: AWAR-01)
+                        {
+                            let args_summary: String = tc.function.arguments.chars().take(100).collect();
+                            let args_hash = super::episodic::counter_who::compute_approach_hash(
+                                &tc.function.name, &args_summary
+                            );
+                            let is_progress = !result.is_error && result.content.len() > 50;
+                            self.record_awareness_outcome(
+                                &tid, "thread", &tc.function.name, &args_hash,
+                                !result.is_error, is_progress,
+                            ).await;
+                            // Check for mode shift (AWAR-02 + AWAR-03)
+                            self.check_awareness_mode_shift(&tid, &tid).await;
+                        }
+
                         let _ = self.event_tx.send(AgentEvent::ToolResult {
                             thread_id: tid.clone(),
                             call_id: tc.id.clone(),
