@@ -67,6 +67,7 @@ mod work_context;
 pub mod awareness;
 pub mod concierge;
 pub mod context;
+pub mod embodied;
 pub mod episodic;
 pub mod learning;
 pub mod liveness;
