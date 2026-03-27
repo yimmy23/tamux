@@ -39,7 +39,7 @@ Plans:
 ### Phase 2: Awareness and Judgment
 **Goal**: The agent senses when it is stuck, tracks the texture of its own activity, and expresses honest confidence grounded in structural evidence
 **Depends on**: Phase 1
-**Requirements**: AWAR-01, AWAR-02, AWAR-03, AWAR-04, AWAR-05, EMBD-01, EMBD-02, EMBD-03, EMBD-04, UNCR-01, UNCR-02, UNCR-03, UNCR-04, UNCR-05, UNCR-06, UNCR-07, UNCR-08
+**Requirements**: AWAR-01, AWAR-02, AWAR-03, AWAR-04, AWAR-05, EMBD-01, EMBD-02, EMBD-03, EMBD-04, UNCR-01, UNCR-04, UNCR-05, UNCR-06, UNCR-07, UNCR-08
 **Success Criteria** (what must be TRUE):
   1. When the agent repeats the same tool-call pattern N times without progress, it automatically shifts behavior and notifies the operator of diminishing returns
   2. Each goal plan step displays a confidence label (HIGH/MEDIUM/LOW) derived from structural signals (tool success rates, episodic familiarity, blast radius) -- not LLM self-assessment alone
@@ -49,7 +49,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Situational awareness: per-entity failure tracking, sliding windows, trajectory, mode shifts with counter-who guard
+- [x] 02-01-PLAN.md -- Situational awareness: per-entity failure tracking, sliding windows, trajectory, mode shifts with counter-who guard
 - [ ] 02-02-PLAN.md -- Embodied metadata: 5 scalar dimensions (difficulty, familiarity, trajectory, temperature, weight)
 - [ ] 02-03-PLAN.md -- Uncertainty quantification: structural confidence scoring, domain escalation, calibration, plan annotation, approval routing
 
@@ -71,7 +71,7 @@ Plans:
 ### Phase 4: Operator Control and Transparency
 **Goal**: The operator has full visibility into cost, can tune agent autonomy per goal, can ask "why did you do that?" and get a real answer, and can see what the agent contributed vs what came from operator input
 **Depends on**: Phase 1 (episodic data for explainability traces), Phase 2 (confidence data for autonomy decisions)
-**Requirements**: AUTH-01, AUTH-02, COST-01, COST-02, COST-03, COST-04, AUTO-01, AUTO-02, AUTO-03, AUTO-04, EXPL-01, EXPL-02, EXPL-03
+**Requirements**: AUTH-01, AUTH-02, COST-01, COST-02, COST-03, COST-04, AUTO-01, AUTO-02, AUTO-03, AUTO-04, EXPL-01, EXPL-02, EXPL-03, UNCR-02, UNCR-03
 **Success Criteria** (what must be TRUE):
   1. The operator can see per-goal and per-session token counts and cost estimates, with budget alerts when spending exceeds a configured threshold
   2. The operator can set a per-goal autonomy level (autonomous / aware / supervised) and the agent's reporting behavior changes accordingly -- autonomous shows only the final report, supervised waits for acknowledgment at every significant step

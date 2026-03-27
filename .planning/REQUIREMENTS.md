@@ -73,11 +73,11 @@ Requirements for v3.0 release. Each maps to roadmap phases.
 
 ### Situational Awareness (Frustration Proxy)
 
-- [ ] **AWAR-01**: Empirical failure tracking across all agent activity (tool calls, sessions, browsing, goal runs) -- not scoped to goal runner only
-- [ ] **AWAR-02**: Automatic mode shift when diminishing returns detected (same pattern N times with no progress)
-- [ ] **AWAR-03**: Counter-who is consulted before mode shifts fire (prevents false positives from repetitive-but-productive reasoning)
-- [ ] **AWAR-04**: Trajectory tracking: converging vs diverging from goal, surfaced to operator and available to confidence scoring
-- [ ] **AWAR-05**: Sliding window analysis (short-term: last 5 actions, medium-term: last 30 minutes, long-term: session)
+- [x] **AWAR-01**: Empirical failure tracking across all agent activity (tool calls, sessions, browsing, goal runs) -- not scoped to goal runner only
+- [x] **AWAR-02**: Automatic mode shift when diminishing returns detected (same pattern N times with no progress)
+- [x] **AWAR-03**: Counter-who is consulted before mode shifts fire (prevents false positives from repetitive-but-productive reasoning)
+- [x] **AWAR-04**: Trajectory tracking: converging vs diverging from goal, surfaced to operator and available to confidence scoring
+- [x] **AWAR-05**: Sliding window analysis (short-term: last 5 actions, medium-term: last 30 minutes, long-term: session)
 
 ### Shared Authorship
 
@@ -167,18 +167,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NKNO-02 | Phase 1 | Complete |
 | NKNO-03 | Phase 1 | Complete |
 | NKNO-04 | Phase 1 | Complete |
-| AWAR-01 | Phase 2 | Pending |
-| AWAR-02 | Phase 2 | Pending |
-| AWAR-03 | Phase 2 | Pending |
-| AWAR-04 | Phase 2 | Pending |
-| AWAR-05 | Phase 2 | Pending |
+| AWAR-01 | Phase 2 | Complete |
+| AWAR-02 | Phase 2 | Complete |
+| AWAR-03 | Phase 2 | Complete |
+| AWAR-04 | Phase 2 | Complete |
+| AWAR-05 | Phase 2 | Complete |
 | EMBD-01 | Phase 2 | Pending |
 | EMBD-02 | Phase 2 | Pending |
 | EMBD-03 | Phase 2 | Pending |
 | EMBD-04 | Phase 2 | Pending |
 | UNCR-01 | Phase 2 | Pending |
-| UNCR-02 | Phase 2 | Pending |
-| UNCR-03 | Phase 2 | Pending |
+| UNCR-02 | Phase 4 | Pending |
+| UNCR-03 | Phase 4 | Pending |
 | UNCR-04 | Phase 2 | Pending |
 | UNCR-05 | Phase 2 | Pending |
 | UNCR-06 | Phase 2 | Pending |
