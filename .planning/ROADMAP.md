@@ -46,12 +46,12 @@ Plans:
   3. LOW-confidence actions in safety-critical domains block and require operator approval; LOW-confidence actions in research domains surface without blocking
   4. The operator can configure confidence thresholds and escalation behavior per domain in agent config
   5. Trajectory tracking (converging vs diverging from goal) is visible to the operator during active goal runs
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md -- Situational awareness: per-entity failure tracking, sliding windows, trajectory, mode shifts with counter-who guard
+- [ ] 02-02-PLAN.md -- Embodied metadata: 5 scalar dimensions (difficulty, familiarity, trajectory, temperature, weight)
+- [ ] 02-03-PLAN.md -- Uncertainty quantification: structural confidence scoring, domain escalation, calibration, plan annotation, approval routing
 
 ### Phase 3: Multi-Agent Orchestration
 **Goal**: The agent delegates tasks to specialist subagents with structured handoffs, validates their output, and can run divergent framings in parallel to surface productive disagreement
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Memory Foundation | 0/3 | Planned | - |
-| 2. Awareness and Judgment | 0/3 | Not started | - |
+| 1. Memory Foundation | 3/3 | Complete | 2026-03-27 |
+| 2. Awareness and Judgment | 0/3 | Planned | - |
 | 3. Multi-Agent Orchestration | 0/2 | Not started | - |
 | 4. Operator Control and Transparency | 0/2 | Not started | - |

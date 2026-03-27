@@ -64,6 +64,7 @@ mod tool_synthesis;
 mod whatsapp_link;
 mod work_context;
 
+pub mod awareness;
 pub mod concierge;
 pub mod context;
 pub mod episodic;

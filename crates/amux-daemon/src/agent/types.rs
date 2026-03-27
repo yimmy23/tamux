@@ -2302,6 +2302,32 @@ pub enum AgentEvent {
         attempt_count: u32,
         suggestion: String,
     },
+    /// Trajectory update for a goal run or entity (Phase v3.0: AWAR-04).
+    TrajectoryUpdate {
+        goal_run_id: String,
+        /// "converging", "diverging", or "stalled"
+        direction: String,
+        progress_ratio: f64,
+        message: String,
+    },
+    /// Mode shift triggered after diminishing returns + counter-who confirmation (Phase v3.0: AWAR-02).
+    ModeShift {
+        thread_id: String,
+        reason: String,
+        previous_strategy: String,
+        new_strategy: String,
+    },
+    /// Confidence warning for a planned or executing action (Phase v3.0: AWAR-05).
+    ConfidenceWarning {
+        thread_id: String,
+        /// "plan_step" or "tool_call"
+        action_type: String,
+        /// "high", "medium", or "low"
+        band: String,
+        evidence: String,
+        domain: String,
+        blocked: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
