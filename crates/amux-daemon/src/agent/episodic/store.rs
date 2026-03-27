@@ -1,9 +1,9 @@
 //! Episode CRUD operations and WORM ledger integration.
 
 use super::privacy::{compute_expires_at, is_episode_suppressed, scrub_episode};
-use super::{Episode, EpisodeOutcome, EpisodeType};
+use super::{CausalStep, Episode, EpisodeOutcome, EpisodeType};
 use crate::agent::engine::AgentEngine;
-use crate::agent::types::AgentEvent;
+use crate::agent::types::{AgentEvent, GoalRun};
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
@@ -153,6 +153,139 @@ impl AgentEngine {
         }
 
         Ok(())
+    }
+
+    /// Record an episode derived from a completed or failed goal run.
+    ///
+    /// Extracts entities from goal steps (file paths from instructions, step titles)
+    /// and builds a causal chain from failed steps.
+    pub(crate) async fn record_goal_episode(
+        &self,
+        goal_run: &GoalRun,
+        outcome: EpisodeOutcome,
+    ) -> Result<()> {
+        let episode_type = match outcome {
+            EpisodeOutcome::Success => EpisodeType::GoalCompletion,
+            _ => EpisodeType::GoalFailure,
+        };
+
+        // Build summary: truncated to 500 chars
+        let raw_summary = format!("{}: {}", goal_run.title, goal_run.goal);
+        let summary = if raw_summary.len() > 500 {
+            format!("{}...", &raw_summary[..497])
+        } else {
+            raw_summary
+        };
+
+        // Root cause: for failures, use last_error or failure_cause
+        let root_cause = if outcome == EpisodeOutcome::Failure {
+            goal_run
+                .last_error
+                .clone()
+                .or_else(|| goal_run.failure_cause.clone())
+        } else {
+            None
+        };
+
+        // Build entities from steps
+        let mut entities = Vec::new();
+        let file_re =
+            regex::Regex::new(r"(?:^|\s)((?:[\w.\-]+/)*[\w.\-]+\.\w+)").unwrap_or_else(|_| {
+                // Fallback: this regex should always compile
+                regex::Regex::new(r"\S+\.\w+").unwrap()
+            });
+        for step in &goal_run.steps {
+            entities.push(format!("step:{}", step.title));
+            for cap in file_re.captures_iter(&step.instructions) {
+                if let Some(m) = cap.get(1) {
+                    entities.push(format!("file:{}", m.as_str()));
+                }
+            }
+        }
+        entities.sort();
+        entities.dedup();
+
+        // Build causal chain from failed steps
+        let causal_chain: Vec<CausalStep> = goal_run
+            .steps
+            .iter()
+            .filter(|s| {
+                s.status == crate::agent::types::GoalRunStepStatus::Failed && s.error.is_some()
+            })
+            .map(|s| CausalStep {
+                step: s.title.clone(),
+                cause: s.error.clone().unwrap_or_else(|| "unknown".to_string()),
+                effect: "step failed".to_string(),
+            })
+            .collect();
+
+        // Duration
+        let duration_ms = goal_run.duration_ms.or_else(|| {
+            match (goal_run.started_at, goal_run.completed_at) {
+                (Some(start), Some(end)) => Some(end.saturating_sub(start)),
+                _ => None,
+            }
+        });
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let episode = Episode {
+            id: format!("ep_{}", uuid::Uuid::new_v4()),
+            goal_run_id: Some(goal_run.id.clone()),
+            thread_id: goal_run.thread_id.clone(),
+            session_id: goal_run.session_id.clone(),
+            episode_type,
+            summary,
+            outcome,
+            root_cause,
+            entities,
+            causal_chain,
+            solution_class: None,
+            duration_ms,
+            tokens_used: None,
+            confidence: None,
+            created_at: now_ms,
+            expires_at: None,
+        };
+
+        self.record_episode(episode).await
+    }
+
+    /// Record an episode when a session ends (EPIS-08).
+    pub(crate) async fn record_session_end_episode(
+        &self,
+        thread_id: &str,
+        session_summary: &str,
+        entities: Vec<String>,
+    ) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let episode = Episode {
+            id: format!("ep_{}", uuid::Uuid::new_v4()),
+            goal_run_id: None,
+            thread_id: Some(thread_id.to_string()),
+            session_id: None,
+            episode_type: EpisodeType::SessionEnd,
+            summary: session_summary.to_string(),
+            outcome: EpisodeOutcome::Success,
+            root_cause: None,
+            entities,
+            causal_chain: Vec::new(),
+            solution_class: None,
+            duration_ms: None,
+            tokens_used: None,
+            confidence: None,
+            created_at: now_ms,
+            expires_at: None,
+        };
+
+        self.record_episode(episode).await
     }
 
     /// Retrieve a single episode by ID.

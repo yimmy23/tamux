@@ -4,7 +4,22 @@ use super::*;
 
 impl AgentEngine {
     pub(super) async fn request_goal_plan(&self, goal_run: &GoalRun) -> Result<GoalPlanResponse> {
-        let prompt = format!(
+        // Surface relevant past episodes before planning (Phase 1: Memory Foundation - EPIS-03)
+        let episodic_context = match self.retrieve_relevant_episodes(&goal_run.goal, 5).await {
+            Ok(episodes) if !episodes.is_empty() => {
+                let config = self.config.read().await;
+                let max_tokens = config.episodic.max_injection_tokens;
+                drop(config);
+                super::episodic::retrieval::format_episodic_context(&episodes, max_tokens)
+            }
+            Ok(_) => String::new(),
+            Err(e) => {
+                tracing::warn!("Episodic retrieval failed for goal plan: {e}");
+                String::new()
+            }
+        };
+
+        let mut prompt = format!(
             "You are planning a durable autonomous goal runner inside tamux.\n\
              Produce strict JSON only with the shape:\n\
              {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill\",\"success_criteria\":\"...\",\"session_id\":null}}]}}\n\
@@ -19,6 +34,13 @@ impl AgentEngine {
              Goal:\n{}",
             goal_run.title, goal_run.goal
         );
+
+        if !episodic_context.is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(&episodic_context);
+            prompt.push_str("\nConsider the above past experiences when planning. Avoid approaches that previously failed unless circumstances have changed.\n");
+        }
+
         let mut plan = self
             .run_goal_structured::<GoalPlanResponse>(&prompt)
             .await?;

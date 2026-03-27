@@ -170,6 +170,7 @@ impl AgentEngine {
             operational_context.as_deref(),
             causal_guidance.as_deref(),
             learned_patterns.as_deref(),
+            None, // episodic_context — injected via goal planning path, not agent loop
         );
         drop(memory);
         if let Some(recall) = onecontext_bootstrap.as_deref() {
@@ -362,6 +363,7 @@ impl AgentEngine {
                     operational_context.as_deref(),
                     causal_guidance.as_deref(),
                     learned_patterns.as_deref(),
+                    None, // episodic_context — injected via goal planning path
                 );
                 drop(memory);
                 if let Some(recall) = onecontext_bootstrap.as_deref() {

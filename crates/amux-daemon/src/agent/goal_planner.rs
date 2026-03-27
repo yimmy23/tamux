@@ -539,6 +539,15 @@ impl AgentEngine {
             None,
         )
         .await;
+
+        // Record episodic memory for goal completion (Phase 1: Memory Foundation)
+        if let Err(e) = self
+            .record_goal_episode(&updated, super::episodic::EpisodeOutcome::Success)
+            .await
+        {
+            tracing::warn!("Failed to record episodic memory for completed goal {}: {e}", goal_run_id);
+        }
+
         Ok(())
     }
 
@@ -582,6 +591,14 @@ impl AgentEngine {
                 None,
             )
             .await;
+
+            // Record episodic memory for goal failure (Phase 1: Memory Foundation)
+            if let Err(e) = self
+                .record_goal_episode(&updated, super::episodic::EpisodeOutcome::Failure)
+                .await
+            {
+                tracing::warn!("Failed to record episodic memory for failed goal {}: {e}", goal_run_id);
+            }
         }
     }
 

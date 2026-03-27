@@ -13,6 +13,7 @@ pub(super) fn build_system_prompt(
     operational_context: Option<&str>,
     causal_guidance: Option<&str>,
     learned_patterns: Option<&str>,
+    episodic_context: Option<&str>,
 ) -> String {
     let mut prompt = String::new();
     let memory_path = data_dir.join("MEMORY.md");
@@ -142,6 +143,14 @@ pub(super) fn build_system_prompt(
             prompt.push_str("\n\n## Learned Patterns\n");
             prompt.push_str("These patterns were learned from successful past executions. Use them as guidance, not hard rules:\n");
             prompt.push_str(patterns);
+        }
+    }
+
+    // Phase 1: Inject episodic context (past experiences) when available
+    if let Some(ec) = episodic_context {
+        if !ec.is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(ec);
         }
     }
 
