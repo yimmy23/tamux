@@ -122,6 +122,9 @@ use self::types::*;
 // Public re-exports consumed outside the agent module.
 pub use engine::*;
 pub use task_prompt::load_config_from_history;
+pub(crate) use whatsapp_link::{
+    build_sidecar_launch_spec, normalize_sidecar_stderr, spawn_sidecar,
+};
 
 #[cfg(test)]
 mod tests {

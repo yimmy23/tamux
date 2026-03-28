@@ -23,9 +23,9 @@ test("preload exposes daemon-backed WhatsApp event subscriptions", () => {
 });
 
 test("main uses daemon whatsapp-link protocol command names", () => {
-  assert.match(mainSrc, /type:\s*'whatsapp-link-start'/);
-  assert.match(mainSrc, /type:\s*'whatsapp-link-stop'/);
-  assert.match(mainSrc, /type:\s*'whatsapp-link-status'/);
-  assert.match(mainSrc, /type:\s*'whatsapp-link-subscribe'/);
-  assert.match(mainSrc, /type:\s*'whatsapp-link-unsubscribe'/);
+  assert.match(mainSrc, /type:\s*'whats-app-link-start'/);
+  assert.match(mainSrc, /type:\s*'whats-app-link-stop'/);
+  assert.match(mainSrc, /type:\s*'whats-app-link-status'/);
+  assert.match(mainSrc, /type:\s*'whats-app-link-subscribe'/);
+  assert.match(mainSrc, /type:\s*'whats-app-link-unsubscribe'/);
 });

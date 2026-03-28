@@ -8,7 +8,10 @@
  * Protocol:
  *   Main -> Bridge:  { "id": 1, "method": "connect" }
  *   Bridge -> Main:  { "id": 1, "result": "ok" }
- *   Bridge -> Main:  { "event": "qr", "data": "data:image/png;base64,..." }
+ *   Bridge -> Main:  {
+ *     "event": "qr",
+ *     "data": { "ascii_qr": "...", "data_url": "data:image/png;base64,..." }
+ *   }
  *   Bridge -> Main:  { "event": "connected", "data": { "phone": "+1234..." } }
  *   Bridge -> Main:  { "event": "message", "data": { "from": "...", ... } }
  *   Bridge -> Main:  { "event": "disconnected" }
@@ -103,7 +106,7 @@ async function connectWhatsApp() {
                     margin: 2,
                     color: { dark: '#000000', light: '#ffffff' },
                 });
-                sendEvent('qr', dataUrl);
+                sendEvent('qr', { ascii_qr: dataUrl, data_url: dataUrl });
             } catch (err) {
                 sendEvent('error', `QR generation failed: ${err.message}`);
             }
@@ -112,10 +115,22 @@ async function connectWhatsApp() {
         if (connection === 'close') {
             isConnected = false;
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+            const reconnectReason = (() => {
+                const candidate =
+                    lastDisconnect?.error?.message ||
+                    lastDisconnect?.error?.toString?.() ||
+                    null;
+                if (typeof candidate !== 'string') return null;
+                const trimmed = candidate.trim();
+                return trimmed.length > 0 ? trimmed : null;
+            })();
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
             if (shouldReconnect) {
-                sendEvent('reconnecting', null);
+                sendEvent('reconnecting', {
+                    reason: reconnectReason,
+                    status_code: Number.isFinite(statusCode) ? statusCode : null,
+                });
                 setTimeout(() => connectWhatsApp(), 3000);
             } else {
                 sendEvent('disconnected', null);

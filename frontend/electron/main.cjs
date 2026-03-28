@@ -3040,9 +3040,18 @@ async function spawnDaemon() {
         return false;
     }
 
+    const daemonEnv = { ...process.env };
+    if (!daemonEnv.TAMUX_WHATSAPP_NODE_BIN || !String(daemonEnv.TAMUX_WHATSAPP_NODE_BIN).trim()) {
+        daemonEnv.TAMUX_WHATSAPP_NODE_BIN = process.execPath;
+    }
+    if (!daemonEnv.TAMUX_WHATSAPP_BRIDGE_PATH || !String(daemonEnv.TAMUX_WHATSAPP_BRIDGE_PATH).trim()) {
+        daemonEnv.TAMUX_WHATSAPP_BRIDGE_PATH = path.join(__dirname, 'whatsapp-bridge.cjs');
+    }
+
     const daemon = spawn(daemonPath, [], {
         detached: true, stdio: 'ignore', windowsHide: true,
         cwd: path.dirname(daemonPath),
+        env: daemonEnv,
     });
     daemon.on('error', (err) => {
         console.error('[tamux] Daemon error:', err);

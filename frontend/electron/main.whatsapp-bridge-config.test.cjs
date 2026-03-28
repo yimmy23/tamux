@@ -7,12 +7,12 @@ const mainPath = path.join(__dirname, "main.cjs");
 const src = fs.readFileSync(mainPath, "utf8");
 
 test("whatsapp handlers route through daemon agent-bridge commands", () => {
-  assert.match(src, /ipcMain\.handle\('whatsapp-connect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-start'/);
-  assert.match(src, /ensureDaemonWhatsAppSubscribed\(\)[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-subscribe'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-connect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whats-app-link-start'/);
+  assert.match(src, /ensureDaemonWhatsAppSubscribed\(\)[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whats-app-link-subscribe'/);
   assert.match(src, /ipcMain\.handle\('whatsapp-connect'[\s\S]*?ensureDaemonWhatsAppSubscribed\(\)/);
-  assert.match(src, /ipcMain\.handle\('whatsapp-disconnect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-stop'/);
-  assert.match(src, /ipcMain\.handle\('whatsapp-disconnect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whatsapp-link-unsubscribe'/);
-  assert.match(src, /ipcMain\.handle\('whatsapp-status'[\s\S]*?sendAgentQuery\(\{\s*type:\s*'whatsapp-link-status'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-disconnect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whats-app-link-stop'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-disconnect'[\s\S]*?sendAgentCommand\(\{\s*type:\s*'whats-app-link-unsubscribe'/);
+  assert.match(src, /ipcMain\.handle\('whatsapp-status'[\s\S]*?sendAgentQuery\(\{\s*type:\s*'whats-app-link-status'/);
 });
 
 test("whatsapp handlers check gateway.whatsapp_link_fallback_electron", () => {
@@ -40,7 +40,7 @@ test("agent bridge exit resets daemon WhatsApp subscription state", () => {
 });
 
 test("agent bridge ready restores daemon WhatsApp subscription when previously desired", () => {
-  assert.match(src, /if\s*\(whatsappDaemonSubscriptionDesired\s*&&\s*!whatsappDaemonSubscribed\)[\s\S]*?type:\s*'whatsapp-link-subscribe'/);
+  assert.match(src, /if\s*\(whatsappDaemonSubscriptionDesired\s*&&\s*!whatsappDaemonSubscribed\)[\s\S]*?type:\s*'whats-app-link-subscribe'/);
 });
 
 test("whatsapp gateway send remains functional in daemon mode", () => {
