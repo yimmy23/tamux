@@ -16,6 +16,8 @@ pub const EPISODIC_SCHEMA: &str = "
         goal_run_id    TEXT,
         thread_id      TEXT,
         session_id     TEXT,
+        goal_text      TEXT,
+        goal_type      TEXT,
         episode_type   TEXT NOT NULL,
         summary        TEXT NOT NULL,
         outcome        TEXT NOT NULL,
@@ -26,6 +28,8 @@ pub const EPISODIC_SCHEMA: &str = "
         duration_ms    INTEGER,
         tokens_used    INTEGER,
         confidence     REAL,
+        confidence_before REAL,
+        confidence_after REAL,
         created_at     INTEGER NOT NULL,
         expires_at     INTEGER
     );
@@ -77,6 +81,7 @@ pub const EPISODIC_SCHEMA: &str = "
 /// Safe to call multiple times (all statements use IF NOT EXISTS).
 pub fn init_episodic_schema(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(EPISODIC_SCHEMA)?;
+    ensure_episode_columns(conn)?;
 
     // FTS5 virtual table created separately — virtual tables need individual statements.
     // Use .ok() to tolerate SQLite builds without FTS5 support.
@@ -109,5 +114,34 @@ pub fn init_episodic_schema(conn: &rusqlite::Connection) -> Result<()> {
     )
     .ok();
 
+    Ok(())
+}
+
+fn ensure_episode_columns(conn: &rusqlite::Connection) -> Result<()> {
+    ensure_column(conn, "episodes", "goal_text", "TEXT")?;
+    ensure_column(conn, "episodes", "goal_type", "TEXT")?;
+    ensure_column(conn, "episodes", "confidence_before", "REAL")?;
+    ensure_column(conn, "episodes", "confidence_after", "REAL")?;
+    Ok(())
+}
+
+fn ensure_column(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    column_def: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let exists = columns
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
+        .any(|existing| existing == column);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}"),
+            [],
+        )?;
+    }
     Ok(())
 }

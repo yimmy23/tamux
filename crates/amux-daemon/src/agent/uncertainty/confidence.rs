@@ -25,6 +25,8 @@ pub struct ConfidenceSignals {
     pub blast_radius_score: f64,
     /// Approach novelty from counter_who tried_approaches (0.0-1.0).
     pub approach_novelty: f64,
+    /// Optional verbal self-assessment from the planning LLM (UNCR-06).
+    pub llm_self_assessment: Option<ConfidenceBand>,
 }
 
 /// Result of confidence assessment for a plan step.
@@ -80,10 +82,14 @@ pub fn compute_step_confidence(
     domain: DomainClassification,
     thresholds: &DomainThresholds,
 ) -> ConfidenceAssessment {
-    let score = 0.30 * signals.tool_success_rate
+    let structural_score = 0.30 * signals.tool_success_rate
         + 0.25 * signals.episodic_familiarity
         + 0.25 * (1.0 - signals.blast_radius_score)
         + 0.20 * (1.0 - signals.approach_novelty);
+    let score = match signals.llm_self_assessment {
+        Some(band) => 0.6 * structural_score + 0.4 * band.to_probability(),
+        None => structural_score,
+    };
 
     let band = confidence_band(score);
     let label = confidence_label(band);
@@ -103,6 +109,9 @@ pub fn compute_step_confidence(
     }
     if signals.approach_novelty > 0.7 {
         evidence.push("Novel approach (not previously attempted)".to_string());
+    }
+    if let Some(band) = signals.llm_self_assessment {
+        evidence.push(format!("LLM self-assessment: {}", band.as_str()));
     }
 
     let should_block = thresholds.should_block(domain, band);
@@ -127,6 +136,7 @@ mod tests {
             episodic_familiarity: 1.0,
             blast_radius_score: 0.0,
             approach_novelty: 0.0,
+            llm_self_assessment: None,
         };
         let thresholds = DomainThresholds::default();
         let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
@@ -142,6 +152,7 @@ mod tests {
             episodic_familiarity: 0.0,
             blast_radius_score: 1.0,
             approach_novelty: 1.0,
+            llm_self_assessment: None,
         };
         let thresholds = DomainThresholds::default();
         let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
@@ -159,6 +170,7 @@ mod tests {
             episodic_familiarity: 0.6,
             blast_radius_score: 0.3,
             approach_novelty: 0.4,
+            llm_self_assessment: None,
         };
         let thresholds = DomainThresholds::default();
         let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
@@ -221,5 +233,22 @@ mod tests {
     fn approach_novelty_score_intermediate() {
         let score = approach_novelty_score(2);
         assert!((score - 0.6).abs() < 0.01);
+    }
+
+    #[test]
+    fn llm_self_assessment_can_raise_borderline_structural_confidence() {
+        let signals = ConfidenceSignals {
+            tool_success_rate: 0.45,
+            episodic_familiarity: 0.45,
+            blast_radius_score: 0.35,
+            approach_novelty: 0.55,
+            llm_self_assessment: Some(ConfidenceBand::Confident),
+        };
+        let thresholds = DomainThresholds::default();
+        let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
+        assert_eq!(
+            result.label, "MEDIUM",
+            "hybrid confidence should blend structural score with LLM self-assessment rather than ignoring it"
+        );
     }
 }

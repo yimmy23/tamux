@@ -350,6 +350,8 @@ mod tests {
                 kind: GoalRunStepKind::Command,
                 success_criteria: "Done".to_string(),
                 session_id: None,
+                llm_confidence: None,
+                llm_confidence_rationale: None,
             }],
             rejected_alternatives: Vec::new(),
         };

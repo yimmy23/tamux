@@ -36,6 +36,25 @@ impl ConfidenceBand {
             Self::Guessing => "guessing",
         }
     }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_lowercase().as_str() {
+            "confident" | "high" => Some(Self::Confident),
+            "likely" | "medium" => Some(Self::Likely),
+            "uncertain" | "low" => Some(Self::Uncertain),
+            "guessing" => Some(Self::Guessing),
+            _ => None,
+        }
+    }
+
+    pub fn to_probability(self) -> f64 {
+        match self {
+            Self::Confident => 0.85,
+            Self::Likely => 0.65,
+            Self::Uncertain => 0.45,
+            Self::Guessing => 0.25,
+        }
+    }
 }
 
 /// Map a numeric probability (0.0..=1.0) to a verbal confidence band.

@@ -9,6 +9,9 @@ use crate::scrub::scrub_sensitive;
 /// Modifies the episode in place.
 pub fn scrub_episode(episode: &mut Episode) {
     episode.summary = scrub_sensitive(&episode.summary);
+    if let Some(ref goal_text) = episode.goal_text {
+        episode.goal_text = Some(scrub_sensitive(goal_text));
+    }
     if let Some(ref root_cause) = episode.root_cause {
         episode.root_cause = Some(scrub_sensitive(root_cause));
     }
@@ -24,6 +27,14 @@ pub fn scrub_episode(episode: &mut Episode) {
 /// Returns true when episodic memory is disabled or per-session suppression is active.
 pub fn is_episode_suppressed(config: &EpisodicConfig) -> bool {
     !config.enabled || config.per_session_suppression
+}
+
+/// Check if episode recording is suppressed for the specific episode context.
+pub fn is_episode_suppressed_for_episode(config: &EpisodicConfig, episode: &Episode) -> bool {
+    config.suppressed_session_ids.iter().any(|suppressed| {
+        episode.session_id.as_deref() == Some(suppressed.as_str())
+            || episode.thread_id.as_deref() == Some(suppressed.as_str())
+    })
 }
 
 /// Check if an episode has expired based on its TTL.
@@ -57,7 +68,9 @@ mod tests {
             id: "ep-test".to_string(),
             goal_run_id: None,
             thread_id: None,
-            session_id: None,
+            session_id: Some("session-1".to_string()),
+            goal_text: None,
+            goal_type: None,
             episode_type: EpisodeType::Discovery,
             summary: "Found api_key=sk-secret-key-12345 in config".to_string(),
             outcome: EpisodeOutcome::Success,
@@ -75,6 +88,8 @@ mod tests {
             duration_ms: None,
             tokens_used: None,
             confidence: None,
+            confidence_before: None,
+            confidence_after: None,
             created_at: 1700000000000,
             expires_at: None,
         }
@@ -143,6 +158,16 @@ mod tests {
     fn is_episode_suppressed_returns_false_when_enabled_and_no_suppression() {
         let config = EpisodicConfig::default();
         assert!(!is_episode_suppressed(&config));
+    }
+
+    #[test]
+    fn is_episode_suppressed_for_episode_matches_session_id_list() {
+        let config = EpisodicConfig {
+            suppressed_session_ids: vec!["session-1".to_string()],
+            ..EpisodicConfig::default()
+        };
+        let episode = make_episode();
+        assert!(is_episode_suppressed_for_episode(&config, &episode));
     }
 
     #[test]

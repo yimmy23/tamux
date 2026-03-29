@@ -25,6 +25,10 @@ pub struct Episode {
     pub thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub goal_text: Option<String>,
+    #[serde(default)]
+    pub goal_type: Option<String>,
     pub episode_type: EpisodeType,
     pub summary: String,
     pub outcome: EpisodeOutcome,
@@ -42,6 +46,10 @@ pub struct Episode {
     pub tokens_used: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
+    #[serde(default)]
+    pub confidence_before: Option<f64>,
+    #[serde(default)]
+    pub confidence_after: Option<f64>,
     pub created_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
@@ -63,6 +71,7 @@ impl Episode {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EpisodeType {
+    GoalStart,
     GoalCompletion,
     GoalFailure,
     SessionEnd,
@@ -213,6 +222,8 @@ pub struct EpisodicConfig {
     pub max_injection_tokens: usize,
     #[serde(default)]
     pub per_session_suppression: bool,
+    #[serde(default)]
+    pub suppressed_session_ids: Vec<String>,
 }
 
 fn default_enabled() -> bool {
@@ -240,6 +251,7 @@ impl Default for EpisodicConfig {
             max_retrieval_episodes: 5,
             max_injection_tokens: 1500,
             per_session_suppression: false,
+            suppressed_session_ids: Vec::new(),
         }
     }
 }
@@ -258,6 +270,8 @@ mod tests {
             goal_run_id: Some("goal-1".to_string()),
             thread_id: Some("thread-1".to_string()),
             session_id: Some("session-1".to_string()),
+            goal_text: Some("Completed the deployment task".to_string()),
+            goal_type: Some("goal_run".to_string()),
             episode_type: EpisodeType::GoalCompletion,
             summary: "Completed the deployment task".to_string(),
             outcome: EpisodeOutcome::Success,
@@ -272,6 +286,8 @@ mod tests {
             duration_ms: Some(5000),
             tokens_used: Some(1200),
             confidence: Some(0.95),
+            confidence_before: Some(0.7),
+            confidence_after: Some(0.95),
             created_at: 1700000000000,
             expires_at: Some(1700000000000 + 90 * 86400 * 1000),
         }
@@ -287,6 +303,8 @@ mod tests {
         assert_eq!(deserialized.goal_run_id, episode.goal_run_id);
         assert_eq!(deserialized.thread_id, episode.thread_id);
         assert_eq!(deserialized.session_id, episode.session_id);
+        assert_eq!(deserialized.goal_text, episode.goal_text);
+        assert_eq!(deserialized.goal_type, episode.goal_type);
         assert_eq!(deserialized.episode_type, episode.episode_type);
         assert_eq!(deserialized.summary, episode.summary);
         assert_eq!(deserialized.outcome, episode.outcome);
@@ -296,6 +314,8 @@ mod tests {
         assert_eq!(deserialized.duration_ms, episode.duration_ms);
         assert_eq!(deserialized.tokens_used, episode.tokens_used);
         assert_eq!(deserialized.confidence, episode.confidence);
+        assert_eq!(deserialized.confidence_before, episode.confidence_before);
+        assert_eq!(deserialized.confidence_after, episode.confidence_after);
         assert_eq!(deserialized.created_at, episode.created_at);
         assert_eq!(deserialized.expires_at, episode.expires_at);
         assert_eq!(deserialized.causal_chain.len(), 1);
@@ -304,6 +324,10 @@ mod tests {
 
     #[test]
     fn episode_type_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&EpisodeType::GoalStart).unwrap(),
+            "\"goal_start\""
+        );
         assert_eq!(
             serde_json::to_string(&EpisodeType::GoalCompletion).unwrap(),
             "\"goal_completion\""
@@ -351,6 +375,7 @@ mod tests {
         assert_eq!(config.max_retrieval_episodes, 5);
         assert_eq!(config.max_injection_tokens, 1500);
         assert!(!config.per_session_suppression);
+        assert!(config.suppressed_session_ids.is_empty());
     }
 
     #[test]

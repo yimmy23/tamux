@@ -1,7 +1,9 @@
 //! Episode CRUD operations and WORM ledger integration.
 
-use super::privacy::{compute_expires_at, is_episode_suppressed, scrub_episode};
-use super::{CausalStep, Episode, EpisodeOutcome, EpisodeType};
+use super::privacy::{
+    compute_expires_at, is_episode_suppressed, is_episode_suppressed_for_episode, scrub_episode,
+};
+use super::{CausalStep, Episode, EpisodeOutcome, EpisodeType, LinkType};
 use crate::agent::engine::AgentEngine;
 use crate::agent::types::{AgentEvent, GoalRun};
 
@@ -12,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 fn episode_type_to_str(t: &EpisodeType) -> &'static str {
     match t {
+        EpisodeType::GoalStart => "goal_start",
         EpisodeType::GoalCompletion => "goal_completion",
         EpisodeType::GoalFailure => "goal_failure",
         EpisodeType::SessionEnd => "session_end",
@@ -30,6 +33,7 @@ fn episode_outcome_to_str(o: &EpisodeOutcome) -> &'static str {
 
 fn str_to_episode_type(s: &str) -> EpisodeType {
     match s {
+        "goal_start" => EpisodeType::GoalStart,
         "goal_completion" => EpisodeType::GoalCompletion,
         "goal_failure" => EpisodeType::GoalFailure,
         "session_end" => EpisodeType::SessionEnd,
@@ -48,28 +52,45 @@ fn str_to_episode_outcome(s: &str) -> EpisodeOutcome {
 
 fn row_to_episode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
     let episode_type_str: String = row.get(4)?;
-    let outcome_str: String = row.get(6)?;
-    let entities_json: String = row.get(8)?;
-    let causal_chain_json: String = row.get(9)?;
+    let outcome_str: String = row.get(8)?;
+    let entities_json: String = row.get(10)?;
+    let causal_chain_json: String = row.get(11)?;
 
     Ok(Episode {
         id: row.get(0)?,
         goal_run_id: row.get(1)?,
         thread_id: row.get(2)?,
         session_id: row.get(3)?,
+        goal_text: row.get(5)?,
+        goal_type: row.get(6)?,
         episode_type: str_to_episode_type(&episode_type_str),
-        summary: row.get(5)?,
+        summary: row.get(7)?,
         outcome: str_to_episode_outcome(&outcome_str),
-        root_cause: row.get(7)?,
+        root_cause: row.get(9)?,
         entities: serde_json::from_str(&entities_json).unwrap_or_default(),
         causal_chain: serde_json::from_str(&causal_chain_json).unwrap_or_default(),
-        solution_class: row.get(10)?,
-        duration_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
-        tokens_used: row.get::<_, Option<i32>>(12)?.map(|v| v as u32),
-        confidence: row.get(13)?,
-        created_at: row.get::<_, i64>(14)? as u64,
-        expires_at: row.get::<_, Option<i64>>(15)?.map(|v| v as u64),
+        solution_class: row.get(12)?,
+        duration_ms: row.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+        tokens_used: row.get::<_, Option<i32>>(14)?.map(|v| v as u32),
+        confidence: row.get(15)?,
+        confidence_before: row.get(16)?,
+        confidence_after: row.get(17)?,
+        created_at: row.get::<_, i64>(18)? as u64,
+        expires_at: row.get::<_, Option<i64>>(19)?.map(|v| v as u64),
     })
+}
+
+fn confidence_band_from_goal_run(goal_run: &GoalRun) -> Option<f64> {
+    let title = goal_run.steps.first()?.title.as_str();
+    if title.starts_with("[HIGH]") {
+        Some(0.85)
+    } else if title.starts_with("[MEDIUM]") {
+        Some(0.65)
+    } else if title.starts_with("[LOW]") {
+        Some(0.35)
+    } else {
+        None
+    }
 }
 
 impl AgentEngine {
@@ -86,7 +107,7 @@ impl AgentEngine {
         let config = self.config.read().await.episodic.clone();
 
         // Check suppression
-        if is_episode_suppressed(&config) {
+        if is_episode_suppressed(&config) || is_episode_suppressed_for_episode(&config, &episode) {
             return Ok(());
         }
 
@@ -110,16 +131,18 @@ impl AgentEngine {
             .call(move |conn| {
                 conn.execute(
                     "INSERT OR REPLACE INTO episodes (
-                        id, goal_run_id, thread_id, session_id, episode_type,
-                        summary, outcome, root_cause, entities, causal_chain,
+                        id, goal_run_id, thread_id, session_id, goal_text, goal_type,
+                        episode_type, summary, outcome, root_cause, entities, causal_chain,
                         solution_class, duration_ms, tokens_used, confidence,
-                        created_at, expires_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                        confidence_before, confidence_after, created_at, expires_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
                     params![
                         ep.id,
                         ep.goal_run_id,
                         ep.thread_id,
                         ep.session_id,
+                        ep.goal_text,
+                        ep.goal_type,
                         episode_type_str,
                         ep.summary,
                         outcome_str,
@@ -130,6 +153,8 @@ impl AgentEngine {
                         ep.duration_ms.map(|v| v as i64),
                         ep.tokens_used.map(|v| v as i32),
                         ep.confidence,
+                        ep.confidence_before,
+                        ep.confidence_after,
                         ep.created_at as i64,
                         ep.expires_at.map(|v| v as i64),
                     ],
@@ -152,6 +177,40 @@ impl AgentEngine {
             tracing::warn!(episode_id = %episode.id, error = %e, "failed to append episodic WORM entry");
         }
 
+        Ok(())
+    }
+
+    pub(crate) async fn record_goal_start_episode(&self, goal_run: &GoalRun) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let episode = Episode {
+            id: format!("ep_{}", uuid::Uuid::new_v4()),
+            goal_run_id: Some(goal_run.id.clone()),
+            thread_id: goal_run.thread_id.clone(),
+            session_id: goal_run.session_id.clone(),
+            goal_text: Some(goal_run.goal.clone()),
+            goal_type: Some("goal_run".to_string()),
+            episode_type: EpisodeType::GoalStart,
+            summary: format!("{}: {}", goal_run.title, goal_run.goal),
+            outcome: EpisodeOutcome::Partial,
+            root_cause: None,
+            entities: Vec::new(),
+            causal_chain: Vec::new(),
+            solution_class: None,
+            duration_ms: None,
+            tokens_used: None,
+            confidence: None,
+            confidence_before: None,
+            confidence_after: None,
+            created_at: now_ms,
+            expires_at: None,
+        };
+
+        self.record_episode(episode.clone()).await?;
+        self.link_related_goal_episode(&episode).await?;
         Ok(())
     }
 
@@ -238,6 +297,8 @@ impl AgentEngine {
             goal_run_id: Some(goal_run.id.clone()),
             thread_id: goal_run.thread_id.clone(),
             session_id: goal_run.session_id.clone(),
+            goal_text: Some(goal_run.goal.clone()),
+            goal_type: Some("goal_run".to_string()),
             episode_type,
             summary,
             outcome,
@@ -248,6 +309,13 @@ impl AgentEngine {
             duration_ms,
             tokens_used: None,
             confidence: None,
+            confidence_before: confidence_band_from_goal_run(goal_run),
+            confidence_after: Some(match outcome {
+                EpisodeOutcome::Success => 1.0,
+                EpisodeOutcome::Failure => 0.0,
+                EpisodeOutcome::Partial => 0.5,
+                EpisodeOutcome::Abandoned => 0.25,
+            }),
             created_at: now_ms,
             expires_at: None,
         };
@@ -284,7 +352,9 @@ impl AgentEngine {
             id: format!("ep_{}", uuid::Uuid::new_v4()),
             goal_run_id: None,
             thread_id: Some(thread_id.to_string()),
-            session_id: None,
+            session_id: Some(thread_id.to_string()),
+            goal_text: None,
+            goal_type: None,
             episode_type: EpisodeType::SessionEnd,
             summary: session_summary.to_string(),
             outcome: EpisodeOutcome::Success,
@@ -295,6 +365,8 @@ impl AgentEngine {
             duration_ms: None,
             tokens_used: None,
             confidence: None,
+            confidence_before: None,
+            confidence_after: None,
             created_at: now_ms,
             expires_at: None,
         };
@@ -311,8 +383,8 @@ impl AgentEngine {
                 let result = conn
                     .query_row(
                         "SELECT id, goal_run_id, thread_id, session_id, episode_type,
-                                summary, outcome, root_cause, entities, causal_chain,
-                                solution_class, duration_ms, tokens_used, confidence,
+                                goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
+                                solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
                                 created_at, expires_at
                          FROM episodes WHERE id = ?1",
                         params![episode_id],
@@ -336,8 +408,8 @@ impl AgentEngine {
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT id, goal_run_id, thread_id, session_id, episode_type,
-                            summary, outcome, root_cause, entities, causal_chain,
-                            solution_class, duration_ms, tokens_used, confidence,
+                            goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
+                            solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
                             created_at, expires_at
                      FROM episodes WHERE goal_run_id = ?1
                      ORDER BY created_at DESC",
@@ -416,6 +488,48 @@ impl AgentEngine {
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    async fn link_related_goal_episode(&self, episode: &Episode) -> Result<()> {
+        let Some(goal_text) = episode.goal_text.clone() else {
+            return Ok(());
+        };
+        let current_episode_id = episode.id.clone();
+        let related: Option<(String, String)> = self
+            .history
+            .conn
+            .call(move |conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT id, outcome FROM episodes
+                     WHERE goal_text = ?1 AND id != ?2
+                     ORDER BY created_at DESC
+                     LIMIT 1",
+                        params![goal_text, current_episode_id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )
+                    .optional()?)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let Some((target_episode_id, outcome)) = related else {
+            return Ok(());
+        };
+        let link_type = match outcome.as_str() {
+            "failure" | "abandoned" => LinkType::RetryOf,
+            "success" | "partial" => LinkType::BuildsOn,
+            _ => LinkType::BuildsOn,
+        };
+        self.create_episode_link(super::EpisodeLink {
+            id: format!("el_{}", uuid::Uuid::new_v4()),
+            source_episode_id: episode.id.clone(),
+            target_episode_id,
+            link_type,
+            evidence: Some("Auto-linked from matching goal_text".to_string()),
+            created_at: episode.created_at,
+        })
+        .await
     }
 }
 

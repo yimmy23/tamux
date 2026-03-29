@@ -22,7 +22,7 @@ impl AgentEngine {
         let mut prompt = format!(
             "You are planning a durable autonomous goal runner inside tamux.\n\
              Produce strict JSON only with the shape:\n\
-             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill|divergent\",\"success_criteria\":\"...\",\"session_id\":null}}],\"rejected_alternatives\":[\"...\"]}}\n\
+             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill|divergent\",\"success_criteria\":\"...\",\"session_id\":null,\"llm_confidence\":\"confident|likely|uncertain|guessing\",\"llm_confidence_rationale\":\"...\"}}],\"rejected_alternatives\":[\"...\"]}}\n\
              Requirements:\n\
              - 2 to 6 steps.\n\
              - Keep each step actionable and narrow.\n\
@@ -31,6 +31,7 @@ impl AgentEngine {
              - Use skill only only if a reusable workflow artifact should be generated at the end.\n\
              - Prefer one terminal session unless the goal clearly requires otherwise.\n\
              - All work should be done inside the workspace directory. Do not cd above it.\n\
+             - For each step, include `llm_confidence` and `llm_confidence_rationale` based on your own self-assessment.\n\
              - Also include \"rejected_alternatives\": a list of 1-3 alternative approaches you considered but rejected, each with a brief reason why it was not chosen.\n\
              Goal title: {}\n\
              Goal:\n{}",
@@ -110,9 +111,8 @@ impl AgentEngine {
 
     /// Annotate each plan step with a confidence label [HIGH/MEDIUM/LOW] (UNCR-01).
     ///
-    /// Uses structural signals only (UNCR-06): tool success rate from awareness,
-    /// episodic familiarity from FTS5 hit count, blast radius from step kind domain,
-    /// approach novelty from counter-who.
+    /// Uses hybrid signals (UNCR-06): structural signals plus optional LLM
+    /// self-assessment preserved on the plan step.
     async fn annotate_plan_steps_with_confidence(
         &self,
         steps: &mut Vec<GoalPlanStepResponse>,
@@ -258,6 +258,10 @@ impl AgentEngine {
                 episodic_familiarity,
                 blast_radius_score,
                 approach_novelty,
+                llm_self_assessment: step
+                    .llm_confidence
+                    .as_deref()
+                    .and_then(crate::agent::explanation::ConfidenceBand::from_str),
             };
 
             let assessment = super::uncertainty::confidence::compute_step_confidence(
@@ -315,8 +319,9 @@ impl AgentEngine {
         let prompt = format!(
             "You are replanning a tamux goal runner after a failed step.\n\
              Produce strict JSON only with the shape:\n\
-             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill\",\"success_criteria\":\"...\",\"session_id\":null}}]}}\n\
+             {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill|divergent\",\"success_criteria\":\"...\",\"session_id\":null,\"llm_confidence\":\"confident|likely|uncertain|guessing\",\"llm_confidence_rationale\":\"...\"}}],\"rejected_alternatives\":[\"...\"]}}\n\
              Return only the revised remaining steps, not the full history.\n\
+             For each step, include `llm_confidence` and `llm_confidence_rationale` based on your own self-assessment.\n\
              Goal: {}\n\
              Failure: {}\n\
              Completed / attempted steps:\n{}\n",
@@ -352,6 +357,12 @@ impl AgentEngine {
         }
 
         apply_plan_defaults(&mut plan);
+        self.annotate_plan_steps_with_confidence(
+            &mut plan.steps,
+            &goal_run.goal,
+            goal_run.thread_id.as_deref(),
+        )
+        .await;
         Ok(plan)
     }
 
@@ -453,7 +464,7 @@ impl AgentEngine {
             "I need you to break down a goal into steps. Return ONLY a numbered list.\n\
              Each line must follow this exact format:\n\
              1. [command] Step title: Step instructions. Success: criteria here.\n\n\
-             The kind in brackets must be one of: command, research, reason, memory, skill\n\n\
+             The kind in brackets must be one of: command, research, reason, memory, skill, divergent\n\n\
              Goal: {}\n\n\
              Return ONLY the numbered list, nothing else.",
             prompt.lines().last().unwrap_or(prompt)

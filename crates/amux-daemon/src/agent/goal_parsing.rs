@@ -32,6 +32,10 @@ pub(super) struct GoalPlanStepResponse {
     pub success_criteria: String,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub llm_confidence: Option<String>,
+    #[serde(default)]
+    pub llm_confidence_rationale: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -97,6 +101,8 @@ pub(super) fn apply_plan_defaults(plan: &mut GoalPlanResponse) {
             kind: GoalRunStepKind::Command,
             success_criteria: "Step completed".to_string(),
             session_id: None,
+            llm_confidence: None,
+            llm_confidence_rationale: None,
         });
     }
     if plan.steps.len() > 8 {
@@ -108,6 +114,16 @@ pub(super) fn apply_plan_defaults(plan: &mut GoalPlanResponse) {
         step.success_criteria = step.success_criteria.trim().to_string();
         step.session_id = step
             .session_id
+            .take()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        step.llm_confidence = step
+            .llm_confidence
+            .take()
+            .map(|v| v.trim().to_lowercase())
+            .filter(|v| !v.is_empty());
+        step.llm_confidence_rationale = step
+            .llm_confidence_rationale
             .take()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
@@ -539,6 +555,8 @@ pub(super) fn parse_markdown_steps<T: serde::de::DeserializeOwned>(raw: &str) ->
             "kind": kind,
             "success_criteria": criteria.trim_end_matches('.'),
             "session_id": null,
+            "llm_confidence": null,
+            "llm_confidence_rationale": null,
         }));
     }
 
@@ -663,6 +681,8 @@ mod tests {
                 kind: GoalRunStepKind::Command,
                 success_criteria: "Thing is done".to_string(),
                 session_id: None,
+                llm_confidence: Some("likely".to_string()),
+                llm_confidence_rationale: Some("This mirrors a known maintenance flow".to_string()),
             }],
             rejected_alternatives: vec![
                 "Could have used a single monolithic script but too risky".to_string(),
@@ -676,6 +696,15 @@ mod tests {
         assert_eq!(decoded.rejected_alternatives.len(), 2);
         assert!(decoded.rejected_alternatives[0].contains("monolithic"));
         assert!(decoded.rejected_alternatives[1].contains("manual"));
+        assert_eq!(
+            decoded.steps[0].llm_confidence.as_deref(),
+            Some("likely"),
+            "goal plan steps should preserve LLM self-assessment confidence"
+        );
+        assert!(decoded.steps[0]
+            .llm_confidence_rationale
+            .as_deref()
+            .is_some_and(|value: &str| value.contains("maintenance flow")));
     }
 
     #[test]
@@ -683,5 +712,35 @@ mod tests {
         let json = r#"{"title":"Test","summary":"Test","steps":[]}"#;
         let decoded: GoalPlanResponse = serde_json::from_str(json).expect("deserialize");
         assert!(decoded.rejected_alternatives.is_empty());
+    }
+
+    #[test]
+    fn parse_json_block_preserves_optional_llm_confidence_fields() {
+        let json = r#"{
+          "title": "Repair gap",
+          "summary": "Repair archived parity gaps safely",
+          "steps": [
+            {
+              "title": "Assess confidence",
+              "instructions": "Blend structural and self assessment signals",
+              "kind": "reason",
+              "success_criteria": "Confidence is annotated",
+              "session_id": null,
+              "llm_confidence": "confident",
+              "llm_confidence_rationale": "This is a familiar architectural change"
+            }
+          ],
+          "rejected_alternatives": []
+        }"#;
+
+        let decoded: GoalPlanResponse = parse_json_block(json).expect("json should parse");
+        assert_eq!(
+            decoded.steps[0].llm_confidence.as_deref(),
+            Some("confident")
+        );
+        assert_eq!(
+            decoded.steps[0].llm_confidence_rationale.as_deref(),
+            Some("This is a familiar architectural change")
+        );
     }
 }

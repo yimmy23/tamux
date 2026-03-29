@@ -125,61 +125,70 @@ fn format_age(created_at: u64) -> String {
 
 fn row_to_episode_with_rank(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Episode, f64)> {
     let episode_type_str: String = row.get(4)?;
-    let outcome_str: String = row.get(6)?;
-    let entities_json: String = row.get(8)?;
-    let causal_chain_json: String = row.get(9)?;
-    let rank: f64 = row.get(16)?;
+    let outcome_str: String = row.get(8)?;
+    let entities_json: String = row.get(10)?;
+    let causal_chain_json: String = row.get(11)?;
+    let rank: f64 = row.get(20)?;
 
     let episode = Episode {
         id: row.get(0)?,
         goal_run_id: row.get(1)?,
         thread_id: row.get(2)?,
         session_id: row.get(3)?,
+        goal_text: row.get(5)?,
+        goal_type: row.get(6)?,
         episode_type: str_to_episode_type(&episode_type_str),
-        summary: row.get(5)?,
+        summary: row.get(7)?,
         outcome: str_to_episode_outcome(&outcome_str),
-        root_cause: row.get(7)?,
+        root_cause: row.get(9)?,
         entities: serde_json::from_str(&entities_json).unwrap_or_default(),
         causal_chain: serde_json::from_str(&causal_chain_json).unwrap_or_default(),
-        solution_class: row.get(10)?,
-        duration_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
-        tokens_used: row.get::<_, Option<i32>>(12)?.map(|v| v as u32),
-        confidence: row.get(13)?,
-        created_at: row.get::<_, i64>(14)? as u64,
-        expires_at: row.get::<_, Option<i64>>(15)?.map(|v| v as u64),
+        solution_class: row.get(12)?,
+        duration_ms: row.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+        tokens_used: row.get::<_, Option<i32>>(14)?.map(|v| v as u32),
+        confidence: row.get(15)?,
+        confidence_before: row.get(16)?,
+        confidence_after: row.get(17)?,
+        created_at: row.get::<_, i64>(18)? as u64,
+        expires_at: row.get::<_, Option<i64>>(19)?.map(|v| v as u64),
     };
 
     Ok((episode, rank))
 }
 
 fn row_to_episode_plain(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
-    let episode_type_str: String = row.get(4)?;
-    let outcome_str: String = row.get(6)?;
-    let entities_json: String = row.get(8)?;
-    let causal_chain_json: String = row.get(9)?;
+    let episode_type_str: String = row.get(6)?;
+    let outcome_str: String = row.get(8)?;
+    let entities_json: String = row.get(10)?;
+    let causal_chain_json: String = row.get(11)?;
 
     Ok(Episode {
         id: row.get(0)?,
         goal_run_id: row.get(1)?,
         thread_id: row.get(2)?,
         session_id: row.get(3)?,
+        goal_text: row.get(4)?,
+        goal_type: row.get(5)?,
         episode_type: str_to_episode_type(&episode_type_str),
-        summary: row.get(5)?,
+        summary: row.get(7)?,
         outcome: str_to_episode_outcome(&outcome_str),
-        root_cause: row.get(7)?,
+        root_cause: row.get(9)?,
         entities: serde_json::from_str(&entities_json).unwrap_or_default(),
         causal_chain: serde_json::from_str(&causal_chain_json).unwrap_or_default(),
-        solution_class: row.get(10)?,
-        duration_ms: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
-        tokens_used: row.get::<_, Option<i32>>(12)?.map(|v| v as u32),
-        confidence: row.get(13)?,
-        created_at: row.get::<_, i64>(14)? as u64,
-        expires_at: row.get::<_, Option<i64>>(15)?.map(|v| v as u64),
+        solution_class: row.get(12)?,
+        duration_ms: row.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+        tokens_used: row.get::<_, Option<i32>>(14)?.map(|v| v as u32),
+        confidence: row.get(15)?,
+        confidence_before: row.get(16)?,
+        confidence_after: row.get(17)?,
+        created_at: row.get::<_, i64>(18)? as u64,
+        expires_at: row.get::<_, Option<i64>>(19)?.map(|v| v as u64),
     })
 }
 
 fn str_to_episode_type(s: &str) -> EpisodeType {
     match s {
+        "goal_start" => EpisodeType::GoalStart,
         "goal_completion" => EpisodeType::GoalCompletion,
         "goal_failure" => EpisodeType::GoalFailure,
         "session_end" => EpisodeType::SessionEnd,
@@ -235,8 +244,8 @@ impl AgentEngine {
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT e.id, e.goal_run_id, e.thread_id, e.session_id, e.episode_type,
-                            e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
-                            e.solution_class, e.duration_ms, e.tokens_used, e.confidence,
+                            e.goal_text, e.goal_type, e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
+                            e.solution_class, e.duration_ms, e.tokens_used, e.confidence, e.confidence_before, e.confidence_after,
                             e.created_at, e.expires_at,
                             bm25(episodes_fts) as rank
                      FROM episodes e
@@ -302,8 +311,8 @@ impl AgentEngine {
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT e.id, e.goal_run_id, e.thread_id, e.session_id, e.episode_type,
-                            e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
-                            e.solution_class, e.duration_ms, e.tokens_used, e.confidence,
+                            e.goal_text, e.goal_type, e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
+                            e.solution_class, e.duration_ms, e.tokens_used, e.confidence, e.confidence_before, e.confidence_after,
                             e.created_at, e.expires_at,
                             bm25(episodes_fts) as rank
                      FROM episodes e
@@ -369,9 +378,9 @@ impl AgentEngine {
             .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT id, goal_run_id, thread_id, session_id, episode_type,
+                    "SELECT id, goal_run_id, thread_id, session_id, goal_text, goal_type, episode_type,
                             summary, outcome, root_cause, entities, causal_chain,
-                            solution_class, duration_ms, tokens_used, confidence,
+                            solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
                             created_at, expires_at
                      FROM episodes
                      WHERE entities LIKE ?1
@@ -494,6 +503,8 @@ mod tests {
             goal_run_id: Some("goal-1".to_string()),
             thread_id: Some("thread-1".to_string()),
             session_id: Some("session-1".to_string()),
+            goal_text: Some(summary.to_string()),
+            goal_type: Some("goal_run".to_string()),
             episode_type: if outcome == EpisodeOutcome::Failure {
                 EpisodeType::GoalFailure
             } else {
@@ -512,6 +523,8 @@ mod tests {
             duration_ms: Some(5000),
             tokens_used: Some(1200),
             confidence: None,
+            confidence_before: None,
+            confidence_after: None,
             created_at: 1700000000000,
             expires_at: None,
         }

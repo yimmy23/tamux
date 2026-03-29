@@ -82,9 +82,43 @@ fn classify_source_authority(url: &str) -> &'static str {
 
 /// Format a single search result line with source authority label prepended.
 fn format_result_with_authority(title: &str, url: &str, snippet: &str) -> String {
+    format_result_with_metadata(title, url, snippet, None)
+}
+
+fn classify_freshness(published_at: Option<&str>) -> &'static str {
+    let Some(value) = published_at
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return "unknown";
+    };
+    let Some(date_prefix) = value.get(..10) else {
+        return "unknown";
+    };
+    let Ok(date) = chrono::NaiveDate::parse_from_str(date_prefix, "%Y-%m-%d") else {
+        return "unknown";
+    };
+    let now = chrono::Utc::now().date_naive();
+    let age_days = now.signed_duration_since(date).num_days();
+    if age_days <= 30 {
+        "recent"
+    } else if age_days <= 365 {
+        "stale"
+    } else {
+        "old"
+    }
+}
+
+fn format_result_with_metadata(
+    title: &str,
+    url: &str,
+    snippet: &str,
+    published_at: Option<&str>,
+) -> String {
     format!(
-        "- [{}] **{}**\n  {}\n  {}",
+        "- [{}] [freshness: {}] **{}**\n  {}\n  {}",
         classify_source_authority(url),
+        classify_freshness(published_at),
         title,
         url,
         snippet
@@ -2953,12 +2987,16 @@ async fn execute_exa_search(
                     let title = r["title"].as_str().unwrap_or("(no title)");
                     let url = r["url"].as_str().unwrap_or("");
                     let text = r["text"].as_str().unwrap_or("");
+                    let published_at = r["publishedDate"]
+                        .as_str()
+                        .or_else(|| r["published_date"].as_str())
+                        .or_else(|| r["publishedAt"].as_str());
                     let snippet = if text.len() > 300 {
                         format!("{}...", &text[..300])
                     } else {
                         text.to_string()
                     };
-                    format_result_with_authority(title, url, &snippet)
+                    format_result_with_metadata(title, url, &snippet, published_at)
                 })
                 .collect::<Vec<_>>()
         })
@@ -3012,12 +3050,16 @@ async fn execute_tavily_search(
                     let title = r["title"].as_str().unwrap_or("(no title)");
                     let url = r["url"].as_str().unwrap_or("");
                     let content = r["content"].as_str().unwrap_or("");
+                    let published_at = r["published_date"]
+                        .as_str()
+                        .or_else(|| r["publishedDate"].as_str())
+                        .or_else(|| r["publishedAt"].as_str());
                     let snippet = if content.len() > 300 {
                         format!("{}...", &content[..300])
                     } else {
                         content.to_string()
                     };
-                    format_result_with_authority(title, url, &snippet)
+                    format_result_with_metadata(title, url, &snippet, published_at)
                 })
                 .collect::<Vec<_>>()
         })
@@ -3062,9 +3104,11 @@ async fn execute_ddg_search(
                 let text_start = href_end + 2;
                 if let Some(text_end) = trimmed[text_start..].find("</a>") {
                     let title = &trimmed[text_start..text_start + text_end];
-                    results.push(format!(
-                        "- [{}] {title}\n  {url}",
-                        classify_source_authority(url)
+                    results.push(format_result_with_metadata(
+                        title,
+                        url,
+                        "No snippet available.",
+                        None,
                     ));
                 }
             }
@@ -6489,7 +6533,7 @@ mod tests {
     // Source authority classification tests (UNCR-03)
     // -----------------------------------------------------------------------
 
-    use super::{classify_source_authority, format_result_with_authority};
+    use super::{classify_freshness, classify_source_authority, format_result_with_authority};
 
     #[test]
     fn classify_source_authority_official_rust_docs() {
@@ -6564,5 +6608,18 @@ mod tests {
         assert!(result.contains("**Rust Book**"));
         assert!(result.contains("https://docs.rust-lang.org/book/"));
         assert!(result.contains("The Rust Programming Language"));
+        assert!(
+            result.contains("freshness:"),
+            "research result formatting should expose freshness alongside source authority"
+        );
+    }
+
+    #[test]
+    fn classify_freshness_labels_recent_stale_and_old_dates() {
+        assert_eq!(classify_freshness(Some("2026-03-20")), "recent");
+        assert_eq!(classify_freshness(Some("2025-12-01T14:00:00Z")), "stale");
+        assert_eq!(classify_freshness(Some("2024-01-01")), "old");
+        assert_eq!(classify_freshness(Some("not-a-date")), "unknown");
+        assert_eq!(classify_freshness(None), "unknown");
     }
 }

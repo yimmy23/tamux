@@ -227,6 +227,13 @@ impl AgentEngine {
             None,
         )
         .await;
+        if let Err(error) = self.record_goal_start_episode(&goal_run).await {
+            tracing::warn!(
+                goal_run_id = %goal_run.id,
+                error = %error,
+                "failed to record goal start episode"
+            );
+        }
         self.project_goal_run(goal_run).await
     }
 
@@ -809,6 +816,7 @@ impl AgentEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::episodic::{EpisodeType, LinkType};
     use crate::session_manager::SessionManager;
     use tempfile::tempdir;
 
@@ -1010,5 +1018,135 @@ mod tests {
             .expect("task should exist");
         assert_eq!(task.status, TaskStatus::Queued);
         assert!(task.awaiting_approval_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn start_goal_run_records_goal_start_episode_with_archived_fields() {
+        let root = tempdir().expect("temp dir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let goal = engine
+            .start_goal_run(
+                "repair archived parity gaps".to_string(),
+                Some("Repair parity".to_string()),
+                Some("thread-epis-1".to_string()),
+                Some("session-epis-1".to_string()),
+                None,
+                None,
+                None,
+            )
+            .await;
+
+        let episodes = engine
+            .list_episodes_for_goal_run(&goal.id)
+            .await
+            .expect("episodes should load");
+        assert_eq!(
+            episodes.len(),
+            1,
+            "goal start should immediately record one episode"
+        );
+
+        let episode_json =
+            serde_json::to_value(&episodes[0]).expect("episode should serialize to json");
+        assert_eq!(episode_json["episode_type"], "goal_start");
+        assert_eq!(episode_json["goal_text"], "repair archived parity gaps");
+        assert_eq!(episode_json["goal_type"], "goal_run");
+        assert_eq!(
+            episode_json["summary"],
+            "Repair parity: repair archived parity gaps"
+        );
+        assert!(
+            episode_json.get("confidence_before").is_some(),
+            "goal-start episodes should carry explicit confidence_before field"
+        );
+        assert!(
+            episode_json.get("confidence_after").is_some(),
+            "goal-start episodes should carry explicit confidence_after field"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeated_goal_start_creates_retry_link_to_previous_related_episode() {
+        let root = tempdir().expect("temp dir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let first = engine
+            .start_goal_run(
+                "repair archived parity gaps".to_string(),
+                Some("Repair parity".to_string()),
+                Some("thread-epis-2".to_string()),
+                Some("session-epis-2".to_string()),
+                None,
+                None,
+                None,
+            )
+            .await;
+        engine
+            .record_goal_episode(&first, crate::agent::episodic::EpisodeOutcome::Failure)
+            .await
+            .expect("first goal failure episode should record");
+
+        let second = engine
+            .start_goal_run(
+                "repair archived parity gaps".to_string(),
+                Some("Repair parity again".to_string()),
+                Some("thread-epis-3".to_string()),
+                Some("session-epis-3".to_string()),
+                None,
+                Some("req-2".to_string()),
+                None,
+            )
+            .await;
+
+        let episodes = engine
+            .list_episodes_for_goal_run(&second.id)
+            .await
+            .expect("episodes should load");
+        let start_episode = episodes
+            .iter()
+            .find(|episode| episode.episode_type == EpisodeType::GoalStart)
+            .expect("second goal should have a goal_start episode");
+
+        let links = engine
+            .get_episode_links(&start_episode.id)
+            .await
+            .expect("links should load");
+        assert!(
+            links.iter().any(|link| link.link_type == LinkType::RetryOf),
+            "repeated goal should link to the prior related episode as retry_of"
+        );
+    }
+
+    #[tokio::test]
+    async fn suppressed_session_id_skips_goal_start_episode_recording() {
+        let root = tempdir().expect("temp dir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.episodic.suppressed_session_ids = vec!["session-suppressed".to_string()];
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let goal = engine
+            .start_goal_run(
+                "do not persist this goal".to_string(),
+                Some("Suppressed goal".to_string()),
+                Some("thread-suppressed".to_string()),
+                Some("session-suppressed".to_string()),
+                None,
+                None,
+                None,
+            )
+            .await;
+
+        let episodes = engine
+            .list_episodes_for_goal_run(&goal.id)
+            .await
+            .expect("episodes should load");
+        assert!(
+            episodes.is_empty(),
+            "suppressed session ids should prevent per-session episodic recording"
+        );
     }
 }

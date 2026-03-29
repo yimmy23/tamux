@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use amux_protocol::{ClientMessage, DaemonMessage};
+use amux_protocol::{ClientMessage, DaemonMessage, SessionInfo};
 use anyhow::{Context, Result};
 use futures::SinkExt;
 use futures::StreamExt;
@@ -77,6 +77,104 @@ fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {
     message.contains("unexpected end of file")
         || message.contains("connection reset by peer")
         || message.contains("broken pipe")
+}
+
+fn normalize_session_tag(value: &str) -> Option<String> {
+    let mut normalized = String::with_capacity(value.len());
+    let mut last_was_dash = false;
+    for ch in value.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            last_was_dash = false;
+            Some(ch.to_ascii_lowercase())
+        } else if matches!(ch, '/' | '\\' | ' ' | ':' | '_' | '.' | '-') {
+            if last_was_dash {
+                None
+            } else {
+                last_was_dash = true;
+                Some('-')
+            }
+        } else {
+            None
+        };
+        if let Some(ch) = mapped {
+            normalized.push(ch);
+        }
+    }
+
+    let trimmed = normalized.trim_matches('-');
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn summarize_session_output(recent_output: Option<&str>) -> Option<String> {
+    let line = recent_output?
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let condensed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if condensed.is_empty() {
+        return None;
+    }
+    const MAX_CHARS: usize = 120;
+    if condensed.chars().count() <= MAX_CHARS {
+        return Some(condensed);
+    }
+    Some(condensed.chars().take(MAX_CHARS - 3).collect::<String>() + "...")
+}
+
+fn build_session_end_episode_payload(
+    session_id: &str,
+    info: Option<&SessionInfo>,
+    recent_output: Option<&str>,
+) -> (String, Vec<String>) {
+    let title = info
+        .and_then(|value| value.title.as_deref())
+        .filter(|value| !value.is_empty());
+    let active_command = info
+        .and_then(|value| value.active_command.as_deref())
+        .filter(|value| !value.is_empty());
+    let cwd = info
+        .and_then(|value| value.cwd.as_deref())
+        .filter(|value| !value.is_empty());
+    let cwd_label = cwd
+        .and_then(|value| Path::new(value).file_name())
+        .and_then(|value| value.to_str());
+    let recent_output_summary = summarize_session_output(recent_output);
+
+    let focus = title
+        .map(ToOwned::to_owned)
+        .or_else(|| active_command.map(ToOwned::to_owned))
+        .or_else(|| cwd_label.map(|value| format!("workspace {value}")))
+        .unwrap_or_else(|| format!("session {session_id}"));
+
+    let mut summary = format!("{focus} ended");
+    if let Some(cwd_label) = cwd_label {
+        summary.push_str(&format!(" in {cwd_label}"));
+    }
+    if let Some(output) = recent_output_summary {
+        summary.push_str(&format!(". Last output: {output}"));
+    }
+
+    let mut entities = vec![format!("session:{session_id}")];
+    if let Some(workspace_id) = info.and_then(|value| value.workspace_id.as_deref()) {
+        entities.push(format!("workspace:{workspace_id}"));
+    }
+    if let Some(tag) = cwd_label.and_then(normalize_session_tag) {
+        entities.push(format!("cwd:{tag}"));
+    }
+    if let Some(command) = active_command
+        .and_then(|value| value.split_whitespace().next())
+        .and_then(normalize_session_tag)
+    {
+        entities.push(format!("command:{command}"));
+    }
+    if let Some(tag) = title.and_then(normalize_session_tag) {
+        entities.push(format!("title:{tag}"));
+    }
+    entities.sort();
+    entities.dedup();
+
+    (summary, entities)
 }
 
 fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
@@ -161,7 +259,10 @@ async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{concierge_welcome_fingerprint, handle_connection, is_expected_disconnect_error};
+    use super::{
+        build_session_end_episode_payload, concierge_welcome_fingerprint, handle_connection,
+        is_expected_disconnect_error,
+    };
     use crate::agent::types::AgentConfig;
     use crate::agent::types::{
         AgentEvent, ConciergeAction, ConciergeActionType, ConciergeDetailLevel,
@@ -170,7 +271,7 @@ mod tests {
     use crate::history::HistoryStore;
     use crate::plugin::PluginManager;
     use crate::session_manager::SessionManager;
-    use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage};
+    use amux_protocol::{AmuxCodec, ClientMessage, DaemonMessage, SessionInfo};
     use futures::{SinkExt, StreamExt};
     use std::collections::HashSet;
     use std::path::PathBuf;
@@ -251,6 +352,37 @@ mod tests {
         };
         let client_threads = HashSet::new();
         assert!(super::should_forward_agent_event(&event, &client_threads));
+    }
+
+    #[test]
+    fn build_session_end_episode_payload_generates_summary_and_tags() {
+        let session_id = uuid::Uuid::nil();
+        let info = SessionInfo {
+            id: session_id,
+            title: Some("Cargo test runner".to_string()),
+            cwd: Some("/workspace/cmux-next".to_string()),
+            cols: 80,
+            rows: 24,
+            created_at: 0,
+            workspace_id: Some("ws-main".to_string()),
+            exit_code: None,
+            is_alive: true,
+            active_command: Some("cargo test -p tamux-daemon".to_string()),
+        };
+
+        let (summary, entities) = build_session_end_episode_payload(
+            &session_id.to_string(),
+            Some(&info),
+            Some("running\n test result: ok. 3 passed"),
+        );
+
+        assert!(summary.contains("Cargo test runner ended in cmux-next"));
+        assert!(summary.contains("Last output: test result: ok. 3 passed"));
+        assert!(entities.contains(&format!("session:{session_id}")));
+        assert!(entities.contains(&"workspace:ws-main".to_string()));
+        assert!(entities.contains(&"cwd:cmux-next".to_string()));
+        assert!(entities.contains(&"command:cargo".to_string()));
+        assert!(entities.contains(&"title:cargo-test-runner".to_string()));
     }
 
     struct TestConnection {
@@ -1197,16 +1329,26 @@ where
 
                 ClientMessage::KillSession { id } => {
                     attached_rxs.retain(|(sid, _)| *sid != id);
+                    let session_info = manager
+                        .list()
+                        .await
+                        .into_iter()
+                        .find(|session| session.id == id);
+                    let recent_output = manager.get_analysis_text(id, Some(40)).await.ok();
                     match manager.kill(id).await {
                         Ok(()) => {
                             // Record session-end episode (EPIS-08)
                             let session_id_str = id.to_string();
-                            let session_summary = format!("Session {} ended", session_id_str);
+                            let (session_summary, entities) = build_session_end_episode_payload(
+                                &session_id_str,
+                                session_info.as_ref(),
+                                recent_output.as_deref(),
+                            );
                             if let Err(e) = agent
                                 .record_session_end_episode(
                                     &session_id_str,
                                     &session_summary,
-                                    vec![format!("session:{}", session_id_str)],
+                                    entities,
                                 )
                                 .await
                             {
