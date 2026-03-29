@@ -1494,6 +1494,32 @@ mod tests {
             "48663977535"
         );
         assert_eq!(normalize_identifier("+48663977535"), "48663977535");
+        assert_eq!(
+            normalize_whatsapp_chat_replay_key("+48663977535:6@s.whatsapp.net"),
+            "48663977535"
+        );
+    }
+
+    #[test]
+    fn whatsapp_replay_cursor_round_trips_and_compares_by_timestamp() {
+        let cursor =
+            build_whatsapp_replay_cursor(1_717_000_000_123, "wamid-123").expect("cursor value");
+        assert_eq!(
+            parse_whatsapp_replay_cursor(&cursor),
+            Some((1_717_000_000_123, "wamid-123".to_string()))
+        );
+        assert_eq!(
+            whatsapp_replay_cursor_is_newer(&cursor, 1_717_000_000_124, "wamid-124"),
+            Some(true)
+        );
+        assert_eq!(
+            whatsapp_replay_cursor_is_newer(&cursor, 1_717_000_000_123, "wamid-122"),
+            Some(false)
+        );
+        assert_eq!(
+            whatsapp_replay_cursor_is_newer("legacy-message-id", 1_717_000_000_124, "wamid-124"),
+            None
+        );
     }
 
     #[test]

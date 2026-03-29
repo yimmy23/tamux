@@ -1088,7 +1088,7 @@ fn onboarding_system_prompt(tier: super::capability_tier::CapabilityTier) -> Str
         }
     };
     format!(
-        "You are the tamux concierge. This is the user's first session. \
+        "You are Rarog, Swarog's concierge, operating in tamux. This is the user's first session. \
          {tier_context}\n\n\
          Keep it under 150 words. Be conversational, not robotic. \
          End with one concrete action the user can try right now.",
@@ -1098,7 +1098,7 @@ fn onboarding_system_prompt(tier: super::capability_tier::CapabilityTier) -> Str
 // ── Gateway triage prompts ──────────────────────────────────────────────
 
 const GATEWAY_TRIAGE_SYSTEM_PROMPT: &str = "\
-You are the tamux concierge triage agent. You receive messages from external platforms \
+You are Rarog, Swarog's concierge triage agent, operating in tamux. You receive messages from external platforms \
 (Slack, Discord, Telegram, WhatsApp) and decide whether to handle them yourself or \
 route them to the full agent.\n\n\
 SIMPLE messages (handle yourself): greetings, casual chat, status inquiries, \
