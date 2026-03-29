@@ -1,12 +1,14 @@
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex};
+use tokio::task::JoinHandle;
 
 use crate::history::{HistoryStore, WhatsAppProviderStateRow};
 
@@ -66,6 +68,144 @@ pub struct SidecarLaunchSpec {
 
 pub const WHATSAPP_LINK_PROVIDER_ID: &str = "whatsapp_link";
 
+pub fn normalize_jid_user(jid: &str) -> String {
+    let trimmed = jid.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let with_device = match trimmed.split_once('@') {
+        Some((user, _)) => user,
+        None => trimmed,
+    };
+    match with_device.split_once(':') {
+        Some((user, _)) => user.trim().to_string(),
+        None => with_device.trim().to_string(),
+    }
+}
+
+pub fn normalize_identifier(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let jid_user = normalize_jid_user(trimmed);
+    if !jid_user.is_empty() {
+        return jid_user.trim_start_matches('+').to_string();
+    }
+    trimmed.trim_start_matches('+').to_string()
+}
+
+pub fn collect_normalized_identifiers(values: &[&str]) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    for value in values {
+        let normalized = normalize_identifier(value);
+        if !normalized.is_empty() {
+            ids.insert(normalized);
+        }
+    }
+    ids
+}
+
+pub fn collect_exact_jid_candidates(values: &[&str]) -> Vec<String> {
+    let mut targets = Vec::new();
+    for value in values {
+        push_unique_target(&mut targets, value);
+    }
+    targets
+}
+
+pub fn resolve_send_target_candidates(
+    requested: &str,
+    own_identifiers: &HashSet<String>,
+    own_phone: Option<&str>,
+    own_exact_jids: &[String],
+) -> Vec<String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Vec::new();
+    }
+
+    let requested_user = normalize_identifier(requested);
+    let own_phone = own_phone.map(normalize_identifier).unwrap_or_default();
+    let is_self_target = !requested_user.is_empty() && own_identifiers.contains(&requested_user);
+    let mut targets = Vec::new();
+
+    if is_self_target {
+        for own_jid in own_exact_jids {
+            push_unique_target(&mut targets, own_jid);
+        }
+    }
+
+    push_unique_target(&mut targets, requested);
+
+    if is_self_target && !own_phone.is_empty() {
+        push_unique_target(&mut targets, &format!("{own_phone}@s.whatsapp.net"));
+    }
+
+    if requested.ends_with("@lid") {
+        let lid_user = normalize_jid_user(requested);
+        if lid_user.chars().all(|ch| ch.is_ascii_digit()) && lid_user.len() >= 6 {
+            push_unique_target(&mut targets, &format!("{lid_user}@s.whatsapp.net"));
+        }
+    }
+
+    if requested.ends_with("@s.whatsapp.net") {
+        let pn_user = normalize_jid_user(requested);
+        if pn_user.chars().all(|ch| ch.is_ascii_digit()) && pn_user.len() >= 6 {
+            push_unique_target(&mut targets, &format!("{pn_user}@lid"));
+        }
+    }
+
+    targets
+}
+
+fn push_unique_target(targets: &mut Vec<String>, value: &str) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !targets.iter().any(|target| target == trimmed) {
+        targets.push(trimmed.to_string());
+    }
+}
+
+fn looks_like_raw_pairing_qr_payload(payload: &str) -> bool {
+    let trimmed = payload.trim();
+    if trimmed.is_empty() || trimmed.contains('\n') || trimmed.contains('\r') {
+        return false;
+    }
+
+    let mut parts = trimmed.split(',');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    let Some(second) = parts.next() else {
+        return false;
+    };
+    let Some(third) = parts.next() else {
+        return false;
+    };
+    let Some(fourth) = parts.next() else {
+        return false;
+    };
+
+    parts.next().is_none()
+        && !first.trim().is_empty()
+        && !second.trim().is_empty()
+        && !third.trim().is_empty()
+        && !fourth.trim().is_empty()
+}
+
+fn render_pairing_qr_payload(payload: &str) -> Result<String> {
+    let code = qrcode::QrCode::new(payload.as_bytes())
+        .context("failed to encode whatsapp pairing payload as QR")?;
+    Ok(code
+        .render::<qrcode::render::unicode::Dense1x2>()
+        .quiet_zone(false)
+        .build())
+}
+
+#[allow(dead_code)]
 pub mod transport {
     use super::*;
 
@@ -398,7 +538,101 @@ pub async fn persist_transport_session_update(
     Ok(merged)
 }
 
-#[derive(Debug)]
+#[allow(dead_code)]
+pub async fn apply_transport_event(
+    runtime: &WhatsAppLinkRuntime,
+    history: &HistoryStore,
+    provider_id: &str,
+    event: transport::WhatsAppTransportEvent,
+) -> Result<()> {
+    match event {
+        transport::WhatsAppTransportEvent::Starting => runtime.start().await,
+        transport::WhatsAppTransportEvent::Qr {
+            ascii_qr,
+            expires_at_ms,
+        } => {
+            runtime.broadcast_qr(ascii_qr, expires_at_ms).await;
+            Ok(())
+        }
+        transport::WhatsAppTransportEvent::SessionUpdated(update) => {
+            persist_transport_session_update(history, provider_id, update).await?;
+            Ok(())
+        }
+        transport::WhatsAppTransportEvent::Linked { phone } => {
+            runtime.broadcast_linked(phone).await;
+            Ok(())
+        }
+        transport::WhatsAppTransportEvent::Disconnected { reason } => {
+            runtime.broadcast_disconnected(reason).await;
+            Ok(())
+        }
+        transport::WhatsAppTransportEvent::Error {
+            message,
+            recoverable,
+        } => {
+            runtime.broadcast_error(message, recoverable).await;
+            Ok(())
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn spawn_transport_event_bridge(
+    runtime: Arc<WhatsAppLinkRuntime>,
+    history: HistoryStore,
+    provider_id: String,
+    mut rx: broadcast::Receiver<transport::WhatsAppTransportEvent>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    if let Err(error) =
+                        apply_transport_event(&runtime, &history, &provider_id, event).await
+                    {
+                        runtime
+                            .broadcast_error(
+                                format!("failed to handle whatsapp transport event: {error}"),
+                                false,
+                            )
+                            .await;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    runtime
+                        .broadcast_error(
+                            format!("whatsapp transport event bridge lagged by {skipped} event(s)"),
+                            true,
+                        )
+                        .await;
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
+}
+
+#[allow(dead_code)]
+pub async fn start_transport_bridge<T>(
+    runtime: Arc<WhatsAppLinkRuntime>,
+    history: HistoryStore,
+    transport: Arc<T>,
+) -> Result<JoinHandle<()>>
+where
+    T: transport::WhatsAppTransport + 'static,
+{
+    let provider_id = transport.provider_id();
+    let restored_state = load_persisted_provider_state(&history, provider_id).await?;
+    let rx = transport.subscribe();
+    transport.start(restored_state).await?;
+    Ok(spawn_transport_event_bridge(
+        runtime,
+        history,
+        provider_id.to_string(),
+        rx,
+    ))
+}
+
 struct RuntimeInner {
     state: WhatsAppLinkState,
     phone: Option<String>,
@@ -406,6 +640,8 @@ struct RuntimeInner {
     active_qr: Option<String>,
     active_qr_expires_at_ms: Option<u64>,
     process: Option<Child>,
+    native_client: Option<Arc<wa_rs::Client>>,
+    native_task: Option<JoinHandle<()>>,
     stopping: bool,
     retry_count: u32,
     last_retry_at_ms: Option<u64>,
@@ -436,6 +672,8 @@ impl WhatsAppLinkRuntime {
                 active_qr: None,
                 active_qr_expires_at_ms: None,
                 process: None,
+                native_client: None,
+                native_task: None,
                 stopping: false,
                 retry_count: 0,
                 last_retry_at_ms: None,
@@ -449,34 +687,14 @@ impl WhatsAppLinkRuntime {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let should_broadcast = {
-            let mut inner = self.inner.lock().await;
-            if inner.stopping {
-                bail!("whatsapp link sidecar is stopping");
-            }
-            if matches!(
-                inner.state,
-                WhatsAppLinkState::Starting
-                    | WhatsAppLinkState::QrReady
-                    | WhatsAppLinkState::Connected
-            ) {
-                false
-            } else {
-                inner.state = WhatsAppLinkState::Starting;
-                inner.last_error = None;
-                true
-            }
-        };
-        if should_broadcast {
-            self.broadcast_status().await;
-        }
+        let _ = self.start_if_idle().await?;
         Ok(())
     }
 
     pub async fn stop(&self, reason: Option<String>) -> Result<()> {
         #[cfg(test)]
         let mut forced_stop_kill_error = None::<String>;
-        let mut child = {
+        let (mut child, native_client, native_task) = {
             let mut inner = self.inner.lock().await;
             inner.stopping = true;
             inner.retry_count = 0;
@@ -485,7 +703,11 @@ impl WhatsAppLinkRuntime {
             {
                 forced_stop_kill_error = inner.forced_stop_kill_error.take();
             }
-            inner.process.take()
+            (
+                inner.process.take(),
+                inner.native_client.take(),
+                inner.native_task.take(),
+            )
         };
 
         let kill_result = if let Some(ref mut proc) = child {
@@ -510,11 +732,17 @@ impl WhatsAppLinkRuntime {
             Ok(())
         };
 
+        if let Some(client) = native_client.as_ref() {
+            crate::agent::disconnect_native_whatsapp_client(client, native_task).await;
+        }
+
         match kill_result {
             Ok(()) => {
                 {
                     let mut inner = self.inner.lock().await;
                     inner.process = None;
+                    inner.native_client = None;
+                    inner.native_task = None;
                     inner.stopping = false;
                     inner.last_error = None;
                 }
@@ -527,6 +755,7 @@ impl WhatsAppLinkRuntime {
                 {
                     let mut inner = self.inner.lock().await;
                     inner.process = child;
+                    inner.native_client = native_client;
                     inner.stopping = false;
                     inner.state = WhatsAppLinkState::Error;
                     inner.last_error = Some(message.clone());
@@ -615,6 +844,31 @@ impl WhatsAppLinkRuntime {
         self.subscribers.lock().await.len()
     }
 
+    pub async fn start_if_idle(&self) -> Result<bool> {
+        let should_broadcast = {
+            let mut inner = self.inner.lock().await;
+            if inner.stopping {
+                bail!("whatsapp link transport is stopping");
+            }
+            if matches!(
+                inner.state,
+                WhatsAppLinkState::Starting
+                    | WhatsAppLinkState::QrReady
+                    | WhatsAppLinkState::Connected
+            ) {
+                false
+            } else {
+                inner.state = WhatsAppLinkState::Starting;
+                inner.last_error = None;
+                true
+            }
+        };
+        if should_broadcast {
+            self.broadcast_status().await;
+        }
+        Ok(should_broadcast)
+    }
+
     pub async fn attach_sidecar_process(&self, child: Child) -> Result<()> {
         let (mut incoming, mut previous) = {
             let mut inner = self.inner.lock().await;
@@ -644,9 +898,49 @@ impl WhatsAppLinkRuntime {
         Ok(())
     }
 
+    pub async fn attach_native_client(
+        &self,
+        client: Arc<wa_rs::Client>,
+        run_task: JoinHandle<()>,
+    ) -> Result<()> {
+        let (incoming, previous_process, previous_client, previous_task) = {
+            let mut inner = self.inner.lock().await;
+            if inner.stopping {
+                (Some(client), None, None, Some(run_task))
+            } else {
+                (
+                    None,
+                    inner.process.take(),
+                    inner.native_client.replace(client),
+                    inner.native_task.replace(run_task),
+                )
+            }
+        };
+
+        if let Some(client) = incoming.as_ref() {
+            crate::agent::disconnect_native_whatsapp_client(client, previous_task).await;
+        } else if let Some(client) = previous_client.as_ref() {
+            crate::agent::disconnect_native_whatsapp_client(client, previous_task).await;
+        }
+
+        if let Some(mut process) = previous_process {
+            process
+                .kill()
+                .await
+                .context("failed to replace existing whatsapp sidecar transport")?;
+        }
+
+        Ok(())
+    }
+
     pub async fn has_sidecar_process(&self) -> bool {
         let inner = self.inner.lock().await;
         inner.process.is_some()
+    }
+
+    pub async fn has_native_client(&self) -> bool {
+        let inner = self.inner.lock().await;
+        inner.native_client.is_some()
     }
 
     pub async fn connect_sidecar(&self) -> Result<()> {
@@ -656,14 +950,33 @@ impl WhatsAppLinkRuntime {
 
     pub async fn send_message(&self, jid: &str, text: &str) -> Result<()> {
         let jid = jid.trim();
-        if jid.is_empty() {
+        let targets = resolve_send_target_candidates(jid, &HashSet::new(), None, &[]);
+        let primary_target = targets
+            .first()
+            .map(String::as_str)
+            .unwrap_or(jid);
+        if primary_target.is_empty() {
             bail!("whatsapp send target is empty");
         }
         if text.trim().is_empty() {
             bail!("whatsapp message body is empty");
         }
-        self.send_sidecar_command("send", serde_json::json!({"jid": jid, "text": text}))
-            .await
+        let native_client = {
+            let inner = self.inner.lock().await;
+            inner.native_client.clone()
+        };
+        if let Some(client) = native_client {
+            return crate::agent::send_native_whatsapp_message(&client, &targets, text).await;
+        }
+        self.send_sidecar_command(
+            "send",
+            serde_json::json!({
+                "jid": primary_target,
+                "text": text,
+                "targets": targets,
+            }),
+        )
+        .await
     }
 
     async fn send_sidecar_command(&self, method: &str, params: serde_json::Value) -> Result<()> {
@@ -698,6 +1011,17 @@ impl WhatsAppLinkRuntime {
     }
 
     pub async fn broadcast_qr(&self, ascii_qr: String, expires_at_ms: Option<u64>) {
+        let ascii_qr = if looks_like_raw_pairing_qr_payload(&ascii_qr) {
+            match render_pairing_qr_payload(&ascii_qr) {
+                Ok(rendered) => rendered,
+                Err(error) => {
+                    tracing::warn!(error = %error, "failed to render whatsapp pairing qr payload");
+                    ascii_qr
+                }
+            }
+        } else {
+            ascii_qr
+        };
         let should_emit = {
             let mut inner = self.inner.lock().await;
             if inner.active_qr.as_deref() == Some(ascii_qr.as_str()) {
@@ -942,6 +1266,21 @@ mod tests {
         None
     }
 
+    async fn recv_until_error(
+        rx: &mut broadcast::Receiver<WhatsAppLinkEvent>,
+    ) -> Option<(String, bool)> {
+        for _ in 0..10 {
+            if let Ok(Ok(WhatsAppLinkEvent::Error {
+                message,
+                recoverable,
+            })) = timeout(Duration::from_millis(250), rx.recv()).await
+            {
+                return Some((message, recoverable));
+            }
+        }
+        None
+    }
+
     #[tokio::test]
     async fn start_to_qr_ready_emits_qr_event() {
         let runtime = WhatsAppLinkRuntime::new();
@@ -969,6 +1308,23 @@ mod tests {
             }
         }
         assert_eq!(payloads, vec!["QR-1".to_string(), "QR-2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn raw_pairing_payload_is_rendered_before_broadcast() {
+        let runtime = WhatsAppLinkRuntime::new();
+        let mut rx = runtime.subscribe().await;
+        runtime.start().await.expect("start should succeed");
+
+        let raw_payload = "ref,noise,identity,adv".to_string();
+        runtime.broadcast_qr(raw_payload.clone(), Some(111)).await;
+
+        let rendered = recv_until_qr(&mut rx).await.expect("qr event should arrive");
+        assert_ne!(rendered, raw_payload);
+        assert!(
+            rendered.contains('\n'),
+            "expected a multiline QR block, got {rendered:?}"
+        );
     }
 
     #[tokio::test]
@@ -1024,6 +1380,58 @@ mod tests {
                 .await
                 .expect("load cleared state")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn normalize_identifier_strips_device_and_plus_prefix() {
+        assert_eq!(normalize_jid_user("13383252336718:6@lid"), "13383252336718");
+        assert_eq!(
+            normalize_identifier("+48663977535:6@s.whatsapp.net"),
+            "48663977535"
+        );
+        assert_eq!(normalize_identifier("+48663977535"), "48663977535");
+    }
+
+    #[test]
+    fn resolve_send_target_candidates_prefers_self_exact_jids_and_cross_namespace_fallbacks() {
+        let own_identifiers = collect_normalized_identifiers(&[
+            "48663977535:6@s.whatsapp.net",
+            "13383252336718:6@lid",
+            "+48663977535",
+        ]);
+        let own_exact_jids = collect_exact_jid_candidates(&[
+            "13383252336718:6@lid",
+            "48663977535:6@s.whatsapp.net",
+        ]);
+
+        assert_eq!(
+            resolve_send_target_candidates(
+                "13383252336718@lid",
+                &own_identifiers,
+                Some("+48663977535"),
+                &own_exact_jids,
+            ),
+            vec![
+                "13383252336718:6@lid".to_string(),
+                "48663977535:6@s.whatsapp.net".to_string(),
+                "13383252336718@lid".to_string(),
+                "48663977535@s.whatsapp.net".to_string(),
+                "13383252336718@s.whatsapp.net".to_string(),
+            ]
+        );
+
+        assert_eq!(
+            resolve_send_target_candidates(
+                "48663977535@s.whatsapp.net",
+                &HashSet::new(),
+                None,
+                &[],
+            ),
+            vec![
+                "48663977535@s.whatsapp.net".to_string(),
+                "48663977535@lid".to_string(),
+            ]
         );
     }
 
@@ -1103,6 +1511,159 @@ mod tests {
                 .expect("load merged state"),
             Some(merged)
         );
+    }
+
+    #[tokio::test]
+    async fn apply_transport_event_persists_session_update_and_updates_runtime() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+        let runtime = WhatsAppLinkRuntime::new();
+
+        apply_transport_event(
+            &runtime,
+            &history,
+            WHATSAPP_LINK_PROVIDER_ID,
+            transport::WhatsAppTransportEvent::Starting,
+        )
+        .await
+        .expect("starting event should apply");
+        apply_transport_event(
+            &runtime,
+            &history,
+            WHATSAPP_LINK_PROVIDER_ID,
+            transport::WhatsAppTransportEvent::SessionUpdated(transport::SessionUpdate {
+                linked_phone: Some("+15550000040".to_string()),
+                auth_json: Some("{\"session\":true}".to_string()),
+                metadata_json: Some("{\"device\":\"bridge\"}".to_string()),
+                linked_at: Some(41),
+                updated_at: 42,
+            }),
+        )
+        .await
+        .expect("session update should persist");
+
+        let starting_snapshot = runtime.status_snapshot().await;
+        assert_eq!(starting_snapshot.state, "starting");
+        assert_eq!(
+            load_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID)
+                .await
+                .expect("load persisted state")
+                .as_ref()
+                .and_then(|state| state.linked_phone.as_deref()),
+            Some("+15550000040")
+        );
+
+        apply_transport_event(
+            &runtime,
+            &history,
+            WHATSAPP_LINK_PROVIDER_ID,
+            transport::WhatsAppTransportEvent::Linked {
+                phone: Some("+15550000040".to_string()),
+            },
+        )
+        .await
+        .expect("linked event should update runtime");
+        let connected_snapshot = runtime.status_snapshot().await;
+        assert_eq!(connected_snapshot.state, "connected");
+        assert_eq!(connected_snapshot.phone.as_deref(), Some("+15550000040"));
+    }
+
+    #[tokio::test]
+    async fn start_transport_bridge_restores_state_and_forwards_events() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+        save_persisted_provider_state(
+            &history,
+            WHATSAPP_LINK_PROVIDER_ID,
+            transport::PersistedState {
+                linked_phone: Some("+15550000050".to_string()),
+                auth_json: Some("{\"session\":\"restored\"}".to_string()),
+                metadata_json: Some("{\"device\":\"restored\"}".to_string()),
+                last_reset_at: None,
+                last_linked_at: Some(51),
+                updated_at: 52,
+            },
+        )
+        .await
+        .expect("seed persisted state");
+
+        let runtime = Arc::new(WhatsAppLinkRuntime::new());
+        let transport = Arc::new(transport::ScriptedTransport::new());
+        let mut rx = runtime.subscribe().await;
+
+        let bridge = start_transport_bridge(runtime.clone(), history.clone(), transport.clone())
+            .await
+            .expect("transport bridge should start");
+
+        assert_eq!(
+            transport
+                .restored_state()
+                .await
+                .as_ref()
+                .and_then(|state| state.linked_phone.as_deref()),
+            Some("+15550000050")
+        );
+
+        transport.emit_qr("QR-BRIDGE", Some(60)).await;
+        transport
+            .emit_linked(transport::SessionUpdate {
+                linked_phone: Some("+15550000051".to_string()),
+                auth_json: Some("{\"session\":\"updated\"}".to_string()),
+                metadata_json: Some("{\"device\":\"updated\"}".to_string()),
+                linked_at: Some(61),
+                updated_at: 62,
+            })
+            .await;
+
+        assert_eq!(recv_until_qr(&mut rx).await.as_deref(), Some("QR-BRIDGE"));
+        assert_eq!(
+            recv_until_linked(&mut rx).await.flatten().as_deref(),
+            Some("+15550000051")
+        );
+        assert_eq!(
+            load_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID)
+                .await
+                .expect("load updated persisted state")
+                .as_ref()
+                .and_then(|state| state.linked_phone.as_deref()),
+            Some("+15550000051")
+        );
+
+        bridge.abort();
+    }
+
+    #[tokio::test]
+    async fn transport_event_bridge_surfaces_lag_as_recoverable_error() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+        let runtime = Arc::new(WhatsAppLinkRuntime::new());
+        let (tx, rx) = broadcast::channel(1);
+        let mut runtime_rx = runtime.subscribe().await;
+        let bridge = spawn_transport_event_bridge(
+            runtime.clone(),
+            history,
+            WHATSAPP_LINK_PROVIDER_ID.to_string(),
+            rx,
+        );
+
+        let _ = tx.send(transport::WhatsAppTransportEvent::Starting);
+        let _ = tx.send(transport::WhatsAppTransportEvent::Qr {
+            ascii_qr: "QR-LAGGED".to_string(),
+            expires_at_ms: Some(1),
+        });
+        let (message, recoverable) = recv_until_error(&mut runtime_rx)
+            .await
+            .expect("lagged bridge should emit recoverable error");
+        assert!(recoverable);
+        assert!(message.contains("lagged"));
+
+        bridge.abort();
     }
 
     #[tokio::test]

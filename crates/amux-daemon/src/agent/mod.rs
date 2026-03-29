@@ -64,6 +64,7 @@ mod task_prompt;
 mod task_scheduler;
 mod thread_crud;
 mod tool_synthesis;
+mod whatsapp_native;
 mod whatsapp_link;
 mod work_context;
 
@@ -119,17 +120,19 @@ use self::llm_client::{send_completion_request, ApiContent, ApiMessage, RetryStr
 use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 
-// Public re-exports consumed outside the agent module.
+// Public re-exports consumed by sibling modules in this bin crate.
+#[allow(unused_imports)]
 pub use engine::*;
 pub use task_prompt::load_config_from_history;
 pub(crate) use whatsapp_link::{
-    build_sidecar_launch_spec, clear_persisted_provider_state, load_persisted_provider_state,
-    merge_persisted_state_update,
-    normalize_sidecar_stderr, save_persisted_provider_state, spawn_sidecar,
-    transport::SessionUpdate as WhatsAppSessionUpdate,
-    persist_transport_session_update,
-    transport::PersistedState as WhatsAppPersistedState,
-    WHATSAPP_LINK_PROVIDER_ID,
+    clear_persisted_provider_state, load_persisted_provider_state, merge_persisted_state_update,
+    persist_transport_session_update, save_persisted_provider_state,
+    transport::PersistedState as WhatsAppPersistedState, WHATSAPP_LINK_PROVIDER_ID,
+};
+#[allow(unused_imports)]
+pub(crate) use whatsapp_native::{
+    disconnect_native_whatsapp_client, send_native_whatsapp_message, start_whatsapp_link_native,
+    whatsapp_native_store_path,
 };
 
 #[cfg(test)]
