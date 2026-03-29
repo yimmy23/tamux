@@ -41,6 +41,29 @@ pub struct ThreadContext {
     pub telegram_message_id: Option<i64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GatewayRouteMode {
+    #[default]
+    Rarog,
+    Swarog,
+}
+
+impl GatewayRouteMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rarog => "rarog",
+            Self::Swarog => "swarog",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "swarog" | "main" => Self::Swarog,
+            _ => Self::Rarog,
+        }
+    }
+}
+
 /// State for tracking already-seen messages per platform.
 pub struct GatewayState {
     pub config: GatewayConfig,

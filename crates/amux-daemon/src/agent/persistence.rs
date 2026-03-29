@@ -222,6 +222,19 @@ impl AgentEngine {
             Ok(_) => {}
             Err(e) => tracing::warn!("failed to load gateway thread map from sqlite: {e}"),
         }
+        match self.history.list_gateway_route_modes().await {
+            Ok(modes) if !modes.is_empty() => {
+                let map: HashMap<String, gateway::GatewayRouteMode> = modes
+                    .into_iter()
+                    .map(|(channel_key, route_mode)| {
+                        (channel_key, gateway::GatewayRouteMode::parse(&route_mode))
+                    })
+                    .collect();
+                *self.gateway_route_modes.write().await = map;
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("failed to load gateway route modes from sqlite: {e}"),
+        }
 
         // One-time migration from legacy file persistence to SQLite table.
         let legacy_gateway_threads_path = self.data_dir.join("gateway-threads.json");

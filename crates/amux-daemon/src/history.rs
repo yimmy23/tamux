@@ -2830,6 +2830,55 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn upsert_gateway_route_mode(
+        &self,
+        channel_key: &str,
+        route_mode: &str,
+        updated_at: u64,
+    ) -> Result<()> {
+        let channel_key = channel_key.to_string();
+        let route_mode = route_mode.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO gateway_channel_modes (channel_key, route_mode, updated_at) VALUES (?1, ?2, ?3)",
+                    params![channel_key, route_mode, updated_at as i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn delete_gateway_route_mode(&self, channel_key: &str) -> Result<()> {
+        let channel_key = channel_key.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM gateway_channel_modes WHERE channel_key = ?1",
+                    params![channel_key],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_gateway_route_modes(&self) -> Result<Vec<(String, String)>> {
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT channel_key, route_mode FROM gateway_channel_modes ORDER BY updated_at DESC",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                Ok(rows.filter_map(|r| r.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_whatsapp_provider_state(
         &self,
         state: WhatsAppProviderStateRow,
@@ -3392,6 +3441,13 @@ impl HistoryStore {
                 updated_at  INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_gateway_threads_updated ON gateway_threads(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS gateway_channel_modes (
+                channel_key TEXT PRIMARY KEY,
+                route_mode  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gateway_channel_modes_updated ON gateway_channel_modes(updated_at DESC);
 
             CREATE TABLE IF NOT EXISTS gateway_replay_cursors (
                 platform    TEXT NOT NULL,
@@ -7279,6 +7335,35 @@ mod tests {
         let bindings = store.list_gateway_thread_bindings().await?;
         let map: std::collections::HashMap<String, String> = bindings.into_iter().collect();
         assert_eq!(map.get("Slack:C123").map(String::as_str), Some("thread_c"));
+        assert!(!map.contains_key("Discord:999"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn gateway_route_modes_round_trip() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        store
+            .upsert_gateway_route_mode("Slack:C123", "swarog", 1000)
+            .await?;
+        store
+            .upsert_gateway_route_mode("Discord:999", "rarog", 1100)
+            .await?;
+        store
+            .upsert_gateway_route_mode("Slack:C123", "rarog", 1200)
+            .await?;
+
+        let modes = store.list_gateway_route_modes().await?;
+        let map: std::collections::HashMap<String, String> = modes.into_iter().collect();
+        assert_eq!(map.get("Slack:C123").map(String::as_str), Some("rarog"));
+        assert_eq!(map.get("Discord:999").map(String::as_str), Some("rarog"));
+
+        store.delete_gateway_route_mode("Discord:999").await?;
+        let modes = store.list_gateway_route_modes().await?;
+        let map: std::collections::HashMap<String, String> = modes.into_iter().collect();
+        assert_eq!(map.get("Slack:C123").map(String::as_str), Some("rarog"));
         assert!(!map.contains_key("Discord:999"));
 
         fs::remove_dir_all(root)?;

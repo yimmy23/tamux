@@ -19,6 +19,7 @@ const GATEWAY_TRIAGE_MAX_TOOL_ROUNDS: usize = 3;
 const GATEWAY_TRIAGE_SAFE_TOOL_NAMES: &[&str] = &[
     "search_history",
     "fetch_gateway_history",
+    "message_agent",
     "session_search",
     "agent_query_memory",
     "onecontext_search",
@@ -1221,10 +1222,13 @@ fn gateway_triage_system_prompt() -> String {
          COMPLEX messages (route to agent): code requests, file operations, debugging, \
          multi-step tasks, technical analysis, project work, or anything needing tools beyond the provided safe set.\n\n\
          If the user asks about prior context you do not already have, use the safe tools first instead of saying you cannot access it.\n\
+         If the user asks specifically about {} or asks you to check with {} instead of answering from your own perspective, call `message_agent` targeting `swarog` and base the reply on that result.\n\
          If SIMPLE: respond with [SIMPLE] followed by your concise, friendly reply.\n\
          If COMPLEX: respond with just [COMPLEX].\n\
          Be fast. Keep simple replies concise and natural. Never hallucinate tool usage.",
         CONCIERGE_AGENT_NAME,
+        MAIN_AGENT_NAME,
+        MAIN_AGENT_NAME,
         MAIN_AGENT_NAME,
     )
 }
@@ -1924,7 +1928,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_triage_safe_tools_only_include_read_only_lookup_tools() {
+    fn gateway_triage_safe_tools_include_lookup_and_agent_coordination_tools() {
         let mut config = AgentConfig::default();
         config.tools.web_search = true;
         config.enable_honcho_memory = true;
@@ -1945,6 +1949,7 @@ mod tests {
                 "agent_query_memory",
                 "onecontext_search",
                 "web_search",
+                "message_agent",
             ]
         );
     }

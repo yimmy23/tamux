@@ -430,6 +430,7 @@ mod tests {
             gateway_discord_channels: RwLock::new(Vec::new()),
             gateway_slack_channels: RwLock::new(Vec::new()),
             gateway_threads: RwLock::new(gateway_threads),
+            gateway_route_modes: RwLock::new(HashMap::new()),
             gateway_seen_ids: Mutex::new(Vec::new()),
             gateway_inflight_channels: Mutex::new(HashSet::new()),
             gateway_injected_messages: Mutex::new(VecDeque::new()),

@@ -95,6 +95,8 @@ pub struct AgentEngine {
     pub gateway_slack_channels: RwLock<Vec<String>>,
     /// Maps gateway channel IDs to daemon thread IDs for conversation continuity.
     pub gateway_threads: RwLock<HashMap<String, String>>,
+    /// Sticky agent route per gateway channel.
+    pub gateway_route_modes: RwLock<HashMap<String, gateway::GatewayRouteMode>>,
     /// Recently-seen gateway message IDs for deduplication (capped ring buffer).
     pub gateway_seen_ids: Mutex<Vec<String>>,
     /// Channels currently being processed — prevents concurrent dispatch to the same channel.
@@ -223,6 +225,7 @@ impl AgentEngine {
             gateway_discord_channels: RwLock::new(Vec::new()),
             gateway_slack_channels: RwLock::new(Vec::new()),
             gateway_threads: RwLock::new(HashMap::new()),
+            gateway_route_modes: RwLock::new(HashMap::new()),
             gateway_seen_ids: Mutex::new(Vec::new()),
             gateway_inflight_channels: Mutex::new(HashSet::new()),
             gateway_injected_messages: Mutex::new(VecDeque::new()),

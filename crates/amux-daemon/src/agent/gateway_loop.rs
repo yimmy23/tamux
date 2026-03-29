@@ -8,6 +8,139 @@ fn is_gateway_reset_command(trimmed_lower: &str) -> bool {
     matches!(trimmed_lower, "!reset" | "!new")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GatewayRouteRequest {
+    mode: gateway::GatewayRouteMode,
+    ack_only: bool,
+}
+
+fn gateway_switch_command(trimmed_lower: &str) -> Option<gateway::GatewayRouteMode> {
+    match trimmed_lower {
+        "!swarog" | "!main" => Some(gateway::GatewayRouteMode::Swarog),
+        "!rarog" | "!concierge" => Some(gateway::GatewayRouteMode::Rarog),
+        _ => None,
+    }
+}
+
+fn classify_gateway_route_request(content: &str) -> Option<GatewayRouteRequest> {
+    let trimmed = content.trim();
+    let trimmed_lower = trimmed.to_ascii_lowercase();
+    if let Some(mode) = gateway_switch_command(&trimmed_lower) {
+        return Some(GatewayRouteRequest {
+            mode,
+            ack_only: true,
+        });
+    }
+
+    let normalized = trimmed_lower
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let exact_swarog = [
+        "switch to swarog",
+        "talk to swarog",
+        "connect me to swarog",
+        "put swarog on",
+        "use swarog",
+        "hand me to swarog",
+        "route me to swarog",
+        "switch me to swarog",
+        "i want swarog",
+    ];
+    let exact_rarog = [
+        "switch to rarog",
+        "switch back to rarog",
+        "switch back to concierge",
+        "talk to rarog",
+        "connect me to rarog",
+        "put rarog on",
+        "use rarog",
+        "hand me back to rarog",
+        "route me to rarog",
+        "switch me to rarog",
+        "i want rarog",
+    ];
+    if exact_swarog.contains(&normalized.as_str()) {
+        return Some(GatewayRouteRequest {
+            mode: gateway::GatewayRouteMode::Swarog,
+            ack_only: true,
+        });
+    }
+    if exact_rarog.contains(&normalized.as_str()) {
+        return Some(GatewayRouteRequest {
+            mode: gateway::GatewayRouteMode::Rarog,
+            ack_only: true,
+        });
+    }
+
+    let swarog_phrases = [
+        "switch to swarog",
+        "switch me to swarog",
+        "talk to swarog",
+        "let swarog handle",
+        "have swarog handle",
+        "route this to swarog",
+        "swarog take over",
+        "swarog, take over",
+    ];
+    if swarog_phrases
+        .iter()
+        .any(|phrase| normalized.contains(phrase))
+    {
+        return Some(GatewayRouteRequest {
+            mode: gateway::GatewayRouteMode::Swarog,
+            ack_only: false,
+        });
+    }
+
+    let rarog_phrases = [
+        "switch to rarog",
+        "switch back to rarog",
+        "switch back to concierge",
+        "talk to rarog",
+        "let rarog handle",
+        "have rarog handle",
+        "route this to rarog",
+        "rarog take this back",
+        "rarog, take this back",
+    ];
+    if rarog_phrases
+        .iter()
+        .any(|phrase| normalized.contains(phrase))
+    {
+        return Some(GatewayRouteRequest {
+            mode: gateway::GatewayRouteMode::Rarog,
+            ack_only: false,
+        });
+    }
+
+    None
+}
+
+fn gateway_route_confirmation(mode: gateway::GatewayRouteMode) -> String {
+    match mode {
+        gateway::GatewayRouteMode::Swarog => format!(
+            "Switched this channel to {}. I will keep routing here to {} until you ask for {} back.",
+            MAIN_AGENT_NAME, MAIN_AGENT_NAME, CONCIERGE_AGENT_NAME
+        ),
+        gateway::GatewayRouteMode::Rarog => format!(
+            "Switched this channel back to {}. I will keep routing here to {} until you ask for {}.",
+            CONCIERGE_AGENT_NAME, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME
+        ),
+    }
+}
+
+fn gateway_reply_args(platform: &str, channel: &str, message: &str) -> serde_json::Value {
+    match platform {
+        "Discord" => serde_json::json!({"channel_id": channel, "message": message}),
+        "Slack" => serde_json::json!({"channel": channel, "message": message}),
+        "Telegram" => serde_json::json!({"chat_id": channel, "message": message}),
+        "WhatsApp" => serde_json::json!({"phone": channel, "message": message}),
+        _ => serde_json::json!({"message": message}),
+    }
+}
+
 const GATEWAY_TRIAGE_TIMEOUT_SECS: u64 = 12;
 const GATEWAY_AGENT_TIMEOUT_SECS: u64 = 120;
 
@@ -1285,12 +1418,16 @@ impl AgentEngine {
             let trimmed = msg.content.trim().to_lowercase();
             if is_gateway_reset_command(&trimmed) {
                 self.gateway_threads.write().await.remove(&channel_key);
+                self.gateway_route_modes.write().await.remove(&channel_key);
                 if let Err(error) = self
                     .history
                     .delete_gateway_thread_binding(&channel_key)
                     .await
                 {
                     tracing::warn!(channel_key = %channel_key, %error, "gateway: failed to persist reset binding");
+                }
+                if let Err(error) = self.history.delete_gateway_route_mode(&channel_key).await {
+                    tracing::warn!(channel_key = %channel_key, %error, "gateway: failed to persist reset route mode");
                 }
                 tracing::info!(channel_key = %channel_key, "gateway: conversation reset");
 
@@ -1341,6 +1478,63 @@ impl AgentEngine {
                 ),
             };
 
+            let route_request = classify_gateway_route_request(&msg.content);
+            if let Some(request) = route_request {
+                self.gateway_route_modes
+                    .write()
+                    .await
+                    .insert(channel_key.clone(), request.mode);
+                if let Err(error) = self
+                    .history
+                    .upsert_gateway_route_mode(&channel_key, request.mode.as_str(), now_millis())
+                    .await
+                {
+                    tracing::warn!(channel_key = %channel_key, %error, "gateway: failed to persist route mode");
+                }
+
+                if request.ack_only {
+                    let response_text = gateway_route_confirmation(request.mode);
+                    let auto_tool = ToolCall {
+                        id: format!("gateway_route_{}", uuid::Uuid::new_v4()),
+                        function: ToolFunction {
+                            name: reply_tool_name.to_string(),
+                            arguments: gateway_reply_args(
+                                &msg.platform,
+                                &msg.channel,
+                                &response_text,
+                            )
+                            .to_string(),
+                        },
+                    };
+                    let tool_result = tool_executor::execute_tool(
+                        &auto_tool,
+                        self,
+                        "",
+                        None,
+                        &self.session_manager,
+                        None,
+                        &self.event_tx,
+                        &self.data_dir,
+                        &self.http_client,
+                        None,
+                    )
+                    .await;
+                    if tool_result.is_error {
+                        tracing::error!(
+                            platform = %msg.platform,
+                            channel = %msg.channel,
+                            error = %tool_result.content,
+                            "gateway: failed to send route switch confirmation"
+                        );
+                    }
+                    self.gateway_inflight_channels
+                        .lock()
+                        .await
+                        .remove(&channel_key);
+                    continue;
+                }
+            }
+
             let prompt = format!(
                 "[{platform} message from {sender}]: {content}\n\n\
                  Recent channel history is auto-injected for continuity. \
@@ -1369,6 +1563,16 @@ impl AgentEngine {
             });
 
             let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
+            let route_mode = if let Some(request) = route_request {
+                request.mode
+            } else {
+                self.gateway_route_modes
+                    .read()
+                    .await
+                    .get(&channel_key)
+                    .copied()
+                    .unwrap_or_default()
+            };
             let history_window = if let Some(ref tid) = existing_thread {
                 match self.history.list_recent_messages(tid, 10).await {
                     Ok(messages) if !messages.is_empty() => {
@@ -1395,94 +1599,92 @@ impl AgentEngine {
                 None
             };
 
-            // Triage via concierge — simple messages get a direct response,
-            // complex ones fall through to the full agent loop.
-            let triage = match tokio::time::timeout(
-                std::time::Duration::from_secs(GATEWAY_TRIAGE_TIMEOUT_SECS),
-                self.concierge.triage_gateway_message(
-                    self,
-                    &msg.platform,
-                    &msg.sender,
-                    &msg.content,
-                    history_window.as_deref(),
-                    existing_thread.as_deref(),
-                    &self.threads,
-                    &self.tasks,
-                ),
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    tracing::warn!(
-                        platform = %msg.platform,
-                        channel = %msg.channel,
-                        timeout_secs = GATEWAY_TRIAGE_TIMEOUT_SECS,
-                        "gateway: concierge triage timed out; falling back to full agent loop"
-                    );
-                    concierge::GatewayTriage::Complex
-                }
-            };
-
-            match triage {
-                concierge::GatewayTriage::Simple(response_text) => {
-                    tracing::info!(
-                        platform = %msg.platform,
-                        sender = %msg.sender,
-                        "gateway: concierge handled simple message"
-                    );
-                    let auto_args = match msg.platform.as_str() {
-                        "Discord" => {
-                            serde_json::json!({"channel_id": msg.channel, "message": response_text})
-                        }
-                        "Slack" => {
-                            serde_json::json!({"channel": msg.channel, "message": response_text})
-                        }
-                        "Telegram" => {
-                            serde_json::json!({"chat_id": msg.channel, "message": response_text})
-                        }
-                        "WhatsApp" => {
-                            serde_json::json!({"phone": msg.channel, "message": response_text})
-                        }
-                        _ => serde_json::json!({"message": response_text}),
-                    };
-                    let auto_tool = ToolCall {
-                        id: format!("concierge_{}", uuid::Uuid::new_v4()),
-                        function: ToolFunction {
-                            name: reply_tool_name.to_string(),
-                            arguments: auto_args.to_string(),
-                        },
-                    };
-                    let tool_result = tool_executor::execute_tool(
-                        &auto_tool,
+            if route_mode == gateway::GatewayRouteMode::Rarog {
+                // Triage via concierge — simple messages get a direct response,
+                // complex ones fall through to the full agent loop.
+                let triage = match tokio::time::timeout(
+                    std::time::Duration::from_secs(GATEWAY_TRIAGE_TIMEOUT_SECS),
+                    self.concierge.triage_gateway_message(
                         self,
-                        "",
-                        None,
-                        &self.session_manager,
-                        None,
-                        &self.event_tx,
-                        &self.data_dir,
-                        &self.http_client,
-                        None,
-                    )
-                    .await;
-                    if tool_result.is_error {
-                        tracing::error!(
+                        &msg.platform,
+                        &msg.sender,
+                        &msg.content,
+                        history_window.as_deref(),
+                        existing_thread.as_deref(),
+                        &self.threads,
+                        &self.tasks,
+                    ),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => {
+                        tracing::warn!(
                             platform = %msg.platform,
                             channel = %msg.channel,
-                            error = %tool_result.content,
-                            "gateway: failed to send concierge simple response"
+                            timeout_secs = GATEWAY_TRIAGE_TIMEOUT_SECS,
+                            "gateway: concierge triage timed out; falling back to full agent loop"
                         );
+                        concierge::GatewayTriage::Complex
                     }
-                    self.gateway_inflight_channels
-                        .lock()
-                        .await
-                        .remove(&channel_key);
-                    continue;
+                };
+
+                match triage {
+                    concierge::GatewayTriage::Simple(response_text) => {
+                        tracing::info!(
+                            platform = %msg.platform,
+                            sender = %msg.sender,
+                            "gateway: concierge handled simple message"
+                        );
+                        let auto_tool = ToolCall {
+                            id: format!("concierge_{}", uuid::Uuid::new_v4()),
+                            function: ToolFunction {
+                                name: reply_tool_name.to_string(),
+                                arguments: gateway_reply_args(
+                                    &msg.platform,
+                                    &msg.channel,
+                                    &response_text,
+                                )
+                                .to_string(),
+                            },
+                        };
+                        let tool_result = tool_executor::execute_tool(
+                            &auto_tool,
+                            self,
+                            "",
+                            None,
+                            &self.session_manager,
+                            None,
+                            &self.event_tx,
+                            &self.data_dir,
+                            &self.http_client,
+                            None,
+                        )
+                        .await;
+                        if tool_result.is_error {
+                            tracing::error!(
+                                platform = %msg.platform,
+                                channel = %msg.channel,
+                                error = %tool_result.content,
+                                "gateway: failed to send concierge simple response"
+                            );
+                        }
+                        self.gateway_inflight_channels
+                            .lock()
+                            .await
+                            .remove(&channel_key);
+                        continue;
+                    }
+                    concierge::GatewayTriage::Complex => {
+                        // Fall through to full agent loop below
+                    }
                 }
-                concierge::GatewayTriage::Complex => {
-                    // Fall through to full agent loop below
-                }
+            } else {
+                tracing::info!(
+                    platform = %msg.platform,
+                    channel = %msg.channel,
+                    "gateway: sticky route is set to Swarog; bypassing concierge triage"
+                );
             }
 
             let enriched_prompt = if let Some(window) = history_window {
@@ -1677,6 +1879,49 @@ mod tests {
         assert!(!is_gateway_reset_command("reset"));
         assert!(!is_gateway_reset_command("new"));
         assert!(!is_gateway_reset_command("!renew"));
+    }
+
+    #[test]
+    fn gateway_route_requests_support_commands_and_natural_language() {
+        assert_eq!(
+            classify_gateway_route_request("!swarog"),
+            Some(GatewayRouteRequest {
+                mode: gateway::GatewayRouteMode::Swarog,
+                ack_only: true,
+            })
+        );
+        assert_eq!(
+            classify_gateway_route_request("switch to swarog"),
+            Some(GatewayRouteRequest {
+                mode: gateway::GatewayRouteMode::Swarog,
+                ack_only: true,
+            })
+        );
+        assert_eq!(
+            classify_gateway_route_request("switch to swarog and take over this channel"),
+            Some(GatewayRouteRequest {
+                mode: gateway::GatewayRouteMode::Swarog,
+                ack_only: false,
+            })
+        );
+        assert_eq!(
+            classify_gateway_route_request("switch back to rarog"),
+            Some(GatewayRouteRequest {
+                mode: gateway::GatewayRouteMode::Rarog,
+                ack_only: true,
+            })
+        );
+        assert_eq!(
+            classify_gateway_route_request("rarog, take this back and answer directly"),
+            Some(GatewayRouteRequest {
+                mode: gateway::GatewayRouteMode::Rarog,
+                ack_only: false,
+            })
+        );
+        assert_eq!(
+            classify_gateway_route_request("what does swarog think?"),
+            None
+        );
     }
 
     #[tokio::test]
