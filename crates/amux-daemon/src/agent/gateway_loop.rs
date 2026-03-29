@@ -141,6 +141,12 @@ pub(crate) async fn process_replay_result(
                                 "replay: cursor persist failed: {e}"
                             );
                         }
+                        update_in_memory_replay_cursor(
+                            platform,
+                            gw,
+                            &env.channel_id,
+                            &env.cursor_value,
+                        );
                     }
                     Some(ReplayMessageClassification::Accepted) => {
                         if let Some(ref mid) = env.message.message_id {
@@ -181,6 +187,45 @@ pub(crate) async fn process_replay_result(
 }
 
 impl AgentEngine {
+    /// Apply a batch of pre-fetched replay results across one or more platforms,
+    /// updating the shared `gateway_seen_ids` ring buffer with the IDs of every
+    /// accepted message so that the live-path duplicate check sees them.
+    ///
+    /// `platform_results` is a list of `(platform_name, ReplayFetchResult)` pairs
+    /// collected by the caller before holding the gateway-state lock.  Completed
+    /// platforms are removed from `gw.replay_cycle_active`.
+    ///
+    /// Returns the accumulated messages to prepend to the live queue.
+    pub(crate) async fn apply_replay_results(
+        &self,
+        platform_results: Vec<(String, gateway::ReplayFetchResult)>,
+        gw: &mut gateway::GatewayState,
+    ) -> Vec<gateway::IncomingMessage> {
+        let mut seen_ids_snap = self.gateway_seen_ids.lock().await.clone();
+        let mut replay_msgs: Vec<gateway::IncomingMessage> = Vec::new();
+
+        for (platform, result) in platform_results {
+            let (msgs, completed) =
+                process_replay_result(&self.history, &platform, result, gw, &mut seen_ids_snap)
+                    .await;
+            if completed {
+                gw.replay_cycle_active.remove(platform.as_str());
+                tracing::info!(
+                    platform = %platform,
+                    replay_count = msgs.len(),
+                    "gateway: replay cycle complete"
+                );
+            }
+            replay_msgs.extend(msgs);
+        }
+
+        // Write the updated snapshot back to the shared ring buffer so that
+        // live-path deduplication sees all IDs from this replay cycle.
+        *self.gateway_seen_ids.lock().await = seen_ids_snap;
+
+        replay_msgs
+    }
+
     pub async fn enqueue_gateway_message(&self, msg: gateway::IncomingMessage) -> Result<()> {
         let enabled = {
             let guard = self.gateway_state.lock().await;
@@ -1116,6 +1161,11 @@ impl AgentEngine {
                     replay_msgs.extend(msgs);
                 }
 
+                // Bug 1 fix: write the updated seen-IDs snapshot back to the
+                // shared ring buffer so that live-path deduplication sees all
+                // IDs that were accepted during this replay cycle.
+                *self.gateway_seen_ids.lock().await = seen_ids_snap;
+
                 // Prepend replay messages so they are processed before live messages.
                 if !replay_msgs.is_empty() {
                     replay_msgs.extend(std::mem::take(&mut incoming));
@@ -1905,7 +1955,12 @@ mod tests {
     }
 
     /// Duplicate messages advance the persisted cursor even though they are not
-    /// routed to the agent.
+    /// routed to the agent.  Also verifies that the in-memory replay cursor is
+    /// updated for duplicate/filtered classifications (Bug 2 regression).
+    ///
+    /// Uses a batch that is entirely duplicate/filtered with no accepted message
+    /// following — if in-memory cursor update is missing for Duplicate/Filtered,
+    /// `gw.telegram_replay_cursor` stays `None` after the batch.
     #[tokio::test]
     async fn classified_duplicate_or_filtered_message_advances_cursor() {
         let root = make_test_root("replay-cursor-advance");
@@ -1916,14 +1971,16 @@ mod tests {
             make_replay_gateway_config(),
             reqwest::Client::new(),
         );
-        // Pre-seed one seen ID so it will be classified as a duplicate.
-        let mut seen_ids = vec!["tg:1001".to_string()];
+        // Pre-seed two seen IDs so both envelopes are classified as duplicates.
+        let mut seen_ids = vec!["tg:1001".to_string(), "tg:1002".to_string()];
+        // Start with no in-memory cursor so the effect of the fix is visible.
+        assert!(gw.telegram_replay_cursor.is_none());
 
         let result = super::gateway::ReplayFetchResult::Replay(vec![
             // Duplicate (already in seen_ids)
             make_telegram_replay_envelope_with_id("102", "tg:1001", "777", "dup text", "alice"),
-            // Accepted (new)
-            make_telegram_replay_envelope_with_id("103", "tg:1003", "777", "new text", "bob"),
+            // Another duplicate — no accepted message follows
+            make_telegram_replay_envelope_with_id("103", "tg:1002", "777", "dup text 2", "alice"),
         ]);
 
         let (messages, completed) = super::process_replay_result(
@@ -1936,10 +1993,9 @@ mod tests {
         .await;
 
         assert!(completed);
-        assert_eq!(messages.len(), 1, "only the new message accepted");
+        assert_eq!(messages.len(), 0, "no messages routed — all duplicates");
 
-        // Both the duplicate (102) and the accepted message (103) should have
-        // advanced the cursor; the latest persisted value should be "103".
+        // Both duplicates should have advanced the DB cursor to "103".
         let row = engine
             .history
             .load_gateway_replay_cursor("telegram", "global")
@@ -1948,7 +2004,66 @@ mod tests {
         assert_eq!(
             row.map(|r| r.cursor_value).as_deref(),
             Some("103"),
-            "cursor advanced past duplicate to latest accepted value"
+            "DB cursor advanced past duplicates"
+        );
+
+        // Bug 2 regression: in-memory cursor must be updated even when every
+        // envelope is Duplicate/Filtered (not just when an Accepted follows).
+        // Before the fix this assertion fails because update_in_memory_replay_cursor
+        // was only called for the Accepted branch.
+        assert_eq!(
+            gw.telegram_replay_cursor,
+            Some(103),
+            "in-memory replay cursor must be updated for duplicate/filtered envelopes"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// Replayed accepted messages must be written back to the shared
+    /// `engine.gateway_seen_ids` ring buffer so that live-path deduplication
+    /// sees them (Bug 1 regression).
+    ///
+    /// This test calls `apply_replay_results` — the production method that owns
+    /// both the replay processing and the write-back.  If the write-back is
+    /// removed from that method the final assertion will fail, proving the test
+    /// catches the bug.
+    #[tokio::test]
+    async fn replay_accepted_messages_propagate_to_shared_seen_ids() {
+        let root = make_test_root("replay-shared-seen-ids");
+        let manager = SessionManager::new_test(&root).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), &root).await;
+
+        // Shared ring-buffer starts empty.
+        assert!(engine.gateway_seen_ids.lock().await.is_empty());
+
+        let mut gw = super::gateway::GatewayState::new(
+            make_replay_gateway_config(),
+            reqwest::Client::new(),
+        );
+
+        let result = super::gateway::ReplayFetchResult::Replay(vec![
+            make_telegram_replay_envelope("201", "777", "first replayed msg", "alice"),
+            make_telegram_replay_envelope("202", "777", "second replayed msg", "bob"),
+        ]);
+
+        let messages = engine
+            .apply_replay_results(vec![("telegram".to_string(), result)], &mut gw)
+            .await;
+
+        assert_eq!(messages.len(), 2, "both messages accepted");
+
+        // Bug 1 regression: shared gateway_seen_ids must reflect IDs from the
+        // replay so that a live message with the same ID is detected as a
+        // duplicate and not re-routed to the agent.
+        let seen = engine.gateway_seen_ids.lock().await;
+        assert!(
+            seen.contains(&"tg:201".to_string()),
+            "tg:201 must be in shared seen_ids after replay"
+        );
+        assert!(
+            seen.contains(&"tg:202".to_string()),
+            "tg:202 must be in shared seen_ids after replay"
         );
 
         fs::remove_dir_all(&root).ok();
