@@ -45,6 +45,11 @@ test("whatsapp bridge treats 405/connection failure as terminal relink", () => {
 });
 
 test("whatsapp bridge emits structured diagnostics and textual QR payload", () => {
+  assert.match(bridgeSrc, /const protocolStdoutWrite = process\.stdout\.write\.bind\(process\.stdout\)/);
+  assert.match(bridgeSrc, /for \(const method of \['log', 'info', 'warn', 'error', 'debug'\]\)/);
+  assert.match(bridgeSrc, /process\.stderr\.write\(`\[wa-sidecar:/);
+  assert.match(bridgeSrc, /process\.stdout\.write = \(chunk, encoding, callback\) =>/);
+  assert.match(bridgeSrc, /\[wa-sidecar:stdout-noise\]/);
   assert.match(bridgeSrc, /sendEvent\('trace', \{ phase, \.\.\.extra \}\)/);
   assert.match(bridgeSrc, /fetchLatestBaileysVersion:\s*mod\.fetchLatestBaileysVersion/);
   assert.match(bridgeSrc, /const \{ version \} = await fetchLatestBaileysVersion\(\)/);
@@ -57,4 +62,28 @@ test("whatsapp bridge emits structured diagnostics and textual QR payload", () =
   assert.match(bridgeSrc, /sendEvent\('qr', \{\s*ascii_qr:\s*asciiQr,\s*data_url:\s*dataUrl,/);
   assert.match(bridgeSrc, /browser:\s*Browsers\.ubuntu\('Chrome'\)/);
   assert.match(bridgeSrc, /reconnect_data:\s*reconnectData/);
+});
+
+test("whatsapp bridge processes notify and append upsert types", () => {
+  assert.match(bridgeSrc, /if \(m\.type !== 'notify' && m\.type !== 'append'\)/);
+});
+
+test("whatsapp bridge emits ingress diagnostics for upserts and fromMe skips", () => {
+  assert.match(bridgeSrc, /emitTrace\('messages_upsert_received'/);
+  assert.match(bridgeSrc, /emitTrace\('message_skipped_from_me'/);
+  assert.match(bridgeSrc, /emitTrace\('message_from_me_self_chat_allowed'/);
+  assert.match(bridgeSrc, /emitTrace\('outbound_message_recorded'/);
+  assert.match(bridgeSrc, /emitTrace\('outbound_send_attempt'/);
+  assert.match(bridgeSrc, /emitTrace\('outbound_send_success'/);
+  assert.match(bridgeSrc, /emitTrace\('outbound_send_failed'/);
+  assert.match(bridgeSrc, /emitTrace\('outbound_message_update'/);
+  assert.match(bridgeSrc, /emitTrace\('outbound_message_receipt_update'/);
+  assert.match(bridgeSrc, /const knownOutboundEcho = isRecentOutboundMessageId\(messageId\)/);
+  assert.match(bridgeSrc, /if \(knownOutboundEcho \|\| !selfChat\)/);
+  assert.match(bridgeSrc, /function collectOwnIdentifiers\(/);
+  assert.match(bridgeSrc, /function isSelfChatRemoteJid\(remoteJid, participantJid\)/);
+  assert.match(bridgeSrc, /function resolveSendJidCandidates\(jid\)/);
+  assert.match(bridgeSrc, /if \(requested\.endsWith\('@lid'\)\)/);
+  assert.match(bridgeSrc, /participant:\s*participantJid/);
+  assert.match(bridgeSrc, /own_ids:\s*Array\.from\(collectOwnIdentifiers\(\)\)/);
 });

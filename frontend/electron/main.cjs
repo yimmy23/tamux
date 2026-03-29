@@ -32,8 +32,6 @@ let dbBridge = null;
 let pendingOpenAICodexAuth = null;
 // Module-level reference to sendAgentCommand (set during registerIpcHandlers)
 let sendAgentCommandFn = null;
-// Track the active daemon thread ID for routing gateway messages
-let activeDaemonThreadId = null;
 
 // ---------------------------------------------------------------------------
 // WhatsApp bridge sidecar management (legacy fallback only)
@@ -3843,11 +3841,10 @@ function registerIpcHandlers() {
         if (!target || !message) {
             return { ok: false, error: 'whatsapp-send requires jid and text' };
         }
-        return await handleAgentGatewaySend({
-            platform: 'whatsapp',
-            target,
-            message,
-        });
+        return {
+            ok: false,
+            error: 'whatsapp-send is disabled in Electron; daemon gateway messaging is authoritative',
+        };
     });
 
     // -----------------------------------------------------------------
@@ -4090,19 +4087,6 @@ function registerIpcHandlers() {
                     continue;
                 }
 
-                // Track daemon thread ID for gateway message routing
-                if (event.type === 'thread_created' && event.thread_id) {
-                    activeDaemonThreadId = event.thread_id;
-                }
-
-                // Handle gateway_send events — execute the actual send
-                if (event.type === 'gateway_send') {
-                    handleAgentGatewaySend(event).catch((err) => {
-                        logToFile('warn', 'agent gateway send failed', { error: err.message, event });
-                    });
-                    continue;
-                }
-
                 // Agent events (delta, done, tool_call, etc.) — forward to renderer
                 if (event.type === 'concierge_welcome') {
                     logToFile('info', '[concierge] forwarding concierge_welcome to renderer', { contentLen: event.content?.length, actionsLen: event.actions?.length });
@@ -4228,62 +4212,6 @@ function registerIpcHandlers() {
         return dbBridge;
     }
 
-    async function handleAgentGatewaySend(event) {
-        let gateway = {};
-        try {
-            const config = await sendAgentQuery({ type: 'get-config' }, 'config');
-            gateway = config?.gateway ?? {};
-        } catch (err) {
-            logToFile('warn', 'agent gateway: cannot load daemon gateway config', {
-                error: err?.message ?? String(err),
-            });
-            return;
-        }
-
-        const { platform, target, message } = event;
-
-        switch (platform) {
-            case 'slack': {
-                const token = gateway.slack_token || '';
-                if (!token) { logToFile('warn', 'agent gateway: no Slack token configured'); return; }
-                await sendSlackMessage(null, { token, channelId: target, message });
-                break;
-            }
-            case 'discord': {
-                const token = gateway.discord_token || '';
-                if (!token) { logToFile('warn', 'agent gateway: no Discord token configured'); return; }
-                await sendDiscordMessage(null, { token, channelId: target, message });
-                break;
-            }
-            case 'telegram': {
-                const token = gateway.telegram_token || '';
-                if (!token) { logToFile('warn', 'agent gateway: no Telegram token configured'); return; }
-                await sendTelegramMessage(null, { token, chatId: target, message });
-                break;
-            }
-            case 'whatsapp': {
-                try {
-                    const config = await sendAgentQuery({ type: 'get-config' }, 'config');
-                    if (isWhatsAppElectronFallbackEnabled(config)) {
-                        if (!whatsappProcess) {
-                            throw new Error('WhatsApp bridge not running');
-                        }
-                        await whatsappRpc('send', { jid: target, text: message });
-                        return { ok: true };
-                    }
-                    return {
-                        ok: false,
-                        error: 'WhatsApp send is only available when gateway.whatsapp_link_fallback_electron is true',
-                    };
-                } catch (err) {
-                    logToFile('warn', 'agent gateway: WhatsApp send failed', { error: err.message });
-                    return { ok: false, error: err.message };
-                }
-                break;
-            }
-        }
-    }
-
     function sendAgentCommand(command) {
         const bridge = ensureAgentBridge();
         if (!bridge || bridge.process.killed || !bridge.process.stdin.writable) {
@@ -4300,7 +4228,7 @@ function registerIpcHandlers() {
         return responseType === eventType;
     }
 
-    // Expose to module scope for gateway message forwarding
+    // Expose to module scope for lifecycle hooks (e.g. WhatsApp unsubscribe on quit)
     sendAgentCommandFn = sendAgentCommand;
 
     function sendAgentQuery(command, responseType, timeoutMs = 5000) {
@@ -4961,90 +4889,6 @@ app.whenReady().then(async () => {
     registerIpcHandlers();
     await spawnDaemon();
     createWindow();
-
-    // Hook gateway message forwarding to agent after window is created.
-    // Incoming Slack/Discord/Telegram/WhatsApp messages are forwarded to
-    // the daemon agent so it can respond autonomously.
-    if (mainWindow) {
-        const origSend = mainWindow.webContents.send.bind(mainWindow.webContents);
-        mainWindow.webContents.send = function (channel, ...args) {
-            origSend(channel, ...args);
-
-            const gatewayChannels = {
-                'slack-message': (d) => ({ platform: 'Slack', sender: d.username || d.userId || 'unknown', content: d.content }),
-                'telegram-message': (d) => ({ platform: 'Telegram', sender: d.username || String(d.userId || ''), content: d.content }),
-                'discord-message': (d) => ({ platform: 'Discord', sender: d.authorName || d.authorId || 'unknown', content: d.content }),
-                'whatsapp-message': (d) => ({ platform: 'WhatsApp', sender: d.sender || d.jid || 'unknown', content: d.content || d.text || '' }),
-            };
-
-            const extractor = gatewayChannels[channel];
-            if (extractor && args[0]) {
-                try {
-                    const { platform, sender, content } = extractor(args[0]);
-                    if (content && sendAgentCommandFn) {
-                        // Route to the active daemon thread so the
-                        // response appears in the current chat
-                        sendAgentCommandFn({
-                            type: 'send-message',
-                            thread_id: activeDaemonThreadId || null,
-                            content: `[Incoming ${platform} message from ${sender}]: ${content}`,
-                        });
-                        // Also forward to renderer as an agent event so
-                        // the incoming message appears in the chat UI
-                        if (mainWindow && !mainWindow.isDestroyed()) {
-                            origSend('agent-event', {
-                                type: 'gateway_incoming',
-                                platform,
-                                sender,
-                                content,
-                            });
-                        }
-                    }
-                } catch {
-                    // Agent bridge not available
-                }
-            }
-        };
-    }
-
-    try {
-        const config = await sendAgentQuery({ type: 'get-config' }, 'config').catch(() => null);
-        const gateway = config?.gateway ?? null;
-        if (gateway?.enabled) {
-            // Check the feature flag — Electron bridges are disabled by default (D-06/D-07).
-            // When gateway_electron_bridges_enabled is false or missing, the daemon handles
-            // all Slack/Discord/Telegram connections. WhatsApp stays in Electron (unaffected).
-            if (gateway.gateway_electron_bridges_enabled !== true) {
-                logToFile('info', '[gateway] Electron bridges disabled — daemon handles all gateway connections');
-            } else {
-                logToFile('info', '[gateway] Starting Electron bridges (deprecated — daemon gateways preferred). Set gateway.gateway_electron_bridges_enabled=false to disable.');
-                if (gateway.slack_token) {
-                    ensureSlackConnected(null, { token: gateway.slack_token })
-                        .then((r) => logToFile('info', 'auto-connected Slack', r))
-                        .catch((e) => logToFile('warn', 'Slack auto-connect failed', { error: e.message }));
-                }
-                if (gateway.discord_token) {
-                    ensureDiscordConnected(null, {
-                        token: gateway.discord_token,
-                        channelFilter: gateway.discord_channel_filter || '',
-                        allowedUsers: gateway.discord_allowed_users || '',
-                    })
-                        .then((r) => logToFile('info', 'auto-connected Discord', r))
-                        .catch((e) => logToFile('warn', 'Discord auto-connect failed', { error: e.message }));
-                }
-                if (gateway.telegram_token) {
-                    ensureTelegramConnected(null, {
-                        token: gateway.telegram_token,
-                        allowedChats: gateway.telegram_allowed_chats || '',
-                    })
-                        .then((r) => logToFile('info', 'auto-connected Telegram', r))
-                        .catch((e) => logToFile('warn', 'Telegram auto-connect failed', { error: e.message }));
-                }
-            }
-        }
-    } catch (err) {
-        logToFile('warn', 'gateway auto-connect error', { error: err.message });
-    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();

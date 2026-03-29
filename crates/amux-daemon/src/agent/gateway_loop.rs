@@ -8,7 +8,31 @@ fn is_gateway_reset_command(trimmed_lower: &str) -> bool {
     matches!(trimmed_lower, "!reset" | "!new")
 }
 
+const GATEWAY_TRIAGE_TIMEOUT_SECS: u64 = 12;
+const GATEWAY_AGENT_TIMEOUT_SECS: u64 = 120;
+
 impl AgentEngine {
+    pub async fn enqueue_gateway_message(&self, msg: gateway::IncomingMessage) -> Result<()> {
+        let enabled = {
+            let guard = self.gateway_state.lock().await;
+            guard
+                .as_ref()
+                .map(|state| state.config.enabled)
+                .unwrap_or(false)
+        };
+        if !enabled {
+            anyhow::bail!("gateway polling is not initialized");
+        }
+
+        let mut queue = self.gateway_injected_messages.lock().await;
+        queue.push_back(msg);
+        if queue.len() > 500 {
+            let excess = queue.len() - 500;
+            queue.drain(..excess);
+        }
+        Ok(())
+    }
+
     /// Initialize gateway connections for receiving messages.
     pub(crate) async fn init_gateway(&self) {
         let config = self.config.read().await.clone();
@@ -49,14 +73,17 @@ impl AgentEngine {
         let discord_channel_filter = gw.discord_channel_filter.clone();
         let slack_channel_filter = gw.slack_channel_filter.clone();
 
-        let has_any = !slack_token.is_empty()
+        let has_poll_tokens = !slack_token.is_empty()
             || !telegram_token.is_empty()
             || !discord_token.is_empty()
             || !gw.whatsapp_token.is_empty();
-        if !has_any {
-            tracing::info!("gateway: no platform tokens, polling disabled");
-            return;
+        if !has_poll_tokens {
+            tracing::info!(
+                "gateway: no platform poll tokens configured; enabling injected-only gateway mode"
+            );
         }
+
+        self.gateway_injected_messages.lock().await.clear();
 
         // Parse channel lists from the already-read settings
         if !discord_channel_filter.is_empty() {
@@ -543,8 +570,11 @@ impl AgentEngine {
         let discord_channels = self.gateway_discord_channels.read().await.clone();
         let slack_channels = self.gateway_slack_channels.read().await.clone();
 
-        // Collect messages from all platforms
-        let mut incoming = Vec::new();
+        // Collect messages from all platforms and externally injected sources.
+        let mut incoming: Vec<gateway::IncomingMessage> = {
+            let mut queue = self.gateway_injected_messages.lock().await;
+            queue.drain(..).collect()
+        };
         // Track status transitions to emit events after dropping the mutex
         let mut status_transitions: Vec<(String, String, Option<String>, Option<u32>)> = Vec::new();
 
@@ -894,16 +924,29 @@ impl AgentEngine {
 
             // Triage via concierge — simple messages get a direct response,
             // complex ones fall through to the full agent loop.
-            let triage = self
-                .concierge
-                .triage_gateway_message(
+            let triage = match tokio::time::timeout(
+                std::time::Duration::from_secs(GATEWAY_TRIAGE_TIMEOUT_SECS),
+                self.concierge.triage_gateway_message(
                     &msg.platform,
                     &msg.sender,
                     &msg.content,
                     &self.threads,
                     &self.tasks,
-                )
-                .await;
+                ),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    tracing::warn!(
+                        platform = %msg.platform,
+                        channel = %msg.channel,
+                        timeout_secs = GATEWAY_TRIAGE_TIMEOUT_SECS,
+                        "gateway: concierge triage timed out; falling back to full agent loop"
+                    );
+                    concierge::GatewayTriage::Complex
+                }
+            };
 
             match triage {
                 concierge::GatewayTriage::Simple(response_text) => {
@@ -934,7 +977,7 @@ impl AgentEngine {
                             arguments: auto_args.to_string(),
                         },
                     };
-                    let _ = tool_executor::execute_tool(
+                    let tool_result = tool_executor::execute_tool(
                         &auto_tool,
                         self,
                         "",
@@ -947,6 +990,14 @@ impl AgentEngine {
                         None,
                     )
                     .await;
+                    if tool_result.is_error {
+                        tracing::error!(
+                            platform = %msg.platform,
+                            channel = %msg.channel,
+                            error = %tool_result.content,
+                            "gateway: failed to send concierge simple response"
+                        );
+                    }
                     self.gateway_inflight_channels
                         .lock()
                         .await
@@ -995,11 +1046,74 @@ impl AgentEngine {
                 prompt
             };
 
-            match self
-                .send_message(existing_thread.as_deref(), &enriched_prompt)
-                .await
-            {
-                Ok(thread_id) => {
+            let send_result = tokio::time::timeout(
+                std::time::Duration::from_secs(GATEWAY_AGENT_TIMEOUT_SECS),
+                self.send_message(existing_thread.as_deref(), &enriched_prompt),
+            )
+            .await;
+
+            match send_result {
+                Err(_) => {
+                    tracing::error!(
+                        platform = %msg.platform,
+                        channel = %msg.channel,
+                        timeout_secs = GATEWAY_AGENT_TIMEOUT_SECS,
+                        "gateway: full agent response timed out"
+                    );
+
+                    let fallback_text = "I’m still processing your message and hit a timeout. Please send it again, or use !new to start a fresh session.";
+                    let fallback_args = match msg.platform.as_str() {
+                        "Discord" => {
+                            serde_json::json!({"channel_id": msg.channel, "message": fallback_text})
+                        }
+                        "Slack" => {
+                            serde_json::json!({"channel": msg.channel, "message": fallback_text})
+                        }
+                        "Telegram" => {
+                            serde_json::json!({"chat_id": msg.channel, "message": fallback_text})
+                        }
+                        "WhatsApp" => {
+                            serde_json::json!({"phone": msg.channel, "message": fallback_text})
+                        }
+                        _ => serde_json::json!({"message": fallback_text}),
+                    };
+                    let fallback_tool = ToolCall {
+                        id: format!("gateway_timeout_{}", uuid::Uuid::new_v4()),
+                        function: ToolFunction {
+                            name: reply_tool_name.to_string(),
+                            arguments: fallback_args.to_string(),
+                        },
+                    };
+                    let tool_result = tool_executor::execute_tool(
+                        &fallback_tool,
+                        self,
+                        "",
+                        None,
+                        &self.session_manager,
+                        None,
+                        &self.event_tx,
+                        &self.data_dir,
+                        &self.http_client,
+                        None,
+                    )
+                    .await;
+                    if tool_result.is_error {
+                        tracing::error!(
+                            platform = %msg.platform,
+                            channel = %msg.channel,
+                            error = %tool_result.content,
+                            "gateway: failed to send timeout fallback message"
+                        );
+                    }
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(
+                        platform = %msg.platform,
+                        error = %e,
+                        "gateway: failed to process incoming message"
+                    );
+                }
+                Ok(Ok(thread_id)) => {
                     // Store the mapping so follow-up messages use the same thread
                     self.gateway_threads
                         .write()
@@ -1082,13 +1196,6 @@ impl AgentEngine {
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        platform = %msg.platform,
-                        error = %e,
-                        "gateway: failed to process incoming message"
-                    );
                 }
             }
 

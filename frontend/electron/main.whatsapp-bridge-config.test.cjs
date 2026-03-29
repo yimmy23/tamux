@@ -50,9 +50,9 @@ test("agent bridge ready restores daemon WhatsApp subscription when previously d
   assert.match(src, /if\s*\(whatsappDaemonSubscriptionDesired\s*&&\s*!whatsappDaemonSubscribed\)[\s\S]*?type:\s*'whats-app-link-subscribe'/);
 });
 
-test("whatsapp gateway send remains functional in daemon mode", () => {
+test("whatsapp gateway send is disabled in Electron daemon mode", () => {
   assert.match(
     src,
-    /WhatsApp send is only available when gateway\.whatsapp_link_fallback_electron is true/
+    /whatsapp-send is disabled in Electron; daemon gateway messaging is authoritative/
   );
 });

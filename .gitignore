@@ -23,15 +23,15 @@ agents.md
 *.swp
 *.swo
 *~
-
+.firecrawl
 # OS
 .DS_Store
 Thumbs.db
-
+$ROOT
 # Env
 .env
 .env.local
-
+PUBLISH.md
 # Logs
 *.log
 *.tsbuildinfo

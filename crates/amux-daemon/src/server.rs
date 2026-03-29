@@ -8,7 +8,7 @@ use futures::SinkExt;
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(not(test))]
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::broadcast;
 use tokio_util::codec::Framed;
 
@@ -202,10 +202,36 @@ async fn forward_whatsapp_sidecar_stdout(
                 if trimmed.is_empty() {
                     continue;
                 }
+                if !trimmed.starts_with('{') {
+                    tracing::debug!(
+                        line = trimmed,
+                        "whatsapp sidecar stdout non-protocol line ignored"
+                    );
+                    continue;
+                }
                 let parsed = match serde_json::from_str::<serde_json::Value>(trimmed) {
                     Ok(value) => value,
                     Err(error) => {
-                        tracing::warn!(error = %error, line = trimmed, "whatsapp sidecar emitted invalid JSON");
+                        let lower = trimmed.to_ascii_lowercase();
+                        let likely_console_noise = lower.starts_with("closing session:")
+                            || lower.contains("sessionentry")
+                            || lower.contains("<buffer ")
+                            || lower.contains("currentratchet")
+                            || lower.contains("pendingprekey")
+                            || lower.contains("_chains:");
+                        if likely_console_noise {
+                            tracing::debug!(
+                                error = %error,
+                                line = trimmed,
+                                "whatsapp sidecar emitted non-protocol stdout noise"
+                            );
+                        } else {
+                            tracing::warn!(
+                                error = %error,
+                                line = trimmed,
+                                "whatsapp sidecar emitted invalid JSON"
+                            );
+                        }
                         continue;
                     }
                 };
@@ -233,6 +259,66 @@ async fn forward_whatsapp_sidecar_stdout(
                                 payload = %parsed.get("data").unwrap_or(&serde_json::Value::Null),
                                 "whatsapp sidecar trace"
                             );
+                        }
+                        "message" => {
+                            let data = parsed.get("data").cloned().unwrap_or_default();
+                            let from = data
+                                .get("from")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("")
+                                .trim()
+                                .to_string();
+                            let text = data
+                                .get("text")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("")
+                                .trim()
+                                .to_string();
+                            if from.is_empty() || text.is_empty() {
+                                tracing::warn!(
+                                    from = %from,
+                                    text_len = text.len(),
+                                    "whatsapp sidecar message missing sender/text"
+                                );
+                            } else {
+                                let push_name = data
+                                    .get("pushName")
+                                    .and_then(|value| value.as_str())
+                                    .unwrap_or("")
+                                    .trim()
+                                    .to_string();
+                                let sender = if push_name.is_empty() {
+                                    from.clone()
+                                } else {
+                                    format!("{push_name} ({from})")
+                                };
+                                let message_id = data
+                                    .get("messageId")
+                                    .and_then(|value| value.as_str())
+                                    .map(|value| format!("wa:{value}"));
+                                tracing::info!(
+                                    from = %from,
+                                    message_id = ?message_id,
+                                    text_len = text.len(),
+                                    "whatsapp sidecar inbound message received"
+                                );
+                                if let Err(error) = agent
+                                    .enqueue_gateway_message(crate::agent::gateway::IncomingMessage {
+                                        platform: "WhatsApp".to_string(),
+                                        sender,
+                                        content: text,
+                                        channel: from,
+                                        message_id,
+                                        thread_context: None,
+                                    })
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        error = %error,
+                                        "failed to enqueue whatsapp sidecar inbound message"
+                                    );
+                                }
+                            }
                         }
                         "reconnecting" => {
                             let reason = parsed
@@ -372,6 +458,7 @@ async fn forward_whatsapp_sidecar_stderr(
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if let Some(message) = crate::agent::normalize_sidecar_stderr(&line) {
+            tracing::warn!(message = %message, "whatsapp sidecar stderr");
             agent.whatsapp_link.broadcast_error(message, true).await;
         }
     }
@@ -383,10 +470,6 @@ async fn start_whatsapp_link_sidecar(agent: Arc<AgentEngine>) -> Result<()> {
     let bridge_path = resolve_whatsapp_sidecar_bridge_path()?;
     let spec = crate::agent::build_sidecar_launch_spec(&node_bin, &bridge_path)?;
     let mut child = crate::agent::spawn_sidecar(&spec).await?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .context("missing stdin for whatsapp link sidecar")?;
     let stdout = child
         .stdout
         .take()
@@ -396,17 +479,67 @@ async fn start_whatsapp_link_sidecar(agent: Arc<AgentEngine>) -> Result<()> {
         .take()
         .context("missing stderr for whatsapp link sidecar")?;
     agent.whatsapp_link.attach_sidecar_process(child).await?;
-    stdin
-        .write_all(br#"{"id":1,"method":"connect"}"#)
-        .await
-        .context("failed to send connect command to whatsapp sidecar")?;
-    stdin
-        .write_all(b"\n")
-        .await
-        .context("failed to terminate connect command for whatsapp sidecar")?;
+    agent.whatsapp_link.connect_sidecar().await?;
     tokio::spawn(forward_whatsapp_sidecar_stdout(agent.clone(), stdout));
     tokio::spawn(forward_whatsapp_sidecar_stderr(agent, stderr));
     Ok(())
+}
+
+#[cfg(not(test))]
+fn persisted_whatsapp_auth_file() -> std::path::PathBuf {
+    let base_dir = if cfg!(windows) {
+        std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join(".tamux")
+            })
+    } else {
+        dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".tamux")
+    };
+    base_dir.join("whatsapp-auth").join("creds.json")
+}
+
+#[cfg(not(test))]
+async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
+    let gateway = agent.config.read().await.gateway.clone();
+    if !gateway.enabled || gateway.whatsapp_link_fallback_electron {
+        return;
+    }
+
+    let auth_file = persisted_whatsapp_auth_file();
+    if !auth_file.exists() {
+        tracing::info!(
+            auth_file = %auth_file.display(),
+            "whatsapp link autostart skipped (no persisted auth state)"
+        );
+        return;
+    }
+
+    tracing::info!(
+        auth_file = %auth_file.display(),
+        "whatsapp link autostarting from persisted auth"
+    );
+    if let Err(error) = agent.whatsapp_link.start().await {
+        tracing::warn!(
+            error = %error,
+            "whatsapp link autostart: failed to transition runtime to starting"
+        );
+        return;
+    }
+    if let Err(error) = start_whatsapp_link_sidecar(agent.clone()).await {
+        tracing::warn!(
+            error = %error,
+            "whatsapp link autostart: failed to start sidecar"
+        );
+        agent
+            .whatsapp_link
+            .broadcast_error(error.to_string(), false)
+            .await;
+    }
 }
 
 #[cfg(test)]
@@ -424,6 +557,7 @@ mod tests {
     use futures::{SinkExt, StreamExt};
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::collections::HashSet;
     use tokio::io::DuplexStream;
     use tokio::task::JoinHandle;
     use tokio::time::{timeout, Duration};
@@ -488,6 +622,18 @@ mod tests {
         let error: anyhow::Error =
             std::io::Error::new(std::io::ErrorKind::InvalidData, "bad frame").into();
         assert!(!is_expected_disconnect_error(&error));
+    }
+
+    #[test]
+    fn gateway_incoming_events_forward_without_thread_subscription() {
+        let event = AgentEvent::GatewayIncoming {
+            platform: "WhatsApp".to_string(),
+            sender: "alice".to_string(),
+            content: "hello".to_string(),
+            channel: "alice@s.whatsapp.net".to_string(),
+        };
+        let client_threads = HashSet::new();
+        assert!(super::should_forward_agent_event(&event, &client_threads));
     }
 
     struct TestConnection {
@@ -821,6 +967,7 @@ fn should_forward_agent_event(
                 | crate::agent::types::AgentEvent::AuditAction { .. }
                 | crate::agent::types::AgentEvent::EscalationUpdate { .. }
                 | crate::agent::types::AgentEvent::GatewayStatus { .. }
+                | crate::agent::types::AgentEvent::GatewayIncoming { .. }
                 | crate::agent::types::AgentEvent::BudgetAlert { .. }
                 | crate::agent::types::AgentEvent::TrajectoryUpdate { .. }
                 | crate::agent::types::AgentEvent::EpisodeRecorded { .. }
@@ -902,6 +1049,9 @@ pub async fn run() -> Result<()> {
 
     // Initialize the concierge (ensures pinned thread exists after hydration).
     agent.concierge.initialize(&agent.threads).await;
+
+    #[cfg(not(test))]
+    maybe_autostart_whatsapp_link(agent.clone()).await;
 
     // Start background loop (tasks + heartbeat)
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -4608,14 +4758,26 @@ where
                         }
                     }
                 }
-                ClientMessage::AgentWhatsAppLinkStart => match agent.whatsapp_link.start().await {
+                ClientMessage::AgentWhatsAppLinkStart => {
+                    tracing::info!("whatsapp link start requested by client");
+                    match agent.whatsapp_link.start().await {
                     Ok(()) => {
                         #[cfg(not(test))]
-                        if let Err(e) = start_whatsapp_link_sidecar(agent.clone()).await {
-                            agent
-                                .whatsapp_link
-                                .broadcast_error(e.to_string(), false)
-                                .await;
+                        {
+                            let has_sidecar = agent.whatsapp_link.has_sidecar_process().await;
+                            if has_sidecar {
+                                if let Err(e) = agent.whatsapp_link.connect_sidecar().await {
+                                    agent
+                                        .whatsapp_link
+                                        .broadcast_error(e.to_string(), false)
+                                        .await;
+                                }
+                            } else if let Err(e) = start_whatsapp_link_sidecar(agent.clone()).await {
+                                agent
+                                    .whatsapp_link
+                                    .broadcast_error(e.to_string(), false)
+                                    .await;
+                            }
                         }
                         let snapshot = agent.whatsapp_link.status_snapshot().await;
                         framed
@@ -4624,7 +4786,7 @@ where
                                 phone: snapshot.phone,
                                 last_error: snapshot.last_error,
                             })
-                            .await?;
+                                .await?;
                     }
                     Err(e) => {
                         framed
@@ -4632,9 +4794,10 @@ where
                                 message: e.to_string(),
                                 recoverable: false,
                             })
-                            .await?;
+                                .await?;
                     }
-                },
+                    }
+                }
                 ClientMessage::AgentWhatsAppLinkStop => {
                     match agent
                         .whatsapp_link

@@ -99,6 +99,8 @@ pub struct AgentEngine {
     pub gateway_seen_ids: Mutex<Vec<String>>,
     /// Channels currently being processed — prevents concurrent dispatch to the same channel.
     pub gateway_inflight_channels: Mutex<HashSet<String>>,
+    /// Queue of externally injected gateway messages (e.g. linked WhatsApp sidecar).
+    pub gateway_injected_messages: Mutex<VecDeque<gateway::IncomingMessage>>,
     /// External agent runners for openclaw/hermes backends.
     pub external_runners: RwLock<HashMap<String, external_runner::ExternalAgentRunner>>,
     pub(super) subagent_runtime: RwLock<HashMap<String, SubagentRuntimeStats>>,
@@ -223,6 +225,7 @@ impl AgentEngine {
             gateway_threads: RwLock::new(HashMap::new()),
             gateway_seen_ids: Mutex::new(Vec::new()),
             gateway_inflight_channels: Mutex::new(HashSet::new()),
+            gateway_injected_messages: Mutex::new(VecDeque::new()),
             external_runners: RwLock::new(runners),
             subagent_runtime: RwLock::new(HashMap::new()),
             stream_cancellations: Mutex::new(HashMap::new()),

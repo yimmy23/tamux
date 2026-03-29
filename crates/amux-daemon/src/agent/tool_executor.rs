@@ -5724,6 +5724,18 @@ async fn execute_gateway_message(
                 ));
             }
             let phone = phone.as_str();
+            let wa_link_state = agent.whatsapp_link.status_snapshot().await.state;
+            if wa_link_state == "connected" {
+                agent.whatsapp_link.send_message(phone, message).await?;
+                {
+                    let mut gw_lock = agent.gateway_state.lock().await;
+                    if let Some(gw) = gw_lock.as_mut() {
+                        gw.last_response_at
+                            .insert(format!("WhatsApp:{phone}"), now_epoch_millis());
+                    }
+                }
+                return Ok(format!("WhatsApp linked message sent to {phone}"));
+            }
             let wa_token = gateway.whatsapp_token.as_str();
             let phone_id = gateway.whatsapp_phone_id.as_str();
             if wa_token.is_empty() || phone_id.is_empty() {

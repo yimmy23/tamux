@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex};
 
@@ -70,6 +71,7 @@ struct RuntimeInner {
     stopping: bool,
     retry_count: u32,
     last_retry_at_ms: Option<u64>,
+    next_rpc_id: u64,
     #[cfg(test)]
     forced_stop_kill_error: Option<String>,
 }
@@ -99,6 +101,7 @@ impl WhatsAppLinkRuntime {
                 stopping: false,
                 retry_count: 0,
                 last_retry_at_ms: None,
+                next_rpc_id: 1,
                 #[cfg(test)]
                 forced_stop_kill_error: None,
             }),
@@ -108,11 +111,27 @@ impl WhatsAppLinkRuntime {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let mut inner = self.inner.lock().await;
-        inner.state = WhatsAppLinkState::Starting;
-        inner.last_error = None;
-        drop(inner);
-        self.broadcast_status().await;
+        let should_broadcast = {
+            let mut inner = self.inner.lock().await;
+            if inner.stopping {
+                bail!("whatsapp link sidecar is stopping");
+            }
+            if matches!(
+                inner.state,
+                WhatsAppLinkState::Starting
+                    | WhatsAppLinkState::QrReady
+                    | WhatsAppLinkState::Connected
+            ) {
+                false
+            } else {
+                inner.state = WhatsAppLinkState::Starting;
+                inner.last_error = None;
+                true
+            }
+        };
+        if should_broadcast {
+            self.broadcast_status().await;
+        }
         Ok(())
     }
 
@@ -271,6 +290,59 @@ impl WhatsAppLinkRuntime {
         Ok(())
     }
 
+    pub async fn has_sidecar_process(&self) -> bool {
+        let inner = self.inner.lock().await;
+        inner.process.is_some()
+    }
+
+    pub async fn connect_sidecar(&self) -> Result<()> {
+        self.send_sidecar_command("connect", serde_json::json!({}))
+            .await
+    }
+
+    pub async fn send_message(&self, jid: &str, text: &str) -> Result<()> {
+        let jid = jid.trim();
+        if jid.is_empty() {
+            bail!("whatsapp send target is empty");
+        }
+        if text.trim().is_empty() {
+            bail!("whatsapp message body is empty");
+        }
+        self.send_sidecar_command("send", serde_json::json!({"jid": jid, "text": text}))
+            .await
+    }
+
+    async fn send_sidecar_command(&self, method: &str, params: serde_json::Value) -> Result<()> {
+        let mut inner = self.inner.lock().await;
+        if inner.stopping {
+            bail!("whatsapp link sidecar is stopping");
+        }
+        if method == "send" && inner.state != WhatsAppLinkState::Connected {
+            bail!("whatsapp link is not connected");
+        }
+        let rpc_id = inner.next_rpc_id;
+        inner.next_rpc_id = inner.next_rpc_id.saturating_add(1);
+        let payload = serde_json::json!({
+            "id": rpc_id,
+            "method": method,
+            "params": params,
+        });
+        let line = format!("{payload}\n");
+        let process = inner
+            .process
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("whatsapp link sidecar is not running"))?;
+        let stdin = process
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("whatsapp link sidecar stdin unavailable"))?;
+        stdin
+            .write_all(line.as_bytes())
+            .await
+            .context("failed to write command to whatsapp link sidecar stdin")?;
+        Ok(())
+    }
+
     pub async fn broadcast_qr(&self, ascii_qr: String, expires_at_ms: Option<u64>) {
         let should_emit = {
             let mut inner = self.inner.lock().await;
@@ -311,11 +383,17 @@ impl WhatsAppLinkRuntime {
     pub async fn broadcast_error(&self, message: String, recoverable: bool) {
         {
             let mut inner = self.inner.lock().await;
-            inner.state = WhatsAppLinkState::Error;
             inner.last_error = Some(message.clone());
             if recoverable {
+                // Recoverable sidecar errors (e.g. transient decrypt/session warnings)
+                // should not tear down a live connected transport.
+                if inner.state != WhatsAppLinkState::Connected {
+                    inner.state = WhatsAppLinkState::Error;
+                }
                 inner.retry_count = inner.retry_count.saturating_add(1);
                 inner.last_retry_at_ms = Some(now_millis());
+            } else {
+                inner.state = WhatsAppLinkState::Error;
             }
         }
         self.broadcast_event(WhatsAppLinkEvent::Error {
@@ -367,6 +445,30 @@ const GPU_NOISE_PATTERNS: [&str; 6] = [
     "angle_platform_impl",
 ];
 
+const SENSITIVE_SIDECAR_PATTERNS: [&str; 21] = [
+    "closing session: sessionentry",
+    "_chains:",
+    "currentratchet:",
+    "ephemeralkeypair:",
+    "lastremoteephemeralkey:",
+    "rootkey:",
+    "indexinfo:",
+    "pendingprekey:",
+    "remoteidentitykey:",
+    "privkey:",
+    "pubkey:",
+    "registrationid:",
+    "basekey:",
+    "basekeytype:",
+    "signedkeyid:",
+    "prekeyid:",
+    "previouscounter:",
+    "used:",
+    "created:",
+    "chainkey:",
+    "<buffer ",
+];
+
 pub fn normalize_sidecar_stderr(stderr: &str) -> Option<String> {
     let actionable: Vec<String> = stderr
         .lines()
@@ -374,9 +476,14 @@ pub fn normalize_sidecar_stderr(stderr: &str) -> Option<String> {
         .filter(|line| !line.is_empty())
         .filter(|line| {
             let lower = line.to_ascii_lowercase();
-            !GPU_NOISE_PATTERNS
+            let gpu_noise = GPU_NOISE_PATTERNS
                 .iter()
-                .any(|pattern| lower.contains(pattern))
+                .any(|pattern| lower.contains(pattern));
+            let sensitive_dump = SENSITIVE_SIDECAR_PATTERNS
+                .iter()
+                .any(|pattern| lower.contains(pattern));
+            let structural_only = matches!(lower.as_str(), "{" | "}" | "},");
+            !(gpu_noise || sensitive_dump || structural_only)
         })
         .map(ToString::to_string)
         .collect();
@@ -704,6 +811,53 @@ mod tests {
         assert_eq!(snapshot.last_error.as_deref(), Some("socket timeout"));
     }
 
+    #[tokio::test]
+    async fn recoverable_error_while_connected_keeps_connected_state() {
+        let runtime = WhatsAppLinkRuntime::new();
+        let mut rx = runtime.subscribe().await;
+        let _ = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("initial snapshot should arrive")
+            .expect("broadcast should be open");
+
+        runtime
+            .broadcast_linked(Some("+123456789".to_string()))
+            .await;
+        let _ = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("linked event should arrive")
+            .expect("broadcast should be open");
+        let _ = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("status event should arrive")
+            .expect("broadcast should be open");
+
+        runtime
+            .broadcast_error("transient decrypt warning".to_string(), true)
+            .await;
+
+        let error_event = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("error event should arrive")
+            .expect("broadcast should be open");
+        assert!(matches!(error_event, WhatsAppLinkEvent::Error { recoverable: true, .. }));
+
+        let status_event = timeout(Duration::from_millis(250), rx.recv())
+            .await
+            .expect("status event should arrive")
+            .expect("broadcast should be open");
+        match status_event {
+            WhatsAppLinkEvent::Status(snapshot) => {
+                assert_eq!(snapshot.state, "connected");
+                assert_eq!(
+                    snapshot.last_error.as_deref(),
+                    Some("transient decrypt warning")
+                );
+            }
+            other => panic!("expected status event, got {other:?}"),
+        }
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn attach_sidecar_process_discards_incoming_child_during_stop_window() {
@@ -850,6 +1004,21 @@ mod tests {
             normalize_sidecar_stderr(mixed),
             Some("ERR_REQUIRE_ESM: require() of ES Module not supported".to_string())
         );
+    }
+
+    #[test]
+    fn sidecar_stderr_normalization_drops_sensitive_session_dump_lines() {
+        let sensitive = "[wa-sidecar:info] Closing session: SessionEntry {\ncurrentRatchet: {\nprivKey: <Buffer 01 02>\n}\n";
+        assert_eq!(normalize_sidecar_stderr(sensitive), None);
+
+        let mixed = "[wa-sidecar:warn] Decrypted message with closed session.\ncurrentRatchet: {\n";
+        assert_eq!(
+            normalize_sidecar_stderr(mixed),
+            Some("[wa-sidecar:warn] Decrypted message with closed session.".to_string())
+        );
+
+        let noisy = "registrationId: 769524623,\nbaseKey: <Buffer 05 aa>,\n}\n";
+        assert_eq!(normalize_sidecar_stderr(noisy), None);
     }
 
     #[test]
