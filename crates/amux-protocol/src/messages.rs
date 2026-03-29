@@ -19,6 +19,7 @@ pub const AGENT_ID_SWAROG: &str = "swarog";
 pub const AGENT_NAME_SWAROG: &str = "Swarog";
 pub const AGENT_ID_RAROG: &str = "rarog";
 pub const AGENT_NAME_RAROG: &str = "Rarog";
+pub const GATEWAY_IPC_PROTOCOL_VERSION: u16 = 1;
 
 // ---------------------------------------------------------------------------
 // Gateway daemon <-> runtime IPC
@@ -102,6 +103,7 @@ pub struct GatewayContinuityState {
 /// Full daemon -> gateway bootstrap payload sent after registration succeeds.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GatewayBootstrapPayload {
+    pub bootstrap_correlation_id: String,
     #[serde(default)]
     pub feature_flags: Vec<String>,
     #[serde(default)]
@@ -404,47 +406,6 @@ pub enum ClientMessage {
 
     /// Ping / health-check.
     Ping,
-
-    // -----------------------------------------------------------------------
-    // Gateway runtime
-    // -----------------------------------------------------------------------
-    /// Gateway -> daemon: register a dedicated gateway runtime on the existing IPC socket.
-    GatewayRegister {
-        registration: GatewayRegistration,
-    },
-
-    /// Gateway -> daemon: acknowledge bootstrap or a daemon-issued control command.
-    GatewayAck { ack: GatewayAck },
-
-    /// Gateway -> daemon: forward a normalized inbound platform event for routing.
-    GatewayIncomingEvent {
-        event: GatewayIncomingEvent,
-    },
-
-    /// Gateway -> daemon: persist replay cursor progress after ingesting an event batch.
-    GatewayCursorUpdate {
-        update: GatewayCursorState,
-    },
-
-    /// Gateway -> daemon: persist the current channel -> thread binding.
-    GatewayThreadBindingUpdate {
-        update: GatewayThreadBindingState,
-    },
-
-    /// Gateway -> daemon: persist the current sticky route mode for a channel.
-    GatewayRouteModeUpdate {
-        update: GatewayRouteModeState,
-    },
-
-    /// Gateway -> daemon: report the result of a daemon-issued outbound send request.
-    GatewaySendResult {
-        result: GatewaySendResult,
-    },
-
-    /// Gateway -> daemon: report per-platform runtime health for supervision and UI status.
-    GatewayHealthUpdate {
-        update: GatewayHealthState,
-    },
 
     // -----------------------------------------------------------------------
     // Agent engine
@@ -923,6 +884,47 @@ pub enum ClientMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_index: Option<usize>,
     },
+
+    // -----------------------------------------------------------------------
+    // Gateway runtime
+    // -----------------------------------------------------------------------
+    /// Gateway -> daemon: register a dedicated gateway runtime on the existing IPC socket.
+    GatewayRegister {
+        registration: GatewayRegistration,
+    },
+
+    /// Gateway -> daemon: acknowledge bootstrap or a daemon-issued control command.
+    GatewayAck { ack: GatewayAck },
+
+    /// Gateway -> daemon: forward a normalized inbound platform event for routing.
+    GatewayIncomingEvent {
+        event: GatewayIncomingEvent,
+    },
+
+    /// Gateway -> daemon: persist replay cursor progress after ingesting an event batch.
+    GatewayCursorUpdate {
+        update: GatewayCursorState,
+    },
+
+    /// Gateway -> daemon: persist the current channel -> thread binding.
+    GatewayThreadBindingUpdate {
+        update: GatewayThreadBindingState,
+    },
+
+    /// Gateway -> daemon: persist the current sticky route mode for a channel.
+    GatewayRouteModeUpdate {
+        update: GatewayRouteModeState,
+    },
+
+    /// Gateway -> daemon: report the result of a daemon-issued outbound send request.
+    GatewaySendResult {
+        result: GatewaySendResult,
+    },
+
+    /// Gateway -> daemon: report per-platform runtime health for supervision and UI status.
+    GatewayHealthUpdate {
+        update: GatewayHealthState,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,29 +1124,6 @@ pub enum DaemonMessage {
 
     /// Pong.
     Pong,
-
-    // -----------------------------------------------------------------------
-    // Gateway runtime
-    // -----------------------------------------------------------------------
-    /// Daemon -> gateway: deliver the bootstrap payload after registration succeeds.
-    GatewayBootstrap {
-        payload: GatewayBootstrapPayload,
-    },
-
-    /// Daemon -> gateway: request an outbound platform send correlated by request ID.
-    GatewaySendRequest {
-        request: GatewaySendRequest,
-    },
-
-    /// Daemon -> gateway: reload provider configuration / feature flags without reconnecting.
-    GatewayReloadCommand {
-        command: GatewayReloadCommand,
-    },
-
-    /// Daemon -> gateway: stop the dedicated runtime gracefully.
-    GatewayShutdownCommand {
-        command: GatewayShutdownCommand,
-    },
 
     /// Generic error.
     Error { message: String },
@@ -1504,6 +1483,29 @@ pub enum DaemonMessage {
     AgentDivergentSession {
         /// JSON payload with status, framing progress, tensions, mediator output.
         session_json: String,
+    },
+
+    // -----------------------------------------------------------------------
+    // Gateway runtime
+    // -----------------------------------------------------------------------
+    /// Daemon -> gateway: deliver the bootstrap payload after registration succeeds.
+    GatewayBootstrap {
+        payload: GatewayBootstrapPayload,
+    },
+
+    /// Daemon -> gateway: request an outbound platform send correlated by request ID.
+    GatewaySendRequest {
+        request: GatewaySendRequest,
+    },
+
+    /// Daemon -> gateway: reload provider configuration / feature flags without reconnecting.
+    GatewayReloadCommand {
+        command: GatewayReloadCommand,
+    },
+
+    /// Daemon -> gateway: stop the dedicated runtime gracefully.
+    GatewayShutdownCommand {
+        command: GatewayShutdownCommand,
     },
 }
 
@@ -2098,6 +2100,7 @@ mod tests {
     fn gateway_bootstrap_round_trip() {
         let msg = DaemonMessage::GatewayBootstrap {
             payload: GatewayBootstrapPayload {
+                bootstrap_correlation_id: "boot-1".to_string(),
                 feature_flags: vec![
                     "gateway_runtime_ownership".to_string(),
                     "gateway_route_persistence".to_string(),
@@ -2133,6 +2136,7 @@ mod tests {
         let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
         match decoded {
             DaemonMessage::GatewayBootstrap { payload } => {
+                assert_eq!(payload.bootstrap_correlation_id, "boot-1");
                 assert_eq!(payload.feature_flags.len(), 2);
                 assert_eq!(payload.providers.len(), 1);
                 assert_eq!(payload.providers[0].platform, "slack");
