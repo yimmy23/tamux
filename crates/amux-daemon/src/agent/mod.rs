@@ -123,7 +123,13 @@ use self::types::*;
 pub use engine::*;
 pub use task_prompt::load_config_from_history;
 pub(crate) use whatsapp_link::{
-    build_sidecar_launch_spec, normalize_sidecar_stderr, spawn_sidecar,
+    build_sidecar_launch_spec, clear_persisted_provider_state, load_persisted_provider_state,
+    merge_persisted_state_update,
+    normalize_sidecar_stderr, save_persisted_provider_state, spawn_sidecar,
+    transport::SessionUpdate as WhatsAppSessionUpdate,
+    persist_transport_session_update,
+    transport::PersistedState as WhatsAppPersistedState,
+    WHATSAPP_LINK_PROVIDER_ID,
 };
 
 #[cfg(test)]

@@ -601,6 +601,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn whatsapp_link_reset_clears_link_state() {
+        let mut conn = spawn_test_connection().await;
+
+        conn.agent
+            .whatsapp_link
+            .broadcast_qr("QR-RESET".to_string(), Some(123))
+            .await;
+        conn.agent
+            .whatsapp_link
+            .broadcast_linked(Some("+15551112222".to_string()))
+            .await;
+        crate::agent::save_persisted_provider_state(
+            &conn.agent.history,
+            crate::agent::WHATSAPP_LINK_PROVIDER_ID,
+            crate::agent::WhatsAppPersistedState {
+                linked_phone: Some("+15551112222".to_string()),
+                auth_json: Some("{\"session\":true}".to_string()),
+                metadata_json: Some("{\"source\":\"server-test\"}".to_string()),
+                last_reset_at: None,
+                last_linked_at: Some(5),
+                updated_at: 6,
+            },
+        )
+        .await
+        .expect("persist whatsapp provider state");
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkReset)
+            .await
+            .expect("send reset request");
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkReset { ok, .. } => assert!(ok),
+            other => panic!("expected AgentWhatsAppLinkReset, got {other:?}"),
+        }
+
+        conn.framed
+            .send(ClientMessage::AgentWhatsAppLinkStatus)
+            .await
+            .expect("send status request after reset");
+        match conn.recv().await {
+            DaemonMessage::AgentWhatsAppLinkStatus {
+                state,
+                phone,
+                last_error,
+            } => {
+                assert_eq!(state, "disconnected");
+                assert!(phone.is_none());
+                assert!(last_error.is_none());
+            }
+            other => panic!("expected AgentWhatsAppLinkStatus after reset, got {other:?}"),
+        }
+        assert!(
+            crate::agent::load_persisted_provider_state(
+                &conn.agent.history,
+                crate::agent::WHATSAPP_LINK_PROVIDER_ID,
+            )
+            .await
+            .expect("load persisted provider state")
+            .is_none(),
+            "reset should remove persisted provider state"
+        );
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn whatsapp_link_subscribe_then_unsubscribe_stops_forwarding() {
         let mut conn = spawn_test_connection().await;
 
@@ -4648,6 +4714,42 @@ where
                                     state: snapshot.state,
                                     phone: snapshot.phone,
                                     last_error: snapshot.last_error,
+                                })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkError {
+                                    message: e.to_string(),
+                                    recoverable: false,
+                                })
+                                .await?;
+                        }
+                    }
+                }
+                ClientMessage::AgentWhatsAppLinkReset => {
+                    match agent.whatsapp_link.reset().await {
+                        Ok(()) => {
+                            if let Err(e) = crate::agent::clear_persisted_provider_state(
+                                &agent.history,
+                                crate::agent::WHATSAPP_LINK_PROVIDER_ID,
+                            )
+                            .await
+                            {
+                                framed
+                                    .send(DaemonMessage::AgentWhatsAppLinkError {
+                                        message: format!(
+                                            "failed to clear whatsapp provider state: {e}"
+                                        ),
+                                        recoverable: false,
+                                    })
+                                    .await?;
+                                continue;
+                            }
+                            framed
+                                .send(DaemonMessage::AgentWhatsAppLinkReset {
+                                    ok: true,
+                                    message: Some("reset".to_string()),
                                 })
                                 .await?;
                         }

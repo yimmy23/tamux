@@ -1,9 +1,13 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, Mutex};
+
+use crate::history::{HistoryStore, WhatsAppProviderStateRow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhatsAppLinkState {
@@ -57,6 +61,340 @@ pub struct SidecarLaunchSpec {
     pub program: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+}
+
+pub const WHATSAPP_LINK_PROVIDER_ID: &str = "whatsapp_link";
+
+pub mod transport {
+    use super::*;
+
+    pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct PersistedState {
+        pub linked_phone: Option<String>,
+        pub auth_json: Option<String>,
+        pub metadata_json: Option<String>,
+        pub last_reset_at: Option<u64>,
+        pub last_linked_at: Option<u64>,
+        pub updated_at: u64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct SessionUpdate {
+        pub linked_phone: Option<String>,
+        pub auth_json: Option<String>,
+        pub metadata_json: Option<String>,
+        pub linked_at: Option<u64>,
+        pub updated_at: u64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum WhatsAppTransportEvent {
+        Starting,
+        Qr {
+            ascii_qr: String,
+            expires_at_ms: Option<u64>,
+        },
+        SessionUpdated(SessionUpdate),
+        Linked {
+            phone: Option<String>,
+        },
+        Disconnected {
+            reason: Option<String>,
+        },
+        Error {
+            message: String,
+            recoverable: bool,
+        },
+    }
+
+    pub trait WhatsAppTransport: Send + Sync {
+        fn provider_id(&self) -> &'static str;
+        fn subscribe(&self) -> broadcast::Receiver<WhatsAppTransportEvent>;
+        fn start<'a>(
+            &'a self,
+            restored_state: Option<PersistedState>,
+        ) -> TransportFuture<'a, Result<()>>;
+        fn stop<'a>(&'a self, reason: Option<String>) -> TransportFuture<'a, Result<()>>;
+        fn reset<'a>(&'a self) -> TransportFuture<'a, Result<()>>;
+    }
+
+    #[cfg(test)]
+    pub struct ScriptedTransport {
+        tx: broadcast::Sender<WhatsAppTransportEvent>,
+        actions: Mutex<Vec<String>>,
+        restored_state: Mutex<Option<PersistedState>>,
+    }
+
+    #[cfg(test)]
+    impl ScriptedTransport {
+        pub fn new() -> Self {
+            let (tx, _) = broadcast::channel(64);
+            Self {
+                tx,
+                actions: Mutex::new(Vec::new()),
+                restored_state: Mutex::new(None),
+            }
+        }
+
+        pub async fn emit_qr(&self, ascii_qr: &str, expires_at_ms: Option<u64>) {
+            let _ = self.tx.send(WhatsAppTransportEvent::Qr {
+                ascii_qr: ascii_qr.to_string(),
+                expires_at_ms,
+            });
+        }
+
+        pub async fn emit_linked(&self, update: SessionUpdate) {
+            let phone = update.linked_phone.clone();
+            let _ = self
+                .tx
+                .send(WhatsAppTransportEvent::SessionUpdated(update));
+            let _ = self.tx.send(WhatsAppTransportEvent::Linked { phone });
+        }
+
+        pub async fn actions(&self) -> Vec<String> {
+            self.actions.lock().await.clone()
+        }
+
+        pub async fn restored_state(&self) -> Option<PersistedState> {
+            self.restored_state.lock().await.clone()
+        }
+    }
+
+    #[cfg(test)]
+    impl WhatsAppTransport for ScriptedTransport {
+        fn provider_id(&self) -> &'static str {
+            WHATSAPP_LINK_PROVIDER_ID
+        }
+
+        fn subscribe(&self) -> broadcast::Receiver<WhatsAppTransportEvent> {
+            self.tx.subscribe()
+        }
+
+        fn start<'a>(
+            &'a self,
+            restored_state: Option<PersistedState>,
+        ) -> TransportFuture<'a, Result<()>> {
+            Box::pin(async move {
+                *self.restored_state.lock().await = restored_state;
+                self.actions.lock().await.push("start".to_string());
+                let _ = self.tx.send(WhatsAppTransportEvent::Starting);
+                Ok(())
+            })
+        }
+
+        fn stop<'a>(&'a self, reason: Option<String>) -> TransportFuture<'a, Result<()>> {
+            Box::pin(async move {
+                self.actions.lock().await.push("stop".to_string());
+                let _ = self.tx.send(WhatsAppTransportEvent::Disconnected { reason });
+                Ok(())
+            })
+        }
+
+        fn reset<'a>(&'a self) -> TransportFuture<'a, Result<()>> {
+            Box::pin(async move {
+                self.actions.lock().await.push("reset".to_string());
+                *self.restored_state.lock().await = None;
+                let _ = self.tx.send(WhatsAppTransportEvent::Disconnected {
+                    reason: Some("operator_reset".to_string()),
+                });
+                Ok(())
+            })
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use tokio::time::{timeout, Duration};
+
+        #[tokio::test]
+        async fn scripted_transport_start_restores_persisted_state() {
+            let transport = ScriptedTransport::new();
+            let persisted = PersistedState {
+                linked_phone: Some("+15550000001".to_string()),
+                auth_json: Some("{\"token\":true}".to_string()),
+                metadata_json: Some("{\"provider\":\"test\"}".to_string()),
+                last_reset_at: Some(10),
+                last_linked_at: Some(20),
+                updated_at: 30,
+            };
+            let mut rx = transport.subscribe();
+
+            transport
+                .start(Some(persisted.clone()))
+                .await
+                .expect("start should succeed");
+
+            assert_eq!(transport.restored_state().await, Some(persisted));
+            assert_eq!(transport.actions().await, vec!["start".to_string()]);
+            assert!(matches!(
+                timeout(Duration::from_millis(250), rx.recv())
+                    .await
+                    .expect("starting event should arrive")
+                    .expect("broadcast should stay open"),
+                WhatsAppTransportEvent::Starting
+            ));
+        }
+
+        #[tokio::test]
+        async fn scripted_transport_emits_session_update_and_linked_events() {
+            let transport = ScriptedTransport::new();
+            let mut rx = transport.subscribe();
+
+            transport
+                .emit_qr("QR-TRANSPORT", Some(42))
+                .await;
+            transport
+                .emit_linked(SessionUpdate {
+                    linked_phone: Some("+15550000002".to_string()),
+                    auth_json: Some("{\"session\":true}".to_string()),
+                    metadata_json: Some("{\"jid\":\"abc\"}".to_string()),
+                    linked_at: Some(99),
+                    updated_at: 100,
+                })
+                .await;
+
+            assert!(matches!(
+                timeout(Duration::from_millis(250), rx.recv())
+                    .await
+                    .expect("qr event should arrive")
+                    .expect("broadcast should stay open"),
+                WhatsAppTransportEvent::Qr { ascii_qr, .. } if ascii_qr == "QR-TRANSPORT"
+            ));
+            assert!(matches!(
+                timeout(Duration::from_millis(250), rx.recv())
+                    .await
+                    .expect("session event should arrive")
+                    .expect("broadcast should stay open"),
+                WhatsAppTransportEvent::SessionUpdated(SessionUpdate {
+                    linked_phone: Some(phone),
+                    ..
+                }) if phone == "+15550000002"
+            ));
+            assert!(matches!(
+                timeout(Duration::from_millis(250), rx.recv())
+                    .await
+                    .expect("linked event should arrive")
+                    .expect("broadcast should stay open"),
+                WhatsAppTransportEvent::Linked { phone: Some(phone) } if phone == "+15550000002"
+            ));
+        }
+
+        #[tokio::test]
+        async fn scripted_transport_reset_clears_restored_state() {
+            let transport = ScriptedTransport::new();
+            transport
+                .start(Some(PersistedState {
+                    linked_phone: Some("+15550000003".to_string()),
+                    auth_json: None,
+                    metadata_json: None,
+                    last_reset_at: None,
+                    last_linked_at: Some(15),
+                    updated_at: 15,
+                }))
+                .await
+                .expect("start should succeed");
+
+            transport.reset().await.expect("reset should succeed");
+
+            assert!(transport.restored_state().await.is_none());
+            assert_eq!(
+                transport.actions().await,
+                vec!["start".to_string(), "reset".to_string()]
+            );
+        }
+    }
+}
+
+pub fn persisted_state_from_history_row(row: WhatsAppProviderStateRow) -> transport::PersistedState {
+    transport::PersistedState {
+        linked_phone: row.linked_phone,
+        auth_json: row.auth_json,
+        metadata_json: row.metadata_json,
+        last_reset_at: row.last_reset_at,
+        last_linked_at: row.last_linked_at,
+        updated_at: row.updated_at,
+    }
+}
+
+pub fn persisted_state_into_history_row(
+    provider_id: &str,
+    state: transport::PersistedState,
+) -> WhatsAppProviderStateRow {
+    WhatsAppProviderStateRow {
+        provider_id: provider_id.to_string(),
+        linked_phone: state.linked_phone,
+        auth_json: state.auth_json,
+        metadata_json: state.metadata_json,
+        last_reset_at: state.last_reset_at,
+        last_linked_at: state.last_linked_at,
+        updated_at: state.updated_at,
+    }
+}
+
+pub async fn load_persisted_provider_state(
+    history: &HistoryStore,
+    provider_id: &str,
+) -> Result<Option<transport::PersistedState>> {
+    Ok(history
+        .get_whatsapp_provider_state(provider_id)
+        .await?
+        .map(persisted_state_from_history_row))
+}
+
+pub async fn save_persisted_provider_state(
+    history: &HistoryStore,
+    provider_id: &str,
+    state: transport::PersistedState,
+) -> Result<()> {
+    history
+        .upsert_whatsapp_provider_state(persisted_state_into_history_row(provider_id, state))
+        .await
+}
+
+pub async fn clear_persisted_provider_state(
+    history: &HistoryStore,
+    provider_id: &str,
+) -> Result<()> {
+    history.delete_whatsapp_provider_state(provider_id).await
+}
+
+pub fn merge_persisted_state_update(
+    existing: Option<transport::PersistedState>,
+    update: transport::SessionUpdate,
+) -> transport::PersistedState {
+    let existing = existing.unwrap_or(transport::PersistedState {
+        linked_phone: None,
+        auth_json: None,
+        metadata_json: None,
+        last_reset_at: None,
+        last_linked_at: None,
+        updated_at: update.updated_at,
+    });
+
+    transport::PersistedState {
+        linked_phone: update.linked_phone.or(existing.linked_phone),
+        auth_json: update.auth_json.or(existing.auth_json),
+        metadata_json: update.metadata_json.or(existing.metadata_json),
+        last_reset_at: existing.last_reset_at,
+        last_linked_at: update.linked_at.or(existing.last_linked_at),
+        updated_at: update.updated_at,
+    }
+}
+
+pub async fn persist_transport_session_update(
+    history: &HistoryStore,
+    provider_id: &str,
+    update: transport::SessionUpdate,
+) -> Result<transport::PersistedState> {
+    let merged = merge_persisted_state_update(
+        load_persisted_provider_state(history, provider_id).await?,
+        update,
+    );
+    save_persisted_provider_state(history, provider_id, merged.clone()).await?;
+    Ok(merged)
 }
 
 #[derive(Debug)]
@@ -183,6 +521,22 @@ impl WhatsAppLinkRuntime {
                 Err(err)
             }
         }
+    }
+
+    pub async fn reset(&self) -> Result<()> {
+        self.stop(Some("operator_reset".to_string())).await?;
+        {
+            let mut inner = self.inner.lock().await;
+            inner.phone = None;
+            inner.last_error = None;
+            inner.active_qr = None;
+            inner.active_qr_expires_at_ms = None;
+            inner.retry_count = 0;
+            inner.last_retry_at_ms = None;
+            inner.state = WhatsAppLinkState::Disconnected;
+        }
+        self.broadcast_status().await;
+        Ok(())
     }
 
     pub async fn status_snapshot(&self) -> WhatsAppLinkStatusSnapshot {
@@ -441,6 +795,7 @@ pub async fn spawn_sidecar(spec: &SidecarLaunchSpec) -> Result<Child> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
     use tokio::time::{timeout, Duration};
 
     async fn recv_until_qr(rx: &mut broadcast::Receiver<WhatsAppLinkEvent>) -> Option<String> {
@@ -507,6 +862,140 @@ mod tests {
             }
         }
         assert_eq!(payloads, vec!["QR-1".to_string(), "QR-2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn reset_clears_runtime_state() {
+        let runtime = WhatsAppLinkRuntime::new();
+        runtime.start().await.expect("start should succeed");
+        runtime.broadcast_qr("QR-RESET".to_string(), Some(111)).await;
+        runtime
+            .broadcast_linked(Some("+15551234567".to_string()))
+            .await;
+        runtime.reset().await.expect("reset should succeed");
+
+        let snapshot = runtime.status_snapshot().await;
+        assert_eq!(snapshot.state, "disconnected");
+        assert!(snapshot.phone.is_none());
+        assert!(snapshot.last_error.is_none());
+
+        let (_, mut rx) = runtime.subscribe_with_id().await;
+        assert!(
+            recv_until_qr(&mut rx).await.is_none(),
+            "reset should clear replayable QR state"
+        );
+    }
+
+    #[tokio::test]
+    async fn persisted_provider_state_round_trips_through_history_helpers() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+        let state = transport::PersistedState {
+            linked_phone: Some("+15557654321".to_string()),
+            auth_json: Some("{\"session\":true}".to_string()),
+            metadata_json: Some("{\"jid\":\"123\"}".to_string()),
+            last_reset_at: Some(12),
+            last_linked_at: Some(34),
+            updated_at: 56,
+        };
+
+        save_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID, state.clone())
+            .await
+            .expect("save state");
+        let loaded = load_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID)
+            .await
+            .expect("load state");
+        assert_eq!(loaded, Some(state));
+
+        clear_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID)
+            .await
+            .expect("clear state");
+        assert!(
+            load_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID)
+                .await
+                .expect("load cleared state")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn merge_persisted_state_update_preserves_existing_auth_and_metadata() {
+        let merged = merge_persisted_state_update(
+            Some(transport::PersistedState {
+                linked_phone: Some("+15550000010".to_string()),
+                auth_json: Some("{\"existing\":true}".to_string()),
+                metadata_json: Some("{\"device\":\"a\"}".to_string()),
+                last_reset_at: Some(7),
+                last_linked_at: Some(8),
+                updated_at: 9,
+            }),
+            transport::SessionUpdate {
+                linked_phone: Some("+15550000011".to_string()),
+                auth_json: None,
+                metadata_json: Some("{\"device\":\"b\"}".to_string()),
+                linked_at: Some(12),
+                updated_at: 13,
+            },
+        );
+
+        assert_eq!(merged.linked_phone.as_deref(), Some("+15550000011"));
+        assert_eq!(merged.auth_json.as_deref(), Some("{\"existing\":true}"));
+        assert_eq!(merged.metadata_json.as_deref(), Some("{\"device\":\"b\"}"));
+        assert_eq!(merged.last_reset_at, Some(7));
+        assert_eq!(merged.last_linked_at, Some(12));
+        assert_eq!(merged.updated_at, 13);
+    }
+
+    #[tokio::test]
+    async fn persist_transport_session_update_merges_and_saves_state() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+
+        save_persisted_provider_state(
+            &history,
+            WHATSAPP_LINK_PROVIDER_ID,
+            transport::PersistedState {
+                linked_phone: Some("+15550000020".to_string()),
+                auth_json: Some("{\"existing\":true}".to_string()),
+                metadata_json: Some("{\"device\":\"a\"}".to_string()),
+                last_reset_at: Some(1),
+                last_linked_at: Some(2),
+                updated_at: 3,
+            },
+        )
+        .await
+        .expect("seed state");
+
+        let merged = persist_transport_session_update(
+            &history,
+            WHATSAPP_LINK_PROVIDER_ID,
+            transport::SessionUpdate {
+                linked_phone: Some("+15550000021".to_string()),
+                auth_json: None,
+                metadata_json: Some("{\"device\":\"b\"}".to_string()),
+                linked_at: Some(22),
+                updated_at: 23,
+            },
+        )
+        .await
+        .expect("persist merged update");
+
+        assert_eq!(merged.linked_phone.as_deref(), Some("+15550000021"));
+        assert_eq!(merged.auth_json.as_deref(), Some("{\"existing\":true}"));
+        assert_eq!(merged.metadata_json.as_deref(), Some("{\"device\":\"b\"}"));
+        assert_eq!(merged.last_reset_at, Some(1));
+        assert_eq!(merged.last_linked_at, Some(22));
+        assert_eq!(merged.updated_at, 23);
+        assert_eq!(
+            load_persisted_provider_state(&history, WHATSAPP_LINK_PROVIDER_ID)
+                .await
+                .expect("load merged state"),
+            Some(merged)
+        );
     }
 
     #[tokio::test]

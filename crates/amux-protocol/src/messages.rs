@@ -635,6 +635,9 @@ pub enum ClientMessage {
     /// Unsubscribe from WhatsApp QR linking updates.
     AgentWhatsAppLinkUnsubscribe,
 
+    /// Reset/unlink WhatsApp QR linking state.
+    AgentWhatsAppLinkReset,
+
     /// Start an interactive operator profiling session.
     AgentStartOperatorProfileSession {
         /// Session kind (for example: onboarding, tune-up, retrospective).
@@ -1185,6 +1188,13 @@ pub enum DaemonMessage {
     AgentWhatsAppLinkDisconnected {
         #[serde(default)]
         reason: Option<String>,
+    },
+
+    /// WhatsApp link reset confirmation.
+    AgentWhatsAppLinkReset {
+        ok: bool,
+        #[serde(default)]
+        message: Option<String>,
     },
 
     /// Operator profile session started.
@@ -2026,6 +2036,17 @@ mod tests {
     }
 
     #[test]
+    fn whatsapp_link_reset_bincode_roundtrip() {
+        let msg = ClientMessage::AgentWhatsAppLinkReset;
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentWhatsAppLinkReset => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
     fn operator_profile_client_messages_bincode_roundtrip() {
         let start = ClientMessage::AgentStartOperatorProfileSession {
             kind: "onboarding".to_string(),
@@ -2321,6 +2342,23 @@ mod tests {
         match decoded {
             DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
                 assert_eq!(reason.as_deref(), Some("user canceled"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn whatsapp_link_reset_daemon_bincode_roundtrip() {
+        let msg = DaemonMessage::AgentWhatsAppLinkReset {
+            ok: true,
+            message: Some("reset".to_string()),
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::AgentWhatsAppLinkReset { ok, message } => {
+                assert!(ok);
+                assert_eq!(message.as_deref(), Some("reset"));
             }
             other => panic!("unexpected variant: {:?}", other),
         }

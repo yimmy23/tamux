@@ -209,6 +209,17 @@ pub struct ContextArchiveRow {
     pub last_accessed_at: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct WhatsAppProviderStateRow {
+    pub provider_id: String,
+    pub linked_phone: Option<String>,
+    pub auth_json: Option<String>,
+    pub metadata_json: Option<String>,
+    pub last_reset_at: Option<u64>,
+    pub last_linked_at: Option<u64>,
+    pub updated_at: u64,
+}
+
 pub struct ProvenanceEventRecord<'a> {
     pub event_type: &'a str,
     pub summary: &'a str,
@@ -2808,6 +2819,76 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn upsert_whatsapp_provider_state(
+        &self,
+        state: WhatsAppProviderStateRow,
+    ) -> Result<()> {
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO whatsapp_provider_state \
+                     (provider_id, linked_phone, auth_json, metadata_json, last_reset_at, last_linked_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        state.provider_id,
+                        state.linked_phone,
+                        state.auth_json,
+                        state.metadata_json,
+                        state.last_reset_at.map(|value| value as i64),
+                        state.last_linked_at.map(|value| value as i64),
+                        state.updated_at as i64,
+                    ],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn get_whatsapp_provider_state(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<WhatsAppProviderStateRow>> {
+        let provider_id = provider_id.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT provider_id, linked_phone, auth_json, metadata_json, last_reset_at, last_linked_at, updated_at \
+                     FROM whatsapp_provider_state WHERE provider_id = ?1",
+                    params![provider_id],
+                    |row| {
+                        Ok(WhatsAppProviderStateRow {
+                            provider_id: row.get(0)?,
+                            linked_phone: row.get(1)?,
+                            auth_json: row.get(2)?,
+                            metadata_json: row.get(3)?,
+                            last_reset_at: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
+                            last_linked_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                            updated_at: row.get::<_, i64>(6)? as u64,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn delete_whatsapp_provider_state(&self, provider_id: &str) -> Result<()> {
+        let provider_id = provider_id.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM whatsapp_provider_state WHERE provider_id = ?1",
+                    params![provider_id],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_operator_profile_session(
         &self,
         session_id: &str,
@@ -3223,6 +3304,17 @@ impl HistoryStore {
                 updated_at  INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_gateway_threads_updated ON gateway_threads(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS whatsapp_provider_state (
+                provider_id    TEXT PRIMARY KEY,
+                linked_phone   TEXT,
+                auth_json      TEXT,
+                metadata_json  TEXT,
+                last_reset_at  INTEGER,
+                last_linked_at INTEGER,
+                updated_at     INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_whatsapp_provider_state_updated ON whatsapp_provider_state(updated_at DESC);
 
             CREATE TABLE IF NOT EXISTS operator_profile_sessions (
                 session_id   TEXT PRIMARY KEY,
@@ -7026,6 +7118,47 @@ mod tests {
         let map: std::collections::HashMap<String, String> = bindings.into_iter().collect();
         assert_eq!(map.get("Slack:C123").map(String::as_str), Some("thread_c"));
         assert!(!map.contains_key("Discord:999"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn whatsapp_provider_state_round_trip_and_delete() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+
+        let state = WhatsAppProviderStateRow {
+            provider_id: "whatsapp_web".to_string(),
+            linked_phone: Some("+15551234567".to_string()),
+            auth_json: Some("{\"session\":true}".to_string()),
+            metadata_json: Some("{\"source\":\"test\"}".to_string()),
+            last_reset_at: Some(123),
+            last_linked_at: Some(456),
+            updated_at: 789,
+        };
+
+        store.upsert_whatsapp_provider_state(state.clone()).await?;
+        let loaded = store
+            .get_whatsapp_provider_state("whatsapp_web")
+            .await?
+            .expect("provider state should exist");
+        assert_eq!(loaded.provider_id, state.provider_id);
+        assert_eq!(loaded.linked_phone, state.linked_phone);
+        assert_eq!(loaded.auth_json, state.auth_json);
+        assert_eq!(loaded.metadata_json, state.metadata_json);
+        assert_eq!(loaded.last_reset_at, state.last_reset_at);
+        assert_eq!(loaded.last_linked_at, state.last_linked_at);
+        assert_eq!(loaded.updated_at, state.updated_at);
+
+        store
+            .delete_whatsapp_provider_state("whatsapp_web")
+            .await?;
+        assert!(
+            store
+                .get_whatsapp_provider_state("whatsapp_web")
+                .await?
+                .is_none()
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())
