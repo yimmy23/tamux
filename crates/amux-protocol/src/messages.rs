@@ -21,6 +21,181 @@ pub const AGENT_ID_RAROG: &str = "rarog";
 pub const AGENT_NAME_RAROG: &str = "Rarog";
 
 // ---------------------------------------------------------------------------
+// Gateway daemon <-> runtime IPC
+// ---------------------------------------------------------------------------
+
+/// Gateway runtime registration sent when the dedicated gateway process connects.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayRegistration {
+    pub gateway_id: String,
+    pub instance_id: String,
+    pub protocol_version: u16,
+    pub supported_platforms: Vec<String>,
+    #[serde(default)]
+    pub process_id: Option<u32>,
+}
+
+/// Generic gateway acknowledgment used to complete bootstrap / control handshakes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayAck {
+    pub correlation_id: String,
+    pub accepted: bool,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+/// Provider-specific configuration and credentials the gateway needs at startup.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayProviderBootstrap {
+    pub platform: String,
+    pub enabled: bool,
+    pub credentials_json: String,
+    pub config_json: String,
+}
+
+/// Persisted replay cursor state loaded by the daemon and handed to the gateway on connect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayCursorState {
+    pub platform: String,
+    pub channel_id: String,
+    pub cursor_value: String,
+    pub cursor_type: String,
+    pub updated_at_ms: u64,
+}
+
+/// Persisted daemon-side thread bindings that preserve cross-message continuity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayThreadBindingState {
+    pub channel_key: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    pub updated_at_ms: u64,
+}
+
+/// Sticky routing mode for a gateway channel.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayRouteMode {
+    Rarog,
+    Swarog,
+}
+
+/// Persisted route mode attached to a specific channel binding.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayRouteModeState {
+    pub channel_key: String,
+    pub route_mode: GatewayRouteMode,
+    pub updated_at_ms: u64,
+}
+
+/// Continuity state restored by the daemon during gateway bootstrap.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct GatewayContinuityState {
+    #[serde(default)]
+    pub cursors: Vec<GatewayCursorState>,
+    #[serde(default)]
+    pub thread_bindings: Vec<GatewayThreadBindingState>,
+    #[serde(default)]
+    pub route_modes: Vec<GatewayRouteModeState>,
+}
+
+/// Full daemon -> gateway bootstrap payload sent after registration succeeds.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayBootstrapPayload {
+    #[serde(default)]
+    pub feature_flags: Vec<String>,
+    #[serde(default)]
+    pub providers: Vec<GatewayProviderBootstrap>,
+    #[serde(default)]
+    pub continuity: GatewayContinuityState,
+}
+
+/// Normalized inbound event forwarded from the gateway runtime to the daemon.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayIncomingEvent {
+    pub platform: String,
+    pub channel_id: String,
+    pub sender_id: String,
+    #[serde(default)]
+    pub sender_display: Option<String>,
+    pub content: String,
+    #[serde(default)]
+    pub message_id: Option<String>,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    pub received_at_ms: u64,
+    #[serde(default)]
+    pub raw_event_json: Option<String>,
+}
+
+/// Outbound send request issued by the daemon to the gateway runtime.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewaySendRequest {
+    pub correlation_id: String,
+    pub platform: String,
+    pub channel_id: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    pub content: String,
+}
+
+/// Delivery result reported by the gateway for a prior send request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewaySendResult {
+    pub correlation_id: String,
+    pub platform: String,
+    pub channel_id: String,
+    #[serde(default)]
+    pub delivery_id: Option<String>,
+    pub ok: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    pub completed_at_ms: u64,
+}
+
+/// Shared gateway connection status used in health updates.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GatewayConnectionStatus {
+    Connected,
+    Disconnected,
+    Error,
+}
+
+/// Health state emitted by the gateway runtime for a specific platform.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayHealthState {
+    pub platform: String,
+    pub status: GatewayConnectionStatus,
+    #[serde(default)]
+    pub last_success_at_ms: Option<u64>,
+    #[serde(default)]
+    pub last_error_at_ms: Option<u64>,
+    pub consecutive_failure_count: u32,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    pub current_backoff_secs: u64,
+}
+
+/// Daemon -> gateway command to reload runtime configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayReloadCommand {
+    pub correlation_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    pub requested_at_ms: u64,
+}
+
+/// Daemon -> gateway command to stop the runtime cleanly.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GatewayShutdownCommand {
+    pub correlation_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    pub requested_at_ms: u64,
+}
+
+// ---------------------------------------------------------------------------
 // Client -> Daemon requests
 // ---------------------------------------------------------------------------
 
@@ -229,6 +404,47 @@ pub enum ClientMessage {
 
     /// Ping / health-check.
     Ping,
+
+    // -----------------------------------------------------------------------
+    // Gateway runtime
+    // -----------------------------------------------------------------------
+    /// Gateway -> daemon: register a dedicated gateway runtime on the existing IPC socket.
+    GatewayRegister {
+        registration: GatewayRegistration,
+    },
+
+    /// Gateway -> daemon: acknowledge bootstrap or a daemon-issued control command.
+    GatewayAck { ack: GatewayAck },
+
+    /// Gateway -> daemon: forward a normalized inbound platform event for routing.
+    GatewayIncomingEvent {
+        event: GatewayIncomingEvent,
+    },
+
+    /// Gateway -> daemon: persist replay cursor progress after ingesting an event batch.
+    GatewayCursorUpdate {
+        update: GatewayCursorState,
+    },
+
+    /// Gateway -> daemon: persist the current channel -> thread binding.
+    GatewayThreadBindingUpdate {
+        update: GatewayThreadBindingState,
+    },
+
+    /// Gateway -> daemon: persist the current sticky route mode for a channel.
+    GatewayRouteModeUpdate {
+        update: GatewayRouteModeState,
+    },
+
+    /// Gateway -> daemon: report the result of a daemon-issued outbound send request.
+    GatewaySendResult {
+        result: GatewaySendResult,
+    },
+
+    /// Gateway -> daemon: report per-platform runtime health for supervision and UI status.
+    GatewayHealthUpdate {
+        update: GatewayHealthState,
+    },
 
     // -----------------------------------------------------------------------
     // Agent engine
@@ -906,6 +1122,29 @@ pub enum DaemonMessage {
 
     /// Pong.
     Pong,
+
+    // -----------------------------------------------------------------------
+    // Gateway runtime
+    // -----------------------------------------------------------------------
+    /// Daemon -> gateway: deliver the bootstrap payload after registration succeeds.
+    GatewayBootstrap {
+        payload: GatewayBootstrapPayload,
+    },
+
+    /// Daemon -> gateway: request an outbound platform send correlated by request ID.
+    GatewaySendRequest {
+        request: GatewaySendRequest,
+    },
+
+    /// Daemon -> gateway: reload provider configuration / feature flags without reconnecting.
+    GatewayReloadCommand {
+        command: GatewayReloadCommand,
+    },
+
+    /// Daemon -> gateway: stop the dedicated runtime gracefully.
+    GatewayShutdownCommand {
+        command: GatewayShutdownCommand,
+    },
 
     /// Generic error.
     Error { message: String },
@@ -1823,6 +2062,317 @@ mod tests {
             maturity_at_publish: "proven".to_string(),
             tags: vec!["git".to_string(), "workflow".to_string()],
             published_at: 1700001234,
+        }
+    }
+
+    #[test]
+    fn gateway_register_round_trip() {
+        let msg = ClientMessage::GatewayRegister {
+            registration: GatewayRegistration {
+                gateway_id: "gateway-main".to_string(),
+                instance_id: "instance-01".to_string(),
+                protocol_version: 1,
+                supported_platforms: vec![
+                    "slack".to_string(),
+                    "discord".to_string(),
+                    "telegram".to_string(),
+                ],
+                process_id: Some(4242),
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayRegister { registration } => {
+                assert_eq!(registration.gateway_id, "gateway-main");
+                assert_eq!(registration.instance_id, "instance-01");
+                assert_eq!(registration.protocol_version, 1);
+                assert_eq!(registration.supported_platforms.len(), 3);
+                assert_eq!(registration.process_id, Some(4242));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_bootstrap_round_trip() {
+        let msg = DaemonMessage::GatewayBootstrap {
+            payload: GatewayBootstrapPayload {
+                feature_flags: vec![
+                    "gateway_runtime_ownership".to_string(),
+                    "gateway_route_persistence".to_string(),
+                ],
+                providers: vec![GatewayProviderBootstrap {
+                    platform: "slack".to_string(),
+                    enabled: true,
+                    credentials_json: r#"{"token":"secret"}"#.to_string(),
+                    config_json: r#"{"channel_filter":"C123"}"#.to_string(),
+                }],
+                continuity: GatewayContinuityState {
+                    cursors: vec![GatewayCursorState {
+                        platform: "slack".to_string(),
+                        channel_id: "C123".to_string(),
+                        cursor_value: "1712345678.000100".to_string(),
+                        cursor_type: "message_ts".to_string(),
+                        updated_at_ms: 1_710_000_000_000,
+                    }],
+                    thread_bindings: vec![GatewayThreadBindingState {
+                        channel_key: "Slack:C123".to_string(),
+                        thread_id: Some("thread-123".to_string()),
+                        updated_at_ms: 1_710_000_000_001,
+                    }],
+                    route_modes: vec![GatewayRouteModeState {
+                        channel_key: "Slack:C123".to_string(),
+                        route_mode: GatewayRouteMode::Rarog,
+                        updated_at_ms: 1_710_000_000_002,
+                    }],
+                },
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::GatewayBootstrap { payload } => {
+                assert_eq!(payload.feature_flags.len(), 2);
+                assert_eq!(payload.providers.len(), 1);
+                assert_eq!(payload.providers[0].platform, "slack");
+                assert_eq!(payload.continuity.cursors.len(), 1);
+                assert_eq!(payload.continuity.thread_bindings.len(), 1);
+                assert_eq!(payload.continuity.route_modes.len(), 1);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_ack_round_trip() {
+        let msg = ClientMessage::GatewayAck {
+            ack: GatewayAck {
+                correlation_id: "boot-1".to_string(),
+                accepted: true,
+                detail: Some("bootstrap applied".to_string()),
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayAck { ack } => {
+                assert_eq!(ack.correlation_id, "boot-1");
+                assert!(ack.accepted);
+                assert_eq!(ack.detail.as_deref(), Some("bootstrap applied"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_incoming_event_round_trip() {
+        let msg = ClientMessage::GatewayIncomingEvent {
+            event: GatewayIncomingEvent {
+                platform: "telegram".to_string(),
+                channel_id: "global".to_string(),
+                sender_id: "user-42".to_string(),
+                sender_display: Some("Alicja".to_string()),
+                content: "hello".to_string(),
+                message_id: Some("tg:99".to_string()),
+                thread_id: Some("thread-99".to_string()),
+                received_at_ms: 1_710_000_000_003,
+                raw_event_json: Some(r#"{"update_id":99}"#.to_string()),
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayIncomingEvent { event } => {
+                assert_eq!(event.platform, "telegram");
+                assert_eq!(event.channel_id, "global");
+                assert_eq!(event.sender_id, "user-42");
+                assert_eq!(event.content, "hello");
+                assert_eq!(event.message_id.as_deref(), Some("tg:99"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_send_request_round_trip() {
+        let msg = DaemonMessage::GatewaySendRequest {
+            request: GatewaySendRequest {
+                correlation_id: "send-1".to_string(),
+                platform: "slack".to_string(),
+                channel_id: "C123".to_string(),
+                thread_id: Some("1712345678.000100".to_string()),
+                content: "reply text".to_string(),
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::GatewaySendRequest { request } => {
+                assert_eq!(request.correlation_id, "send-1");
+                assert_eq!(request.platform, "slack");
+                assert_eq!(request.channel_id, "C123");
+                assert_eq!(request.thread_id.as_deref(), Some("1712345678.000100"));
+                assert_eq!(request.content, "reply text");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_send_result_round_trip() {
+        let msg = ClientMessage::GatewaySendResult {
+            result: GatewaySendResult {
+                correlation_id: "send-1".to_string(),
+                platform: "slack".to_string(),
+                channel_id: "C123".to_string(),
+                delivery_id: Some("slack:C123:1712345679.000200".to_string()),
+                ok: true,
+                error: None,
+                completed_at_ms: 1_710_000_000_004,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewaySendResult { result } => {
+                assert_eq!(result.correlation_id, "send-1");
+                assert_eq!(result.platform, "slack");
+                assert_eq!(result.channel_id, "C123");
+                assert!(result.ok);
+                assert!(result.error.is_none());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_cursor_update_round_trip() {
+        let msg = ClientMessage::GatewayCursorUpdate {
+            update: GatewayCursorState {
+                platform: "discord".to_string(),
+                channel_id: "D456".to_string(),
+                cursor_value: "998877665544".to_string(),
+                cursor_type: "message_id".to_string(),
+                updated_at_ms: 1_710_000_000_005,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayCursorUpdate { update } => {
+                assert_eq!(update.platform, "discord");
+                assert_eq!(update.channel_id, "D456");
+                assert_eq!(update.cursor_value, "998877665544");
+                assert_eq!(update.cursor_type, "message_id");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_thread_binding_update_round_trip() {
+        let msg = ClientMessage::GatewayThreadBindingUpdate {
+            update: GatewayThreadBindingState {
+                channel_key: "Discord:D456".to_string(),
+                thread_id: Some("thread-456".to_string()),
+                updated_at_ms: 1_710_000_000_006,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayThreadBindingUpdate { update } => {
+                assert_eq!(update.channel_key, "Discord:D456");
+                assert_eq!(update.thread_id.as_deref(), Some("thread-456"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_route_mode_update_round_trip() {
+        let msg = ClientMessage::GatewayRouteModeUpdate {
+            update: GatewayRouteModeState {
+                channel_key: "Telegram:global".to_string(),
+                route_mode: GatewayRouteMode::Swarog,
+                updated_at_ms: 1_710_000_000_007,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayRouteModeUpdate { update } => {
+                assert_eq!(update.channel_key, "Telegram:global");
+                assert!(matches!(update.route_mode, GatewayRouteMode::Swarog));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_health_update_round_trip() {
+        let msg = ClientMessage::GatewayHealthUpdate {
+            update: GatewayHealthState {
+                platform: "slack".to_string(),
+                status: GatewayConnectionStatus::Connected,
+                last_success_at_ms: Some(1_710_000_000_008),
+                last_error_at_ms: None,
+                consecutive_failure_count: 0,
+                last_error: None,
+                current_backoff_secs: 0,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::GatewayHealthUpdate { update } => {
+                assert_eq!(update.platform, "slack");
+                assert!(matches!(update.status, GatewayConnectionStatus::Connected));
+                assert_eq!(update.last_success_at_ms, Some(1_710_000_000_008));
+                assert_eq!(update.consecutive_failure_count, 0);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_reload_command_round_trip() {
+        let msg = DaemonMessage::GatewayReloadCommand {
+            command: GatewayReloadCommand {
+                correlation_id: "reload-1".to_string(),
+                reason: Some("config changed".to_string()),
+                requested_at_ms: 1_710_000_000_009,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::GatewayReloadCommand { command } => {
+                assert_eq!(command.correlation_id, "reload-1");
+                assert_eq!(command.reason.as_deref(), Some("config changed"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn gateway_shutdown_command_round_trip() {
+        let msg = DaemonMessage::GatewayShutdownCommand {
+            command: GatewayShutdownCommand {
+                correlation_id: "shutdown-1".to_string(),
+                reason: Some("daemon stopping".to_string()),
+                requested_at_ms: 1_710_000_000_010,
+            },
+        };
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            DaemonMessage::GatewayShutdownCommand { command } => {
+                assert_eq!(command.correlation_id, "shutdown-1");
+                assert_eq!(command.reason.as_deref(), Some("daemon stopping"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
         }
     }
 

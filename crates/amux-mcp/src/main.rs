@@ -883,6 +883,12 @@ async fn tool_execute_command(args: &Value) -> Result<Value> {
             DaemonMessage::Error { message } => {
                 anyhow::bail!("daemon error: {message}");
             }
+            DaemonMessage::GatewayBootstrap { .. }
+            | DaemonMessage::GatewaySendRequest { .. }
+            | DaemonMessage::GatewayReloadCommand { .. }
+            | DaemonMessage::GatewayShutdownCommand { .. } => {
+                // MCP shares the socket but does not participate in gateway runtime control.
+            }
             _ => {
                 // Ignore other messages (output bytes, etc.)
             }

@@ -580,6 +580,10 @@ pub async fn attach_session(id: &str) -> Result<()> {
                 eprintln!("Error: {message}");
                 break;
             }
+            DaemonMessage::GatewayBootstrap { .. }
+            | DaemonMessage::GatewaySendRequest { .. }
+            | DaemonMessage::GatewayReloadCommand { .. }
+            | DaemonMessage::GatewayShutdownCommand { .. } => {}
             _ => {}
         }
     }

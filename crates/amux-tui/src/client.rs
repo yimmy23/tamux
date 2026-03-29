@@ -993,6 +993,12 @@ impl DaemonClient {
                     })
                     .await;
             }
+            DaemonMessage::GatewayBootstrap { .. }
+            | DaemonMessage::GatewaySendRequest { .. }
+            | DaemonMessage::GatewayReloadCommand { .. }
+            | DaemonMessage::GatewayShutdownCommand { .. } => {
+                debug!("Ignoring gateway runtime daemon message in TUI client");
+            }
             DaemonMessage::Error { message } => {
                 let _ = event_tx.send(ClientEvent::Error(message)).await;
             }

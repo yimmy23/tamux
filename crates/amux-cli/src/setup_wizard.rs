@@ -113,6 +113,12 @@ async fn validate_provider_on_stream(
                 tracing::debug!("skipping daemon error during validate: {message}");
                 continue;
             }
+            Ok(Ok(
+                DaemonMessage::GatewayBootstrap { .. }
+                | DaemonMessage::GatewaySendRequest { .. }
+                | DaemonMessage::GatewayReloadCommand { .. }
+                | DaemonMessage::GatewayShutdownCommand { .. },
+            )) => continue,
             Ok(Ok(DaemonMessage::AgentEvent { .. })) => continue,
             Ok(Ok(DaemonMessage::AgentConfigResponse { .. })) => continue,
             Ok(Ok(other)) => {
@@ -671,6 +677,10 @@ async fn run_whatsapp_link_attempt(
             DaemonMessage::Error { message } => {
                 println!("WhatsApp link error: {message}");
             }
+            DaemonMessage::GatewayBootstrap { .. }
+            | DaemonMessage::GatewaySendRequest { .. }
+            | DaemonMessage::GatewayReloadCommand { .. }
+            | DaemonMessage::GatewayShutdownCommand { .. } => {}
             _ => {}
         }
     }

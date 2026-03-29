@@ -2,7 +2,11 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use amux_protocol::{ClientMessage, DaemonMessage, SessionInfo};
+use amux_protocol::{
+    ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayConnectionStatus,
+    GatewayContinuityState, GatewayCursorState, GatewayHealthState, GatewayProviderBootstrap,
+    GatewayRouteMode, GatewayRouteModeState, GatewayThreadBindingState, SessionInfo,
+};
 use anyhow::{Context, Result};
 use futures::SinkExt;
 use futures::StreamExt;
@@ -51,6 +55,158 @@ impl Drop for WhatsAppLinkSubscriberGuard {
                 agent.whatsapp_link.unsubscribe(subscriber_id).await;
             });
         }
+    }
+}
+
+fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn gateway_feature_flags(config: &crate::agent::types::GatewayConfig) -> Vec<String> {
+    let mut flags = Vec::new();
+    if config.enabled {
+        flags.push("gateway_enabled".to_string());
+    }
+    if config.gateway_electron_bridges_enabled {
+        flags.push("gateway_electron_bridges_enabled".to_string());
+    }
+    if config.whatsapp_link_fallback_electron {
+        flags.push("whatsapp_link_fallback_electron".to_string());
+    }
+    flags
+}
+
+fn gateway_provider_bootstrap(
+    platform: &str,
+    enabled: bool,
+    credentials: serde_json::Value,
+    config: serde_json::Value,
+) -> GatewayProviderBootstrap {
+    GatewayProviderBootstrap {
+        platform: platform.to_string(),
+        enabled,
+        credentials_json: credentials.to_string(),
+        config_json: config.to_string(),
+    }
+}
+
+fn gateway_bootstrap_providers(
+    config: &crate::agent::types::GatewayConfig,
+) -> Vec<GatewayProviderBootstrap> {
+    vec![
+        gateway_provider_bootstrap(
+            "slack",
+            config.enabled && !config.slack_token.trim().is_empty(),
+            serde_json::json!({ "token": config.slack_token }),
+            serde_json::json!({
+                "channel_filter": config.slack_channel_filter,
+                "command_prefix": config.command_prefix,
+            }),
+        ),
+        gateway_provider_bootstrap(
+            "discord",
+            config.enabled && !config.discord_token.trim().is_empty(),
+            serde_json::json!({ "token": config.discord_token }),
+            serde_json::json!({
+                "channel_filter": config.discord_channel_filter,
+                "allowed_users": config.discord_allowed_users,
+                "command_prefix": config.command_prefix,
+            }),
+        ),
+        gateway_provider_bootstrap(
+            "telegram",
+            config.enabled && !config.telegram_token.trim().is_empty(),
+            serde_json::json!({ "token": config.telegram_token }),
+            serde_json::json!({
+                "allowed_chats": config.telegram_allowed_chats,
+                "command_prefix": config.command_prefix,
+            }),
+        ),
+        gateway_provider_bootstrap(
+            "whatsapp",
+            config.enabled
+                && (!config.whatsapp_token.trim().is_empty()
+                    || !config.whatsapp_allowed_contacts.trim().is_empty()),
+            serde_json::json!({
+                "token": config.whatsapp_token,
+                "phone_id": config.whatsapp_phone_id,
+            }),
+            serde_json::json!({
+                "allowed_contacts": config.whatsapp_allowed_contacts,
+                "command_prefix": config.command_prefix,
+                "fallback_electron": config.whatsapp_link_fallback_electron,
+            }),
+        ),
+    ]
+}
+
+fn parse_gateway_route_mode(value: &str) -> GatewayRouteMode {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "swarog" | "main" => GatewayRouteMode::Swarog,
+        _ => GatewayRouteMode::Rarog,
+    }
+}
+
+async fn build_gateway_bootstrap_payload(agent: &AgentEngine) -> GatewayBootstrapPayload {
+    let gateway = agent.config.read().await.gateway.clone();
+
+    let mut cursors = Vec::new();
+    for platform in ["slack", "discord", "telegram", "whatsapp"] {
+        match agent.history.load_gateway_replay_cursors(platform).await {
+            Ok(rows) => cursors.extend(rows.into_iter().map(|row| GatewayCursorState {
+                platform: row.platform,
+                channel_id: row.channel_id,
+                cursor_value: row.cursor_value,
+                cursor_type: row.cursor_type,
+                updated_at_ms: row.updated_at,
+            })),
+            Err(error) => {
+                tracing::warn!(platform, %error, "gateway: failed to load replay cursors for bootstrap");
+            }
+        }
+    }
+
+    let thread_bindings = match agent.history.list_gateway_thread_bindings().await {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(channel_key, thread_id)| GatewayThreadBindingState {
+                channel_key,
+                thread_id: Some(thread_id),
+                updated_at_ms: 0,
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "gateway: failed to load thread bindings for bootstrap");
+            Vec::new()
+        }
+    };
+
+    let route_modes = match agent.history.list_gateway_route_modes().await {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|(channel_key, route_mode)| GatewayRouteModeState {
+                channel_key,
+                route_mode: parse_gateway_route_mode(&route_mode),
+                updated_at_ms: 0,
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "gateway: failed to load route modes for bootstrap");
+            Vec::new()
+        }
+    };
+
+    GatewayBootstrapPayload {
+        feature_flags: gateway_feature_flags(&gateway),
+        providers: gateway_bootstrap_providers(&gateway),
+        continuity: GatewayContinuityState {
+            cursors,
+            thread_bindings,
+            route_modes,
+        },
     }
 }
 
@@ -1240,6 +1396,145 @@ where
             match msg {
                 ClientMessage::Ping => {
                     framed.send(DaemonMessage::Pong).await?;
+                }
+
+                ClientMessage::GatewayRegister { registration } => {
+                    tracing::info!(
+                        gateway_id = %registration.gateway_id,
+                        instance_id = %registration.instance_id,
+                        protocol_version = registration.protocol_version,
+                        "gateway runtime registered on daemon socket"
+                    );
+                    let payload = build_gateway_bootstrap_payload(&agent).await;
+                    framed.send(DaemonMessage::GatewayBootstrap { payload }).await?;
+                }
+
+                ClientMessage::GatewayAck { ack } => {
+                    tracing::debug!(
+                        correlation_id = %ack.correlation_id,
+                        accepted = ack.accepted,
+                        detail = ack.detail.as_deref().unwrap_or(""),
+                        "gateway runtime ack received"
+                    );
+                }
+
+                ClientMessage::GatewayIncomingEvent { event } => {
+                    tracing::debug!(
+                        platform = %event.platform,
+                        channel_id = %event.channel_id,
+                        sender_id = %event.sender_id,
+                        "gateway incoming event received"
+                    );
+                }
+
+                ClientMessage::GatewayCursorUpdate { update } => {
+                    if let Err(error) = agent
+                        .history
+                        .save_gateway_replay_cursor(
+                            &update.platform,
+                            &update.channel_id,
+                            &update.cursor_value,
+                            &update.cursor_type,
+                        )
+                        .await
+                    {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: format!("failed to persist gateway cursor: {error}"),
+                            })
+                            .await?;
+                    }
+                }
+
+                ClientMessage::GatewayThreadBindingUpdate { update } => {
+                    let result = match update.thread_id.as_deref() {
+                        Some(thread_id) => {
+                            let updated_at = if update.updated_at_ms == 0 {
+                                current_time_ms()
+                            } else {
+                                update.updated_at_ms
+                            };
+                            agent
+                                .history
+                                .upsert_gateway_thread_binding(
+                                    &update.channel_key,
+                                    thread_id,
+                                    updated_at,
+                                )
+                                .await
+                        }
+                        None => agent.history.delete_gateway_thread_binding(&update.channel_key).await,
+                    };
+                    if let Err(error) = result {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: format!(
+                                    "failed to persist gateway thread binding: {error}"
+                                ),
+                            })
+                            .await?;
+                    }
+                }
+
+                ClientMessage::GatewayRouteModeUpdate { update } => {
+                    let result = agent
+                        .history
+                        .upsert_gateway_route_mode(
+                            &update.channel_key,
+                            match update.route_mode {
+                                GatewayRouteMode::Rarog => "rarog",
+                                GatewayRouteMode::Swarog => "swarog",
+                            },
+                            if update.updated_at_ms == 0 {
+                                current_time_ms()
+                            } else {
+                                update.updated_at_ms
+                            },
+                        )
+                        .await;
+                    if let Err(error) = result {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: format!("failed to persist gateway route mode: {error}"),
+                            })
+                            .await?;
+                    }
+                }
+
+                ClientMessage::GatewaySendResult { result } => {
+                    tracing::debug!(
+                        correlation_id = %result.correlation_id,
+                        platform = %result.platform,
+                        ok = result.ok,
+                        "gateway send result received"
+                    );
+                }
+
+                ClientMessage::GatewayHealthUpdate { update } => {
+                    let GatewayHealthState {
+                        platform,
+                        status,
+                        last_success_at_ms,
+                        last_error_at_ms,
+                        consecutive_failure_count,
+                        last_error,
+                        current_backoff_secs,
+                    } = update;
+                    let status_label = match status {
+                        GatewayConnectionStatus::Connected => "connected",
+                        GatewayConnectionStatus::Disconnected => "disconnected",
+                        GatewayConnectionStatus::Error => "error",
+                    };
+                    tracing::debug!(
+                        platform = %platform,
+                        status = status_label,
+                        last_success_at_ms,
+                        last_error_at_ms,
+                        consecutive_failure_count,
+                        last_error = last_error.as_deref().unwrap_or(""),
+                        current_backoff_secs,
+                        "gateway health update received"
+                    );
                 }
 
                 ClientMessage::SpawnSession {
