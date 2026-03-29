@@ -15,6 +15,7 @@ impl TuiModel {
         }
         self.settings
             .reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+        self.settings_navigate_to(3);
         self.settings.start_editing("custom_model_entry", &current);
         self.status_line = "Enter custom model as `Name | ID` or just `ID`".to_string();
     }
@@ -665,7 +666,9 @@ impl TuiModel {
                             self.apply_provider_selection(def.id);
                             self.settings_picker_target = None;
                             self.close_top_modal();
-                            if self.config.provider != "custom" {
+                            if self.config.provider == "custom" {
+                                self.settings_navigate_to(3);
+                            } else {
                                 // Chain into model picker so user can choose a model
                                 // for the newly selected provider.
                                 let models = providers::known_models_for_provider_auth(
@@ -1027,7 +1030,9 @@ mod tests {
         model
             .modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-        model.modal.set_picker_item_count(providers::PROVIDERS.len());
+        model
+            .modal
+            .set_picker_item_count(providers::PROVIDERS.len());
         if custom_index > 0 {
             model
                 .modal
@@ -1043,5 +1048,41 @@ mod tests {
         assert!(!quit);
         assert_eq!(model.config.provider, "custom");
         assert_ne!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    }
+
+    #[test]
+    fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
+        let (mut model, _daemon_rx) = make_model();
+        let custom_index = providers::PROVIDERS
+            .iter()
+            .position(|provider| provider.id == "custom")
+            .expect("custom provider to exist");
+
+        model
+            .settings
+            .reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+        model.settings_picker_target = Some(SettingsPickerTarget::Provider);
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+        model
+            .modal
+            .set_picker_item_count(providers::PROVIDERS.len());
+        if custom_index > 0 {
+            model
+                .modal
+                .reduce(modal::ModalAction::Navigate(custom_index as i32));
+        }
+
+        let quit = model.handle_key_modal(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            modal::ModalKind::ProviderPicker,
+        );
+
+        assert!(!quit);
+        assert_eq!(model.config.provider, "custom");
+        assert_eq!(model.settings.current_field_name(), "model");
+        assert_eq!(model.settings.field_cursor(), 3);
     }
 }

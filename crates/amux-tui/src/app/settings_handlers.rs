@@ -2025,6 +2025,7 @@ mod tests {
         model.activate_settings_field();
 
         assert_eq!(model.settings.editing_field(), Some("custom_model_entry"));
+        assert_eq!(model.settings.field_cursor(), 3);
         assert_ne!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
     }
 

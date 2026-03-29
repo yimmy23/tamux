@@ -417,6 +417,7 @@ fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usi
     match settings.active_tab() {
         SettingsTab::Provider => match field {
             "base_url" => Some((5, 19)),
+            "custom_model_entry" => Some((7, 19)),
             "assistant_id" => Some((9, 19)),
             "context_window_tokens" => Some((11, 19)),
             _ => None,
@@ -855,7 +856,17 @@ fn render_provider_tab<'a>(
         (0, "Provider", provider_val, "provider", " [Enter: pick]"),
         (1, "Base URL", base_url_val, "base_url", " [Enter: edit]"),
         (2, "Auth", auth_source_val, "auth_source", " [Enter: cycle]"),
-        (3, "Model", model_val, "model", " [Enter: pick]"),
+        (
+            3,
+            "Model",
+            model_val,
+            "model",
+            if config.provider == "custom" {
+                " [Enter: edit]"
+            } else {
+                " [Enter: pick]"
+            },
+        ),
         (
             4,
             "Transport",
@@ -888,7 +899,10 @@ fn render_provider_tab<'a>(
 
     for (idx, label, value, field_name, hint) in &fields {
         let is_selected = settings.field_cursor() == *idx;
-        let is_editing = settings.is_editing() && settings.editing_field() == Some(*field_name);
+        let is_editing = settings.is_editing()
+            && (settings.editing_field() == Some(*field_name)
+                || (*field_name == "model"
+                    && settings.editing_field() == Some("custom_model_entry")));
 
         let marker = if is_selected { ">" } else { " " };
 
@@ -3691,5 +3705,50 @@ mod tests {
         assert!(text.contains("+15557654321"));
         assert!(text.contains("╭"));
         assert!(text.contains("╰"));
+    }
+
+    #[test]
+    fn custom_provider_model_field_invites_inline_edit() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Provider,
+        ));
+        settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
+        let mut config = ConfigState::new();
+        config.provider = "custom".to_string();
+        config.model = "my-model".to_string();
+
+        let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("> Model           my-model [Enter: edit]"));
+        assert!(!text.contains("> Model           my-model [Enter: pick]"));
+    }
+
+    #[test]
+    fn custom_provider_model_row_shows_active_edit_buffer() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Provider,
+        ));
+        settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
+        settings.start_editing("custom_model_entry", "my-model");
+        let mut config = ConfigState::new();
+        config.provider = "custom".to_string();
+        config.model = "my-model".to_string();
+
+        let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("> Model           my-model█"));
+        assert!(!text.contains("> Provider        custom█"));
     }
 }
