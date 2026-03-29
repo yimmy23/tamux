@@ -64,12 +64,17 @@ fn build_whatsapp_cursor(ts_secs: u64, msg_id: &str) -> String {
     format!("{ts_secs}:{msg_id}")
 }
 
-/// Parse the Unix-seconds timestamp component from a WhatsApp cursor value.
-/// Accepts `"{ts}:{msg_id}"` (current format).  Returns `None` for legacy
-/// cursors that cannot be parsed (they will be treated as "no cursor" and
-/// the chat will be skipped for replay — safe no-backfill fallback).
-fn parse_whatsapp_cursor_ts_secs(cursor: &str) -> Option<u64> {
-    cursor.split(':').next()?.parse::<u64>().ok()
+/// Parse the timestamp + message id components from a WhatsApp cursor value.
+/// Returns `None` for legacy cursors that cannot be parsed, which triggers a
+/// safe no-backfill fallback for reconnect replay.
+fn parse_whatsapp_cursor(cursor: &str) -> Option<(u64, &str)> {
+    let (ts_secs, msg_id) = cursor.split_once(':')?;
+    let ts_secs = ts_secs.parse::<u64>().ok()?;
+    let msg_id = msg_id.trim();
+    if ts_secs == 0 || msg_id.is_empty() {
+        return None;
+    }
+    Some((ts_secs, msg_id))
 }
 
 /// Insert "whatsapp" into `replay_cycle_active` when persisted cursors exist.
@@ -78,6 +83,43 @@ fn mark_whatsapp_replay_active_if_cursors(gw: &mut gateway::GatewayState) {
     if !gw.whatsapp_replay_cursors.is_empty() {
         gw.replay_cycle_active.insert("whatsapp".to_string());
     }
+}
+
+fn is_whatsapp_cursor_newer(stored_cursor: &str, ts_secs: u64, msg_id: &str) -> Option<bool> {
+    let msg_id = msg_id.trim();
+    if ts_secs == 0 || msg_id.is_empty() {
+        return None;
+    }
+    let (stored_ts_secs, stored_msg_id) = parse_whatsapp_cursor(stored_cursor)?;
+    Some((ts_secs, msg_id) > (stored_ts_secs, stored_msg_id))
+}
+
+fn is_whatsapp_self_chat(
+    chat: &str,
+    sender: &str,
+    own_identifiers: &std::collections::HashSet<String>,
+    exact_self_jids: &[String],
+) -> bool {
+    let chat_norm = normalize_identifier(chat);
+    let sender_norm = normalize_identifier(sender);
+    !chat_norm.is_empty()
+        && own_identifiers.contains(&chat_norm)
+        && !sender_norm.is_empty()
+        && own_identifiers.contains(&sender_norm)
+        && !exact_self_jids.is_empty()
+}
+
+fn should_enqueue_from_me_whatsapp_message(
+    text: &str,
+    chat: &str,
+    sender: &str,
+    own_identifiers: &std::collections::HashSet<String>,
+    exact_self_jids: &[String],
+    known_outbound_echo: bool,
+) -> bool {
+    !known_outbound_echo
+        && is_whatsapp_self_chat(chat, sender, own_identifiers, exact_self_jids)
+        && !text.starts_with(TAMUX_SELF_CHAT_PREFIX)
 }
 
 pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Result<()> {
@@ -109,17 +151,11 @@ pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Resul
     let store_path_string = store_path.to_string_lossy().to_string();
     let agent_for_events = agent.clone();
     let (device_os, device_version, device_platform) = tamux_device_props();
-    let base_builder = Bot::builder()
+    let mut bot = Bot::builder()
         .with_backend(store)
         .with_transport_factory(TokioWebSocketTransportFactory::new())
         .with_http_client(UreqHttpClient::new())
-        .with_device_props(device_os.clone(), device_version, device_platform);
-    let base_builder = if has_whatsapp_cursors {
-        base_builder
-    } else {
-        base_builder.skip_history_sync()
-    };
-    let mut bot = base_builder
+        .with_device_props(device_os.clone(), device_version, device_platform)
         .on_event(move |event, client| {
             let agent = agent_for_events.clone();
             let store_path = store_path_string.clone();
@@ -144,6 +180,7 @@ pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Resul
         .context("failed to build wa-rs bot")?;
 
     let client = bot.client();
+    client.set_skip_history_sync(!has_whatsapp_cursors);
     let run_task = bot.run().await.context("failed to run wa-rs bot")?;
     agent
         .whatsapp_link
@@ -221,12 +258,16 @@ async fn handle_native_event(
             }
             agent.whatsapp_link.broadcast_linked(phone).await;
             // Mark whatsapp replay active for this reconnect cycle when cursors exist.
-            {
+            let has_cursors = {
                 let mut gw_guard = agent.gateway_state.lock().await;
                 if let Some(gw) = gw_guard.as_mut() {
                     mark_whatsapp_replay_active_if_cursors(gw);
+                    !gw.whatsapp_replay_cursors.is_empty()
+                } else {
+                    false
                 }
-            }
+            };
+            client.set_skip_history_sync(!has_cursors);
         }
         Event::Disconnected(_) => {
             agent
@@ -268,12 +309,10 @@ async fn handle_native_event(
                     return;
                 };
                 let jid = conv.id.clone();
-                let msgs: Vec<(u64, String, String, String)> = conv
+                let msgs: Vec<(u64, String, String, String, bool)> = conv
                     .messages
                     .iter()
                     .filter_map(|h| h.message.as_ref())
-                    // Inbound only — skip outbound history entries.
-                    .filter(|wmi| !wmi.key.from_me.unwrap_or(false))
                     .filter_map(|wmi| {
                         let ts = wmi.message_timestamp.unwrap_or(0);
                         let msg_id = wmi.key.id.clone().unwrap_or_default();
@@ -300,7 +339,7 @@ async fn handle_native_event(
                         if text.is_empty() {
                             return None;
                         }
-                        Some((ts, msg_id, sender, text))
+                        Some((ts, msg_id, sender, text, wmi.key.from_me.unwrap_or(false)))
                     })
                     .collect();
                 (jid, msgs)
@@ -318,27 +357,73 @@ async fn handle_native_event(
 
             // Only replay conversations for which a persisted cursor exists.
             // This ensures chats seen for the first time are not backfilled.
-            let cursor_ts_secs: Option<u64> = {
+            let stored_cursor: Option<String> = {
                 let gw_guard = agent.gateway_state.lock().await;
                 gw_guard
                     .as_ref()
                     .and_then(|g| g.whatsapp_replay_cursors.get(&chat_key).cloned())
-                    .and_then(|c| parse_whatsapp_cursor_ts_secs(&c))
             };
-            let Some(cursor_ts) = cursor_ts_secs else {
+            let Some(stored_cursor) = stored_cursor else {
                 // No parseable cursor for this chat; skip (safe no-backfill fallback).
                 return;
             };
 
+            let own_identifiers = collect_normalized_identifiers(&[
+                &client
+                    .get_pn()
+                    .await
+                    .map(|jid| jid.to_string())
+                    .unwrap_or_default(),
+                &client
+                    .get_lid()
+                    .await
+                    .map(|jid| jid.to_string())
+                    .unwrap_or_default(),
+            ]);
+            let exact_self_jids = collect_exact_jid_candidates(&[
+                &client
+                    .get_lid()
+                    .await
+                    .map(|jid| jid.to_string())
+                    .unwrap_or_default(),
+                &client
+                    .get_pn()
+                    .await
+                    .map(|jid| jid.to_string())
+                    .unwrap_or_default(),
+            ]);
+
             // Build replay envelopes for messages newer than the cursor.
-            let envelopes: Vec<gateway::ReplayEnvelope> = extracted_msgs
-                .into_iter()
-                .filter(|(ts, _, _, _)| *ts > cursor_ts)
-                .map(|(ts, msg_id, sender, text)| gateway::ReplayEnvelope {
+            let mut envelopes: Vec<gateway::ReplayEnvelope> = Vec::new();
+            for (ts, msg_id, sender, text, is_from_me) in extracted_msgs {
+                let Some(true) = is_whatsapp_cursor_newer(&stored_cursor, ts, &msg_id) else {
+                    continue;
+                };
+                let known_outbound_echo = if is_from_me {
+                    agent
+                        .whatsapp_link
+                        .is_recent_outbound_message_id(&msg_id)
+                        .await
+                } else {
+                    false
+                };
+                let should_enqueue = if is_from_me {
+                    should_enqueue_from_me_whatsapp_message(
+                        &text,
+                        &chat_jid,
+                        &sender,
+                        &own_identifiers,
+                        &exact_self_jids,
+                        known_outbound_echo,
+                    )
+                } else {
+                    true
+                };
+                envelopes.push(gateway::ReplayEnvelope {
                     message: IncomingMessage {
                         platform: "WhatsApp".to_string(),
                         sender,
-                        content: text,
+                        content: if should_enqueue { text } else { String::new() },
                         channel: chat_jid.clone(),
                         message_id: Some(format!("wa:{msg_id}")),
                         thread_context: None,
@@ -346,8 +431,8 @@ async fn handle_native_event(
                     channel_id: chat_key.clone(),
                     cursor_value: build_whatsapp_cursor(ts, &msg_id),
                     cursor_type: "ts_msgid",
-                })
-                .collect();
+                });
+            }
 
             if envelopes.is_empty() {
                 return;
@@ -434,17 +519,14 @@ async fn handle_native_event(
                             .map(|jid| jid.to_string())
                             .unwrap_or_default(),
                     ]);
-                    let chat_norm = normalize_identifier(&chat);
-                    let sender_norm = normalize_identifier(&sender);
-                    let self_chat = !chat_norm.is_empty()
-                        && own_identifiers.contains(&chat_norm)
-                        && !sender_norm.is_empty()
-                        && own_identifiers.contains(&sender_norm)
-                        && !exact_self_jids.is_empty();
-                    // Outbound echoes and non-self-chat outbound messages are never
-                    // enqueued, but still flow through process_replay_result below so
-                    // the cursor advances past them.
-                    !known_outbound_echo && self_chat
+                    should_enqueue_from_me_whatsapp_message(
+                        &text,
+                        &chat,
+                        &sender,
+                        &own_identifiers,
+                        &exact_self_jids,
+                        known_outbound_echo,
+                    )
                 } else {
                     true
                 };
@@ -456,7 +538,11 @@ async fn handle_native_event(
                     message: IncomingMessage {
                         platform: "WhatsApp".to_string(),
                         sender: sender.clone(),
-                        content: text.clone(),
+                        content: if should_enqueue {
+                            text.clone()
+                        } else {
+                            String::new()
+                        },
                         channel: chat.clone(),
                         message_id: Some(format!("wa:{msg_id}")),
                         thread_context: None,
@@ -483,6 +569,9 @@ async fn handle_native_event(
                                 &mut seen_ids,
                             )
                             .await;
+                            if !gw.whatsapp_replay_cursors.is_empty() {
+                                client.set_skip_history_sync(false);
+                            }
                             msgs
                         }
                         None => {
@@ -608,15 +697,15 @@ mod tests {
     fn whatsapp_replay_cursor_roundtrips() {
         let cursor = build_whatsapp_cursor(1700000000, "msg-abc-123");
         assert_eq!(cursor, "1700000000:msg-abc-123");
-        assert_eq!(parse_whatsapp_cursor_ts_secs(&cursor), Some(1700000000));
+        assert_eq!(parse_whatsapp_cursor(&cursor), Some((1700000000, "msg-abc-123")));
     }
 
     #[test]
     fn whatsapp_replay_cursor_parses_ts_only_prefix() {
-        // Cursor values that contain colons should parse only the first segment.
+        // Cursor values that contain colons in the message id still round-trip.
         assert_eq!(
-            parse_whatsapp_cursor_ts_secs("1700000001:some:extra:colons"),
-            Some(1700000001)
+            parse_whatsapp_cursor("1700000001:some:extra:colons"),
+            Some((1700000001, "some:extra:colons"))
         );
     }
 
@@ -624,8 +713,33 @@ mod tests {
     fn whatsapp_replay_cursor_rejects_non_numeric_legacy_format() {
         // Legacy "message_id" cursors (e.g. plain base64 IDs) cannot be parsed
         // as a timestamp, which safely triggers the no-backfill fallback.
-        assert_eq!(parse_whatsapp_cursor_ts_secs("wamid-ABC123"), None);
-        assert_eq!(parse_whatsapp_cursor_ts_secs(""), None);
+        assert_eq!(parse_whatsapp_cursor("wamid-ABC123"), None);
+        assert_eq!(parse_whatsapp_cursor(""), None);
+    }
+
+    #[test]
+    fn whatsapp_self_chat_messages_still_enqueue_but_prefixed_echoes_do_not() {
+        let own_identifiers =
+            collect_normalized_identifiers(&["48663977535@s.whatsapp.net", "48663977535@lid"]);
+        let exact_self_jids =
+            collect_exact_jid_candidates(&["48663977535@s.whatsapp.net", "48663977535@lid"]);
+
+        assert!(should_enqueue_from_me_whatsapp_message(
+            "hello from phone",
+            "48663977535@s.whatsapp.net",
+            "48663977535@lid",
+            &own_identifiers,
+            &exact_self_jids,
+            false
+        ));
+        assert!(!should_enqueue_from_me_whatsapp_message(
+            &format!("{TAMUX_SELF_CHAT_PREFIX}assistant reply"),
+            "48663977535@s.whatsapp.net",
+            "48663977535@lid",
+            &own_identifiers,
+            &exact_self_jids,
+            false
+        ));
     }
 
     // -----------------------------------------------------------------------
