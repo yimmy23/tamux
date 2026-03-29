@@ -21,6 +21,11 @@ use crate::history::{HistoryStore, SkillVariantRecord};
 use crate::scrub::scrub_sensitive;
 use crate::session_manager::SessionManager;
 
+use super::agent_identity::{
+    build_spawned_persona_prompt, canonical_agent_name, extract_persona_name, sender_name_for_task,
+    CONCIERGE_AGENT_ALIAS, CONCIERGE_AGENT_ID, CONCIERGE_AGENT_NAME, MAIN_AGENT_ALIAS,
+    MAIN_AGENT_ID, MAIN_AGENT_NAME,
+};
 use super::gateway_format;
 use super::memory::{apply_memory_update, MemoryTarget, MemoryUpdateMode, MemoryWriteContext};
 use super::semantic_env::{execute_semantic_query, infer_workspace_context_tags};
@@ -643,6 +648,14 @@ pub fn get_available_tools(
             "limit": { "type": "integer", "description": "Maximum subagents to return (default: 20)" }
         }
     })));
+    tools.push(tool_def("message_agent", &format!("Send a concise internal DM to another tamux agent and get the reply. Use this to coordinate with {} (concierge) or {} (main agent) without asking the operator to relay messages.", CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME), serde_json::json!({
+        "type": "object",
+        "properties": {
+            "target": { "type": "string", "enum": [MAIN_AGENT_ID, CONCIERGE_AGENT_ID, MAIN_AGENT_ALIAS, CONCIERGE_AGENT_ALIAS], "description": "Which agent should receive the internal message" },
+            "message": { "type": "string", "description": "Message to send" }
+        },
+        "required": ["target", "message"]
+    })));
     tools.push(tool_def("route_to_specialist", "Route a task to a specialist subagent with structured handoff. The broker matches capability tags to specialist profiles, assembles a context bundle with episodic refs and negative constraints, and dispatches the work.", serde_json::json!({
         "type": "object",
         "properties": {
@@ -1104,6 +1117,7 @@ pub async fn execute_tool(
             .await
         }
         "list_subagents" => execute_list_subagents(&args, agent, thread_id, task_id).await,
+        "message_agent" => Box::pin(execute_message_agent(&args, agent, task_id, session_id)).await,
         "route_to_specialist" => {
             execute_route_to_specialist(&args, agent, thread_id, task_id).await
         }
@@ -4600,8 +4614,26 @@ async fn execute_spawn_subagent(
             .await;
     }
 
+    let persona_prompt = build_spawned_persona_prompt(&subagent.id);
+    subagent.override_system_prompt = Some(match subagent.override_system_prompt.take() {
+        Some(existing) if !existing.trim().is_empty() => {
+            format!("{persona_prompt}\n\n{existing}")
+        }
+        _ => persona_prompt.clone(),
+    });
+    {
+        let mut tasks = agent.tasks.lock().await;
+        if let Some(existing) = tasks.iter_mut().find(|t| t.id == subagent.id) {
+            *existing = subagent.clone();
+        }
+    }
+    agent.persist_tasks().await;
+
     let lane_suffix = allocated_lane_summary
         .map(|value| format!("\nDedicated lane: {value}"))
+        .unwrap_or_default();
+    let persona_suffix = extract_persona_name(subagent.override_system_prompt.as_deref())
+        .map(|name| format!("\nAssigned persona: {name}"))
         .unwrap_or_default();
     let def_suffix = subagent
         .sub_agent_def_id
@@ -4609,8 +4641,8 @@ async fn execute_spawn_subagent(
         .map(|id| format!("\nMatched sub-agent definition: {id}"))
         .unwrap_or_default();
     Ok(format!(
-        "Spawned subagent {} with runtime {}.{}{def_suffix}",
-        subagent.id, runtime, lane_suffix
+        "Spawned subagent {} with runtime {}.{}{}{def_suffix}",
+        subagent.id, runtime, lane_suffix, persona_suffix
     ))
 }
 
@@ -4766,6 +4798,44 @@ async fn execute_get_divergent_session(
         }
         Err(error) => Ok(format!("Failed to fetch divergent session: {error}")),
     }
+}
+
+async fn execute_message_agent(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    task_id: Option<&str>,
+    preferred_session_id: Option<SessionId>,
+) -> Result<String> {
+    let target = args
+        .get("target")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'target' argument"))?;
+    let message = args
+        .get("message")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'message' argument"))?;
+
+    let sender = if let Some(current_task_id) = task_id {
+        let tasks = agent.tasks.lock().await;
+        sender_name_for_task(tasks.iter().find(|task| task.id == current_task_id))
+    } else {
+        MAIN_AGENT_NAME.to_string()
+    };
+
+    let preferred_session_hint = preferred_session_id.as_ref().map(|value| value.to_string());
+    let (thread_id, response) = agent
+        .send_internal_agent_message(&sender, target, message, preferred_session_hint.as_deref())
+        .await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "target": canonical_agent_name(target),
+        "thread_id": thread_id,
+        "response": response,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
 }
 
 async fn execute_list_subagents(

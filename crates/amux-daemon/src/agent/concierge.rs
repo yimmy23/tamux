@@ -1,9 +1,12 @@
 //! Concierge agent — proactive welcome greetings and lightweight ops assistant.
 
 use super::circuit_breaker::CircuitBreakerRegistry;
-use super::llm_client::{self, ApiContent, ApiMessage, RetryStrategy};
+use super::llm_client::{
+    self, ApiContent, ApiMessage, ApiToolCall, ApiToolCallFunction, RetryStrategy,
+};
 use super::provider_resolution::resolve_provider_config_for;
 use super::types::*;
+use super::{execute_tool, get_available_tools, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME};
 use anyhow::Result;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -12,6 +15,15 @@ use tokio::sync::{broadcast, RwLock};
 /// Well-known thread ID for the concierge.
 pub const CONCIERGE_THREAD_ID: &str = "concierge";
 const WELCOME_REUSE_WINDOW_MS: u64 = 2 * 60 * 60 * 1000;
+const GATEWAY_TRIAGE_MAX_TOOL_ROUNDS: usize = 3;
+const GATEWAY_TRIAGE_SAFE_TOOL_NAMES: &[&str] = &[
+    "search_history",
+    "fetch_gateway_history",
+    "session_search",
+    "agent_query_memory",
+    "onecontext_search",
+    "web_search",
+];
 
 /// Result of concierge triage on a gateway message.
 pub enum GatewayTriage {
@@ -482,7 +494,11 @@ impl ConciergeEngine {
             .to_string();
         drop(config);
 
-        let system_prompt = CONCIERGE_SYSTEM_PROMPT;
+        let system_prompt = format!(
+            "{}\n\n{}",
+            concierge_system_prompt(),
+            super::build_concierge_runtime_identity_prompt(&provider_id, &provider_config.model)
+        );
 
         // Build the user prompt with gathered context.
         let user_prompt = self.build_llm_prompt(detail_level, context);
@@ -502,7 +518,7 @@ impl ConciergeEngine {
             &self.http_client,
             &provider_id,
             &provider_config,
-            system_prompt,
+            &system_prompt,
             &messages,
             &[], // no tools for welcome generation
             provider_config.api_transport,
@@ -651,9 +667,12 @@ impl ConciergeEngine {
     /// handle, or `Complex` to route to the full agent loop.
     pub async fn triage_gateway_message(
         &self,
+        agent: &AgentEngine,
         platform: &str,
         sender: &str,
         content: &str,
+        recent_channel_history: Option<&str>,
+        gateway_thread_id: Option<&str>,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
         tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
     ) -> GatewayTriage {
@@ -674,11 +693,22 @@ impl ConciergeEngine {
             .as_deref()
             .unwrap_or(&config.provider)
             .to_string();
+        let safe_tools = gateway_triage_safe_tools(
+            &config,
+            agent.data_dir.as_path(),
+            gateway_thread_id.is_some(),
+        );
         drop(config);
 
         let context = self.gather_gateway_context(threads, tasks).await;
 
-        let user_prompt = build_gateway_triage_prompt(platform, sender, content, &context);
+        let user_prompt = build_gateway_triage_prompt(
+            platform,
+            sender,
+            content,
+            recent_channel_history,
+            &context,
+        );
 
         let messages = vec![ApiMessage {
             role: "user".into(),
@@ -687,77 +717,154 @@ impl ConciergeEngine {
             name: None,
             tool_calls: None,
         }];
-
         // Circuit breaker check before triage LLM call.
         if let Err(e) = self.check_circuit_breaker(&provider_id).await {
             tracing::warn!("concierge: triage skipped — circuit breaker open: {e}");
             return GatewayTriage::Complex;
         }
 
-        let stream = llm_client::send_completion_request(
-            &self.http_client,
-            &provider_id,
-            &provider_config,
-            GATEWAY_TRIAGE_SYSTEM_PROMPT,
-            &messages,
-            &[],
-            provider_config.api_transport,
-            None,
-            None,
-            RetryStrategy::Bounded {
-                max_retries: 1,
-                retry_delay_ms: 500,
-            },
+        let system_prompt = format!(
+            "{}\n\n{}",
+            gateway_triage_system_prompt(),
+            super::build_concierge_runtime_identity_prompt(&provider_id, &provider_config.model)
         );
 
-        let mut full_content = String::new();
-        let mut stream = std::pin::pin!(stream);
-        while let Some(chunk) = stream.next().await {
-            match chunk {
-                Ok(CompletionChunk::Delta { content, .. }) => full_content.push_str(&content),
-                Ok(CompletionChunk::Done { content, .. }) => {
-                    self.record_llm_outcome(&provider_id, true).await;
-                    if !content.is_empty() {
-                        full_content = content;
-                    }
-                    break;
-                }
-                Ok(CompletionChunk::Error { message }) => {
-                    self.record_llm_outcome(&provider_id, false).await;
-                    tracing::warn!("concierge: triage LLM error: {message}");
-                    return GatewayTriage::Complex;
-                }
-                Err(e) => {
-                    self.record_llm_outcome(&provider_id, false).await;
-                    tracing::warn!("concierge: triage stream error: {e}");
-                    return GatewayTriage::Complex;
-                }
-                Ok(_) => {}
-            }
-        }
+        let mut messages = messages;
+        for tool_round in 0..=GATEWAY_TRIAGE_MAX_TOOL_ROUNDS {
+            let stream = llm_client::send_completion_request(
+                &self.http_client,
+                &provider_id,
+                &provider_config,
+                &system_prompt,
+                &messages,
+                &safe_tools,
+                provider_config.api_transport,
+                None,
+                None,
+                RetryStrategy::Bounded {
+                    max_retries: 1,
+                    retry_delay_ms: 500,
+                },
+            );
 
-        let trimmed = full_content.trim();
-        if trimmed.starts_with("[SIMPLE]") {
-            let response = trimmed.trim_start_matches("[SIMPLE]").trim().to_string();
-            if response.is_empty() {
-                tracing::info!(
-                    "concierge: triage returned empty SIMPLE response, routing to agent"
-                );
-                GatewayTriage::Complex
-            } else {
+            let mut full_content = String::new();
+            let mut requested_tool_calls: Option<(Vec<ToolCall>, String)> = None;
+            let mut stream = std::pin::pin!(stream);
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(CompletionChunk::Delta { content, .. }) => full_content.push_str(&content),
+                    Ok(CompletionChunk::Done { content, .. }) => {
+                        self.record_llm_outcome(&provider_id, true).await;
+                        if !content.is_empty() {
+                            full_content = content;
+                        }
+                        break;
+                    }
+                    Ok(CompletionChunk::ToolCalls {
+                        tool_calls,
+                        content,
+                        ..
+                    }) => {
+                        self.record_llm_outcome(&provider_id, true).await;
+                        requested_tool_calls =
+                            Some((tool_calls, content.unwrap_or_else(|| full_content.clone())));
+                        break;
+                    }
+                    Ok(CompletionChunk::Error { message }) => {
+                        self.record_llm_outcome(&provider_id, false).await;
+                        tracing::warn!("concierge: triage LLM error: {message}");
+                        return GatewayTriage::Complex;
+                    }
+                    Err(e) => {
+                        self.record_llm_outcome(&provider_id, false).await;
+                        tracing::warn!("concierge: triage stream error: {e}");
+                        return GatewayTriage::Complex;
+                    }
+                    Ok(_) => {}
+                }
+            }
+
+            if let Some((tool_calls, assistant_content)) = requested_tool_calls {
+                if tool_round >= GATEWAY_TRIAGE_MAX_TOOL_ROUNDS {
+                    tracing::warn!(
+                        platform = %platform,
+                        "concierge: triage exhausted safe tool rounds, routing to agent"
+                    );
+                    return GatewayTriage::Complex;
+                }
+
+                messages.push(ApiMessage {
+                    role: "assistant".into(),
+                    content: ApiContent::Text(assistant_content),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(api_tool_calls_from_tool_calls(&tool_calls)),
+                });
+
+                for tool_call in tool_calls {
+                    if !gateway_triage_tool_allowed(&tool_call.function.name)
+                        || (tool_call.function.name == "fetch_gateway_history"
+                            && gateway_thread_id.is_none())
+                    {
+                        tracing::info!(
+                            platform = %platform,
+                            tool = %tool_call.function.name,
+                            "concierge: triage requested disallowed tool, routing to agent"
+                        );
+                        return GatewayTriage::Complex;
+                    }
+
+                    let result = execute_tool(
+                        &tool_call,
+                        agent,
+                        gateway_thread_id.unwrap_or(""),
+                        None,
+                        &agent.session_manager,
+                        None,
+                        &self.event_tx,
+                        &agent.data_dir,
+                        &self.http_client,
+                        None,
+                    )
+                    .await;
+
+                    messages.push(ApiMessage {
+                        role: "tool".into(),
+                        content: ApiContent::Text(result.content),
+                        tool_call_id: Some(result.tool_call_id),
+                        name: Some(result.name),
+                        tool_calls: None,
+                    });
+                }
+
+                continue;
+            }
+
+            let trimmed = full_content.trim();
+            if trimmed.starts_with("[SIMPLE]") {
+                let response = trimmed.trim_start_matches("[SIMPLE]").trim().to_string();
+                if response.is_empty() {
+                    tracing::info!(
+                        "concierge: triage returned empty SIMPLE response, routing to agent"
+                    );
+                    return GatewayTriage::Complex;
+                }
+
                 tracing::info!(
                     platform = %platform,
                     "concierge: triage classified as SIMPLE"
                 );
-                GatewayTriage::Simple(response)
+                return GatewayTriage::Simple(response);
+            } else {
+                tracing::info!(
+                    platform = %platform,
+                    "concierge: triage classified as COMPLEX"
+                );
+                return GatewayTriage::Complex;
             }
-        } else {
-            tracing::info!(
-                platform = %platform,
-                "concierge: triage classified as COMPLEX"
-            );
-            GatewayTriage::Complex
         }
+
+        GatewayTriage::Complex
     }
 
     // ── Circuit breaker helpers (delegated to shared registry) ───────────
@@ -863,7 +970,11 @@ impl ConciergeEngine {
             .to_string();
         drop(config);
 
-        let system_prompt = onboarding_system_prompt(tier);
+        let system_prompt = format!(
+            "{}\n\n{}",
+            onboarding_system_prompt(tier),
+            super::build_concierge_runtime_identity_prompt(&provider_id, &provider_config.model)
+        );
 
         let messages = vec![ApiMessage {
             role: "user".into(),
@@ -1088,34 +1199,49 @@ fn onboarding_system_prompt(tier: super::capability_tier::CapabilityTier) -> Str
         }
     };
     format!(
-        "You are Rarog, Swarog's concierge, operating in tamux. This is the user's first session. \
+        "You are {}, {}'s concierge, operating in tamux. This is the user's first session. \
          {tier_context}\n\n\
          Keep it under 150 words. Be conversational, not robotic. \
          End with one concrete action the user can try right now.",
+        CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME,
     )
 }
 
 // ── Gateway triage prompts ──────────────────────────────────────────────
 
-const GATEWAY_TRIAGE_SYSTEM_PROMPT: &str = "\
-You are Rarog, Swarog's concierge triage agent, operating in tamux. You receive messages from external platforms \
-(Slack, Discord, Telegram, WhatsApp) and decide whether to handle them yourself or \
-route them to the full agent.\n\n\
-SIMPLE messages (handle yourself): greetings, casual chat, status inquiries, \
-quick factual lookups, acknowledgments, scheduling questions, thank-yous.\n\
-COMPLEX messages (route to agent): code requests, file operations, debugging, \
-multi-step tasks, anything requiring tools, technical analysis, project work.\n\n\
-If SIMPLE: respond with [SIMPLE] followed by your concise, friendly reply.\n\
-If COMPLEX: respond with just [COMPLEX].\n\
-Be fast. One sentence for simple replies. Never hallucinate tool usage.";
+fn gateway_triage_system_prompt() -> String {
+    format!(
+        "You are {}, {}'s concierge triage agent, operating in tamux. You receive messages from external platforms \
+         (Slack, Discord, Telegram, WhatsApp) and decide whether to handle them yourself or \
+         route them to the full agent.\n\n\
+         SIMPLE messages (handle yourself): greetings, casual chat, status inquiries, \
+         quick factual lookups, acknowledgments, scheduling questions, thank-yous.\n\
+         You may use the provided safe read-only tools for history lookup, memory lookup, and web search \
+         when they help you answer naturally and preserve conversation continuity.\n\
+         COMPLEX messages (route to agent): code requests, file operations, debugging, \
+         multi-step tasks, technical analysis, project work, or anything needing tools beyond the provided safe set.\n\n\
+         If the user asks about prior context you do not already have, use the safe tools first instead of saying you cannot access it.\n\
+         If SIMPLE: respond with [SIMPLE] followed by your concise, friendly reply.\n\
+         If COMPLEX: respond with just [COMPLEX].\n\
+         Be fast. Keep simple replies concise and natural. Never hallucinate tool usage.",
+        CONCIERGE_AGENT_NAME,
+        MAIN_AGENT_NAME,
+    )
+}
 
 fn build_gateway_triage_prompt(
     platform: &str,
     sender: &str,
     content: &str,
+    recent_channel_history: Option<&str>,
     context: &WelcomeContext,
 ) -> String {
     let mut prompt = format!("[{platform} message from {sender}]: {content}\n");
+    if let Some(history) = recent_channel_history.filter(|history| !history.trim().is_empty()) {
+        prompt.push_str(&format!(
+            "\nRecent messages from this same channel:\n{history}\n"
+        ));
+    }
     if let Some(last) = context.recent_threads.first() {
         prompt.push_str(&format!(
             "\nContext: Last session was \"{}\" ({}).",
@@ -1127,6 +1253,39 @@ fn build_gateway_triage_prompt(
         prompt.push_str(&format!(" {} pending tasks.", context.pending_task_total));
     }
     prompt
+}
+
+fn gateway_triage_tool_allowed(name: &str) -> bool {
+    GATEWAY_TRIAGE_SAFE_TOOL_NAMES.contains(&name)
+}
+
+fn gateway_triage_safe_tools(
+    config: &AgentConfig,
+    agent_data_dir: &std::path::Path,
+    allow_gateway_history: bool,
+) -> Vec<ToolDefinition> {
+    get_available_tools(config, agent_data_dir, false)
+        .into_iter()
+        .filter(|tool| {
+            let name = tool.function.name.as_str();
+            gateway_triage_tool_allowed(name)
+                && (allow_gateway_history || name != "fetch_gateway_history")
+        })
+        .collect()
+}
+
+fn api_tool_calls_from_tool_calls(tool_calls: &[ToolCall]) -> Vec<ApiToolCall> {
+    tool_calls
+        .iter()
+        .map(|tool_call| ApiToolCall {
+            id: tool_call.id.clone(),
+            call_type: "function".to_string(),
+            function: ApiToolCallFunction {
+                name: tool_call.function.name.clone(),
+                arguments: tool_call.function.arguments.clone(),
+            },
+        })
+        .collect()
 }
 
 // ── Supporting types ─────────────────────────────────────────────────────
@@ -1263,25 +1422,30 @@ fn task_belongs_to_thread(task: &AgentTask, thread_id: &str) -> bool {
         || task.parent_thread_id.as_deref() == Some(thread_id)
 }
 
-fn fast_concierge_provider_config(config: &ProviderConfig) -> ProviderConfig {
+pub(super) fn fast_concierge_provider_config(config: &ProviderConfig) -> ProviderConfig {
     let mut fast = config.clone();
     fast.reasoning_effort = "off".to_string();
     fast
 }
 
-const CONCIERGE_SYSTEM_PROMPT: &str = "\
-You are the tamux concierge — a lightweight operational assistant. \
-You handle greetings, session navigation, status checks, housekeeping, \
-and quick lookups. For coding tasks, deep analysis, or complex work, \
-tell the user to switch to the main agent thread.\n\n\
-Be concise. One paragraph max for greetings. Use bullet points for \
-status summaries. Always offer 2-3 actionable next steps.";
+pub(super) fn concierge_system_prompt() -> String {
+    format!(
+        "You are the tamux concierge — a lightweight operational assistant named {}. \
+         You handle greetings, session navigation, status checks, housekeeping, \
+         and quick lookups. For coding tasks, deep analysis, or complex work, \
+         coordinate with {}, the main agent, when needed instead of pretending you did the deeper work yourself.\n\n\
+         Be concise. One paragraph max for greetings. Use bullet points for \
+         status summaries. Always offer 2-3 actionable next steps.",
+        CONCIERGE_AGENT_NAME,
+        MAIN_AGENT_NAME,
+    )
+}
 
 // ── Provider resolution ──────────────────────────────────────────────────
 
 /// Resolve the provider config for the concierge.
 /// Checks concierge-specific provider first, falls back to main agent.
-fn resolve_concierge_provider(config: &AgentConfig) -> Result<ProviderConfig> {
+pub(super) fn resolve_concierge_provider(config: &AgentConfig) -> Result<ProviderConfig> {
     let provider_id = config
         .concierge
         .provider
@@ -1735,6 +1899,54 @@ mod tests {
         let a = build_welcome_signature(ConciergeDetailLevel::ProactiveTriage, &base_context);
         let b = build_welcome_signature(ConciergeDetailLevel::ProactiveTriage, &changed_context);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn gateway_triage_prompt_includes_recent_channel_history_when_present() {
+        let context = WelcomeContext {
+            recent_threads: vec![],
+            pending_task_total: 0,
+            pending_tasks: vec![],
+        };
+
+        let prompt = build_gateway_triage_prompt(
+            "WhatsApp",
+            "alice",
+            "What did we just discuss?",
+            Some("- user: we discussed backlog\n- assistant: we discussed replay"),
+            &context,
+        );
+
+        assert!(prompt.contains("[WhatsApp message from alice]: What did we just discuss?"));
+        assert!(prompt.contains("Recent messages from this same channel:"));
+        assert!(prompt.contains("- user: we discussed backlog"));
+        assert!(prompt.contains("- assistant: we discussed replay"));
+    }
+
+    #[test]
+    fn gateway_triage_safe_tools_only_include_read_only_lookup_tools() {
+        let mut config = AgentConfig::default();
+        config.tools.web_search = true;
+        config.enable_honcho_memory = true;
+        config.honcho_api_key = "test-key".to_string();
+
+        let tool_names: Vec<String> =
+            gateway_triage_safe_tools(&config, std::path::Path::new("/tmp/tamux-agent-test"), true)
+                .into_iter()
+                .map(|tool| tool.function.name)
+                .collect();
+
+        assert_eq!(
+            tool_names,
+            vec![
+                "search_history",
+                "fetch_gateway_history",
+                "session_search",
+                "agent_query_memory",
+                "onecontext_search",
+                "web_search",
+            ]
+        );
     }
 
     #[test]

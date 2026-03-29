@@ -68,6 +68,8 @@ fn update_in_memory_replay_cursor(
         "discord" => {
             gw.discord_replay_cursors
                 .insert(channel_id.to_string(), cursor_value.to_string());
+            gw.discord_last_id
+                .insert(channel_id.to_string(), cursor_value.to_string());
         }
         "whatsapp" => {
             gw.whatsapp_replay_cursors
@@ -1366,14 +1368,44 @@ impl AgentEngine {
                 channel: msg.channel.clone(),
             });
 
+            let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
+            let history_window = if let Some(ref tid) = existing_thread {
+                match self.history.list_recent_messages(tid, 10).await {
+                    Ok(messages) if !messages.is_empty() => {
+                        let mut lines = Vec::with_capacity(messages.len() + 1);
+                        for m in messages {
+                            let role = m.role;
+                            let content = m
+                                .content
+                                .replace('\n', " ")
+                                .chars()
+                                .take(240)
+                                .collect::<String>();
+                            lines.push(format!("- {role}: {content}"));
+                        }
+                        Some(lines.join("\n"))
+                    }
+                    Ok(_) => None,
+                    Err(error) => {
+                        tracing::warn!(channel_key = %channel_key, %error, "gateway: failed to load recent history");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
             // Triage via concierge — simple messages get a direct response,
             // complex ones fall through to the full agent loop.
             let triage = match tokio::time::timeout(
                 std::time::Duration::from_secs(GATEWAY_TRIAGE_TIMEOUT_SECS),
                 self.concierge.triage_gateway_message(
+                    self,
                     &msg.platform,
                     &msg.sender,
                     &msg.content,
+                    history_window.as_deref(),
+                    existing_thread.as_deref(),
                     &self.threads,
                     &self.tasks,
                 ),
@@ -1453,39 +1485,10 @@ impl AgentEngine {
                 }
             }
 
-            // Use persistent thread per channel for conversation continuity
-            let existing_thread = self.gateway_threads.read().await.get(&channel_key).cloned();
-            let history_window = if let Some(ref tid) = existing_thread {
-                match self.history.list_recent_messages(tid, 10).await {
-                    Ok(messages) if !messages.is_empty() => {
-                        let mut lines = Vec::with_capacity(messages.len() + 2);
-                        lines.push(
-                            "Previous 10 messages from this channel (oldest first):".to_string(),
-                        );
-                        for m in messages {
-                            let role = m.role;
-                            let content = m
-                                .content
-                                .replace('\n', " ")
-                                .chars()
-                                .take(240)
-                                .collect::<String>();
-                            lines.push(format!("- {role}: {content}"));
-                        }
-                        Some(lines.join("\n"))
-                    }
-                    Ok(_) => None,
-                    Err(error) => {
-                        tracing::warn!(channel_key = %channel_key, %error, "gateway: failed to load recent history");
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-
             let enriched_prompt = if let Some(window) = history_window {
-                format!("{prompt}\n\n{window}")
+                format!(
+                    "{prompt}\n\nPrevious 10 messages from this channel (oldest first):\n{window}"
+                )
             } else {
                 prompt
             };
@@ -1936,6 +1939,77 @@ mod tests {
             gw.telegram_replay_cursor,
             Some(500),
             "init boundary updated in memory"
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// Discord replay initialization must also seed the live poll boundary.
+    ///
+    /// Without this, reconnect replay persists `discord_replay_cursors` but
+    /// leaves `discord_last_id` empty, so the next poll treats reconnect as a
+    /// first connect and skips the backlog again.
+    #[tokio::test]
+    async fn discord_initialize_boundary_seeds_live_poll_cursor() {
+        let root = make_test_root("discord-replay-init-seeds-live-cursor");
+        let manager = SessionManager::new_test(&root).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), &root).await;
+
+        let mut gw =
+            super::gateway::GatewayState::new(make_replay_gateway_config(), reqwest::Client::new());
+        assert!(
+            gw.discord_last_id.is_empty(),
+            "test starts with no live discord cursor"
+        );
+        assert!(
+            gw.discord_replay_cursors.is_empty(),
+            "test starts with no replay discord cursor"
+        );
+
+        let result = super::gateway::ReplayFetchResult::InitializeBoundary {
+            channel_id: "D456".to_string(),
+            cursor_value: "998877665544".to_string(),
+            cursor_type: "message_id",
+        };
+        let mut seen_ids: Vec<String> = Vec::new();
+
+        let (messages, completed) = super::process_replay_result(
+            &engine.history,
+            "discord",
+            result,
+            &mut gw,
+            &mut seen_ids,
+        )
+        .await;
+
+        assert!(
+            completed,
+            "discord init boundary should complete immediately"
+        );
+        assert!(
+            messages.is_empty(),
+            "discord init boundary should not route messages"
+        );
+        assert_eq!(
+            gw.discord_replay_cursors.get("D456").map(String::as_str),
+            Some("998877665544"),
+            "replay cursor should be seeded in memory"
+        );
+        assert_eq!(
+            gw.discord_last_id.get("D456").map(String::as_str),
+            Some("998877665544"),
+            "discord live poll cursor must also be seeded from replay init boundary"
+        );
+
+        let row = engine
+            .history
+            .load_gateway_replay_cursor("discord", "D456")
+            .await
+            .unwrap();
+        assert_eq!(
+            row.map(|r| r.cursor_value).as_deref(),
+            Some("998877665544"),
+            "discord init boundary should persist to DB"
         );
 
         fs::remove_dir_all(&root).ok();

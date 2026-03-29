@@ -1990,6 +1990,43 @@ where
                     });
                 }
 
+                ClientMessage::AgentDirectMessage {
+                    target,
+                    thread_id,
+                    content,
+                    session_id,
+                } => {
+                    agent.mark_operator_present("direct_message").await;
+                    match agent
+                        .send_direct_message(
+                            &target,
+                            thread_id.as_deref(),
+                            session_id.as_deref(),
+                            &content,
+                        )
+                        .await
+                    {
+                        Ok((thread_id, response)) => {
+                            client_agent_threads.insert(thread_id.clone());
+                            framed
+                                .send(DaemonMessage::AgentDirectMessageResponse {
+                                    target,
+                                    thread_id,
+                                    response,
+                                    session_id,
+                                })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
                 ClientMessage::AgentStopStream { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
                     let _ = agent.stop_stream(&thread_id).await;

@@ -2,6 +2,7 @@ mod client;
 mod plugins;
 mod setup_wizard;
 
+use amux_protocol::{AGENT_ID_RAROG, AGENT_ID_SWAROG};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -27,6 +28,21 @@ fn truncate_for_display(value: &str, max_chars: usize) -> String {
         format!("{truncated}…")
     } else {
         truncated
+    }
+}
+
+fn resolve_dm_target(
+    swarog: bool,
+    rarog: bool,
+    main_target: bool,
+    concierge: bool,
+) -> &'static str {
+    if rarog || concierge {
+        AGENT_ID_RAROG
+    } else if swarog || main_target {
+        AGENT_ID_SWAROG
+    } else {
+        AGENT_ID_SWAROG
     }
 }
 
@@ -212,6 +228,34 @@ enum Commands {
     Settings {
         #[command(subcommand)]
         action: SettingsAction,
+    },
+
+    /// Send a direct message to Swarog or Rarog from the CLI.
+    Dm {
+        /// Continue a specific thread.
+        #[arg(long)]
+        thread: Option<String>,
+        /// Preferred terminal session hint.
+        #[arg(long)]
+        session: Option<String>,
+        /// Route the message to Swarog explicitly.
+        #[arg(long, conflicts_with_all = ["rarog", "main_target", "concierge"])]
+        swarog: bool,
+        /// Route the message to Rarog explicitly.
+        #[arg(long, conflicts_with_all = ["swarog", "main_target", "concierge"])]
+        rarog: bool,
+        /// Route the message to Swarog using the old alias.
+        #[arg(long = "main", conflicts_with_all = ["swarog", "rarog", "concierge"])]
+        main_target: bool,
+        /// Route the message to Rarog instead of Swarog.
+        #[arg(long, conflicts_with_all = ["swarog", "rarog", "main_target"])]
+        concierge: bool,
+        /// Emit a JSON object with response and ids.
+        #[arg(long)]
+        json: bool,
+        /// Message content.
+        #[arg(required = true)]
+        message: Vec<String>,
     },
 
     /// Run the first-time setup wizard.
@@ -816,6 +860,41 @@ async fn main() -> Result<()> {
                 println!("{} = {}", key, value);
             }
         },
+
+        Commands::Dm {
+            thread,
+            session,
+            swarog,
+            rarog,
+            main_target,
+            concierge,
+            json,
+            message,
+        } => {
+            let content = message.join(" ").trim().to_string();
+            if content.is_empty() {
+                anyhow::bail!("message cannot be empty");
+            }
+            let target = resolve_dm_target(swarog, rarog, main_target, concierge);
+            let response = client::send_direct_message(target, thread, content, session).await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "target": response.target,
+                        "thread_id": response.thread_id,
+                        "session_id": response.session_id,
+                        "response": response.response,
+                    }))?
+                );
+            } else {
+                println!("{}", response.response);
+                println!("\nthread_id:{}", response.thread_id);
+                if let Some(session_id) = response.session_id {
+                    println!("session_id:{session_id}");
+                }
+            }
+        }
 
         Commands::Scrub { text } => {
             let input = if let Some(t) = text {

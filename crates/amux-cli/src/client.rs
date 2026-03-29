@@ -646,6 +646,43 @@ pub struct AgentStatusSnapshot {
     pub recent_actions_json: String,
 }
 
+pub struct DirectMessageResponse {
+    pub target: String,
+    pub thread_id: String,
+    pub response: String,
+    pub session_id: Option<String>,
+}
+
+pub async fn send_direct_message(
+    target: &str,
+    thread_id: Option<String>,
+    content: String,
+    session_id: Option<String>,
+) -> Result<DirectMessageResponse> {
+    match roundtrip(ClientMessage::AgentDirectMessage {
+        target: target.to_string(),
+        thread_id,
+        content,
+        session_id,
+    })
+    .await?
+    {
+        DaemonMessage::AgentDirectMessageResponse {
+            target,
+            thread_id,
+            response,
+            session_id,
+        } => Ok(DirectMessageResponse {
+            target,
+            thread_id,
+            response,
+            session_id,
+        }),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
 pub async fn send_status_query() -> Result<AgentStatusSnapshot> {
     match roundtrip(ClientMessage::AgentStatusQuery).await? {
         DaemonMessage::AgentStatusResponse {

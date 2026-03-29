@@ -532,7 +532,7 @@ impl AgentEngine {
             workspace_id: None,
             surface_id: None,
             pane_id: None,
-            agent_name: Some("assistant".to_string()),
+            agent_name: Some(persisted_agent_name_for_thread(thread)),
             title: thread.title.clone(),
             created_at: thread.created_at as i64,
             updated_at: thread.updated_at as i64,
@@ -736,6 +736,16 @@ impl AgentEngine {
             topic
         ))
     }
+}
+
+fn persisted_agent_name_for_thread(thread: &AgentThread) -> String {
+    if thread.id == crate::agent::concierge::CONCIERGE_THREAD_ID {
+        return CONCIERGE_AGENT_NAME.to_string();
+    }
+    if is_internal_dm_thread(&thread.id) {
+        return "Internal DM".to_string();
+    }
+    MAIN_AGENT_NAME.to_string()
 }
 
 #[cfg(test)]

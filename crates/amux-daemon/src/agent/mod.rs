@@ -13,6 +13,7 @@ pub mod llm_client;
 pub mod tool_executor;
 pub mod types;
 
+mod agent_identity;
 mod agent_loop;
 mod anticipatory;
 mod authorship;
@@ -84,6 +85,7 @@ pub mod uncertainty;
 
 // Re-exports from extracted modules — keeps everything accessible across
 // sibling submodules via `use super::*;`.
+use agent_identity::*;
 use anticipatory::*;
 use behavioral_events::*;
 use capability_tier::*;

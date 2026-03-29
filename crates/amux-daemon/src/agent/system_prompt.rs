@@ -1,5 +1,6 @@
 //! System prompt construction and external agent prompt building.
 
+use super::agent_identity::CONCIERGE_AGENT_NAME;
 use super::memory_curation_guidance;
 use super::types::*;
 
@@ -107,6 +108,10 @@ pub(super) fn build_system_prompt(
          - When you learn durable operator preferences or stable project facts, call `update_memory` with a concise update so future sessions start with that context.\n\
          - Memory files have hard limits: SOUL.md 1500 chars, MEMORY.md 2200 chars, USER.md 1375 chars.\n",
     );
+    prompt.push_str(&format!(
+        "         - {} is your concierge peer in tamux. When a lightweight operational handoff or cross-agent check is useful, use `message_agent` instead of making the operator relay between you.\n",
+        CONCIERGE_AGENT_NAME
+    ));
     if config.enable_honcho_memory && !config.honcho_api_key.trim().is_empty() {
         prompt.push_str(
             "         - Use `agent_query_memory` when local session recall is insufficient and you need broader cross-session Honcho memory.\n",
@@ -185,7 +190,8 @@ pub(super) fn build_system_prompt(
         "\n\n## Subagent Supervision\n\
          - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
          - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
-         - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n",
+         - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
+         - Spawned agents carry their own Slavic persona. Treat those identities as real collaborators with bounded scope, not as disposable copies of yourself.\n",
     );
     if config.collaboration.enabled {
         prompt.push_str(
@@ -200,6 +206,24 @@ pub(super) fn build_system_prompt(
     super::task_prompt::append_sub_agent_registry(&mut prompt, sub_agents);
 
     prompt
+}
+
+pub(super) fn build_runtime_identity_prompt(
+    agent_name: &str,
+    provider_id: &str,
+    model_id: &str,
+) -> String {
+    format!(
+        "## Runtime Identity\n\
+         - You are {agent_name} in tamux.\n\
+         - Active provider: {provider_id}\n\
+         - Active model: {model_id}\n\
+         - If the operator asks which provider or model you are currently using, answer with these exact runtime values unless the task explicitly tells you otherwise."
+    )
+}
+
+pub(super) fn build_concierge_runtime_identity_prompt(provider_id: &str, model_id: &str) -> String {
+    build_runtime_identity_prompt(CONCIERGE_AGENT_NAME, provider_id, model_id)
 }
 
 /// Build the "Learned Patterns" section content from reliable heuristics.

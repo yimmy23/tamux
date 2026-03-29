@@ -10,7 +10,23 @@ impl AgentEngine {
         task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         backend_override: Option<&str>,
+        record_operator: bool,
     ) -> Result<SendMessageOutcome> {
+        if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
+            self.send_concierge_message_on_thread(
+                crate::agent::concierge::CONCIERGE_THREAD_ID,
+                content,
+                preferred_session_hint,
+                record_operator,
+                true,
+            )
+            .await?;
+            return Ok(SendMessageOutcome {
+                thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),
+                interrupted_for_approval: false,
+            });
+        }
+
         let config = self.config.read().await.clone();
         let selected_backend = backend_override
             .map(str::trim)
@@ -48,10 +64,12 @@ impl AgentEngine {
             }
         }
         self.persist_thread_by_id(&tid).await;
-        self.record_operator_message(&tid, content, is_new_thread)
-            .await?;
-        if let Err(error) = self.maybe_sync_thread_to_honcho(&tid).await {
-            tracing::warn!(thread_id = %tid, error = %error, "failed to sync thread to Honcho");
+        if record_operator {
+            self.record_operator_message(&tid, content, is_new_thread)
+                .await?;
+            if let Err(error) = self.maybe_sync_thread_to_honcho(&tid).await {
+                tracing::warn!(thread_id = %tid, error = %error, "failed to sync thread to Honcho");
+            }
         }
 
         // Inject continuity acknowledgment if pending (D-10 / MEMO-09)
@@ -93,6 +111,11 @@ impl AgentEngine {
                 })
             })
         };
+        let active_provider_id = task_provider_override
+            .as_ref()
+            .map(|(provider_id, _, _)| provider_id.as_str())
+            .unwrap_or(config.provider.as_str())
+            .to_string();
         let provider_config =
             match if let Some((ref sub_provider, ref sub_model, _)) = task_provider_override {
                 let mut pc = self.resolve_sub_agent_provider_config(&config, sub_provider)?;
@@ -173,6 +196,16 @@ impl AgentEngine {
             None, // episodic_context — injected via goal planning path, not agent loop
             None, // negative_constraints — injected via goal planning path
         );
+        let runtime_agent_name = task_provider_override
+            .as_ref()
+            .and_then(|(_, _, prompt)| extract_persona_name(prompt.as_deref()))
+            .unwrap_or_else(|| MAIN_AGENT_NAME.to_string());
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&build_runtime_identity_prompt(
+            &runtime_agent_name,
+            &active_provider_id,
+            &provider_config.model,
+        ));
         drop(memory);
         if let Some(recall) = onecontext_bootstrap.as_deref() {
             system_prompt.push_str("\n\n## OneContext Recall\n");

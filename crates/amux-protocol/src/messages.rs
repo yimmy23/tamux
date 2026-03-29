@@ -12,6 +12,15 @@ pub type SessionId = Uuid;
 pub type WorkspaceId = String;
 
 // ---------------------------------------------------------------------------
+// Shared agent identity constants
+// ---------------------------------------------------------------------------
+
+pub const AGENT_ID_SWAROG: &str = "swarog";
+pub const AGENT_NAME_SWAROG: &str = "Swarog";
+pub const AGENT_ID_RAROG: &str = "rarog";
+pub const AGENT_NAME_RAROG: &str = "Rarog";
+
+// ---------------------------------------------------------------------------
 // Client -> Daemon requests
 // ---------------------------------------------------------------------------
 
@@ -231,6 +240,14 @@ pub enum ClientMessage {
         session_id: Option<String>,
         /// JSON-encoded Vec<AgentDbMessage> for seeding thread context.
         context_messages_json: Option<String>,
+    },
+
+    /// Send a direct message to a named agent and wait for a final reply.
+    AgentDirectMessage {
+        target: String,
+        thread_id: Option<String>,
+        content: String,
+        session_id: Option<String>,
     },
 
     /// Stop the current agent stream on a thread.
@@ -904,6 +921,14 @@ pub enum DaemonMessage {
 
     /// Response to AgentGetThread.
     AgentThreadDetail { thread_json: String },
+
+    /// Response to AgentDirectMessage.
+    AgentDirectMessageResponse {
+        target: String,
+        thread_id: String,
+        response: String,
+        session_id: Option<String>,
+    },
 
     /// Response to AgentListTasks.
     AgentTaskList { tasks_json: String },

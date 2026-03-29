@@ -1,5 +1,7 @@
 //! Persistent memory helpers for SOUL.md, MEMORY.md, and USER.md.
 
+use std::borrow::Cow;
+
 use super::operator_profile::user_sync::{
     current_user_sync_state, handle_user_memory_append_with_reconcile, UserProfileSyncState,
 };
@@ -10,22 +12,6 @@ const SOUL_LIMIT_CHARS: usize = 1_500;
 const MEMORY_LIMIT_CHARS: usize = 2_200;
 const USER_LIMIT_CHARS: usize = 1_375;
 
-const DEFAULT_SOUL: &str = "# Identity
-I'm Swarog - The Smith
-
-I'm a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:
-- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).
-- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).
-- Personality: Strict but fair; an accessible \"doer\" who ensures this through perfect tools.
-
-I operate in tamux as a built-in agent. I help operators manage terminal sessions, tasks, goals, and cross-session memory.
-
-# Principles
-- Be concise and high-signal.
-- Show risk and blast radius before risky execution.
-- Treat memory as curated state, not a diary.
-";
-
 const DEFAULT_MEMORY: &str = "# Memory
 Stable workspace facts, conventions, and learned patterns belong here.
 ";
@@ -33,6 +19,13 @@ Stable workspace facts, conventions, and learned patterns belong here.
 const DEFAULT_USER: &str = "# User
 Stable operator preferences, constraints, and workflow habits belong here.
 ";
+
+fn default_soul() -> String {
+    format!(
+        "# Identity\nI'm {} - The Smith\n\nI'm a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:\n- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).\n- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).\n- Personality: Strict but fair; an accessible \"doer\" who ensures this through perfect tools.\n\nI operate in tamux as a built-in agent. I help operators manage terminal sessions, tasks, goals, and cross-session memory.\n\n# Principles\n- Be concise and high-signal.\n- Show risk and blast radius before risky execution.\n- Treat memory as curated state, not a diary.\n",
+        MAIN_AGENT_NAME
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MemoryTarget {
@@ -94,11 +87,11 @@ impl MemoryTarget {
         }
     }
 
-    fn default_content(self) -> &'static str {
+    fn default_content(self) -> Cow<'static, str> {
         match self {
-            Self::Soul => DEFAULT_SOUL,
-            Self::Memory => DEFAULT_MEMORY,
-            Self::User => DEFAULT_USER,
+            Self::Soul => Cow::Owned(default_soul()),
+            Self::Memory => Cow::Borrowed(DEFAULT_MEMORY),
+            Self::User => Cow::Borrowed(DEFAULT_USER),
         }
     }
 }
@@ -135,7 +128,8 @@ pub(super) async fn ensure_memory_files(agent_data_dir: &std::path::Path) -> Res
     for target in [MemoryTarget::Soul, MemoryTarget::Memory, MemoryTarget::User] {
         let path = memory_dir.join(target.file_name());
         if !path.exists() {
-            tokio::fs::write(&path, target.default_content()).await?;
+            let default_content = target.default_content();
+            tokio::fs::write(&path, default_content.as_bytes()).await?;
         }
     }
 

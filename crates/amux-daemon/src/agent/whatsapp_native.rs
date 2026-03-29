@@ -18,9 +18,17 @@ use super::whatsapp_link::{
     clear_persisted_provider_state, collect_exact_jid_candidates, collect_normalized_identifiers,
     normalize_identifier, normalize_jid_user, transport,
 };
-use super::{gateway, persist_transport_session_update, AgentEngine, WHATSAPP_LINK_PROVIDER_ID};
+use super::{
+    gateway, persist_transport_session_update, AgentEngine, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME,
+    WHATSAPP_LINK_PROVIDER_ID,
+};
 
-const TAMUX_SELF_CHAT_PREFIX: &str = "🦅 Rarog - Swarog's concierge ⚒️\n";
+fn tamux_self_chat_prefix() -> String {
+    format!(
+        "🦅 {} - {}'s concierge ⚒️\n",
+        CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME
+    )
+}
 
 pub(crate) fn whatsapp_native_store_path(base_dir: &Path) -> PathBuf {
     base_dir.join("whatsapp-link.sqlite")
@@ -52,10 +60,11 @@ fn tamux_device_props() -> (
 }
 
 fn format_outbound_whatsapp_text(text: &str, prefix_self_chat: bool) -> String {
-    if !prefix_self_chat || text.starts_with(TAMUX_SELF_CHAT_PREFIX) {
+    let prefix = tamux_self_chat_prefix();
+    if !prefix_self_chat || text.starts_with(&prefix) {
         return text.to_string();
     }
-    format!("{TAMUX_SELF_CHAT_PREFIX}{text}")
+    format!("{prefix}{text}")
 }
 
 /// Encode a WhatsApp replay cursor from a message timestamp (Unix seconds) and message ID.
@@ -119,7 +128,7 @@ fn should_enqueue_from_me_whatsapp_message(
 ) -> bool {
     !known_outbound_echo
         && is_whatsapp_self_chat(chat, sender, own_identifiers, exact_self_jids)
-        && !text.starts_with(TAMUX_SELF_CHAT_PREFIX)
+        && !text.starts_with(&tamux_self_chat_prefix())
 }
 
 pub(crate) async fn start_whatsapp_link_native(agent: Arc<AgentEngine>) -> Result<()> {
@@ -692,7 +701,7 @@ mod tests {
 
     #[test]
     fn outbound_self_chat_messages_get_tamux_prefix() {
-        let expected = format!("{TAMUX_SELF_CHAT_PREFIX}Hello");
+        let expected = format!("{}Hello", tamux_self_chat_prefix());
         assert_eq!(format_outbound_whatsapp_text("Hello", true), expected);
     }
 
@@ -703,7 +712,7 @@ mod tests {
 
     #[test]
     fn outbound_self_chat_prefix_is_idempotent() {
-        let prefixed = format!("{TAMUX_SELF_CHAT_PREFIX}Hello");
+        let prefixed = format!("{}Hello", tamux_self_chat_prefix());
         assert_eq!(format_outbound_whatsapp_text(&prefixed, true), prefixed);
     }
 
@@ -754,7 +763,7 @@ mod tests {
             false
         ));
         assert!(!should_enqueue_from_me_whatsapp_message(
-            &format!("{TAMUX_SELF_CHAT_PREFIX}assistant reply"),
+            &format!("{}assistant reply", tamux_self_chat_prefix()),
             "48663977535@s.whatsapp.net",
             "48663977535@lid",
             &own_identifiers,
