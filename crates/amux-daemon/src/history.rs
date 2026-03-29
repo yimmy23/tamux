@@ -220,6 +220,15 @@ pub struct WhatsAppProviderStateRow {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct GatewayReplayCursorRow {
+    pub platform: String,
+    pub channel_id: String,
+    pub cursor_value: String,
+    pub cursor_type: String,
+    pub updated_at: u64,
+}
+
 pub struct ProvenanceEventRecord<'a> {
     pub event_type: &'a str,
     pub summary: &'a str,
@@ -2889,6 +2898,70 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn save_gateway_replay_cursor(&self, platform: &str, channel_id: &str, cursor_value: &str, cursor_type: &str) -> Result<()> {
+        let platform = platform.to_string();
+        let channel_id = channel_id.to_string();
+        let cursor_value = cursor_value.to_string();
+        let cursor_type = cursor_type.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO gateway_replay_cursors (platform, channel_id, cursor_value, cursor_type, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![platform, channel_id, cursor_value, cursor_type, now_ts() as i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn load_gateway_replay_cursor(&self, platform: &str, channel_id: &str) -> Result<Option<GatewayReplayCursorRow>> {
+        let platform = platform.to_string();
+        let channel_id = channel_id.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT platform, channel_id, cursor_value, cursor_type, updated_at FROM gateway_replay_cursors WHERE platform = ?1 AND channel_id = ?2",
+                    params![platform, channel_id],
+                    |row| {
+                        Ok(GatewayReplayCursorRow {
+                            platform: row.get(0)?,
+                            channel_id: row.get(1)?,
+                            cursor_value: row.get(2)?,
+                            cursor_type: row.get(3)?,
+                            updated_at: row.get::<_, i64>(4)? as u64,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn load_gateway_replay_cursors(&self, platform: &str) -> Result<Vec<GatewayReplayCursorRow>> {
+        let platform = platform.to_string();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT platform, channel_id, cursor_value, cursor_type, updated_at FROM gateway_replay_cursors WHERE platform = ?1 ORDER BY updated_at DESC",
+                )?;
+                let rows = stmt.query_map(params![platform], |row| {
+                    Ok(GatewayReplayCursorRow {
+                        platform: row.get(0)?,
+                        channel_id: row.get(1)?,
+                        cursor_value: row.get(2)?,
+                        cursor_type: row.get(3)?,
+                        updated_at: row.get::<_, i64>(4)? as u64,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_operator_profile_session(
         &self,
         session_id: &str,
@@ -3304,6 +3377,16 @@ impl HistoryStore {
                 updated_at  INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_gateway_threads_updated ON gateway_threads(updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS gateway_replay_cursors (
+                platform    TEXT NOT NULL,
+                channel_id  TEXT NOT NULL,
+                cursor_value TEXT NOT NULL,
+                cursor_type TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                PRIMARY KEY (platform, channel_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gateway_replay_cursors_platform ON gateway_replay_cursors(platform, updated_at DESC);
 
             CREATE TABLE IF NOT EXISTS whatsapp_provider_state (
                 provider_id    TEXT PRIMARY KEY,
@@ -6129,6 +6212,70 @@ mod tests {
         let root = std::env::temp_dir().join(format!("tamux-history-test-{}", Uuid::new_v4()));
         let store = HistoryStore::new_test_store(&root).await?;
         Ok((store, root))
+    }
+
+    #[tokio::test]
+    async fn replay_cursor_round_trips_by_platform_and_channel() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
+
+        // Initially none
+        let none = store
+            .load_gateway_replay_cursor("whatsapp", "chat@server")
+            .await?;
+        assert!(none.is_none());
+
+        store
+            .save_gateway_replay_cursor("whatsapp", "chat@server", "msg-1000", "message_id")
+            .await?;
+
+        let row = store
+            .load_gateway_replay_cursor("whatsapp", "chat@server")
+            .await?
+            .expect("cursor should exist");
+        assert_eq!(row.platform, "whatsapp");
+        assert_eq!(row.channel_id, "chat@server");
+        assert_eq!(row.cursor_value, "msg-1000");
+        assert_eq!(row.cursor_type, "message_id");
+
+        // different channel should be none
+        assert!(store
+            .load_gateway_replay_cursor("whatsapp", "other")
+            .await?
+            .is_none());
+
+        let rows = store.load_gateway_replay_cursors("whatsapp").await?;
+        assert_eq!(rows.len(), 1);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn replay_cursor_upsert_replaces_existing() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
+
+        store
+            .save_gateway_replay_cursor("telegram", "chan1", "v1", "message_id")
+            .await?;
+        let row = store
+            .load_gateway_replay_cursor("telegram", "chan1")
+            .await?
+            .expect("cursor should exist");
+        assert_eq!(row.cursor_value, "v1");
+
+        store
+            .save_gateway_replay_cursor("telegram", "chan1", "v2", "message_id")
+            .await?;
+        let row2 = store
+            .load_gateway_replay_cursor("telegram", "chan1")
+            .await?
+            .expect("cursor should exist");
+        assert_eq!(row2.cursor_value, "v2");
+
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[tokio::test]
