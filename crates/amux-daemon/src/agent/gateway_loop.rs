@@ -1,8 +1,79 @@
 //! Gateway initialization, background run loop, and platform message polling.
 
 use super::heartbeat::is_peak_activity_hour;
+use super::gateway_health::{GatewayConnectionStatus, PlatformHealthState};
 use super::*;
 use chrono::Timelike;
+use std::sync::OnceLock;
+
+pub(crate) fn platform_health_from_snapshot(
+    snapshot: &amux_protocol::GatewayHealthState,
+) -> PlatformHealthState {
+    let mut health = PlatformHealthState::new();
+    health.status = match snapshot.status {
+        amux_protocol::GatewayConnectionStatus::Connected => GatewayConnectionStatus::Connected,
+        amux_protocol::GatewayConnectionStatus::Disconnected => {
+            GatewayConnectionStatus::Disconnected
+        }
+        amux_protocol::GatewayConnectionStatus::Error => GatewayConnectionStatus::Error,
+    };
+    health.last_success_at = snapshot.last_success_at_ms;
+    health.last_error_at = snapshot.last_error_at_ms;
+    health.consecutive_failure_count = snapshot.consecutive_failure_count;
+    health.last_error = snapshot.last_error.clone();
+    health.current_backoff_secs = snapshot.current_backoff_secs;
+    health
+}
+
+pub(crate) fn snapshot_from_platform_health(
+    platform: &str,
+    health: &PlatformHealthState,
+) -> amux_protocol::GatewayHealthState {
+    amux_protocol::GatewayHealthState {
+        platform: platform.to_string(),
+        status: match health.status {
+            GatewayConnectionStatus::Connected => amux_protocol::GatewayConnectionStatus::Connected,
+            GatewayConnectionStatus::Disconnected => {
+                amux_protocol::GatewayConnectionStatus::Disconnected
+            }
+            GatewayConnectionStatus::Error => amux_protocol::GatewayConnectionStatus::Error,
+        },
+        last_success_at_ms: health.last_success_at,
+        last_error_at_ms: health.last_error_at,
+        consecutive_failure_count: health.consecutive_failure_count,
+        last_error: health.last_error.clone(),
+        current_backoff_secs: health.current_backoff_secs,
+    }
+}
+
+pub(crate) fn apply_health_snapshot(
+    gateway_state: &mut gateway::GatewayState,
+    snapshot: &amux_protocol::GatewayHealthState,
+) {
+    let health = platform_health_from_snapshot(snapshot);
+    match snapshot.platform.as_str() {
+        "slack" => gateway_state.slack_health = health,
+        "discord" => gateway_state.discord_health = health,
+        "telegram" => gateway_state.telegram_health = health,
+        _ => {}
+    }
+}
+
+fn should_poll_local_gateway(gateway_enabled: bool) -> bool {
+    !gateway_enabled
+}
+
+#[derive(Default)]
+struct GatewayRuntimeControl {
+    ipc_sender: Option<mpsc::UnboundedSender<amux_protocol::DaemonMessage>>,
+    restart_attempts: u32,
+    restart_not_before_ms: Option<u64>,
+}
+
+fn gateway_runtime_control() -> &'static Mutex<GatewayRuntimeControl> {
+    static CONTROL: OnceLock<Mutex<GatewayRuntimeControl>> = OnceLock::new();
+    CONTROL.get_or_init(|| Mutex::new(GatewayRuntimeControl::default()))
+}
 
 fn is_gateway_reset_command(trimmed_lower: &str) -> bool {
     matches!(trimmed_lower, "!reset" | "!new")
@@ -403,7 +474,7 @@ impl AgentEngine {
         Ok(())
     }
 
-    /// Initialize gateway connections for receiving messages.
+    /// Initialize gateway runtime state from persisted daemon state.
     pub(crate) async fn init_gateway(&self) {
         let config = self.config.read().await.clone();
         let gw = &config.gateway;
@@ -412,34 +483,10 @@ impl AgentEngine {
             tracing::info!("gateway: disabled in config, skipping initialization");
             return;
         }
-        // D-02: Env var fallback for token migration from Electron
-        let slack_token = if gw.slack_token.is_empty() {
-            let val = std::env::var("AMUX_SLACK_TOKEN").unwrap_or_default();
-            if !val.is_empty() {
-                tracing::info!("gateway: using AMUX_SLACK_TOKEN env var (config.json empty)");
-            }
-            val
-        } else {
-            gw.slack_token.clone()
-        };
-        let telegram_token = if gw.telegram_token.is_empty() {
-            let val = std::env::var("AMUX_TELEGRAM_TOKEN").unwrap_or_default();
-            if !val.is_empty() {
-                tracing::info!("gateway: using AMUX_TELEGRAM_TOKEN env var (config.json empty)");
-            }
-            val
-        } else {
-            gw.telegram_token.clone()
-        };
-        let discord_token = if gw.discord_token.is_empty() {
-            let val = std::env::var("AMUX_DISCORD_TOKEN").unwrap_or_default();
-            if !val.is_empty() {
-                tracing::info!("gateway: using AMUX_DISCORD_TOKEN env var (config.json empty)");
-            }
-            val
-        } else {
-            gw.discord_token.clone()
-        };
+
+        let slack_token = gw.slack_token.clone();
+        let telegram_token = gw.telegram_token.clone();
+        let discord_token = gw.discord_token.clone();
         let discord_channel_filter = gw.discord_channel_filter.clone();
         let slack_channel_filter = gw.slack_channel_filter.clone();
 
@@ -455,7 +502,6 @@ impl AgentEngine {
 
         self.gateway_injected_messages.lock().await.clear();
 
-        // Parse channel lists from the already-read settings
         if !discord_channel_filter.is_empty() {
             tracing::info!(discord_filter = %discord_channel_filter, "gateway: discordChannelFilter");
             let channels: Vec<String> = discord_channel_filter
@@ -503,28 +549,27 @@ impl AgentEngine {
             "gateway: config loaded"
         );
 
-        let telegram_replay_cursor =
-            match self.history.load_gateway_replay_cursors("telegram").await {
-                Ok(rows) => rows
-                    .into_iter()
-                    .filter(|row| row.channel_id == "global")
-                    .find_map(|row| match row.cursor_value.parse::<i64>() {
-                        Ok(cursor) => Some(cursor),
-                        Err(error) => {
-                            tracing::warn!(
-                                channel_id = %row.channel_id,
-                                cursor_value = %row.cursor_value,
-                                %error,
-                                "gateway: ignoring invalid telegram replay cursor"
-                            );
-                            None
-                        }
-                    }),
-                Err(error) => {
-                    tracing::warn!(%error, "gateway: failed to load telegram replay cursors");
-                    None
-                }
-            };
+        let telegram_replay_cursor = match self.history.load_gateway_replay_cursors("telegram").await {
+            Ok(rows) => rows
+                .into_iter()
+                .filter(|row| row.channel_id == "global")
+                .find_map(|row| match row.cursor_value.parse::<i64>() {
+                    Ok(cursor) => Some(cursor),
+                    Err(error) => {
+                        tracing::warn!(
+                            channel_id = %row.channel_id,
+                            cursor_value = %row.cursor_value,
+                            %error,
+                            "gateway: ignoring invalid telegram replay cursor"
+                        );
+                        None
+                    }
+                }),
+            Err(error) => {
+                tracing::warn!(%error, "gateway: failed to load telegram replay cursors");
+                None
+            }
+        };
         let slack_replay_cursors = match self.history.load_gateway_replay_cursors("slack").await {
             Ok(rows) => rows
                 .into_iter()
@@ -535,8 +580,7 @@ impl AgentEngine {
                 HashMap::new()
             }
         };
-        let discord_replay_cursors = match self.history.load_gateway_replay_cursors("discord").await
-        {
+        let discord_replay_cursors = match self.history.load_gateway_replay_cursors("discord").await {
             Ok(rows) => rows
                 .into_iter()
                 .map(|row| (row.channel_id, row.cursor_value))
@@ -546,27 +590,45 @@ impl AgentEngine {
                 HashMap::new()
             }
         };
-        let whatsapp_replay_cursors =
-            match self.history.load_gateway_replay_cursors("whatsapp").await {
-                Ok(rows) => rows
-                    .into_iter()
-                    .map(|row| (row.channel_id, row.cursor_value))
-                    .collect(),
-                Err(error) => {
-                    tracing::warn!(%error, "gateway: failed to load whatsapp replay cursors");
-                    HashMap::new()
-                }
-            };
+        let whatsapp_replay_cursors = match self.history.load_gateway_replay_cursors("whatsapp").await {
+            Ok(rows) => rows
+                .into_iter()
+                .map(|row| (row.channel_id, row.cursor_value))
+                .collect(),
+            Err(error) => {
+                tracing::warn!(%error, "gateway: failed to load whatsapp replay cursors");
+                HashMap::new()
+            }
+        };
+        let health_snapshots = match self.history.list_gateway_health_snapshots().await {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(%error, "gateway: failed to load health snapshots");
+                Vec::new()
+            }
+        };
 
         let mut gateway_state = gateway::GatewayState::new(gw_config, self.http_client.clone());
         gateway_state.telegram_replay_cursor = telegram_replay_cursor;
         gateway_state.slack_replay_cursors = slack_replay_cursors;
         gateway_state.discord_replay_cursors = discord_replay_cursors;
         gateway_state.whatsapp_replay_cursors = whatsapp_replay_cursors;
+        for row in health_snapshots {
+            match serde_json::from_str::<amux_protocol::GatewayHealthState>(&row.state_json) {
+                Ok(snapshot) => apply_health_snapshot(&mut gateway_state, &snapshot),
+                Err(error) => {
+                    tracing::warn!(
+                        platform = %row.platform,
+                        %error,
+                        "gateway: ignoring invalid health snapshot"
+                    );
+                }
+            }
+        }
 
         *self.gateway_state.lock().await = Some(gateway_state);
 
-        tracing::info!("gateway: polling initialized in daemon");
+        tracing::info!("gateway: runtime state initialized in daemon");
     }
 
     /// Reinitialize the gateway after a config change.
@@ -580,15 +642,87 @@ impl AgentEngine {
             *self.gateway_state.lock().await = None;
             *self.gateway_discord_channels.write().await = Vec::new();
             *self.gateway_slack_channels.write().await = Vec::new();
+            self.stop_gateway().await;
             return;
         }
 
-        // Clear existing state before re-init so stale credentials don't persist
+        // Clear existing state before re-init so stale credentials don't persist.
         *self.gateway_state.lock().await = None;
         *self.gateway_discord_channels.write().await = Vec::new();
         *self.gateway_slack_channels.write().await = Vec::new();
 
-        self.init_gateway().await;
+        if let Err(error) = self
+            .request_gateway_reload(Some("config reloaded".to_string()))
+            .await
+        {
+            tracing::debug!(error = %error, "gateway: reload command not delivered");
+        }
+
+        self.maybe_spawn_gateway().await;
+    }
+
+    pub(crate) async fn set_gateway_ipc_sender(
+        &self,
+        sender: Option<mpsc::UnboundedSender<amux_protocol::DaemonMessage>>,
+    ) {
+        gateway_runtime_control().lock().await.ipc_sender = sender;
+    }
+
+    pub(crate) async fn clear_gateway_ipc_sender(&self) {
+        self.set_gateway_ipc_sender(None).await;
+    }
+
+    async fn reset_gateway_restart_backoff(&self) {
+        let mut control = gateway_runtime_control().lock().await;
+        control.restart_attempts = 0;
+        control.restart_not_before_ms = None;
+    }
+
+    async fn schedule_gateway_restart_backoff(&self, reason: &str) {
+        let mut control = gateway_runtime_control().lock().await;
+        control.restart_attempts = control.restart_attempts.saturating_add(1);
+        let delay_secs = crate::agent::liveness::recovery::RecoveryPlanner::default()
+            .compute_backoff_secs(control.restart_attempts.saturating_sub(1));
+        let next_restart_at = now_millis().saturating_add(delay_secs.saturating_mul(1000));
+        control.restart_not_before_ms = Some(next_restart_at);
+        tracing::warn!(
+            attempts = control.restart_attempts,
+            delay_secs,
+            next_restart_at,
+            %reason,
+            "gateway: scheduled restart backoff"
+        );
+    }
+
+    async fn spawn_gateway_process_at(&self, gateway_path: &std::path::Path) -> Result<()> {
+        let mut proc = self.gateway_process.lock().await;
+        if let Some(ref mut child) = *proc {
+            let _ = child.kill().await;
+        }
+        *proc = None;
+
+        tracing::info!(?gateway_path, "spawning gateway process");
+        let mut cmd = tokio::process::Command::new(gateway_path);
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        match cmd.spawn() {
+            Ok(child) => {
+                tracing::info!(pid = ?child.id(), "gateway process started");
+                *proc = Some(child);
+                drop(proc);
+                self.reset_gateway_restart_backoff().await;
+                self.clear_gateway_ipc_sender().await;
+                Ok(())
+            }
+            Err(error) => {
+                tracing::error!(error = %error, "failed to spawn gateway process");
+                drop(proc);
+                self.schedule_gateway_restart_backoff("gateway spawn failed").await;
+                Err(error.into())
+            }
+        }
     }
 
     /// Spawn the tamux-gateway process if gateway tokens are configured.
@@ -599,13 +733,15 @@ impl AgentEngine {
         let telegram_token = gw.telegram_token.clone();
         let discord_token = gw.discord_token.clone();
 
+        self.init_gateway().await;
+
         if slack_token.is_empty() && telegram_token.is_empty() && discord_token.is_empty() {
             tracing::info!("gateway: no platform tokens configured, skipping");
             return;
         }
 
         // Find the gateway binary next to the daemon binary
-        let gateway_path = std::env::current_exe().ok().and_then(|p| {
+        let gateway_path_opt = std::env::current_exe().ok().and_then(|p| {
             let dir = p.parent()?;
             let name = if cfg!(windows) {
                 "tamux-gateway.exe"
@@ -620,7 +756,7 @@ impl AgentEngine {
             }
         });
 
-        let gateway_path = match gateway_path {
+        let gateway_path = match gateway_path_opt {
             Some(p) => p,
             None => {
                 tracing::warn!("gateway binary not found next to daemon executable");
@@ -628,51 +764,95 @@ impl AgentEngine {
             }
         };
 
-        // Kill existing gateway process if any
-        {
-            let mut proc = self.gateway_process.lock().await;
-            if let Some(ref mut child) = *proc {
-                let _ = child.kill().await;
-            }
-            *proc = None;
-        }
-
-        tracing::info!(?gateway_path, "spawning gateway process");
-
-        let mut cmd = tokio::process::Command::new(&gateway_path);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-
-        if !slack_token.is_empty() {
-            cmd.env("AMUX_SLACK_TOKEN", &slack_token);
-        }
-        if !telegram_token.is_empty() {
-            cmd.env("AMUX_TELEGRAM_TOKEN", &telegram_token);
-        }
-        if !discord_token.is_empty() {
-            cmd.env("AMUX_DISCORD_TOKEN", &discord_token);
-        }
-
-        match cmd.spawn() {
-            Ok(child) => {
-                tracing::info!(pid = ?child.id(), "gateway process started");
-                *self.gateway_process.lock().await = Some(child);
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "failed to spawn gateway process");
-            }
+        if let Err(error) = self.spawn_gateway_process_at(&gateway_path).await {
+            tracing::error!(error = %error, "failed to spawn gateway process");
         }
     }
 
     /// Stop the gateway process.
     pub async fn stop_gateway(&self) {
+        if let Some(sender) = gateway_runtime_control().lock().await.ipc_sender.clone() {
+            let _ = sender.send(amux_protocol::DaemonMessage::GatewayShutdownCommand {
+                command: amux_protocol::GatewayShutdownCommand {
+                    correlation_id: format!("gateway-shutdown-{}", uuid::Uuid::new_v4()),
+                    reason: Some("daemon shutdown".to_string()),
+                    requested_at_ms: now_millis(),
+                },
+            });
+        }
+
         let mut proc = self.gateway_process.lock().await;
         if let Some(ref mut child) = *proc {
             tracing::info!("stopping gateway process");
             let _ = child.kill().await;
         }
         *proc = None;
+        drop(proc);
+        self.clear_gateway_ipc_sender().await;
+        self.reset_gateway_restart_backoff().await;
+    }
+
+    pub(crate) async fn request_gateway_reload(&self, reason: Option<String>) -> Result<bool> {
+        let sender = gateway_runtime_control().lock().await.ipc_sender.clone();
+        let Some(sender) = sender else {
+            return Ok(false);
+        };
+        sender
+            .send(amux_protocol::DaemonMessage::GatewayReloadCommand {
+                command: amux_protocol::GatewayReloadCommand {
+                    correlation_id: format!("gateway-reload-{}", uuid::Uuid::new_v4()),
+                    reason,
+                    requested_at_ms: now_millis(),
+                },
+            })
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        Ok(true)
+    }
+
+    pub(crate) async fn record_gateway_ipc_loss(&self, reason: &str) {
+        tracing::warn!(reason, "gateway: ipc connection lost");
+        let mut proc = self.gateway_process.lock().await;
+        if let Some(ref mut child) = *proc {
+            let _ = child.kill().await;
+        }
+        *proc = None;
+        drop(proc);
+        self.clear_gateway_ipc_sender().await;
+        self.schedule_gateway_restart_backoff(reason).await;
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn maybe_spawn_gateway_with_path(
+        &self,
+        gateway_path: &std::path::Path,
+    ) -> Result<()> {
+        self.init_gateway().await;
+        self.spawn_gateway_process_at(gateway_path).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn reinit_gateway_with_path(
+        &self,
+        gateway_path: &std::path::Path,
+    ) -> Result<()> {
+        let config = self.config.read().await.clone();
+        let gw = &config.gateway;
+
+        if !gw.enabled {
+            *self.gateway_state.lock().await = None;
+            *self.gateway_discord_channels.write().await = Vec::new();
+            *self.gateway_slack_channels.write().await = Vec::new();
+            self.stop_gateway().await;
+            return Ok(());
+        }
+
+        *self.gateway_state.lock().await = None;
+        *self.gateway_discord_channels.write().await = Vec::new();
+        *self.gateway_slack_channels.write().await = Vec::new();
+        let _ = self
+            .request_gateway_reload(Some("config reloaded".to_string()))
+            .await?;
+        self.maybe_spawn_gateway_with_path(gateway_path).await
     }
 
     /// Main background loop — processes tasks, runs heartbeats, polls gateway.
@@ -694,7 +874,6 @@ impl AgentEngine {
 
         // Cron-based heartbeat scheduling (D-06, BEAT-01)
         let heartbeat_cron_expr = super::heartbeat::resolve_cron_from_config(&config);
-        let agent_backend = config.agent_backend;
         let mut heartbeat_cron: croner::Cron = heartbeat_cron_expr
             .parse()
             .unwrap_or_else(|_| "*/15 * * * *".parse().unwrap());
@@ -830,9 +1009,8 @@ impl AgentEngine {
                     self.run_anticipatory_tick().await;
                 }
                 _ = gateway_tick.tick() => {
-                    // Skip built-in gateway polling when using an external agent
-                    // — the external agent handles its own gateway connections
-                    if !matches!(agent_backend, AgentBackend::Openclaw | AgentBackend::Hermes) {
+                    let gateway_enabled = self.config.read().await.gateway.enabled;
+                    if should_poll_local_gateway(gateway_enabled) {
                         self.poll_gateway_messages().await;
                     }
                 }
@@ -872,6 +1050,10 @@ impl AgentEngine {
                     }
                 }
                 _ = supervisor_tick.tick() => {
+                    if let Err(error) = self.supervise_gateway_runtime().await {
+                        tracing::warn!(error = %error, "gateway supervision tick failed");
+                    }
+
                     let supervised: Vec<_> = {
                         let tasks = self.tasks.lock().await;
                         tasks.iter()
@@ -970,6 +1152,66 @@ impl AgentEngine {
                 }
             }
         }
+    }
+
+    pub(crate) async fn supervise_gateway_runtime(&self) -> Result<()> {
+        let config = self.config.read().await.clone();
+        let gw = &config.gateway;
+        if !gw.enabled {
+            return Ok(());
+        }
+
+        let restart_deadline = gateway_runtime_control().lock().await.restart_not_before_ms;
+        if let Some(deadline_ms) = restart_deadline {
+            if now_millis() < deadline_ms {
+                return Ok(());
+            }
+        }
+
+        let child_exited = {
+            let mut proc = self.gateway_process.lock().await;
+            if let Some(child) = proc.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        tracing::warn!(?status, "gateway child exited");
+                        *proc = None;
+                        true
+                    }
+                    Ok(None) => false,
+                    Err(error) => {
+                        tracing::warn!(error = %error, "gateway child status check failed");
+                        *proc = None;
+                        true
+                    }
+                }
+            } else {
+                false
+            }
+        };
+
+        if child_exited {
+            self.clear_gateway_ipc_sender().await;
+            self.schedule_gateway_restart_backoff("gateway child exited").await;
+            return Ok(());
+        }
+
+        let process_running = self.gateway_process.lock().await.is_some();
+        if process_running {
+            return Ok(());
+        }
+
+        self.maybe_spawn_gateway().await;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn gateway_restart_attempts(&self) -> u32 {
+        gateway_runtime_control().lock().await.restart_attempts
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn gateway_restart_not_before_ms(&self) -> Option<u64> {
+        gateway_runtime_control().lock().await.restart_not_before_ms
     }
 
     /// Poll all gateway platforms for incoming messages and route to agent.
@@ -1872,6 +2114,18 @@ mod tests {
         root
     }
 
+    #[cfg(unix)]
+    fn make_gateway_test_binary(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = root.join(name);
+        fs::write(&path, "#!/bin/sh\nsleep 60\n").expect("failed to write gateway test binary");
+        let mut permissions = fs::metadata(&path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).expect("failed to mark gateway test binary executable");
+        path
+    }
+
     #[test]
     fn reset_commands_require_bang_prefix() {
         assert!(is_gateway_reset_command("!reset"));
@@ -1996,6 +2250,120 @@ mod tests {
 
         drop(state_guard);
         fs::remove_dir_all(&root).expect("cleanup test root");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_respawns_gateway_process_when_enabled() {
+        let root = make_test_root("daemon-respawns-gateway-process");
+        let manager = SessionManager::new_test(&root).await;
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, &root).await;
+        let gateway_path = make_gateway_test_binary(&root, "tamux-gateway-test");
+
+        engine
+            .maybe_spawn_gateway_with_path(&gateway_path)
+            .await
+            .expect("spawn gateway");
+
+        let proc_guard = engine.gateway_process.lock().await;
+        assert!(proc_guard.is_some(), "gateway process should be running");
+        drop(proc_guard);
+
+        let attempts = engine.gateway_restart_attempts().await;
+        assert_eq!(attempts, 0);
+
+        engine.stop_gateway().await;
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_gateway_restart_backoff_applies_after_ipc_loss() {
+        let root = make_test_root("daemon-gateway-restart-backoff");
+        let manager = SessionManager::new_test(&root).await;
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, &root).await;
+        let gateway_path = make_gateway_test_binary(&root, "tamux-gateway-test");
+
+        engine
+            .maybe_spawn_gateway_with_path(&gateway_path)
+            .await
+            .expect("spawn gateway");
+        engine.record_gateway_ipc_loss("ipc lost").await;
+
+        assert!(engine.gateway_process.lock().await.is_none());
+        let deadline = engine.gateway_restart_not_before_ms().await;
+        assert!(deadline.is_some(), "restart deadline should be scheduled");
+
+        engine.stop_gateway().await;
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_gateway_reload_requests_clean_restart() {
+        let root = make_test_root("daemon-gateway-reload");
+        let manager = SessionManager::new_test(&root).await;
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, &root).await;
+        let gateway_path = make_gateway_test_binary(&root, "tamux-gateway-test");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        engine.set_gateway_ipc_sender(Some(tx)).await;
+
+        engine
+            .reinit_gateway_with_path(&gateway_path)
+            .await
+            .expect("reinit gateway");
+
+        let msg = rx.recv().await.expect("expected reload command");
+        assert!(matches!(
+            msg,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. }
+        ));
+        assert!(engine.gateway_process.lock().await.is_some());
+
+        engine.stop_gateway().await;
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn gateway_config_reload_uses_spawn_restart_path_not_init_gateway() {
+        let root = make_test_root("gateway-config-reload");
+        let manager = SessionManager::new_test(&root).await;
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        config.gateway.slack_token = "slack-token".to_string();
+        let engine = AgentEngine::new_test(manager, config, &root).await;
+        let gateway_path = make_gateway_test_binary(&root, "tamux-gateway-test");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        engine.set_gateway_ipc_sender(Some(tx)).await;
+
+        engine
+            .reinit_gateway_with_path(&gateway_path)
+            .await
+            .expect("reinit gateway");
+
+        let msg = rx.recv().await.expect("expected reload command");
+        assert!(matches!(
+            msg,
+            amux_protocol::DaemonMessage::GatewayReloadCommand { .. }
+        ));
+        assert!(engine.gateway_state.lock().await.is_some());
+        assert!(engine.gateway_process.lock().await.is_some());
+
+        engine.stop_gateway().await;
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn daemon_disables_local_gateway_polling_when_standalone_gateway_is_enabled() {
+        assert!(should_poll_local_gateway(false));
+        assert!(!should_poll_local_gateway(true));
     }
 
     // -----------------------------------------------------------------------

@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 use amux_protocol::{
     ClientMessage, DaemonMessage, GatewayBootstrapPayload, GatewayConnectionStatus,
-    GatewayContinuityState, GatewayCursorState, GatewayHealthState, GatewayProviderBootstrap,
-    GatewayRegistration, GatewayRouteMode, GatewayRouteModeState, GatewayThreadBindingState,
-    SessionInfo, GATEWAY_IPC_PROTOCOL_VERSION,
+    GatewayContinuityState, GatewayCursorState, GatewayHealthState, GatewayIncomingEvent,
+    GatewayProviderBootstrap, GatewayRegistration, GatewayRouteMode, GatewayRouteModeState,
+    GatewayThreadBindingState, SessionInfo, GATEWAY_IPC_PROTOCOL_VERSION,
 };
 use anyhow::{Context, Result};
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::codec::Framed;
 
 use crate::agent::skill_community::{
@@ -214,6 +214,26 @@ async fn build_gateway_bootstrap_payload(
             Vec::new()
         }
     };
+    let health_snapshots = match agent.history.list_gateway_health_snapshots().await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|row| {
+                serde_json::from_str::<GatewayHealthState>(&row.state_json)
+                    .map_err(|error| {
+                        tracing::warn!(
+                            platform = %row.platform,
+                            %error,
+                            "gateway: failed to parse health snapshot for bootstrap"
+                        );
+                    })
+                    .ok()
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(%error, "gateway: failed to load health snapshots for bootstrap");
+            Vec::new()
+        }
+    };
 
     GatewayBootstrapPayload {
         bootstrap_correlation_id,
@@ -223,12 +243,107 @@ async fn build_gateway_bootstrap_payload(
             cursors,
             thread_bindings,
             route_modes,
+            health_snapshots,
         },
     }
 }
 
 fn gateway_connection_is_active(state: &GatewayConnectionState) -> bool {
     matches!(state, GatewayConnectionState::Active { .. })
+}
+
+fn gateway_connection_is_tracked(state: &GatewayConnectionState) -> bool {
+    !matches!(state, GatewayConnectionState::Unregistered)
+}
+
+async fn enqueue_gateway_incoming_event(
+    agent: &Arc<AgentEngine>,
+    event: GatewayIncomingEvent,
+) -> Result<()> {
+    let gateway_message = crate::agent::gateway::IncomingMessage {
+        platform: event.platform,
+        sender: event.sender_display.unwrap_or(event.sender_id),
+        content: event.content,
+        channel: event.channel_id,
+        message_id: event.message_id,
+        thread_context: None,
+    };
+    agent.enqueue_gateway_message(gateway_message).await
+}
+
+async fn persist_gateway_health_update(
+    agent: &Arc<AgentEngine>,
+    update: GatewayHealthState,
+) -> Result<()> {
+    agent
+        .history
+        .upsert_gateway_health_snapshot(&update, current_time_ms())
+        .await?;
+
+    let mut gw_guard = agent.gateway_state.lock().await;
+    if let Some(gateway_state) = gw_guard.as_mut() {
+        match update.platform.to_ascii_lowercase().as_str() {
+            "slack" => {
+                gateway_state.slack_health.status = match update.status {
+                    GatewayConnectionStatus::Connected => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Connected
+                    }
+                    GatewayConnectionStatus::Disconnected => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Disconnected
+                    }
+                    GatewayConnectionStatus::Error => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Error
+                    }
+                };
+                gateway_state.slack_health.last_success_at = update.last_success_at_ms;
+                gateway_state.slack_health.last_error_at = update.last_error_at_ms;
+                gateway_state.slack_health.consecutive_failure_count =
+                    update.consecutive_failure_count;
+                gateway_state.slack_health.last_error = update.last_error.clone();
+                gateway_state.slack_health.current_backoff_secs = update.current_backoff_secs;
+            }
+            "discord" => {
+                gateway_state.discord_health.status = match update.status {
+                    GatewayConnectionStatus::Connected => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Connected
+                    }
+                    GatewayConnectionStatus::Disconnected => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Disconnected
+                    }
+                    GatewayConnectionStatus::Error => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Error
+                    }
+                };
+                gateway_state.discord_health.last_success_at = update.last_success_at_ms;
+                gateway_state.discord_health.last_error_at = update.last_error_at_ms;
+                gateway_state.discord_health.consecutive_failure_count =
+                    update.consecutive_failure_count;
+                gateway_state.discord_health.last_error = update.last_error.clone();
+                gateway_state.discord_health.current_backoff_secs = update.current_backoff_secs;
+            }
+            "telegram" => {
+                gateway_state.telegram_health.status = match update.status {
+                    GatewayConnectionStatus::Connected => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Connected
+                    }
+                    GatewayConnectionStatus::Disconnected => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Disconnected
+                    }
+                    GatewayConnectionStatus::Error => {
+                        crate::agent::RuntimeGatewayConnectionStatus::Error
+                    }
+                };
+                gateway_state.telegram_health.last_success_at = update.last_success_at_ms;
+                gateway_state.telegram_health.last_error_at = update.last_error_at_ms;
+                gateway_state.telegram_health.consecutive_failure_count =
+                    update.consecutive_failure_count;
+                gateway_state.telegram_health.last_error = update.last_error.clone();
+                gateway_state.telegram_health.current_backoff_secs = update.current_backoff_secs;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {
@@ -438,7 +553,8 @@ async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
 mod tests {
     use super::{
         build_gateway_bootstrap_payload, build_session_end_episode_payload,
-        concierge_welcome_fingerprint, handle_connection, is_expected_disconnect_error,
+        concierge_welcome_fingerprint, enqueue_gateway_incoming_event, handle_connection,
+        is_expected_disconnect_error,
     };
     use crate::agent::types::AgentConfig;
     use crate::agent::types::{
@@ -449,8 +565,8 @@ mod tests {
     use crate::plugin::PluginManager;
     use crate::session_manager::SessionManager;
     use amux_protocol::{
-        AmuxCodec, ClientMessage, DaemonMessage, GatewayRegistration, SessionInfo,
-        GATEWAY_IPC_PROTOCOL_VERSION,
+        AmuxCodec, ClientMessage, DaemonMessage, GatewayConnectionStatus, GatewayIncomingEvent,
+        GatewayRegistration, SessionInfo, GATEWAY_IPC_PROTOCOL_VERSION,
     };
     use futures::{SinkExt, StreamExt};
     use std::collections::HashSet;
@@ -566,7 +682,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gateway_bootstrap_payload_assembles_config_and_continuity_state() {
+    async fn gateway_bootstrap_uses_persisted_cursor_and_thread_state() {
         let root = std::env::current_dir()
             .expect("cwd")
             .join("tmp")
@@ -603,11 +719,12 @@ mod tests {
             SessionManager::new_with_history(history.clone(), config.pty_channel_capacity);
         let agent = AgentEngine::new_with_shared_history(manager, config, history.clone());
 
-        let payload =
-            build_gateway_bootstrap_payload(&agent, "boot-test".to_string()).await;
+        let payload = build_gateway_bootstrap_payload(&agent, "boot-test".to_string()).await;
 
         assert_eq!(payload.bootstrap_correlation_id, "boot-test");
-        assert!(payload.feature_flags.contains(&"gateway_enabled".to_string()));
+        assert!(payload
+            .feature_flags
+            .contains(&"gateway_enabled".to_string()));
         assert!(payload
             .feature_flags
             .contains(&"gateway_electron_bridges_enabled".to_string()));
@@ -632,6 +749,114 @@ mod tests {
             .iter()
             .any(|mode| mode.channel_key == "Slack:C123"
                 && matches!(mode.route_mode, amux_protocol::GatewayRouteMode::Swarog)));
+        assert!(payload
+            .continuity
+            .cursors
+            .iter()
+            .any(|cursor| cursor.platform == "slack" && cursor.channel_id == "C123"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn gateway_bootstrap_restores_health_snapshots() {
+        let root = std::env::current_dir()
+            .expect("cwd")
+            .join("tmp")
+            .join(format!("server-gateway-health-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let history = Arc::new(
+            HistoryStore::new_test_store(&root)
+                .await
+                .expect("create test history"),
+        );
+        history
+            .upsert_gateway_health_snapshot(
+                &amux_protocol::GatewayHealthState {
+                    platform: "slack".to_string(),
+                    status: amux_protocol::GatewayConnectionStatus::Error,
+                    last_success_at_ms: Some(111),
+                    last_error_at_ms: Some(222),
+                    consecutive_failure_count: 3,
+                    last_error: Some("timeout".to_string()),
+                    current_backoff_secs: 30,
+                },
+                333,
+            )
+            .await
+            .expect("persist health snapshot");
+
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let manager =
+            SessionManager::new_with_history(history.clone(), config.pty_channel_capacity);
+        let agent = AgentEngine::new_with_shared_history(manager, config, history.clone());
+
+        agent.init_gateway().await;
+
+        let state_guard = agent.gateway_state.lock().await;
+        let state = state_guard.as_ref().expect("gateway state should exist");
+        assert_eq!(
+            state.slack_health.status,
+            crate::agent::RuntimeGatewayConnectionStatus::Error
+        );
+        assert_eq!(state.slack_health.last_success_at, Some(111));
+        assert_eq!(state.slack_health.last_error_at, Some(222));
+        assert_eq!(state.slack_health.consecutive_failure_count, 3);
+        assert_eq!(state.slack_health.last_error.as_deref(), Some("timeout"));
+        assert_eq!(state.slack_health.current_backoff_secs, 30);
+
+        let payload = build_gateway_bootstrap_payload(&agent, "boot-health".to_string()).await;
+        assert_eq!(payload.continuity.health_snapshots.len(), 1);
+        assert_eq!(payload.continuity.health_snapshots[0].platform, "slack");
+        assert_eq!(
+            payload.continuity.health_snapshots[0].status,
+            GatewayConnectionStatus::Error
+        );
+
+        drop(state_guard);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn gateway_incoming_ipc_event_enqueues_agent_processing_without_poll_loop() {
+        let root = std::env::current_dir()
+            .expect("cwd")
+            .join("tmp")
+            .join(format!("server-gateway-ipc-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let history = Arc::new(
+            HistoryStore::new_test_store(&root)
+                .await
+                .expect("create test history"),
+        );
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let manager =
+            SessionManager::new_with_history(history.clone(), config.pty_channel_capacity);
+        let agent = AgentEngine::new_with_shared_history(manager, config, history.clone());
+        agent.init_gateway().await;
+
+        enqueue_gateway_incoming_event(
+            &agent,
+            GatewayIncomingEvent {
+                platform: "Slack".to_string(),
+                channel_id: "C123".to_string(),
+                sender_id: "U123".to_string(),
+                sender_display: Some("Alice".to_string()),
+                content: "hello".to_string(),
+                message_id: Some("msg-1".to_string()),
+                thread_id: Some("thread-1".to_string()),
+                received_at_ms: 1234,
+                raw_event_json: None,
+            },
+        )
+        .await
+        .expect("enqueue gateway event");
+
+        assert_eq!(agent.gateway_injected_messages.lock().await.len(), 1);
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -767,7 +992,10 @@ mod tests {
         }
 
         let closed = timeout(Duration::from_millis(250), conn.framed.next()).await;
-        assert!(matches!(closed, Ok(None)), "connection should close after version mismatch");
+        assert!(
+            matches!(closed, Ok(None)),
+            "connection should close after version mismatch"
+        );
         conn.shutdown().await;
     }
 
@@ -904,9 +1132,9 @@ mod tests {
             .list_gateway_thread_bindings()
             .await
             .expect("list bindings");
-        assert!(bindings
-            .iter()
-            .any(|(channel_key, thread_id)| channel_key == "Slack:C123" && thread_id == "thread-123"));
+        assert!(bindings.iter().any(
+            |(channel_key, thread_id)| channel_key == "Slack:C123" && thread_id == "thread-123"
+        ));
 
         let modes = conn
             .agent
@@ -914,9 +1142,12 @@ mod tests {
             .list_gateway_route_modes()
             .await
             .expect("list route modes");
-        assert!(modes
-            .iter()
-            .any(|(channel_key, route_mode)| channel_key == "Slack:C123" && route_mode == "swarog"));
+        assert!(
+            modes
+                .iter()
+                .any(|(channel_key, route_mode)| channel_key == "Slack:C123"
+                    && route_mode == "swarog")
+        );
 
         conn.shutdown().await;
     }
@@ -1526,6 +1757,7 @@ where
     let mut whatsapp_link_rx: Option<
         broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>,
     > = None;
+    let mut gateway_ipc_rx: Option<mpsc::UnboundedReceiver<DaemonMessage>> = None;
     let mut whatsapp_link_subscriber_guard = WhatsAppLinkSubscriberGuard::new(agent.clone());
     let mut whatsapp_link_snapshot_replayed = false;
     let mut gateway_connection_state = GatewayConnectionState::Unregistered;
@@ -1640,16 +1872,44 @@ where
                 }
             }
         }
+        if let Some(ref mut rx) = gateway_ipc_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(daemon_msg) => {
+                        framed.send(daemon_msg).await?;
+                    }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+                }
+            }
+        }
 
         // We need to select between: incoming client messages and output from attached sessions.
         let has_subscriptions =
-            !attached_rxs.is_empty() || agent_event_rx.is_some() || whatsapp_link_rx.is_some();
+            !attached_rxs.is_empty()
+                || agent_event_rx.is_some()
+                || whatsapp_link_rx.is_some()
+                || gateway_ipc_rx.is_some();
         let msg = if !has_subscriptions {
             // No attached sessions or agent subscription — just wait for client input.
             match framed.next().await {
                 Some(Ok(msg)) => Some(msg),
-                Some(Err(e)) => return Err(e.into()),
-                None => return Ok(()), // client disconnected
+                Some(Err(e)) => {
+                    if gateway_connection_is_tracked(&gateway_connection_state) {
+                        agent
+                            .record_gateway_ipc_loss("gateway connection error")
+                            .await;
+                    }
+                    return Err(e.into());
+                }
+                None => {
+                    if gateway_connection_is_tracked(&gateway_connection_state) {
+                        agent
+                            .record_gateway_ipc_loss("gateway connection closed")
+                            .await;
+                    }
+                    return Ok(()); // client disconnected
+                }
             }
         } else {
             // Select between client input and all attached session outputs.
@@ -1695,8 +1955,22 @@ where
             .await
             {
                 Ok(Some(Ok(msg))) => Some(msg),
-                Ok(Some(Err(e))) => return Err(e.into()),
-                Ok(None) => return Ok(()),
+                Ok(Some(Err(e))) => {
+                    if gateway_connection_is_tracked(&gateway_connection_state) {
+                        agent
+                            .record_gateway_ipc_loss("gateway connection error")
+                            .await;
+                    }
+                    return Err(e.into());
+                }
+                Ok(None) => {
+                    if gateway_connection_is_tracked(&gateway_connection_state) {
+                        agent
+                            .record_gateway_ipc_loss("gateway connection closed")
+                            .await;
+                    }
+                    return Ok(());
+                }
                 Err(_) => None, // timeout — loop back to drain output
             }
         };
@@ -1708,7 +1982,10 @@ where
                 }
 
                 ClientMessage::GatewayRegister { registration } => {
-                    if !matches!(gateway_connection_state, GatewayConnectionState::Unregistered) {
+                    if !matches!(
+                        gateway_connection_state,
+                        GatewayConnectionState::Unregistered
+                    ) {
                         framed
                             .send(DaemonMessage::Error {
                                 message: "gateway runtime already registered on this connection"
@@ -1739,34 +2016,38 @@ where
                     let payload =
                         build_gateway_bootstrap_payload(&agent, bootstrap_correlation_id.clone())
                             .await;
-                    framed.send(DaemonMessage::GatewayBootstrap { payload }).await?;
+                    let (gateway_tx, gateway_rx) = mpsc::unbounded_channel();
+                    agent.set_gateway_ipc_sender(Some(gateway_tx)).await;
+                    gateway_ipc_rx = Some(gateway_rx);
+                    framed
+                        .send(DaemonMessage::GatewayBootstrap { payload })
+                        .await?;
                     gateway_connection_state = GatewayConnectionState::AwaitingBootstrapAck {
                         registration,
                         bootstrap_correlation_id,
                     };
                 }
 
-                ClientMessage::GatewayAck { ack } => {
-                    match &gateway_connection_state {
-                        GatewayConnectionState::AwaitingBootstrapAck {
-                            registration,
-                            bootstrap_correlation_id,
-                        } if ack.correlation_id == *bootstrap_correlation_id && ack.accepted => {
-                            tracing::info!(
-                                gateway_id = %registration.gateway_id,
-                                instance_id = %registration.instance_id,
-                                correlation_id = %ack.correlation_id,
-                                "gateway runtime bootstrap acknowledged"
-                            );
-                            gateway_connection_state = GatewayConnectionState::Active {
-                                registration: registration.clone(),
-                            };
-                        }
-                        GatewayConnectionState::AwaitingBootstrapAck {
-                            bootstrap_correlation_id,
-                            ..
-                        } => {
-                            framed
+                ClientMessage::GatewayAck { ack } => match &gateway_connection_state {
+                    GatewayConnectionState::AwaitingBootstrapAck {
+                        registration,
+                        bootstrap_correlation_id,
+                    } if ack.correlation_id == *bootstrap_correlation_id && ack.accepted => {
+                        tracing::info!(
+                            gateway_id = %registration.gateway_id,
+                            instance_id = %registration.instance_id,
+                            correlation_id = %ack.correlation_id,
+                            "gateway runtime bootstrap acknowledged"
+                        );
+                        gateway_connection_state = GatewayConnectionState::Active {
+                            registration: registration.clone(),
+                        };
+                    }
+                    GatewayConnectionState::AwaitingBootstrapAck {
+                        bootstrap_correlation_id,
+                        ..
+                    } => {
+                        framed
                                 .send(DaemonMessage::Error {
                                     message: format!(
                                         "invalid gateway bootstrap ack: expected correlation_id {} and accepted=true",
@@ -1774,17 +2055,16 @@ where
                                     ),
                                 })
                                 .await?;
-                        }
-                        _ => {
-                            framed
-                                .send(DaemonMessage::Error {
-                                    message:
-                                        "gateway ack received before gateway registration".to_string(),
-                                })
-                                .await?;
-                        }
                     }
-                }
+                    _ => {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "gateway ack received before gateway registration"
+                                    .to_string(),
+                            })
+                            .await?;
+                    }
+                },
 
                 ClientMessage::GatewayIncomingEvent { event } => {
                     if !gateway_connection_is_active(&gateway_connection_state) {
@@ -1797,12 +2077,13 @@ where
                             .await?;
                         continue;
                     }
-                    tracing::debug!(
-                        platform = %event.platform,
-                        channel_id = %event.channel_id,
-                        sender_id = %event.sender_id,
-                        "gateway incoming event received"
-                    );
+                    if let Err(error) = enqueue_gateway_incoming_event(&agent, event).await {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: format!("failed to enqueue gateway event: {error}"),
+                            })
+                            .await?;
+                    }
                 }
 
                 ClientMessage::GatewayCursorUpdate { update } => {
@@ -1859,7 +2140,12 @@ where
                                 )
                                 .await
                         }
-                        None => agent.history.delete_gateway_thread_binding(&update.channel_key).await,
+                        None => {
+                            agent
+                                .history
+                                .delete_gateway_thread_binding(&update.channel_key)
+                                .await
+                        }
                     };
                     if let Err(error) = result {
                         framed
@@ -1937,30 +2223,30 @@ where
                             .await?;
                         continue;
                     }
-                    let GatewayHealthState {
-                        platform,
-                        status,
-                        last_success_at_ms,
-                        last_error_at_ms,
-                        consecutive_failure_count,
-                        last_error,
-                        current_backoff_secs,
-                    } = update;
-                    let status_label = match status {
+                    let snapshot = update;
+                    let status_label = match snapshot.status {
                         GatewayConnectionStatus::Connected => "connected",
                         GatewayConnectionStatus::Disconnected => "disconnected",
                         GatewayConnectionStatus::Error => "error",
                     };
                     tracing::debug!(
-                        platform = %platform,
+                        platform = %snapshot.platform,
                         status = status_label,
-                        last_success_at_ms,
-                        last_error_at_ms,
-                        consecutive_failure_count,
-                        last_error = last_error.as_deref().unwrap_or(""),
-                        current_backoff_secs,
+                        last_success_at_ms = snapshot.last_success_at_ms,
+                        last_error_at_ms = snapshot.last_error_at_ms,
+                        consecutive_failure_count = snapshot.consecutive_failure_count,
+                        last_error = snapshot.last_error.as_deref().unwrap_or(""),
+                        current_backoff_secs = snapshot.current_backoff_secs,
                         "gateway health update received"
                     );
+                    if let Err(error) = persist_gateway_health_update(&agent, snapshot).await {
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: format!("failed to persist gateway health: {error}"),
+                            })
+                            .await?;
+                        continue;
+                    }
                 }
 
                 ClientMessage::SpawnSession {

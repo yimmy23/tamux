@@ -533,8 +533,8 @@ impl AgentEngine {
 
         tracing::info!("agent engine hydrated from {:?}", self.data_dir);
 
-        // Initialize gateway polling
-        self.init_gateway().await;
+        // Initialize gateway runtime ownership and spawn the standalone gateway when enabled.
+        self.maybe_spawn_gateway().await;
 
         Ok(())
     }

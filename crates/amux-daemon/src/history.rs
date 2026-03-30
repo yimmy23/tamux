@@ -4,8 +4,8 @@ use crate::agent::types::{
     GoalRunStepKind, GoalRunStepStatus, TaskLogLevel, TaskPriority, TaskStatus,
 };
 use amux_protocol::{
-    AgentDbMessage, AgentDbThread, AgentEventRow, CommandLogEntry, HistorySearchHit,
-    SnapshotIndexEntry, TranscriptIndexEntry, WormChainTip,
+    AgentDbMessage, AgentDbThread, AgentEventRow, CommandLogEntry, GatewayHealthState,
+    HistorySearchHit, SnapshotIndexEntry, TranscriptIndexEntry, WormChainTip,
 };
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -226,6 +226,13 @@ pub struct GatewayReplayCursorRow {
     pub channel_id: String,
     pub cursor_value: String,
     pub cursor_type: String,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayHealthSnapshotRow {
+    pub platform: String,
+    pub state_json: String,
     pub updated_at: u64,
 }
 
@@ -3026,6 +3033,45 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn upsert_gateway_health_snapshot(
+        &self,
+        state: &GatewayHealthState,
+        updated_at: u64,
+    ) -> Result<()> {
+        let platform = state.platform.to_string();
+        let state_json = serde_json::to_string(state).context("failed to serialize health state")?;
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO gateway_health_snapshots (platform, state_json, updated_at) VALUES (?1, ?2, ?3)",
+                    params![platform, state_json, updated_at as i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_gateway_health_snapshots(&self) -> Result<Vec<GatewayHealthSnapshotRow>> {
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT platform, state_json, updated_at FROM gateway_health_snapshots ORDER BY updated_at DESC",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok(GatewayHealthSnapshotRow {
+                        platform: row.get(0)?,
+                        state_json: row.get(1)?,
+                        updated_at: row.get::<_, i64>(2)? as u64,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_operator_profile_session(
         &self,
         session_id: &str,
@@ -3458,6 +3504,13 @@ impl HistoryStore {
                 PRIMARY KEY (platform, channel_id)
             );
             CREATE INDEX IF NOT EXISTS idx_gateway_replay_cursors_platform ON gateway_replay_cursors(platform, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS gateway_health_snapshots (
+                platform    TEXT PRIMARY KEY,
+                state_json  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gateway_health_snapshots_updated ON gateway_health_snapshots(updated_at DESC);
 
             CREATE TABLE IF NOT EXISTS whatsapp_provider_state (
                 provider_id    TEXT PRIMARY KEY,
