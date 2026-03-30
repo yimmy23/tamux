@@ -156,6 +156,7 @@ pub enum ClientEvent {
         model: Option<String>,
         tps: Option<f64>,
         generation_ms: Option<u64>,
+        reasoning: Option<String>,
     },
     WorkflowNotice {
         kind: String,
@@ -1082,6 +1083,7 @@ impl DaemonClient {
                         model: get_string(&event, "model"),
                         tps: event.get("tps").and_then(Value::as_f64),
                         generation_ms: event.get("generation_ms").and_then(Value::as_u64),
+                        reasoning: get_string(&event, "reasoning"),
                     })
                     .await;
             }
@@ -1788,5 +1790,36 @@ mod tests {
             drain_request(&mut rx),
             ClientMessage::AgentWhatsAppLinkStop
         ));
+    }
+
+    #[tokio::test]
+    async fn done_event_parses_reasoning_payload() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "done",
+                "thread_id": "thread-1",
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "provider": "github-copilot",
+                "model": "gpt-5.4",
+                "reasoning": "Final reasoning summary"
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match event_rx.recv().await.expect("expected done event") {
+            ClientEvent::Done {
+                thread_id,
+                reasoning,
+                ..
+            } => {
+                assert_eq!(thread_id, "thread-1");
+                assert_eq!(reasoning.as_deref(), Some("Final reasoning summary"));
+            }
+            other => panic!("expected done event, got {:?}", other),
+        }
     }
 }

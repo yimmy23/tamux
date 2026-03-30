@@ -166,6 +166,7 @@ pub enum ChatAction {
         model: Option<String>,
         tps: Option<f64>,
         generation_ms: Option<u64>,
+        reasoning: Option<String>,
     },
     SetRetryStatus {
         thread_id: String,
@@ -611,6 +612,7 @@ impl ChatState {
                 model: _,
                 tps,
                 generation_ms,
+                reasoning,
             } => {
                 self.pinned_message_top = None;
                 self.retry_status = None;
@@ -621,16 +623,19 @@ impl ChatState {
                     self.active_tool_calls.clear();
 
                     let content = std::mem::take(&mut self.streaming_content);
-                    let reasoning = std::mem::take(&mut self.streaming_reasoning);
+                    let mut final_reasoning = std::mem::take(&mut self.streaming_reasoning);
+                    if final_reasoning.trim().is_empty() {
+                        final_reasoning = reasoning.unwrap_or_default();
+                    }
 
-                    if !content.is_empty() || !reasoning.is_empty() {
+                    if !content.is_empty() || !final_reasoning.is_empty() {
                         let msg = AgentMessage {
                             role: MessageRole::Assistant,
                             content,
-                            reasoning: if reasoning.is_empty() {
+                            reasoning: if final_reasoning.is_empty() {
                                 None
                             } else {
-                                Some(reasoning)
+                                Some(final_reasoning)
                             },
                             input_tokens,
                             output_tokens,
@@ -820,6 +825,8 @@ impl ChatState {
             ChatAction::SelectThread(thread_id) => {
                 self.pinned_message_top = None;
                 self.active_thread_id = Some(thread_id);
+                self.scroll_offset = 0;
+                self.scroll_locked = false;
             }
 
             ChatAction::ScrollChat(delta) => {
@@ -941,6 +948,7 @@ mod tests {
             model: Some("gpt-4o".into()),
             tps: Some(45.0),
             generation_ms: Some(1200),
+            reasoning: None,
         });
         assert_eq!(state.streaming_content(), "");
         let thread = state.active_thread().unwrap();
@@ -1094,6 +1102,35 @@ mod tests {
     }
 
     #[test]
+    fn turn_done_uses_final_reasoning_when_no_reasoning_delta_was_streamed() {
+        let mut state = ChatState::new();
+        state.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        state.reduce(ChatAction::Delta {
+            thread_id: "t1".into(),
+            content: "Answer".into(),
+        });
+
+        state.reduce(ChatAction::TurnDone {
+            thread_id: "t1".into(),
+            input_tokens: 100,
+            output_tokens: 50,
+            cost: Some(0.01),
+            provider: Some("github-copilot".into()),
+            model: Some("gpt-5.4".into()),
+            tps: Some(45.0),
+            generation_ms: Some(1200),
+            reasoning: Some("Final reasoning summary".into()),
+        });
+
+        let thread = state.active_thread().unwrap();
+        let last = thread.messages.last().unwrap();
+        assert_eq!(last.reasoning.as_deref(), Some("Final reasoning summary"));
+    }
+
+    #[test]
     fn new_thread_clears_active() {
         let mut state = ChatState::new();
         state.reduce(ChatAction::ThreadCreated {
@@ -1122,6 +1159,26 @@ mod tests {
         ]));
         state.reduce(ChatAction::SelectThread("t2".into()));
         assert_eq!(state.active_thread_id(), Some("t2"));
+    }
+
+    #[test]
+    fn reselecting_thread_resets_scroll_lock_and_offset() {
+        let mut state = ChatState::new();
+        state.reduce(ChatAction::ThreadListReceived(vec![AgentThread {
+            id: "t1".into(),
+            title: "First".into(),
+            ..Default::default()
+        }]));
+        state.reduce(ChatAction::SelectThread("t1".into()));
+        state.reduce(ChatAction::ScrollChat(5));
+
+        assert!(state.scroll_locked());
+        assert_eq!(state.scroll_offset(), 5);
+
+        state.reduce(ChatAction::SelectThread("t1".into()));
+
+        assert!(!state.scroll_locked());
+        assert_eq!(state.scroll_offset(), 0);
     }
 
     #[test]

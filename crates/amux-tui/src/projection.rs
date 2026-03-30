@@ -119,6 +119,7 @@ pub enum ClientEvent {
         model: Option<String>,
         tps: Option<f64>,
         generation_ms: Option<u64>,
+        reasoning: Option<String>,
     },
     WorkflowNotice {
         kind: String,
@@ -330,6 +331,7 @@ impl DaemonProjection {
                 model,
                 tps,
                 generation_ms,
+                reasoning,
             } => vec![AppAction::Chat(ChatAction::TurnDone {
                 thread_id,
                 input_tokens,
@@ -339,6 +341,7 @@ impl DaemonProjection {
                 model,
                 tps,
                 generation_ms,
+                reasoning,
             })],
 
             // Error → Status
@@ -395,6 +398,7 @@ mod tests {
             model: Some("gpt-4o".into()),
             tps: Some(45.0),
             generation_ms: Some(1200),
+            reasoning: Some("summary".into()),
         });
         assert!(actions
             .iter()

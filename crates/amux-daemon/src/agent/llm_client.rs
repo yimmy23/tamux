@@ -1490,30 +1490,63 @@ fn messages_to_responses_input(
 ) -> Vec<serde_json::Value> {
     messages
         .iter()
-        .filter_map(|message| match message.role.as_str() {
-            "user" | "assistant" => Some(serde_json::json!({
+        .flat_map(|message| match message.role.as_str() {
+            "user" => vec![serde_json::json!({
                 "role": message.role,
                 "content": match &message.content {
                     ApiContent::Text(text) => serde_json::Value::String(text.clone()),
                     ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
                 }
-            })),
+            })],
+            "assistant" => {
+                let mut items = Vec::new();
+                let content = match &message.content {
+                    ApiContent::Text(text) => serde_json::Value::String(text.clone()),
+                    ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
+                };
+                let has_non_empty_content = match &content {
+                    serde_json::Value::String(text) => !text.trim().is_empty(),
+                    serde_json::Value::Array(blocks) => !blocks.is_empty(),
+                    _ => false,
+                };
+                if has_non_empty_content || message.tool_calls.as_ref().is_none_or(Vec::is_empty) {
+                    items.push(serde_json::json!({
+                        "role": message.role,
+                        "content": content,
+                    }));
+                }
+                if let Some(tool_calls) = &message.tool_calls {
+                    for tool_call in tool_calls {
+                        items.push(serde_json::json!({
+                            "type": "function_call",
+                            "call_id": tool_call.id,
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments,
+                        }));
+                    }
+                }
+                items
+            }
             "tool" => {
                 if provider == "github-copilot" && previous_response_id.is_some() {
-                    return None;
+                    return Vec::new();
                 }
-                message.tool_call_id.as_ref().map(|call_id| {
-                    serde_json::json!({
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": match &message.content {
-                            ApiContent::Text(text) => serde_json::Value::String(text.clone()),
-                            ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
-                        }
+                message
+                    .tool_call_id
+                    .as_ref()
+                    .map(|call_id| {
+                        vec![serde_json::json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": match &message.content {
+                                ApiContent::Text(text) => serde_json::Value::String(text.clone()),
+                                ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
+                            }
+                        })]
                     })
-                })
+                    .unwrap_or_default()
             }
-            _ => None,
+            _ => Vec::new(),
         })
         .collect()
 }
@@ -3358,6 +3391,78 @@ mod tests {
         assert_eq!(body["previous_response_id"], "resp_123");
         assert_eq!(input.len(), 1);
         assert_eq!(input[0]["role"], "user");
+    }
+
+    #[test]
+    fn github_copilot_full_responses_request_preserves_function_call_history() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+        };
+
+        let body = build_openai_responses_body(
+            "github-copilot",
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("first question".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text("I'll inspect that".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(vec![ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "read_file".to_string(),
+                            arguments: "{\"path\":\"MEMORY.md\"}".to_string(),
+                        },
+                    }]),
+                },
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("file contents".to_string()),
+                    tool_call_id: Some("call_1".to_string()),
+                    name: Some("read_file".to_string()),
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("continue".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+            None,
+            false,
+        );
+
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 5);
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(input[1]["role"], "assistant");
+        assert_eq!(input[2]["type"], "function_call");
+        assert_eq!(input[2]["call_id"], "call_1");
+        assert_eq!(input[2]["name"], "read_file");
+        assert_eq!(input[3]["type"], "function_call_output");
+        assert_eq!(input[3]["call_id"], "call_1");
+        assert_eq!(input[4]["role"], "user");
     }
 
     #[tokio::test]

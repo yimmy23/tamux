@@ -416,6 +416,13 @@ impl TuiModel {
                 last_error,
                 consecutive_failures,
             } => {
+                let status_changed = self
+                    .gateway_statuses
+                    .iter()
+                    .find(|g| g.platform == platform)
+                    .is_none_or(|existing| {
+                        existing.status != status || existing.last_error != last_error
+                    });
                 let vm = chat::GatewayStatusVm {
                     platform: platform.clone(),
                     status: status.clone(),
@@ -431,7 +438,9 @@ impl TuiModel {
                 } else {
                     self.gateway_statuses.push(vm);
                 }
-                self.status_line = format!("\u{1F310} Gateway {}: {}", platform, status);
+                if status_changed {
+                    self.status_line = format!("\u{1F310} Gateway {}: {}", platform, status);
+                }
             }
             ClientEvent::WhatsAppLinkStatus {
                 state,
@@ -567,6 +576,7 @@ impl TuiModel {
                 model,
                 tps,
                 generation_ms,
+                reasoning,
             } => {
                 self.agent_activity = None;
                 self.pending_stop = false;
@@ -586,6 +596,7 @@ impl TuiModel {
                     model,
                     tps,
                     generation_ms,
+                    reasoning,
                 });
 
                 if !self.queued_prompts.is_empty() {
@@ -1286,6 +1297,33 @@ mod tests {
     }
 
     #[test]
+    fn repeated_gateway_status_does_not_keep_overwriting_status_line() {
+        let mut model = make_model();
+        model.status_line = "Prompt sent".to_string();
+
+        model.handle_client_event(ClientEvent::GatewayStatus {
+            platform: "discord".to_string(),
+            status: "disconnected".to_string(),
+            last_error: Some("socket closed".to_string()),
+            consecutive_failures: 1,
+        });
+        assert_eq!(model.status_line, "🌐 Gateway discord: disconnected");
+
+        model.status_line = "Prompt sent".to_string();
+        model.handle_client_event(ClientEvent::GatewayStatus {
+            platform: "discord".to_string(),
+            status: "disconnected".to_string(),
+            last_error: Some("socket closed".to_string()),
+            consecutive_failures: 2,
+        });
+
+        assert_eq!(
+            model.status_line, "Prompt sent",
+            "repeated gateway status should not keep stealing the footer"
+        );
+    }
+
+    #[test]
     fn operator_profile_question_event_shows_onboarding_notice() {
         let mut model = make_model();
         model.handle_client_event(ClientEvent::OperatorProfileSessionStarted {
@@ -1372,5 +1410,40 @@ mod tests {
         model.modal.reduce(modal::ModalAction::Navigate(1));
 
         assert_eq!(model.modal.picker_cursor(), 2);
+    }
+
+    #[test]
+    fn done_event_persists_final_reasoning_into_chat_message() {
+        let mut model = make_model();
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        model.chat.reduce(chat::ChatAction::Delta {
+            thread_id: "thread-1".to_string(),
+            content: "Answer".to_string(),
+        });
+
+        model.handle_client_event(ClientEvent::Done {
+            thread_id: "thread-1".to_string(),
+            input_tokens: 10,
+            output_tokens: 20,
+            cost: None,
+            provider: Some("github-copilot".to_string()),
+            model: Some("gpt-5.4".to_string()),
+            tps: None,
+            generation_ms: None,
+            reasoning: Some("Final reasoning summary".to_string()),
+        });
+
+        let thread = model.chat.active_thread().expect("thread should exist");
+        let last = thread
+            .messages
+            .last()
+            .expect("assistant message should exist");
+        assert_eq!(last.reasoning.as_deref(), Some("Final reasoning summary"));
     }
 }

@@ -2268,7 +2268,7 @@ mod tests {
     }
 
     #[test]
-    fn api_transport_reports_when_provider_has_single_transport() {
+    fn api_transport_cycles_for_github_copilot() {
         let (mut model, _daemon_rx) = make_model();
         model.apply_provider_selection("github-copilot");
         model
@@ -2280,10 +2280,10 @@ mod tests {
         model.activate_settings_field();
 
         assert_eq!(model.config.api_transport, "chat_completions");
-        assert_eq!(
-            model.status_line,
-            "GitHub Copilot supports chat completions only."
-        );
+
+        model.activate_settings_field();
+
+        assert_eq!(model.config.api_transport, "responses");
     }
 
     #[test]

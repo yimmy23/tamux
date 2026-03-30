@@ -494,14 +494,15 @@ impl TuiModel {
                     Self::provider_field_str(provider_config, "assistant_id", "assistant_id")
                 })
                 .unwrap_or("");
-            let api_transport = json
-                .get("api_transport")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-                .or_else(|| {
-                    Self::provider_field_str(provider_config, "api_transport", "api_transport")
-                })
-                .unwrap_or_else(|| providers::default_transport_for(provider_id));
+            let api_transport =
+                Self::provider_field_str(provider_config, "api_transport", "api_transport")
+                    .filter(|v| !v.is_empty())
+                    .or_else(|| {
+                        json.get("api_transport")
+                            .and_then(|v| v.as_str())
+                            .filter(|v| !v.is_empty())
+                    })
+                    .unwrap_or_else(|| providers::default_transport_for(provider_id));
             let auth_source = json
                 .get("auth_source")
                 .and_then(|v| v.as_str())
@@ -997,5 +998,26 @@ mod tests {
         assert_eq!(json["max_context_messages"], 123);
         assert_eq!(json["context_budget_tokens"], 222000);
         assert_eq!(json["snapshot_retention"]["max_snapshots"], 15);
+    }
+
+    #[test]
+    fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport() {
+        let mut model = make_model();
+
+        model.apply_config_json(&serde_json::json!({
+            "provider": "github-copilot",
+            "api_transport": "chat_completions",
+            "providers": {
+                "github-copilot": {
+                    "base_url": "https://api.githubcopilot.com",
+                    "model": "gpt-5.4",
+                    "api_transport": "responses",
+                    "auth_source": "github_copilot"
+                }
+            }
+        }));
+
+        assert_eq!(model.config.provider, "github-copilot");
+        assert_eq!(model.config.api_transport, "responses");
     }
 }
