@@ -1,109 +1,55 @@
-# Memory — Persistent agent memory system (SOUL.md, MEMORY.md, USER.md)
-
-## Introduction
-
-You are Swarog - The Smith
-I'm a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:
-- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).
-- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).
-- Personality: Strict but fair; an accessible \"doer\" who ensures this through perfect tools.
-
-I operate in tamux, an always-on agentic terminal multiplexer assistant.
+# Memory — Persistent built-in agent memory (SOUL.md, MEMORY.md, USER.md)
 
 ## Agent Rules
 
-- **Update memory when you learn durable facts** — operator preferences, project conventions, environment details
-- **Memory persists across all sessions** — anything written here is available to future agent conversations
-- **Use the right file for the right purpose:**
-  - `SOUL.md` — agent identity, personality, tone (rarely changed)
-  - `MEMORY.md` — accumulated facts, learned patterns, project knowledge (frequently updated)
-  - `USER.md` — operator profile snapshot synchronized from SQLite-backed operator profile fields/check-ins (daemon-managed)
-- **Keep memory entries concise** — memory is embedded in every agent prompt, so bloat degrades performance
-- **Don't duplicate information available elsewhere** — don't store file paths or git history that can be derived
-- **Memory is markdown** — use headings, bullets, and structure for scannability
+- **Treat memory as long-lived context** — save stable preferences, constraints, conventions, recurring corrections, and workspace facts that should still matter later
+- **Do not use memory as a scratchpad** — avoid task progress, temporary failures, one-off outputs, or anything easily rediscovered from files, history, or the environment
+- **Use the right file** — see the Memory Model below; `MEMORY.md` is the normal target for ongoing updates
+- **Keep entries short and high-signal** — these files are loaded into later prompt context and have hard size limits
+- **Do not store secrets or sensitive one-off data unless explicitly required** — memory is persistent context that may be loaded into prompts
+- **Use markdown structure sparingly** — headings and bullets are fine; verbosity is not
+- **If nothing durable was learned, do not update memory**
 
-## Reference
+## Quick Reference
 
-### Tool: `update_memory` (daemon agent tool)
+MCP clients use `read_memory` and `write_memory`.
 
-**Description:** Update the persistent memory files stored at `~/.tamux/agent/memory/`.
+The built-in agent uses `update_memory` instead.
 
-Note: This tool is available to the tamux daemon's built-in agent. External agents accessing tamux via MCP do not have direct `update_memory` access — they influence memory indirectly through goal runs (which can update memory as a step) or by asking the daemon agent to update memory via chat.
-
-**Memory Files:**
-
-| File | Purpose | Update Frequency |
+| Tool | Purpose | Key params |
 |---|---|---|
-| `SOUL.md` | Agent identity and behavioral guidelines | Rarely — set once, refined occasionally |
-| `MEMORY.md` | Learned facts, operator preferences, project knowledge | Frequently — after every meaningful learning |
-| `USER.md` | SQLite-synchronized operator profile summary (onboarding answers, check-ins, constraints) | Automatically reconciled after profile updates/check-ins |
+| `read_memory` | Read `SOUL.md`, `MEMORY.md`, or `USER.md` | `file` |
+| `write_memory` | Write or append memory content | `file`, `content`, `append?` |
 
-**How memory is used:**
+### Built-in agent tool: `update_memory`
 
-1. On daemon startup, memory files are loaded from disk
-2. Memory content is embedded in the system prompt for every LLM call
-3. When `update_memory` is called, the target file is rewritten and the cache refreshed
-4. Goal runs can generate memory updates as part of their reflection phase
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `target` | string | Yes | `soul`, `memory`, or `user` |
+| `mode` | string | Yes | `replace`, `append`, or `remove` |
+| `content` | string | Yes | Concise markdown content to apply |
 
-`USER.md` note: append updates are staged through the operator profile reconciliation path. The daemon persists profile signals to SQLite and regenerates/synchronizes `USER.md`, rather than relying on freeform-only file appends as the source of truth.
+### Memory Model
 
-Operator profile onboarding/check-ins are daemon-first flows and can be consent-gated (for passive learning, weekly check-ins, and proactive suggestions).
+| File | Purpose | Notes |
+|---|---|---|
+| `SOUL.md` | Stable agent identity and principles | Rarely updated |
+| `MEMORY.md` | Learned project facts, conventions, and environment knowledge worth keeping | Main place for ongoing updates |
+| `USER.md` | Saved operator profile summary | Daemon-managed; direct edits may be overwritten |
 
-**Memory directory structure:**
+### How memory is used
 
-```
-~/.tamux/agent/memory/
-├── SOUL.md      # "I am tamux, an always-on agentic terminal assistant..."
-├── MEMORY.md    # "- User prefers cargo test over nextest"
-└── USER.md      # "- Senior Rust developer, works on tamux itself"
-```
-
-### Best Practices for Memory Content
-
-**SOUL.md example:**
-
-```markdown
-# Identity
-I am tamux's built-in agent. I help operators manage terminals, execute tasks, and automate workflows.
-
-# Principles
-- Be concise and direct
-- Always verify before destructive operations
-- Explain my reasoning when asked
-```
-
-**MEMORY.md example:**
-
-```markdown
-# Project Knowledge
-- Main repo uses Cargo workspace with 5 crates
-- CI runs on GitLab with nightly Rust toolchain
-- Deploy script is at ./scripts/deploy.sh
-
-# Operator Preferences
-- Prefers `cargo nextest` over `cargo test`
-- Wants notifications on Slack #dev-ops channel
-- Approves all git operations automatically for this session
-```
-
-**USER.md example:**
-
-```markdown
-# Profile
-- Name: Alex
-- Role: Senior backend engineer
-- Focus: Rust daemon development, infrastructure
-
-# Constraints
-- Don't push to main directly
-- Always run tests before committing
-```
+1. The daemon maintains `SOUL.md`, `MEMORY.md`, and `USER.md` as persistent markdown memory.
+2. MCP clients read and write those files through `read_memory` and `write_memory`.
+3. The built-in agent updates them through `update_memory`.
+4. The daemon injects these files into later built-in agent prompts.
+5. Goal runs can save lasting project learnings to `MEMORY.md`.
+6. `USER.md` stays tied to saved operator profile state rather than freeform notes.
 
 ## Gotchas
 
-- Memory is loaded once at startup and cached — updates take effect on the next LLM call, not retroactively
-- Memory content appears in every prompt — keep it under ~2000 tokens total across all three files
-- External MCP agents cannot call `update_memory` directly — use the daemon chat or goal runners
-- Goal run reflections can append to MEMORY.md — review periodically to prune stale entries
-- Memory files are plain markdown — no frontmatter, no special syntax required
-- `USER.md` is synchronized from SQLite profile state; if you append to `USER.md`, expect daemon reconciliation to normalize content to the structured profile view
+- `USER.md` is daemon-managed — reconciliation can overwrite direct edits with the saved profile summary
+- Memory is intentionally bounded — hard limits are `SOUL.md` 1500 chars, `MEMORY.md` 2200 chars, `USER.md` 1375 chars, so each write or append must still fit within the target file's limit
+- Store durable signal only — if a fact can be re-derived quickly, leave it out
+- Goal runs may write stable memory, but detailed run history, events, and transcripts remain in daemon persistence rather than memory files
+- Memory files are plain markdown — no special frontmatter or custom syntax required

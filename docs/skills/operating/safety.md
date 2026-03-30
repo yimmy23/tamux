@@ -1,101 +1,102 @@
-# Approval Workflows, Risk Policies, and Sandbox Behavior
+# Approval, Sandbox, and Recovery Safety
 
-Understand how tamux enforces safety through policy evaluation, approval gates, sandboxing, and automatic snapshots.
+Use the managed execution path: approval gates, sandbox controls, automatic snapshots, WORM telemetry ledgers, and scrubbing tools.
+
+These protections apply to managed commands such as `execute_command`; direct terminal input via `type_in_terminal` and other interactive terminal flows bypass approval gates and filesystem snapshots.
+
+Snapshots are created for managed commands and can be pruned or unavailable depending on backend and retention, so rollback is not guaranteed indefinitely.
 
 ## Agent Rules
 
-- **Understand that tamux enforces safety by default** — commands matching risk patterns require operator approval
-- **Always provide a clear `rationale`** when executing commands — it's shown to the operator during approval
-- **Handle `approval_required` responses gracefully** — inform the user and wait, don't retry blindly
-- **Don't attempt to bypass safety controls** — sandbox isolation and policy evaluation are non-negotiable
-- **Know the risk patterns** — certain commands will always trigger approval (see list below)
-- **Snapshots are automatic** — filesystem snapshots are taken before managed command execution
+- **Always provide a clear `rationale` with `execute_command`** — the operator sees it during approval, and it should explain why the command is needed now.
+- **Use the right terminal path** — use `execute_command` for normal one-shot commands, and reserve `type_in_terminal` for genuinely interactive terminal flows.
+- **Treat `approval_required` as a hard pause** — report the event, wait for the operator decision, and do not continue dependent follow-up actions until that approval is resolved.
+- **Do not repeat denied or failing approaches unchanged** — if a command is denied, rejected, or keeps failing, inspect fresh state and change strategy before trying again.
+- **Respect sandbox and policy controls** — do not try to bypass managed execution, approval gates, or platform sandboxing.
+- **Keep scope and impact clear** — keep commands scoped, and describe expected impact plainly when risky work is necessary.
+- **Use rollback, redaction, and integrity tools when needed** — snapshots help with rollback, `scrub_sensitive` can redact sensitive text before sharing or storing it, and `verify_integrity` checks the WORM telemetry ledgers.
 
 ## Reference
 
-### How the Safety System Works
+### Safety Layers
 
-tamux has a multi-layered safety system:
+The safety model is operator-visible and layered:
 
-1. **Policy Engine** — Pattern-matches commands against known risk categories
-2. **Sandbox Isolation** — Linux namespaces or macOS Seatbelt restrict filesystem/network access
-3. **Approval Workflow** — High-risk commands pause for operator decision
-4. **Filesystem Snapshots** — Automatic checkpoints before execution (rollback via `restore_snapshot`)
-5. **WORM Telemetry** — Append-only integrity ledgers for audit trails
-6. **Credential Scrubbing** — Automatic redaction of secrets in output
+1. **Policy evaluation** — risky managed commands can be stopped before execution.
+2. **Sandbox isolation** — managed commands run in a sandboxed lane with platform-specific restrictions.
+3. **Approval workflow** — higher-risk commands pause for operator review.
+4. **Filesystem snapshots** — automatic checkpoints are created before managed commands.
+5. **Append-only WORM telemetry ledgers** — the daemon records execution telemetry for audit and tamper detection.
+6. **Sensitive-data scrubbing** — secrets can be redacted before display or logging.
 
-### Risk Patterns That Trigger Approval
+### Approval and Denial Flow
 
-The policy engine detects these categories:
+When `execute_command` hits a risky pattern, it can return an `approval_required` event with the fields below. Treat that event as a workflow stop for the affected action until the operator allows it or you choose a different plan:
+
+- `approval_id`
+- `command`
+- `rationale`
+- `risk_level`
+- `blast_radius`
+- `reasons`
+
+Some risky commands never reach `approval_required`; policy can reject them before approval is offered.
+
+The operator can then choose:
+
+- **Allow Once** — run this execution only
+- **Allow For Session** — allow this and similar commands for the current session
+- **Deny** — reject the command
+
+Approval can allow one execution or, with **Allow For Session**, similar commands for the current session; it does not bypass sandbox restrictions or policy enforcement.
+
+If the operator denies the command, take that as a stop signal. Do not resubmit the same risky approach without materially new context or a narrower plan.
+
+### Replan Triggers
+
+If execution becomes repetitive, stuck, or keeps failing after approval, stop and replan from fresh state instead of repeating the same command unchanged.
+
+### Practical Risk Patterns
+
+Common approval-triggering categories include:
 
 | Category | Examples |
 |---|---|
 | Destructive filesystem | `rm -rf`, `shred`, `mkfs` |
-| Git force operations | `git push --force`, `git reset --hard`, `git clean -fdx` |
+| Git force/destructive operations | `git push --force`, `git reset --hard`, `git clean -fdx` |
 | Infrastructure mutations | `terraform destroy`, `kubectl delete`, `docker rm` |
-| Package/system modification | `apt install`, `pip install --system`, `npm install -g` |
+| System/package mutation | `apt install`, `pip install --system`, `npm install -g` |
 | Pipe-to-shell | `curl ... \| bash`, `wget ... \| sh` |
 | Network exfiltration | `curl -X POST` with data, `scp`, `rsync` to remote |
-| Privilege escalation | `sudo`, `su`, `chmod 777` |
-| Database mutations | `DROP TABLE`, `DELETE FROM`, `TRUNCATE` |
+| Privilege or permission changes | `sudo`, `su`, `chmod 777` |
+| Database mutation | `DROP TABLE`, `DELETE FROM`, `TRUNCATE` |
 
-### Approval Flow
+### Recovery, Integrity, and Scrubbing
 
-When a command triggers the policy engine:
+**Snapshots**
 
-1. `execute_command` returns `approval_required` event with:
-   - `approval_id` — unique identifier
-   - `command` — the command text
-   - `rationale` — your provided reason
-   - `risk_level` — low / medium / high / critical
-   - `blast_radius` — scope of potential impact
-   - `reasons` — specific policy rules that matched
+Managed commands create snapshots automatically. If a command causes damage or unexpected state drift:
 
-2. The operator sees an approval modal with three options:
-   - **Allow Once** — execute this command only
-   - **Allow For Session** — auto-approve similar commands for this session
-   - **Deny** — reject the command
-
-3. The tool call resolves with the operator's decision.
-
-### Tool: `verify_integrity`
-
-**Description:** Verify WORM (Write-Once-Read-Many) telemetry ledgers for tampering.
-
-**Parameters:** None
-
-**Returns:** Integrity verification results (hash chain validation).
-
-### Tool: `scrub_sensitive`
-
-**Description:** Redact secrets, tokens, and passwords from text before displaying or logging.
-
-| Param | Type | Required | Description |
-|---|---|---|---|
-| `text` | string | Yes | Text to scrub |
-
-**Returns:** `{ scrubbed_text: "..." }` with secrets replaced by `[REDACTED]`.
-
-Detected patterns include: AWS access keys, GitHub tokens, API keys, passwords in URLs, bearer tokens, private keys.
-
-### Snapshots for Rollback
-
-Managed commands automatically create filesystem snapshots. If something goes wrong:
-
-```
-1. list_snapshots() → find the pre-execution snapshot
-2. restore_snapshot(snapshot_id="...") → roll back
+```text
+1. list_snapshots() -> find the relevant pre-execution snapshot
+2. restore_snapshot(snapshot_id="...") -> roll back the workspace
 ```
 
-Snapshot backends: tar (default), ZFS, BTRFS (configurable).
+`restore_snapshot` restores workspace/filesystem state only; it does not undo external side effects such as network calls, package installs, infrastructure changes, or database mutations.
+
+**WORM telemetry ledgers**
+
+- `verify_integrity` validates the WORM telemetry ledgers for tampering.
+
+**Scrubbing**
+
+- `scrub_sensitive(text="...")` redacts secrets, tokens, passwords, private keys, and similar sensitive values before sharing or storing text.
 
 ## Gotchas
 
-- Not all commands trigger approval — only those matching risk patterns
-- `Allow For Session` approves the pattern, not just the exact command — similar commands auto-approve
-- Sandbox isolation is configurable and may be disabled in development setups
-- Snapshot creation adds latency to managed commands — this is intentional for safety
-- WORM ledgers are append-only — they cannot be edited or deleted
-- The policy engine uses AST parsing via tree-sitter, not just regex — it understands shell syntax
-- Cerbos integration is optional — if configured, it adds Attribute-Based Access Control on top of pattern matching
-- External MCP agents see approval_required in the execute_command response — they should surface this to the user
+- Not every command needs approval, but risky patterns still do.
+- `Allow For Session` is broader than one exact command; similar commands may be auto-approved afterward.
+- Sandbox restrictions vary by platform and configuration; do not assume unrestricted filesystem or network access.
+- `restore_snapshot` is a destructive rollback of current workspace state.
+- Snapshot creation adds latency by design.
+- External MCP agents receive an `approval_required` event in the tool response and should surface it instead of retrying.

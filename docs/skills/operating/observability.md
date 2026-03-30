@@ -1,128 +1,114 @@
-# Observability — History Search, Code Symbols, Snapshots, and Git Status
+# Investigation and Recovery — History, Symbols, Snapshots, and Git State
 
-Investigate past operations, navigate code, and manage workspace snapshots.
+Use this as a quick investigation and recovery reference before retrying work. Check prior history, inspect git state, locate the right code, and only then decide whether to retry, replan, or restore.
 
 ## Agent Rules
 
-- **Search history before re-running work** — avoid duplicating commands already executed in this or prior sessions.
-- **Use `find_symbol` for code navigation** — faster than grepping when you know the symbol name.
-- **Use `list_snapshots` to understand rollback options** — snapshots are created automatically before managed commands.
-- **Use `get_git_status` to understand repo state** — check before making git operations.
-- **Use `search_history` with specific queries** — broad queries return too many results.
+- **Start with `search_history` before retrying or rerunning work** — check prior commands, transcript output, policy responses, and failure text first.
+- **Reconstruct the last attempt before changing strategy** — pair history with `get_git_status` so you know what changed and what is still dirty.
+- **Use specific history queries** — search exact error text, command fragments, denied actions, filenames, or symbols instead of broad terms.
+- **Use `find_symbol` once history tells you where to look** — semantic symbol search is best when you already know the likely code target.
+- **Check `list_snapshots` before recovery actions** — understand whether a rollback point exists before proposing destructive recovery.
+- **Treat `restore_snapshot` as a last-resort repair step** — inspect history and git state first so you know what current work would be discarded.
 
 ## Reference
 
 ### Tool: `search_history`
 
-**Description:** Full-text search across the daemon's command and transcript history using SQLite FTS5.
+Search daemon-managed command and transcript history with full-text queries.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `query` | string | Yes | Search query (supports FTS5 syntax: AND, OR, NOT, "phrases", prefix*) |
+| `query` | string | Yes | Full-text query |
 | `limit` | integer | No | Max results to return |
 
-**Returns:**
+Practical queries:
 
-```json
-{
-  "query": "cargo test",
-  "summary": "Found 15 matches",
-  "hits": [
-    {
-      "timestamp": "2024-03-15T10:30:00Z",
-      "session_id": "...",
-      "content": "$ cargo test --workspace\ntest result: ok. 42 passed; 0 failed",
-      "score": 0.95
-    }
-  ]
-}
-```
+- `"cargo test" AND fail*` — find repeated test failures
+- `"approval_required" AND git` — inspect git commands stopped for approval
+- `denied AND rm` — check earlier policy blocks or denied commands
+- `"No such file" AND Cargo.toml` — match exact failure text
 
-**FTS5 query examples:**
-
-- `"cargo test"` — exact phrase match
-- `cargo AND test AND fail*` — all terms, with prefix matching
-- `NOT deploy` — exclude results containing "deploy"
+Use it first to answer: what already failed, what was approved or denied, what command sequence last worked, and whether this path has already been tried.
 
 ### Tool: `find_symbol`
 
-**Description:** Search for code symbols (functions, structs, classes, variables) using tree-sitter AST indexing.
+Search indexed code symbols in a workspace using the daemon's semantic index.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `workspace_root` | string | Yes | Absolute path to the project root |
-| `symbol` | string | Yes | Symbol name to search for |
+| `workspace_root` | string | Yes | Absolute path to the workspace root |
+| `symbol` | string | Yes | Symbol name or pattern to search for |
 | `limit` | integer | No | Max results |
 
-**Returns:** Array of symbol matches with file path, line number, symbol kind (function, struct, etc.), and context.
+Use it after history points you to a likely file, function, type, handler, or module.
 
 ### Tool: `list_snapshots`
 
-**Description:** List recorded workspace filesystem snapshots. Snapshots are auto-created before managed command execution.
+List recorded workspace snapshots. Daemon-managed commands create snapshots automatically before execution; direct terminal input or other work outside daemon-managed execution may have no rollback point.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `workspace_id` | string | No | Filter by workspace (omit for all) |
+| `workspace_id` | string | No | Filter by workspace |
 
-**Returns:** Array of snapshot objects with: id, workspace_id, timestamp, description, backend (tar/zfs/btrfs).
+Use it to confirm whether a rollback point exists before proposing recovery.
 
 ### Tool: `restore_snapshot`
 
-**Description:** Restore a previously recorded filesystem snapshot.
+Restore a previously recorded workspace snapshot.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `snapshot_id` | string | Yes | Snapshot UUID to restore |
+| `snapshot_id` | string | Yes | Snapshot ID to restore |
 
-**Returns:** `{ snapshot_id, ok: true/false, message: "..." }`
-
-**Warning:** Restoring a snapshot reverts filesystem changes. Uncommitted work will be lost.
+Warning: this replaces current workspace state. It does not undo external side effects.
 
 ### Tool: `get_git_status`
 
-**Description:** Get git status for a working directory.
+Get git status for a working directory.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | Yes | Absolute path to the git repository |
 
-**Returns:**
+Use it to check branch, dirty state, staged changes, and untracked files before retrying, reverting, or restoring.
 
-```json
-{
-  "branch": "main",
-  "is_dirty": true,
-  "ahead": 2,
-  "behind": 0,
-  "untracked": ["new-file.rs"],
-  "modified": ["src/main.rs"],
-  "staged": ["Cargo.toml"]
-}
+## Typical Investigation Workflows
+
+### Retry or Replan After Failure
+
+```text
+1. search_history("exact error text or failed command")
+2. search_history("related success, filename, or symbol")
+3. get_git_status(path="/home/user/project")
+4. find_symbol(workspace_root="/home/user/project", symbol="suspected_handler")
+5. choose a new plan instead of repeating the same attempt unchanged
 ```
 
-### Tool: `verify_integrity`
+### Check Approval or Policy Failures
 
-**Description:** Verify WORM telemetry ledger integrity (SHA-256 hash chain validation).
-
-**Parameters:** None
-
-**Returns:** Verification results for all ledgers.
-
-### Typical Investigation Workflow
-
+```text
+1. search_history("approval_required OR denied OR rejected")
+2. search_history("command fragment AND error text")
+3. get_git_status(path="/home/user/project")
+4. re-scope the command or switch strategies before retrying
 ```
-1. search_history("error deploy") → find when the error started
-2. get_git_status(path="/home/user/project") → check repo state
-3. find_symbol(workspace_root="/home/user/project", symbol="deploy_handler") → locate code
-4. list_snapshots() → find pre-error snapshot
-5. restore_snapshot(snapshot_id="...") → roll back if needed
+
+### Recover From a Bad Daemon-Managed Command
+
+```text
+1. search_history("command text OR resulting error")
+2. get_git_status(path="/home/user/project")
+3. confirm there is no wanted uncommitted work to keep
+4. list_snapshots()
+5. restore_snapshot(snapshot_id="...")
 ```
 
 ## Gotchas
 
-- `search_history` uses FTS5 syntax — special characters may need quoting.
-- `find_symbol` requires tree-sitter indexing to be built — first search may be slow.
-- Snapshots have storage costs — old snapshots may be pruned automatically.
-- `restore_snapshot` is destructive — it replaces current filesystem state.
-- `get_git_status` requires the path to be a valid git repository.
-- History search covers daemon-managed operations — commands run outside tamux will not appear.
+- `search_history` only covers daemon-managed command and transcript history; work done outside daemon-managed execution will not appear.
+- `search_history` uses full-text query syntax, so exact phrases and operators may need quoting.
+- `find_symbol` depends on semantic indexing; first lookup or stale indexes may make searches slower or less complete.
+- Snapshots only cover daemon-managed commands, can be pruned, and are not guaranteed for every past action.
+- `restore_snapshot` is destructive for current workspace state and should follow investigation, not replace it.
+- `get_git_status` only works on a valid git repository path.
