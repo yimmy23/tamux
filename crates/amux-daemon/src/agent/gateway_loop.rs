@@ -1,7 +1,7 @@
 //! Gateway initialization, background run loop, and platform message polling.
 
-use super::heartbeat::is_peak_activity_hour;
 use super::gateway_health::{GatewayConnectionStatus, PlatformHealthState};
+use super::heartbeat::is_peak_activity_hour;
 use super::*;
 use chrono::Timelike;
 use std::sync::OnceLock;
@@ -57,10 +57,6 @@ pub(crate) fn apply_health_snapshot(
         "telegram" => gateway_state.telegram_health = health,
         _ => {}
     }
-}
-
-fn should_poll_local_gateway(gateway_enabled: bool) -> bool {
-    !gateway_enabled
 }
 
 #[derive(Default)]
@@ -215,6 +211,7 @@ const GATEWAY_TRIAGE_TIMEOUT_SECS: u64 = 12;
 const GATEWAY_AGENT_TIMEOUT_SECS: u64 = 120;
 // Allow enough headroom for provider-side rate limiting and chunked deliveries.
 const GATEWAY_SEND_RESULT_TIMEOUT_SECS: u64 = 180;
+const GATEWAY_EVENT_DRAIN_INTERVAL_MS: u64 = 150;
 
 // ---------------------------------------------------------------------------
 // Replay classification
@@ -272,8 +269,6 @@ fn update_in_memory_replay_cursor(
         }
         "discord" => {
             gw.discord_replay_cursors
-                .insert(channel_id.to_string(), cursor_value.to_string());
-            gw.discord_last_id
                 .insert(channel_id.to_string(), cursor_value.to_string());
         }
         "whatsapp" => {
@@ -550,27 +545,28 @@ impl AgentEngine {
             "gateway: config loaded"
         );
 
-        let telegram_replay_cursor = match self.history.load_gateway_replay_cursors("telegram").await {
-            Ok(rows) => rows
-                .into_iter()
-                .filter(|row| row.channel_id == "global")
-                .find_map(|row| match row.cursor_value.parse::<i64>() {
-                    Ok(cursor) => Some(cursor),
-                    Err(error) => {
-                        tracing::warn!(
-                            channel_id = %row.channel_id,
-                            cursor_value = %row.cursor_value,
-                            %error,
-                            "gateway: ignoring invalid telegram replay cursor"
-                        );
-                        None
-                    }
-                }),
-            Err(error) => {
-                tracing::warn!(%error, "gateway: failed to load telegram replay cursors");
-                None
-            }
-        };
+        let telegram_replay_cursor =
+            match self.history.load_gateway_replay_cursors("telegram").await {
+                Ok(rows) => rows
+                    .into_iter()
+                    .filter(|row| row.channel_id == "global")
+                    .find_map(|row| match row.cursor_value.parse::<i64>() {
+                        Ok(cursor) => Some(cursor),
+                        Err(error) => {
+                            tracing::warn!(
+                                channel_id = %row.channel_id,
+                                cursor_value = %row.cursor_value,
+                                %error,
+                                "gateway: ignoring invalid telegram replay cursor"
+                            );
+                            None
+                        }
+                    }),
+                Err(error) => {
+                    tracing::warn!(%error, "gateway: failed to load telegram replay cursors");
+                    None
+                }
+            };
         let slack_replay_cursors = match self.history.load_gateway_replay_cursors("slack").await {
             Ok(rows) => rows
                 .into_iter()
@@ -581,7 +577,8 @@ impl AgentEngine {
                 HashMap::new()
             }
         };
-        let discord_replay_cursors = match self.history.load_gateway_replay_cursors("discord").await {
+        let discord_replay_cursors = match self.history.load_gateway_replay_cursors("discord").await
+        {
             Ok(rows) => rows
                 .into_iter()
                 .map(|row| (row.channel_id, row.cursor_value))
@@ -591,16 +588,17 @@ impl AgentEngine {
                 HashMap::new()
             }
         };
-        let whatsapp_replay_cursors = match self.history.load_gateway_replay_cursors("whatsapp").await {
-            Ok(rows) => rows
-                .into_iter()
-                .map(|row| (row.channel_id, row.cursor_value))
-                .collect(),
-            Err(error) => {
-                tracing::warn!(%error, "gateway: failed to load whatsapp replay cursors");
-                HashMap::new()
-            }
-        };
+        let whatsapp_replay_cursors =
+            match self.history.load_gateway_replay_cursors("whatsapp").await {
+                Ok(rows) => rows
+                    .into_iter()
+                    .map(|row| (row.channel_id, row.cursor_value))
+                    .collect(),
+                Err(error) => {
+                    tracing::warn!(%error, "gateway: failed to load whatsapp replay cursors");
+                    HashMap::new()
+                }
+            };
         let health_snapshots = match self.history.list_gateway_health_snapshots().await {
             Ok(rows) => rows,
             Err(error) => {
@@ -697,9 +695,9 @@ impl AgentEngine {
             sender
         };
 
-        if let Err(error) = sender.send(amux_protocol::DaemonMessage::GatewaySendRequest {
-            request,
-        }) {
+        if let Err(error) =
+            sender.send(amux_protocol::DaemonMessage::GatewaySendRequest { request })
+        {
             self.gateway_pending_send_results
                 .lock()
                 .await
@@ -724,9 +722,7 @@ impl AgentEngine {
                     .lock()
                     .await
                     .remove(&correlation_id);
-                Err(anyhow::anyhow!(
-                    "timed out waiting for gateway send result"
-                ))
+                Err(anyhow::anyhow!("timed out waiting for gateway send result"))
             }
         }
     }
@@ -808,7 +804,8 @@ impl AgentEngine {
             Err(error) => {
                 tracing::error!(error = %error, "failed to spawn gateway process");
                 drop(proc);
-                self.schedule_gateway_restart_backoff("gateway spawn failed").await;
+                self.schedule_gateway_restart_backoff("gateway spawn failed")
+                    .await;
                 Err(error.into())
             }
         }
@@ -944,21 +941,22 @@ impl AgentEngine {
         self.maybe_spawn_gateway_with_path(gateway_path).await
     }
 
-    /// Main background loop — processes tasks, runs heartbeats, polls gateway.
+    /// Main background loop — processes tasks, runs heartbeats, and supervises gateway runtime.
     pub async fn run_loop(self: Arc<Self>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let config = self.config.read().await.clone();
 
         let task_interval = std::time::Duration::from_secs(config.task_poll_interval_secs);
-        let gateway_poll_interval = std::time::Duration::from_secs(3);
         let mut watcher_refresh_rx = self.watcher_refresh_rx.lock().await.take();
 
         let mut task_tick = tokio::time::interval(task_interval);
-        let mut gateway_tick = tokio::time::interval(gateway_poll_interval);
         let mut watcher_tick =
             tokio::time::interval(std::time::Duration::from_millis(FILE_WATCH_TICK_MS));
         let mut supervisor_tick = tokio::time::interval(std::time::Duration::from_secs(30));
         let mut anticipatory_tick =
             tokio::time::interval(std::time::Duration::from_secs(ANTICIPATORY_TICK_SECS));
+        let mut gateway_event_tick = tokio::time::interval(std::time::Duration::from_millis(
+            GATEWAY_EVENT_DRAIN_INTERVAL_MS,
+        ));
         let mut pending_watcher_refreshes: HashMap<String, Instant> = HashMap::new();
 
         // Cron-based heartbeat scheduling (D-06, BEAT-01)
@@ -998,6 +996,9 @@ impl AgentEngine {
                     if let Err(e) = self.clone().dispatch_ready_tasks().await {
                         tracing::error!("agent task error: {e}");
                     }
+                }
+                _ = gateway_event_tick.tick() => {
+                    self.process_gateway_messages().await;
                 }
                 _ = tokio::time::sleep_until(next_heartbeat) => {
                     heartbeat_cycle_count += 1;
@@ -1096,12 +1097,6 @@ impl AgentEngine {
                 }
                 _ = anticipatory_tick.tick() => {
                     self.run_anticipatory_tick().await;
-                }
-                _ = gateway_tick.tick() => {
-                    let gateway_enabled = self.config.read().await.gateway.enabled;
-                    if should_poll_local_gateway(gateway_enabled) {
-                        self.poll_gateway_messages().await;
-                    }
                 }
                 maybe_thread_id = async {
                     match watcher_refresh_rx.as_mut() {
@@ -1280,7 +1275,8 @@ impl AgentEngine {
 
         if child_exited {
             self.clear_gateway_ipc_sender().await;
-            self.schedule_gateway_restart_backoff("gateway child exited").await;
+            self.schedule_gateway_restart_backoff("gateway child exited")
+                .await;
             return Ok(());
         }
 
@@ -1303,403 +1299,36 @@ impl AgentEngine {
         gateway_runtime_control().lock().await.restart_not_before_ms
     }
 
-    /// Poll all gateway platforms for incoming messages and route to agent.
+    /// Process gateway IPC messages already normalized by `tamux-gateway`.
     ///
-    /// Each platform poll is wrapped with health tracking (Plan 02):
-    /// - Check `should_retry` before polling (backoff skip)
-    /// - Call `on_success`/`on_failure` based on result
-    /// - Emit `GatewayStatus` event on status transitions
-    /// - Emit `HeartbeatDigest` on connected/disconnected transitions (D-05)
-    /// - Store thread contexts from incoming messages into `reply_contexts`
-    /// - Track `last_incoming_at` per channel
-    /// - Respect Slack 60s poll interval (Pitfall 1)
-    async fn poll_gateway_messages(&self) {
-        use super::gateway_health::GatewayConnectionStatus;
-
-        let mut gw_guard = self.gateway_state.lock().await;
-        let gw = match gw_guard.as_mut() {
-            Some(g) => g,
-            None => return,
-        };
-
+    /// The daemon no longer polls platform APIs directly. Its runtime boundary
+    /// here is limited to:
+    /// - draining inbound IPC events queued by the server,
+    /// - updating reply-routing continuity state,
+    /// - routing those messages through the normal agent path.
+    async fn process_gateway_messages(&self) {
         let now_ms = now_millis();
-
-        // Use cached channel lists (populated by init_gateway) instead of
-        // repeatedly touching config storage every poll cycle.
-        let discord_channels = self.gateway_discord_channels.read().await.clone();
-        let slack_channels = self.gateway_slack_channels.read().await.clone();
-
-        // Collect messages from all platforms and externally injected sources.
-        let mut incoming: Vec<gateway::IncomingMessage> = {
-            let mut queue = self.gateway_injected_messages.lock().await;
-            queue.drain(..).collect()
-        };
-        // Track status transitions to emit events after dropping the mutex
-        let mut status_transitions: Vec<(String, String, Option<String>, Option<u32>)> = Vec::new();
-
-        // --- Telegram ---
-        if !gw.config.telegram_token.is_empty() {
-            if gw.telegram_health.should_retry(now_ms) {
-                let old_status = gw.telegram_health.status;
-                match gateway::poll_telegram(gw).await {
-                    Ok(telegram_msgs) => {
-                        gw.telegram_health.on_success(now_ms);
-                        if gw.telegram_health.is_reconnect_transition(old_status) {
-                            gw.replay_cycle_active.insert("telegram".to_string());
-                        }
-                        if !telegram_msgs.is_empty() {
-                            tracing::info!(
-                                count = telegram_msgs.len(),
-                                "gateway: telegram messages received"
-                            );
-                        }
-                        // Store thread contexts and update last_incoming_at
-                        for msg in &telegram_msgs {
-                            if let Some(ref tc) = msg.thread_context {
-                                let key = format!("Telegram:{}", msg.channel);
-                                gw.reply_contexts.insert(key.clone(), tc.clone());
-                                gw.last_incoming_at.insert(key, now_ms);
-                            }
-                        }
-                        incoming.extend(telegram_msgs);
-                        // Persist live boundary so future reconnect replays start from here.
-                        if gw.telegram_offset > 0 {
-                            let cursor_val = (gw.telegram_offset - 1).to_string();
-                            if let Err(e) = self
-                                .history
-                                .save_gateway_replay_cursor(
-                                    "telegram",
-                                    "global",
-                                    &cursor_val,
-                                    "update_id",
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    "gateway: failed to persist telegram live cursor: {e}"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        gw.telegram_health.on_failure(now_ms, e.to_string());
-                        gw.replay_cycle_active.remove("telegram");
-                        tracing::warn!("gateway: telegram poll error: {e}");
-                    }
-                }
-                if gw.telegram_health.status_changed(old_status) {
-                    status_transitions.push((
-                        "Telegram".to_string(),
-                        format!("{:?}", gw.telegram_health.status).to_lowercase(),
-                        gw.telegram_health.last_error.clone(),
-                        Some(gw.telegram_health.consecutive_failure_count),
-                    ));
-                }
-            } else {
-                tracing::debug!(
-                    backoff_secs = gw.telegram_health.current_backoff_secs,
-                    "gateway: telegram poll skipped (backoff active)"
-                );
-            }
-        }
-
-        // --- Slack (60s interval per Pitfall 1) ---
-        if !slack_channels.is_empty() && !gw.config.slack_token.is_empty() {
-            let slack_interval_ms = gw.slack_poll_interval_secs * 1000;
-            let should_poll_slack = match gw.last_slack_poll_ms {
-                Some(last) => now_ms.saturating_sub(last) >= slack_interval_ms,
-                None => true, // First poll
+        let incoming = {
+            let mut gw_guard = self.gateway_state.lock().await;
+            let Some(gw) = gw_guard.as_mut() else {
+                return;
             };
 
-            if should_poll_slack && gw.slack_health.should_retry(now_ms) {
-                gw.last_slack_poll_ms = Some(now_ms);
-                let old_status = gw.slack_health.status;
-                match gateway::poll_slack(gw, &slack_channels).await {
-                    Ok(slack_msgs) => {
-                        gw.slack_health.on_success(now_ms);
-                        if gw.slack_health.is_reconnect_transition(old_status) {
-                            gw.replay_cycle_active.insert("slack".to_string());
-                        }
-                        if !slack_msgs.is_empty() {
-                            tracing::info!(
-                                count = slack_msgs.len(),
-                                "gateway: slack messages received"
-                            );
-                        }
-                        for msg in &slack_msgs {
-                            if let Some(ref tc) = msg.thread_context {
-                                let key = format!("Slack:{}", msg.channel);
-                                gw.reply_contexts.insert(key.clone(), tc.clone());
-                                gw.last_incoming_at.insert(key, now_ms);
-                            }
-                        }
-                        incoming.extend(slack_msgs);
-                        // Persist live boundaries for all polled Slack channels.
-                        for (channel_id, ts) in gw.slack_last_ts.clone() {
-                            if let Err(e) = self
-                                .history
-                                .save_gateway_replay_cursor("slack", &channel_id, &ts, "message_ts")
-                                .await
-                            {
-                                tracing::warn!(
-                                    channel_id,
-                                    "gateway: failed to persist slack live cursor: {e}"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        gw.slack_health.on_failure(now_ms, e.to_string());
-                        gw.replay_cycle_active.remove("slack");
-                        tracing::warn!("gateway: slack poll error: {e}");
-                    }
-                }
-                if gw.slack_health.status_changed(old_status) {
-                    status_transitions.push((
-                        "Slack".to_string(),
-                        format!("{:?}", gw.slack_health.status).to_lowercase(),
-                        gw.slack_health.last_error.clone(),
-                        Some(gw.slack_health.consecutive_failure_count),
-                    ));
-                }
-            } else if !should_poll_slack {
-                tracing::debug!(
-                    interval_secs = gw.slack_poll_interval_secs,
-                    "gateway: slack poll skipped (interval not elapsed)"
-                );
-            } else {
-                tracing::debug!(
-                    backoff_secs = gw.slack_health.current_backoff_secs,
-                    "gateway: slack poll skipped (backoff active)"
-                );
+            let mut queue = self.gateway_injected_messages.lock().await;
+            let incoming: Vec<gateway::IncomingMessage> = queue.drain(..).collect();
+            if incoming.is_empty() {
+                return;
             }
-        }
 
-        // --- Discord ---
-        if !discord_channels.is_empty() && !gw.config.discord_token.is_empty() {
-            if gw.discord_health.should_retry(now_ms) {
-                let old_status = gw.discord_health.status;
-                match gateway::poll_discord(gw, &discord_channels).await {
-                    Ok(discord_msgs) => {
-                        gw.discord_health.on_success(now_ms);
-                        if gw.discord_health.is_reconnect_transition(old_status) {
-                            gw.replay_cycle_active.insert("discord".to_string());
-                        }
-                        if !discord_msgs.is_empty() {
-                            tracing::info!(
-                                count = discord_msgs.len(),
-                                "gateway: discord messages received"
-                            );
-                        }
-                        for msg in &discord_msgs {
-                            if let Some(ref tc) = msg.thread_context {
-                                let key = format!("Discord:{}", msg.channel);
-                                gw.reply_contexts.insert(key.clone(), tc.clone());
-                                gw.last_incoming_at.insert(key, now_ms);
-                            }
-                        }
-                        incoming.extend(discord_msgs);
-                        // Persist live boundaries for all polled Discord channels.
-                        for (channel_id, msg_id) in gw.discord_last_id.clone() {
-                            if let Err(e) = self
-                                .history
-                                .save_gateway_replay_cursor(
-                                    "discord",
-                                    &channel_id,
-                                    &msg_id,
-                                    "message_id",
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    channel_id,
-                                    "gateway: failed to persist discord live cursor: {e}"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        gw.discord_health.on_failure(now_ms, e.to_string());
-                        gw.replay_cycle_active.remove("discord");
-                        tracing::warn!("gateway: discord poll error: {e}");
-                    }
-                }
-                if gw.discord_health.status_changed(old_status) {
-                    status_transitions.push((
-                        "Discord".to_string(),
-                        format!("{:?}", gw.discord_health.status).to_lowercase(),
-                        gw.discord_health.last_error.clone(),
-                        Some(gw.discord_health.consecutive_failure_count),
-                    ));
-                }
-            } else {
-                tracing::debug!(
-                    backoff_secs = gw.discord_health.current_backoff_secs,
-                    "gateway: discord poll skipped (backoff active)"
-                );
-            }
-        }
-
-        // --- Replay orchestration ---
-        // For each platform that just reconnected (replay_cycle_active), fetch
-        // all channel results first, then delegate to apply_replay_results so
-        // that seen-id write-back and replay_cycle_active management live in one
-        // place.
-        {
-            let platforms_for_replay: Vec<String> =
-                gw.replay_cycle_active.clone().into_iter().collect();
-            if !platforms_for_replay.is_empty() {
-                let mut platform_results: Vec<(String, Vec<gateway::ReplayFetchResult>, bool)> =
-                    Vec::new();
-
-                for platform in &platforms_for_replay {
-                    let (channel_results, fetch_complete): (Vec<gateway::ReplayFetchResult>, bool) =
-                        match platform.as_str() {
-                            "telegram" => match gateway::fetch_telegram_replay(gw).await {
-                                Ok(result) => (vec![result], true),
-                                Err(e) => {
-                                    tracing::warn!("replay: telegram fetch failed: {e}");
-                                    continue;
-                                }
-                            },
-                            "slack" => {
-                                let mut results = Vec::new();
-                                let mut fetch_ok = true;
-                                for ch in &slack_channels {
-                                    match gateway::fetch_slack_replay(gw, ch).await {
-                                        Ok(result) => results.push(result),
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                channel = ch,
-                                                "replay: slack fetch failed: {e}"
-                                            );
-                                            fetch_ok = false;
-                                            break;
-                                        }
-                                    }
-                                }
-                                // Partial fetch: push whatever succeeded so those messages
-                                // aren't lost; fetch_ok=false keeps the platform active for
-                                // retry on the next cycle.
-                                if results.is_empty() && !fetch_ok {
-                                    continue;
-                                }
-                                (results, fetch_ok)
-                            }
-                            "discord" => {
-                                let mut results = Vec::new();
-                                let mut fetch_ok = true;
-                                for ch in &discord_channels {
-                                    match gateway::fetch_discord_replay(gw, ch).await {
-                                        Ok(result) => results.push(result),
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                channel = ch,
-                                                "replay: discord fetch failed: {e}"
-                                            );
-                                            fetch_ok = false;
-                                            break;
-                                        }
-                                    }
-                                }
-                                // Partial fetch: push whatever succeeded so those messages
-                                // aren't lost; fetch_ok=false keeps the platform active for
-                                // retry on the next cycle.
-                                if results.is_empty() && !fetch_ok {
-                                    continue;
-                                }
-                                (results, fetch_ok)
-                            }
-                            _ => continue,
-                        };
-                    platform_results.push((platform.clone(), channel_results, fetch_complete));
-                }
-
-                let replay_msgs = self.apply_replay_results(platform_results, gw).await;
-
-                // Prepend replay messages so they are processed before live messages.
-                if !replay_msgs.is_empty() {
-                    let mut combined = replay_msgs;
-                    combined.extend(std::mem::take(&mut incoming));
-                    incoming = combined;
+            for msg in &incoming {
+                let key = format!("{}:{}", msg.platform, msg.channel);
+                gw.last_incoming_at.insert(key.clone(), now_ms);
+                if let Some(ref tc) = msg.thread_context {
+                    gw.reply_contexts.insert(key, tc.clone());
                 }
             }
-        }
-
-        // Drop the mutex before dispatching events (send_message needs it indirectly)
-        drop(gw_guard);
-
-        // Emit GatewayStatus events and HeartbeatDigest for status transitions
-        for (platform, status, last_error, consecutive_failures) in &status_transitions {
-            // Emit GatewayStatus event to all connected clients
-            let _ = self.event_tx.send(AgentEvent::GatewayStatus {
-                platform: platform.clone(),
-                status: status.clone(),
-                last_error: last_error.clone(),
-                consecutive_failures: *consecutive_failures,
-            });
-
-            // D-05: Emit HeartbeatDigest on connected/disconnected transitions
-            let is_connect_disconnect =
-                status == "connected" || status == "disconnected" || status == "error";
-            if is_connect_disconnect {
-                let description = match (status.as_str(), last_error) {
-                    ("connected", _) => format!("{platform} reconnected"),
-                    ("error", Some(err)) => {
-                        let fail_count = consecutive_failures.unwrap_or(0);
-                        format!("{platform} disconnected after {fail_count} failures: {err}")
-                    }
-                    ("error", None) => format!("{platform} disconnected"),
-                    ("disconnected", _) => format!("{platform} disconnected"),
-                    _ => format!("{platform} status: {status}"),
-                };
-
-                let _ = self.event_tx.send(AgentEvent::HeartbeatDigest {
-                    cycle_id: format!("gateway_health_{}", Uuid::new_v4()),
-                    actionable: status != "connected",
-                    digest: description.clone(),
-                    items: vec![HeartbeatDigestItem {
-                        priority: if status == "connected" { 3 } else { 1 },
-                        check_type: HeartbeatCheckType::UnrepliedGatewayMessages,
-                        title: description,
-                        suggestion: if status == "connected" {
-                            format!("{platform} is back online")
-                        } else {
-                            format!("Check {platform} API credentials and connectivity")
-                        },
-                    }],
-                    checked_at: now_ms,
-                    explanation: None,
-                    confidence: None,
-                });
-
-                // Audit entry for health transition per D-05
-                let audit_entry = crate::history::AuditEntryRow {
-                    id: format!("gw_health_{}", Uuid::new_v4()),
-                    timestamp: now_ms as i64,
-                    action_type: "gateway_health_transition".to_string(),
-                    summary: format!("{platform} -> {status}"),
-                    explanation: last_error.clone(),
-                    confidence: None,
-                    confidence_band: None,
-                    causal_trace_id: None,
-                    thread_id: None,
-                    goal_run_id: None,
-                    task_id: None,
-                    raw_data_json: Some(
-                        serde_json::json!({
-                            "platform": platform,
-                            "new_status": status,
-                            "consecutive_failures": consecutive_failures,
-                        })
-                        .to_string(),
-                    ),
-                };
-                if let Err(e) = self.history.insert_action_audit(&audit_entry).await {
-                    tracing::warn!(platform = %platform, "gateway: failed to persist health audit: {e}");
-                }
-            }
-        }
+            incoming
+        };
 
         // Route each message to the agent
         for msg in incoming {
@@ -2192,6 +1821,7 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use uuid::Uuid;
 
     fn make_test_root(test_name: &str) -> std::path::PathBuf {
@@ -2203,6 +1833,15 @@ mod tests {
         root
     }
 
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("daemon crate dir")
+            .parent()
+            .expect("workspace root")
+            .to_path_buf()
+    }
+
     #[cfg(unix)]
     fn make_gateway_test_binary(root: &std::path::Path, name: &str) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -2211,7 +1850,8 @@ mod tests {
         fs::write(&path, "#!/bin/sh\nsleep 60\n").expect("failed to write gateway test binary");
         let mut permissions = fs::metadata(&path).expect("metadata").permissions();
         permissions.set_mode(0o755);
-        fs::set_permissions(&path, permissions).expect("failed to mark gateway test binary executable");
+        fs::set_permissions(&path, permissions)
+            .expect("failed to mark gateway test binary executable");
         path
     }
 
@@ -2341,6 +1981,110 @@ mod tests {
         fs::remove_dir_all(&root).expect("cleanup test root");
     }
 
+    #[tokio::test]
+    async fn gateway_state_updates_survive_gateway_restart() {
+        let root = make_test_root("gateway-state-updates-survive-restart");
+        let manager = SessionManager::new_test(&root).await;
+
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, &root).await;
+
+        engine
+            .history
+            .save_gateway_replay_cursor("slack", "C123", "1712345678.000100", "message_ts")
+            .await
+            .expect("save slack cursor");
+        engine
+            .history
+            .upsert_gateway_thread_binding("Slack:C123", "thread-123", 1111)
+            .await
+            .expect("save thread binding");
+        engine
+            .history
+            .upsert_gateway_route_mode("Slack:C123", "swarog", 2222)
+            .await
+            .expect("save route mode");
+
+        engine.init_gateway().await;
+        *engine.gateway_state.lock().await = None;
+        engine.init_gateway().await;
+
+        let state_guard = engine.gateway_state.lock().await;
+        let state = state_guard.as_ref().expect("gateway state should exist");
+        assert_eq!(
+            state
+                .slack_replay_cursors
+                .get("C123")
+                .map(std::string::String::as_str),
+            Some("1712345678.000100")
+        );
+        drop(state_guard);
+
+        let bindings = engine
+            .history
+            .list_gateway_thread_bindings()
+            .await
+            .expect("list thread bindings");
+        assert!(bindings.iter().any(
+            |(channel_key, thread_id)| channel_key == "Slack:C123" && thread_id == "thread-123"
+        ));
+
+        let modes = engine
+            .history
+            .list_gateway_route_modes()
+            .await
+            .expect("list route modes");
+        assert!(
+            modes
+                .iter()
+                .any(|(channel_key, route_mode)| channel_key == "Slack:C123"
+                    && route_mode == "swarog")
+        );
+
+        fs::remove_dir_all(&root).expect("cleanup test root");
+    }
+
+    #[tokio::test]
+    async fn gateway_health_snapshots_survive_gateway_restart() {
+        let root = make_test_root("gateway-health-snapshots-survive-restart");
+        let manager = SessionManager::new_test(&root).await;
+
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, &root).await;
+
+        let snapshot = amux_protocol::GatewayHealthState {
+            platform: "slack".to_string(),
+            status: amux_protocol::GatewayConnectionStatus::Error,
+            last_success_at_ms: Some(111),
+            last_error_at_ms: Some(222),
+            consecutive_failure_count: 3,
+            last_error: Some("timeout".to_string()),
+            current_backoff_secs: 30,
+        };
+        engine
+            .history
+            .upsert_gateway_health_snapshot(&snapshot, 333)
+            .await
+            .expect("save health snapshot");
+
+        engine.init_gateway().await;
+        *engine.gateway_state.lock().await = None;
+        engine.init_gateway().await;
+
+        let state_guard = engine.gateway_state.lock().await;
+        let state = state_guard.as_ref().expect("gateway state should exist");
+        assert_eq!(state.slack_health.status, GatewayConnectionStatus::Error);
+        assert_eq!(state.slack_health.last_success_at, Some(111));
+        assert_eq!(state.slack_health.last_error_at, Some(222));
+        assert_eq!(state.slack_health.consecutive_failure_count, 3);
+        assert_eq!(state.slack_health.last_error.as_deref(), Some("timeout"));
+        assert_eq!(state.slack_health.current_backoff_secs, 30);
+
+        fs::remove_dir_all(&root).expect("cleanup test root");
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn daemon_respawns_gateway_process_when_enabled() {
@@ -2450,9 +2194,54 @@ mod tests {
     }
 
     #[test]
-    fn daemon_disables_local_gateway_polling_when_standalone_gateway_is_enabled() {
-        assert!(should_poll_local_gateway(false));
-        assert!(!should_poll_local_gateway(true));
+    fn daemon_gateway_loop_no_longer_polls_slack_discord_or_telegram() {
+        let source =
+            fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/gateway_loop.rs"))
+                .expect("read gateway_loop.rs");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or(source.as_str());
+        for forbidden in [
+            "gateway::poll_telegram(gw).await",
+            "gateway::poll_slack(gw, &slack_channels).await",
+            "gateway::poll_discord(gw, &discord_channels).await",
+            "gateway::fetch_telegram_replay(gw).await",
+            "gateway::fetch_slack_replay(gw, ch).await",
+            "gateway::fetch_discord_replay(gw, ch).await",
+        ] {
+            assert!(
+                !production_source.contains(forbidden),
+                "gateway loop still contains local transport ownership seam: {forbidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn daemon_gateway_send_path_no_longer_issues_platform_http_requests() {
+        let gateway_source =
+            fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/gateway.rs"))
+                .expect("read gateway.rs");
+        let tool_source =
+            fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/tool_executor.rs"))
+                .expect("read tool_executor.rs");
+        for forbidden in [
+            "https://slack.com/api",
+            "https://discord.com/api/v10",
+            "https://api.telegram.org",
+            "conversations.history",
+            "users/@me/channels",
+            "getUpdates?offset=",
+        ] {
+            assert!(
+                !gateway_source.contains(forbidden) && !tool_source.contains(forbidden),
+                "daemon transport source still contains platform HTTP path: {forbidden}"
+            );
+        }
+        assert!(
+            !tool_source.contains("gateway_format::"),
+            "daemon send path still depends on daemon-owned gateway formatting"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2649,8 +2438,8 @@ mod tests {
     /// Discord replay initialization must also seed the live poll boundary.
     ///
     /// Without this, reconnect replay persists `discord_replay_cursors` but
-    /// leaves `discord_last_id` empty, so the next poll treats reconnect as a
-    /// first connect and skips the backlog again.
+    /// leaves the live continuity cursor empty, so the next reconnect would
+    /// skip backlog handling again.
     #[tokio::test]
     async fn discord_initialize_boundary_seeds_live_poll_cursor() {
         let root = make_test_root("discord-replay-init-seeds-live-cursor");
@@ -2660,12 +2449,8 @@ mod tests {
         let mut gw =
             super::gateway::GatewayState::new(make_replay_gateway_config(), reqwest::Client::new());
         assert!(
-            gw.discord_last_id.is_empty(),
-            "test starts with no live discord cursor"
-        );
-        assert!(
             gw.discord_replay_cursors.is_empty(),
-            "test starts with no replay discord cursor"
+            "test starts with no live discord cursor"
         );
 
         let result = super::gateway::ReplayFetchResult::InitializeBoundary {
@@ -2695,12 +2480,7 @@ mod tests {
         assert_eq!(
             gw.discord_replay_cursors.get("D456").map(String::as_str),
             Some("998877665544"),
-            "replay cursor should be seeded in memory"
-        );
-        assert_eq!(
-            gw.discord_last_id.get("D456").map(String::as_str),
-            Some("998877665544"),
-            "discord live poll cursor must also be seeded from replay init boundary"
+            "discord continuity cursor should be seeded in memory"
         );
 
         let row = engine

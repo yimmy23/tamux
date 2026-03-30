@@ -256,17 +256,51 @@ fn gateway_connection_is_tracked(state: &GatewayConnectionState) -> bool {
     !matches!(state, GatewayConnectionState::Unregistered)
 }
 
+fn gateway_thread_context_from_event(
+    platform: &str,
+    thread_id: Option<&str>,
+) -> Option<crate::agent::gateway::ThreadContext> {
+    let thread_id = thread_id?.trim();
+    if thread_id.is_empty() {
+        return None;
+    }
+
+    match platform.to_ascii_lowercase().as_str() {
+        "slack" => Some(crate::agent::gateway::ThreadContext {
+            slack_thread_ts: Some(thread_id.to_string()),
+            ..Default::default()
+        }),
+        "discord" => Some(crate::agent::gateway::ThreadContext {
+            discord_message_id: Some(thread_id.to_string()),
+            ..Default::default()
+        }),
+        "telegram" => {
+            thread_id
+                .parse::<i64>()
+                .ok()
+                .map(|message_id| crate::agent::gateway::ThreadContext {
+                    telegram_message_id: Some(message_id),
+                    ..Default::default()
+                })
+        }
+        _ => None,
+    }
+}
+
 async fn enqueue_gateway_incoming_event(
     agent: &Arc<AgentEngine>,
     event: GatewayIncomingEvent,
 ) -> Result<()> {
     let gateway_message = crate::agent::gateway::IncomingMessage {
+        thread_context: gateway_thread_context_from_event(
+            &event.platform,
+            event.thread_id.as_deref(),
+        ),
         platform: event.platform,
         sender: event.sender_display.unwrap_or(event.sender_id),
         content: event.content,
         channel: event.channel_id,
         message_id: event.message_id,
-        thread_context: None,
     };
     agent.enqueue_gateway_message(gateway_message).await
 }
@@ -275,26 +309,37 @@ async fn persist_gateway_health_update(
     agent: &Arc<AgentEngine>,
     update: GatewayHealthState,
 ) -> Result<()> {
+    let updated_at_ms = current_time_ms();
     agent
         .history
-        .upsert_gateway_health_snapshot(&update, current_time_ms())
+        .upsert_gateway_health_snapshot(&update, updated_at_ms)
         .await?;
+
+    let platform_key = update.platform.to_ascii_lowercase();
+    let platform_label = match platform_key.as_str() {
+        "slack" => "Slack",
+        "discord" => "Discord",
+        "telegram" => "Telegram",
+        other => other,
+    }
+    .to_string();
+    let new_status = match update.status {
+        GatewayConnectionStatus::Connected => {
+            crate::agent::RuntimeGatewayConnectionStatus::Connected
+        }
+        GatewayConnectionStatus::Disconnected => {
+            crate::agent::RuntimeGatewayConnectionStatus::Disconnected
+        }
+        GatewayConnectionStatus::Error => crate::agent::RuntimeGatewayConnectionStatus::Error,
+    };
+    let mut previous_status = None;
 
     let mut gw_guard = agent.gateway_state.lock().await;
     if let Some(gateway_state) = gw_guard.as_mut() {
-        match update.platform.to_ascii_lowercase().as_str() {
+        match platform_key.as_str() {
             "slack" => {
-                gateway_state.slack_health.status = match update.status {
-                    GatewayConnectionStatus::Connected => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Connected
-                    }
-                    GatewayConnectionStatus::Disconnected => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Disconnected
-                    }
-                    GatewayConnectionStatus::Error => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Error
-                    }
-                };
+                previous_status = Some(gateway_state.slack_health.status);
+                gateway_state.slack_health.status = new_status;
                 gateway_state.slack_health.last_success_at = update.last_success_at_ms;
                 gateway_state.slack_health.last_error_at = update.last_error_at_ms;
                 gateway_state.slack_health.consecutive_failure_count =
@@ -303,17 +348,8 @@ async fn persist_gateway_health_update(
                 gateway_state.slack_health.current_backoff_secs = update.current_backoff_secs;
             }
             "discord" => {
-                gateway_state.discord_health.status = match update.status {
-                    GatewayConnectionStatus::Connected => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Connected
-                    }
-                    GatewayConnectionStatus::Disconnected => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Disconnected
-                    }
-                    GatewayConnectionStatus::Error => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Error
-                    }
-                };
+                previous_status = Some(gateway_state.discord_health.status);
+                gateway_state.discord_health.status = new_status;
                 gateway_state.discord_health.last_success_at = update.last_success_at_ms;
                 gateway_state.discord_health.last_error_at = update.last_error_at_ms;
                 gateway_state.discord_health.consecutive_failure_count =
@@ -322,17 +358,8 @@ async fn persist_gateway_health_update(
                 gateway_state.discord_health.current_backoff_secs = update.current_backoff_secs;
             }
             "telegram" => {
-                gateway_state.telegram_health.status = match update.status {
-                    GatewayConnectionStatus::Connected => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Connected
-                    }
-                    GatewayConnectionStatus::Disconnected => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Disconnected
-                    }
-                    GatewayConnectionStatus::Error => {
-                        crate::agent::RuntimeGatewayConnectionStatus::Error
-                    }
-                };
+                previous_status = Some(gateway_state.telegram_health.status);
+                gateway_state.telegram_health.status = new_status;
                 gateway_state.telegram_health.last_success_at = update.last_success_at_ms;
                 gateway_state.telegram_health.last_error_at = update.last_error_at_ms;
                 gateway_state.telegram_health.consecutive_failure_count =
@@ -343,6 +370,81 @@ async fn persist_gateway_health_update(
             _ => {}
         }
     }
+
+    drop(gw_guard);
+
+    if previous_status != Some(new_status) {
+        let status = match update.status {
+            GatewayConnectionStatus::Connected => "connected",
+            GatewayConnectionStatus::Disconnected => "disconnected",
+            GatewayConnectionStatus::Error => "error",
+        }
+        .to_string();
+        let _ = agent
+            .event_sender()
+            .send(crate::agent::types::AgentEvent::GatewayStatus {
+                platform: platform_label.clone(),
+                status: status.clone(),
+                last_error: update.last_error.clone(),
+                consecutive_failures: Some(update.consecutive_failure_count),
+            });
+
+        let description = match (status.as_str(), update.last_error.as_deref()) {
+            ("connected", _) => format!("{platform_label} reconnected"),
+            ("error", Some(err)) => format!(
+                "{platform_label} disconnected after {} failures: {err}",
+                update.consecutive_failure_count
+            ),
+            ("error", None) => format!("{platform_label} disconnected"),
+            ("disconnected", _) => format!("{platform_label} disconnected"),
+            _ => format!("{platform_label} status: {status}"),
+        };
+
+        let _ = agent
+            .event_sender()
+            .send(crate::agent::types::AgentEvent::HeartbeatDigest {
+                cycle_id: format!("gateway_health_{}", uuid::Uuid::new_v4()),
+                actionable: status != "connected",
+                digest: description.clone(),
+                items: vec![crate::agent::types::HeartbeatDigestItem {
+                    priority: if status == "connected" { 3 } else { 1 },
+                    check_type: crate::agent::types::HeartbeatCheckType::UnrepliedGatewayMessages,
+                    title: description.clone(),
+                    suggestion: if status == "connected" {
+                        format!("{platform_label} is back online")
+                    } else {
+                        format!("Check {platform_label} API credentials and connectivity")
+                    },
+                }],
+                checked_at: updated_at_ms,
+                explanation: None,
+                confidence: None,
+            });
+
+        let audit_entry = crate::history::AuditEntryRow {
+            id: format!("gw_health_{}", uuid::Uuid::new_v4()),
+            timestamp: updated_at_ms as i64,
+            action_type: "gateway_health_transition".to_string(),
+            summary: format!("{platform_label} -> {status}"),
+            explanation: update.last_error.clone(),
+            confidence: None,
+            confidence_band: None,
+            causal_trace_id: None,
+            thread_id: None,
+            goal_run_id: None,
+            task_id: None,
+            raw_data_json: Some(
+                serde_json::json!({
+                    "platform": platform_label,
+                    "new_status": status,
+                    "consecutive_failures": update.consecutive_failure_count,
+                })
+                .to_string(),
+            ),
+        };
+        agent.history.insert_action_audit(&audit_entry).await?;
+    }
+
     Ok(())
 }
 
@@ -565,7 +667,7 @@ mod tests {
     use super::{
         build_gateway_bootstrap_payload, build_session_end_episode_payload,
         concierge_welcome_fingerprint, enqueue_gateway_incoming_event, handle_connection,
-        is_expected_disconnect_error,
+        is_expected_disconnect_error, persist_gateway_health_update,
     };
     use crate::agent::types::AgentConfig;
     use crate::agent::types::{
@@ -576,8 +678,9 @@ mod tests {
     use crate::plugin::PluginManager;
     use crate::session_manager::SessionManager;
     use amux_protocol::{
-        AmuxCodec, ClientMessage, DaemonMessage, GatewayConnectionStatus, GatewayIncomingEvent,
-        GatewayRegistration, GatewaySendRequest, SessionInfo, GATEWAY_IPC_PROTOCOL_VERSION,
+        AmuxCodec, ClientMessage, DaemonMessage, GatewayConnectionStatus, GatewayHealthState,
+        GatewayIncomingEvent, GatewayRegistration, GatewaySendRequest, SessionInfo,
+        GATEWAY_IPC_PROTOCOL_VERSION,
     };
     use futures::{SinkExt, StreamExt};
     use std::collections::HashSet;
@@ -867,7 +970,105 @@ mod tests {
         .await
         .expect("enqueue gateway event");
 
-        assert_eq!(agent.gateway_injected_messages.lock().await.len(), 1);
+        let queue = agent.gateway_injected_messages.lock().await;
+        assert_eq!(queue.len(), 1);
+        let queued = queue.front().expect("queued gateway message");
+        let thread_context = queued
+            .thread_context
+            .as_ref()
+            .expect("thread context should be preserved");
+        assert_eq!(thread_context.slack_thread_ts.as_deref(), Some("thread-1"));
+        assert_eq!(thread_context.discord_message_id, None);
+        assert_eq!(thread_context.telegram_message_id, None);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn gateway_health_updates_emit_status_and_digest_events() {
+        let root = std::env::current_dir()
+            .expect("cwd")
+            .join("tmp")
+            .join(format!(
+                "server-gateway-health-events-{}",
+                uuid::Uuid::new_v4()
+            ));
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let history = Arc::new(
+            HistoryStore::new_test_store(&root)
+                .await
+                .expect("create test history"),
+        );
+        let mut config = AgentConfig::default();
+        config.gateway.enabled = true;
+        let manager =
+            SessionManager::new_with_history(history.clone(), config.pty_channel_capacity);
+        let agent = AgentEngine::new_with_shared_history(manager, config, history.clone());
+        agent.init_gateway().await;
+        let mut events = agent.subscribe();
+
+        persist_gateway_health_update(
+            &agent,
+            GatewayHealthState {
+                platform: "slack".to_string(),
+                status: GatewayConnectionStatus::Error,
+                last_success_at_ms: Some(100),
+                last_error_at_ms: Some(200),
+                consecutive_failure_count: 2,
+                last_error: Some("timeout".to_string()),
+                current_backoff_secs: 30,
+            },
+        )
+        .await
+        .expect("persist health update");
+
+        let status_event = timeout(Duration::from_secs(1), async {
+            loop {
+                match events.recv().await.expect("gateway status event") {
+                    crate::agent::types::AgentEvent::GatewayStatus {
+                        platform,
+                        status,
+                        last_error,
+                        consecutive_failures,
+                    } => {
+                        break (platform, status, last_error, consecutive_failures);
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for gateway status");
+        assert_eq!(status_event.0, "Slack");
+        assert_eq!(status_event.1, "error");
+        assert_eq!(status_event.2.as_deref(), Some("timeout"));
+        assert_eq!(status_event.3, Some(2));
+
+        let digest_event = timeout(Duration::from_secs(1), async {
+            loop {
+                match events.recv().await.expect("heartbeat digest event") {
+                    crate::agent::types::AgentEvent::HeartbeatDigest {
+                        actionable, digest, ..
+                    } => break (actionable, digest),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for heartbeat digest");
+        assert!(digest_event.0);
+        assert!(digest_event.1.contains("Slack disconnected"));
+
+        let audits = agent
+            .history
+            .list_action_audit(None, None, 20)
+            .await
+            .expect("list action audits");
+        assert!(audits.iter().any(|entry| {
+            entry.action_type == "gateway_health_transition"
+                && entry.summary.contains("Slack -> error")
+        }));
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -2026,11 +2227,10 @@ where
         }
 
         // We need to select between: incoming client messages and output from attached sessions.
-        let has_subscriptions =
-            !attached_rxs.is_empty()
-                || agent_event_rx.is_some()
-                || whatsapp_link_rx.is_some()
-                || gateway_ipc_rx.is_some();
+        let has_subscriptions = !attached_rxs.is_empty()
+            || agent_event_rx.is_some()
+            || whatsapp_link_rx.is_some()
+            || gateway_ipc_rx.is_some();
         let msg = if !has_subscriptions {
             // No attached sessions or agent subscription — just wait for client input.
             match framed.next().await {

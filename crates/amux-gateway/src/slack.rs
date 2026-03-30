@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use crate::format::{chunk_message, markdown_to_slack_mrkdwn, SLACK_MAX_CHARS};
 use crate::health::{PlatformHealthState, TokenBucket};
 use crate::router::{normalize_message, RawGatewayMessage};
-use crate::runtime::{GatewayProvider, GatewayProviderEvent};
+use crate::runtime::{GatewayProvider, GatewayProviderEvent, GatewaySendOutcome};
 
 pub struct SlackProvider {
     token: String,
@@ -291,7 +291,7 @@ impl GatewayProvider for SlackProvider {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>> {
         Box::pin(async move {
             if !self.connected {
                 bail!("Slack provider not connected");
@@ -334,7 +334,10 @@ impl GatewayProvider for SlackProvider {
                 delivery_id = body.get("ts").and_then(Value::as_str).map(str::to_string);
             }
 
-            Ok(delivery_id)
+            Ok(GatewaySendOutcome {
+                channel_id: request.channel_id,
+                delivery_id,
+            })
         })
     }
 }
@@ -437,7 +440,7 @@ mod tests {
             .expect("provider enabled");
         provider.connect().await.expect("connect succeeds");
 
-        let delivery_id = provider
+        let outcome = provider
             .send(GatewaySendRequest {
                 correlation_id: "send-1".to_string(),
                 platform: "slack".to_string(),
@@ -457,6 +460,7 @@ mod tests {
         assert!(requests[1].body.contains("\"channel\":\"C123\""));
         assert!(requests[1].body.contains("\"thread_ts\":\"1712345600.000100\""));
         assert!(requests[1].body.contains("\"text\":\"*deploy* complete\""));
-        assert_eq!(delivery_id.as_deref(), Some("1712345678.000100"));
+        assert_eq!(outcome.channel_id, "C123");
+        assert_eq!(outcome.delivery_id.as_deref(), Some("1712345678.000100"));
     }
 }

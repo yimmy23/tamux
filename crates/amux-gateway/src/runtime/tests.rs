@@ -4,6 +4,9 @@ use amux_protocol::{
     GatewayProviderBootstrap, GatewayRouteMode, GatewayRouteModeState, GatewaySendRequest,
     GatewayThreadBindingState,
 };
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
 use crate::router::GatewayMessage;
 
@@ -72,6 +75,15 @@ fn sample_send_request() -> GatewaySendRequest {
         thread_id: Some("thread-1".to_string()),
         content: "hello back".to_string(),
     }
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("gateway crate dir")
+        .parent()
+        .expect("workspace root")
+        .to_path_buf()
 }
 
 #[tokio::test]
@@ -171,12 +183,90 @@ async fn gateway_runtime_preserves_requested_channel_on_queue_failure() {
             assert!(!result.ok);
             assert_eq!(result.channel_id, "C123");
             assert_eq!(result.requested_channel_id.as_deref(), Some("C123"));
-            assert_eq!(
-                result.error.as_deref(),
-                Some("provider queue unavailable")
-            );
+            assert_eq!(result.error.as_deref(), Some("provider queue unavailable"));
         }
         other => panic!("expected GatewaySendResult, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn gateway_runtime_delivers_outbound_response_to_origin_provider() {
+    let (daemon_tx, _daemon_rx) = tokio::sync::mpsc::unbounded_channel::<ClientMessage>();
+    let (provider_tx, _provider_rx) = tokio::sync::mpsc::unbounded_channel::<GatewaySendRequest>();
+    let mut runtime = GatewayRuntimeCore::new(daemon_tx, provider_tx);
+
+    let (slack_tx, mut slack_rx) = tokio::sync::mpsc::unbounded_channel::<GatewaySendRequest>();
+    let (discord_tx, mut discord_rx) = tokio::sync::mpsc::unbounded_channel::<GatewaySendRequest>();
+    let mut provider_senders = HashMap::new();
+    provider_senders.insert("slack".to_string(), slack_tx);
+    provider_senders.insert("discord".to_string(), discord_tx);
+
+    let request = GatewaySendRequest {
+        correlation_id: "send-discord-1".to_string(),
+        platform: "discord".to_string(),
+        channel_id: "user:123456789".to_string(),
+        thread_id: Some("987654321".to_string()),
+        content: "discord reply".to_string(),
+    };
+
+    super::dispatch_send_request(&mut runtime, &mut provider_senders, request.clone())
+        .expect("send request should dispatch");
+
+    let queued = discord_rx
+        .recv()
+        .await
+        .expect("discord provider request queued");
+    assert_eq!(queued, request);
+    assert!(
+        slack_rx.try_recv().is_err(),
+        "slack provider should stay idle"
+    );
+}
+
+#[test]
+fn gateway_process_full_round_trip_uses_single_transport_owner() {
+    let daemon_gateway_source =
+        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/gateway.rs"))
+            .expect("read daemon gateway source");
+    let daemon_loop_source =
+        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/gateway_loop.rs"))
+            .expect("read daemon gateway loop source");
+    let daemon_loop_production_source = daemon_loop_source
+        .split("\n#[cfg(test)]")
+        .next()
+        .unwrap_or(daemon_loop_source.as_str());
+    let slack_source = fs::read_to_string(repo_root().join("crates/amux-gateway/src/slack.rs"))
+        .expect("read slack provider source");
+    let discord_source = fs::read_to_string(repo_root().join("crates/amux-gateway/src/discord.rs"))
+        .expect("read discord provider source");
+    let telegram_source =
+        fs::read_to_string(repo_root().join("crates/amux-gateway/src/telegram.rs"))
+            .expect("read telegram provider source");
+
+    for forbidden in [
+        "https://slack.com/api",
+        "https://discord.com/api/v10",
+        "https://api.telegram.org",
+        "conversations.history",
+        "getUpdates?offset=",
+        "users/@me/channels",
+    ] {
+        assert!(
+            !daemon_gateway_source.contains(forbidden)
+                && !daemon_loop_production_source.contains(forbidden),
+            "daemon still owns transport marker: {forbidden}"
+        );
+    }
+
+    for (source, required) in [
+        (&slack_source, "chat.postMessage"),
+        (&discord_source, "/users/@me/channels"),
+        (&telegram_source, "sendMessage"),
+    ] {
+        assert!(
+            source.contains(required),
+            "gateway transport owner lost required provider implementation marker: {required}"
+        );
     }
 }
 
@@ -222,7 +312,10 @@ async fn gateway_runtime_emits_live_cursor_thread_binding_and_route_mode_updates
         .expect("health update should emit");
 
     assert_eq!(
-        runtime.state().health_snapshot("SLACK").map(|value| value.status),
+        runtime
+            .state()
+            .health_snapshot("SLACK")
+            .map(|value| value.status),
         Some(GatewayConnectionStatus::Connected)
     );
 

@@ -10,7 +10,7 @@ use crate::format::{
 };
 use crate::health::{PlatformHealthState, TokenBucket};
 use crate::router::{normalize_message, RawGatewayMessage};
-use crate::runtime::{GatewayProvider, GatewayProviderEvent};
+use crate::runtime::{GatewayProvider, GatewayProviderEvent, GatewaySendOutcome};
 
 pub struct TelegramProvider {
     token: String,
@@ -338,7 +338,7 @@ impl GatewayProvider for TelegramProvider {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>> {
         Box::pin(async move {
             if !self.connected {
                 bail!("Telegram provider not connected");
@@ -354,7 +354,7 @@ impl GatewayProvider for TelegramProvider {
 
             let formatted = markdown_to_telegram_v2(&request.content);
             let chunks = chunk_message(&formatted, TELEGRAM_MAX_CHARS);
-            match self
+            let delivery_id = match self
                 .send_chunks(
                     &chunks,
                     &request.channel_id,
@@ -371,7 +371,12 @@ impl GatewayProvider for TelegramProvider {
                         .await
                 }
                 Err(error) => Err(error),
-            }
+            }?;
+
+            Ok(GatewaySendOutcome {
+                channel_id: request.channel_id,
+                delivery_id,
+            })
         })
     }
 }
@@ -482,7 +487,7 @@ mod tests {
         assert!(saw_incoming);
         assert!(saw_cursor);
 
-        let delivery_id = provider
+        let outcome = provider
             .send(GatewaySendRequest {
                 correlation_id: "send-1".to_string(),
                 platform: "telegram".to_string(),
@@ -503,6 +508,7 @@ mod tests {
         assert!(requests[2].path.contains("/sendMessage"));
         assert!(requests[2].body.contains("\"chat_id\":\"777\""));
         assert!(requests[2].body.contains("\"reply_to_message_id\":42"));
-        assert_eq!(delivery_id.as_deref(), Some("99"));
+        assert_eq!(outcome.channel_id, "777");
+        assert_eq!(outcome.delivery_id.as_deref(), Some("99"));
     }
 }

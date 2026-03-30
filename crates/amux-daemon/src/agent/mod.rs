@@ -32,7 +32,6 @@ mod engine_runtime;
 mod explainability;
 mod explanation;
 mod external_messaging;
-mod gateway_format;
 mod gateway_health;
 mod gateway_loop;
 mod goal_llm;

@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use crate::format::{chunk_message, markdown_to_discord, DISCORD_MAX_CHARS};
 use crate::health::{PlatformHealthState, TokenBucket};
 use crate::router::{normalize_message, RawGatewayMessage};
-use crate::runtime::{GatewayProvider, GatewayProviderEvent};
+use crate::runtime::{GatewayProvider, GatewayProviderEvent, GatewaySendOutcome};
 
 pub struct DiscordProvider {
     token: String,
@@ -300,7 +300,7 @@ impl GatewayProvider for DiscordProvider {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>> {
         Box::pin(async move {
             if !self.connected {
                 bail!("Discord provider not connected");
@@ -348,7 +348,10 @@ impl GatewayProvider for DiscordProvider {
                 delivery_id = body.get("id").and_then(Value::as_str).map(str::to_string);
             }
 
-            Ok(delivery_id)
+            Ok(GatewaySendOutcome {
+                channel_id: target_channel,
+                delivery_id,
+            })
         })
     }
 }
