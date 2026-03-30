@@ -115,6 +115,11 @@ impl ModalState {
     }
     pub fn set_picker_item_count(&mut self, count: usize) {
         self.picker_item_count = Some(count);
+        self.picker_cursor = if count == 0 {
+            0
+        } else {
+            self.picker_cursor.min(count - 1)
+        };
     }
     pub fn whatsapp_link(&self) -> &WhatsAppLinkState {
         &self.whatsapp_link

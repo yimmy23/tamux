@@ -296,6 +296,10 @@ impl TuiModel {
                     .collect();
                 self.config
                     .reduce(config::ConfigAction::ModelsFetched(models));
+                if self.modal.top() == Some(crate::state::modal::ModalKind::ModelPicker) {
+                    let count = widgets::model_picker::available_models(&self.config).len() + 1;
+                    self.modal.set_picker_item_count(count);
+                }
             }
             ClientEvent::HeartbeatItems(items) => {
                 let items = items
@@ -1336,5 +1340,37 @@ mod tests {
             }
         }
         assert!(found_next, "progress should trigger next-question command");
+    }
+
+    #[test]
+    fn models_fetched_updates_picker_count_for_open_model_picker() {
+        let mut model = make_model();
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        model.modal.set_picker_item_count(1);
+
+        model.handle_client_event(ClientEvent::ModelsFetched(vec![
+            crate::wire::FetchedModel {
+                id: "m1".to_string(),
+                name: Some("Model One".to_string()),
+                context_window: Some(128_000),
+            },
+            crate::wire::FetchedModel {
+                id: "m2".to_string(),
+                name: Some("Model Two".to_string()),
+                context_window: Some(128_000),
+            },
+            crate::wire::FetchedModel {
+                id: "m3".to_string(),
+                name: Some("Model Three".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+        model.modal.reduce(modal::ModalAction::Navigate(1));
+        model.modal.reduce(modal::ModalAction::Navigate(1));
+
+        assert_eq!(model.modal.picker_cursor(), 2);
     }
 }

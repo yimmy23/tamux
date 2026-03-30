@@ -806,6 +806,13 @@ fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
 
+    if lower == "https://models.github.ai" || lower == "http://models.github.ai" {
+        return format!("{base}/inference/chat/completions");
+    }
+    if lower.ends_with("/inference") && lower.contains("models.github.ai") {
+        return format!("{base}/chat/completions");
+    }
+
     // If URL already has a version suffix, just append the endpoint
     if lower.ends_with("/v1")
         || lower.ends_with("/v2")
@@ -824,6 +831,13 @@ fn build_chat_completion_url(base_url: &str) -> String {
 fn build_responses_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
+
+    if lower == "https://models.github.ai" || lower == "http://models.github.ai" {
+        return format!("{base}/inference/responses");
+    }
+    if lower.ends_with("/inference") && lower.contains("models.github.ai") {
+        return format!("{base}/responses");
+    }
 
     if lower.ends_with("/v1")
         || lower.ends_with("/v2")
@@ -2979,6 +2993,18 @@ mod tests {
         assert_eq!(serialized[1]["role"], "assistant");
         assert!(serialized[1]["content"].is_null());
         assert_eq!(serialized[1]["tool_calls"][0]["id"], "call_1");
+    }
+
+    #[test]
+    fn github_models_chat_completion_url_uses_inference_prefix() {
+        assert_eq!(
+            build_chat_completion_url("https://models.github.ai"),
+            "https://models.github.ai/inference/chat/completions"
+        );
+        assert_eq!(
+            build_chat_completion_url("https://models.github.ai/inference"),
+            "https://models.github.ai/inference/chat/completions"
+        );
     }
 
     #[tokio::test]
