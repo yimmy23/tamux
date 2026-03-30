@@ -105,6 +105,16 @@ pub(super) async fn provider_is_eligible_for_alternative(
                 return false;
             }
         }
+        AuthSource::GithubCopilot => {
+            if provider_id != "github-copilot"
+                || !super::copilot_auth::github_copilot_has_available_models(
+                    &resolved.api_key,
+                    resolved.auth_source,
+                )
+            {
+                return false;
+            }
+        }
     }
 
     let breaker_arc = circuit_breakers.get(provider_id).await;
@@ -618,7 +628,6 @@ impl AgentEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
     use tokio::io::AsyncReadExt;
@@ -666,7 +675,7 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn write_openai_subscription_auth(path: &Path) {
+    fn write_openai_subscription_auth() {
         let auth = serde_json::json!({
             "provider": "openai-codex",
             "auth_mode": "chatgpt_subscription",
@@ -678,9 +687,10 @@ mod tests {
             "updated_at": 4_102_444_800_000i64,
             "created_at": 4_102_444_800_000i64
         });
-        std::fs::write(
-            path,
-            serde_json::to_vec(&auth).expect("serialize auth fixture"),
+        super::provider_auth_store::save_provider_auth_state(
+            "openai",
+            "chatgpt_subscription",
+            &auth,
         )
         .expect("write auth fixture");
     }
@@ -785,9 +795,12 @@ mod tests {
     async fn provider_alternative_excludes_openai_subscription_without_auth() {
         let _env_guard = openai_auth_env_lock().lock().expect("lock auth env");
         let temp_dir = TempDir::new().expect("temp dir");
-        let missing_auth_path = temp_dir.path().join("missing-openai-auth.json");
-        std::env::set_var("TAMUX_OPENAI_CODEX_AUTH_PATH", &missing_auth_path);
-        std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &missing_auth_path);
+        let db_path = temp_dir.path().join("provider-auth.db");
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
+        std::env::set_var(
+            "TAMUX_CODEX_CLI_AUTH_PATH",
+            temp_dir.path().join("missing-codex-auth.json"),
+        );
 
         let mut config = AgentConfig::default();
         config.provider = "groq".to_string();
@@ -804,7 +817,7 @@ mod tests {
 
         let suggestion = engine.suggest_alternative_provider("groq").await;
 
-        std::env::remove_var("TAMUX_OPENAI_CODEX_AUTH_PATH");
+        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
         std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
         assert!(
             suggestion.is_none(),
@@ -816,9 +829,9 @@ mod tests {
     async fn provider_alternative_uses_candidate_default_model_for_empty_named_model() {
         let _env_guard = openai_auth_env_lock().lock().expect("lock auth env");
         let temp_dir = TempDir::new().expect("temp dir");
-        let auth_path = temp_dir.path().join("openai-auth.json");
-        write_openai_subscription_auth(&auth_path);
-        std::env::set_var("TAMUX_OPENAI_CODEX_AUTH_PATH", &auth_path);
+        let db_path = temp_dir.path().join("provider-auth.db");
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
+        write_openai_subscription_auth();
         std::env::set_var(
             "TAMUX_CODEX_CLI_AUTH_PATH",
             temp_dir.path().join("missing-codex-auth.json"),
@@ -840,7 +853,7 @@ mod tests {
         };
         let suggestion = engine.suggest_alternative_provider("openai").await;
 
-        std::env::remove_var("TAMUX_OPENAI_CODEX_AUTH_PATH");
+        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
         std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
         assert_eq!(resolved.model, "llama-3.3-70b-versatile");
         assert!(

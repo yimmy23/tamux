@@ -219,6 +219,9 @@ pub(crate) fn sanitize_config_value(config: &mut Value) {
             ("chatgptsubscription", "chatgpt_subscription"),
             ("chatgpt-subscription", "chatgpt_subscription"),
             ("chatgpt subscription", "chatgpt_subscription"),
+            ("githubcopilot", "github_copilot"),
+            ("github-copilot", "github_copilot"),
+            ("github copilot", "github_copilot"),
         ],
     );
     normalize_string_enum_field(
@@ -300,6 +303,9 @@ pub(crate) fn sanitize_config_value(config: &mut Value) {
                         ("chatgptsubscription", "chatgpt_subscription"),
                         ("chatgpt-subscription", "chatgpt_subscription"),
                         ("chatgpt subscription", "chatgpt_subscription"),
+                        ("githubcopilot", "github_copilot"),
+                        ("github-copilot", "github_copilot"),
+                        ("github copilot", "github_copilot"),
                     ],
                 );
                 normalize_string_enum_field(
@@ -426,15 +432,61 @@ impl AgentEngine {
         let use_legacy_top_level_fallback = config.providers.is_empty();
 
         for def in PROVIDER_DEFINITIONS {
-            let (authenticated, auth_source, model, base_url) =
-                if let Some(pc) = config.providers.get(def.id) {
+            let (authenticated, auth_source, model, base_url) = if let Some(pc) =
+                config.providers.get(def.id)
+            {
+                if def.id == "github-copilot" {
+                    let resolved =
+                        super::copilot_auth::resolve_github_copilot_auth(&pc.api_key, pc.auth_source);
+                    (
+                        resolved.is_some(),
+                        resolved
+                            .as_ref()
+                            .map(|auth| auth.auth_source)
+                            .unwrap_or(pc.auth_source),
+                        pc.model.clone(),
+                        pc.base_url.clone(),
+                    )
+                } else if def.id == "openai" && pc.auth_source == AuthSource::ChatgptSubscription {
+                    (
+                        super::llm_client::has_openai_chatgpt_subscription_auth(),
+                        pc.auth_source,
+                        pc.model.clone(),
+                        pc.base_url.clone(),
+                    )
+                } else {
                     (
                         !pc.api_key.is_empty(),
                         pc.auth_source,
                         pc.model.clone(),
                         pc.base_url.clone(),
                     )
-                } else if use_legacy_top_level_fallback && config.provider == def.id {
+                }
+            } else if use_legacy_top_level_fallback && config.provider == def.id {
+                if def.id == "github-copilot" {
+                    let resolved = super::copilot_auth::resolve_github_copilot_auth(
+                        &config.api_key,
+                        config.auth_source,
+                    );
+                    (
+                        resolved.is_some(),
+                        resolved
+                            .as_ref()
+                            .map(|auth| auth.auth_source)
+                            .unwrap_or(config.auth_source),
+                        config.model.clone(),
+                        config.base_url.clone(),
+                    )
+                } else if def.id == "openai"
+                    && config.auth_source == AuthSource::ChatgptSubscription
+                {
+                    (
+                        super::llm_client::has_openai_chatgpt_subscription_auth(),
+                        config.auth_source,
+                        config.model.clone(),
+                        config.base_url.clone(),
+                    )
+                } else {
                     // Fall back to top-level config if this is the active provider.
                     (
                         !config.api_key.is_empty(),
@@ -442,14 +494,27 @@ impl AgentEngine {
                         config.model.clone(),
                         config.base_url.clone(),
                     )
-                } else {
-                    (
-                        false,
-                        AuthSource::default(),
-                        def.default_model.to_string(),
-                        def.default_base_url.to_string(),
-                    )
-                };
+                }
+            } else if def.id == "github-copilot" {
+                let resolved =
+                    super::copilot_auth::resolve_github_copilot_auth("", AuthSource::ApiKey);
+                (
+                    resolved.is_some(),
+                    resolved
+                        .as_ref()
+                        .map(|auth| auth.auth_source)
+                        .unwrap_or(AuthSource::ApiKey),
+                    def.default_model.to_string(),
+                    def.default_base_url.to_string(),
+                )
+            } else {
+                (
+                    false,
+                    AuthSource::default(),
+                    def.default_model.to_string(),
+                    def.default_base_url.to_string(),
+                )
+            };
 
             states.push(ProviderAuthState {
                 provider_id: def.id.to_string(),
@@ -510,7 +575,40 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use crate::session_manager::SessionManager;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn copilot_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl EnvGuard {
+        fn new(keys: &[&'static str]) -> Self {
+            Self {
+                saved: keys
+                    .iter()
+                    .map(|key| (*key, std::env::var_os(key)))
+                    .collect(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in &self.saved {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
 
     #[tokio::test]
     async fn merge_config_patch_preserves_existing_provider_state() {
@@ -796,5 +894,36 @@ mod tests {
         assert_eq!(json["honcho_api_key"], "key");
         assert_eq!(json["honcho_base_url"], "https://honcho.example");
         assert_eq!(json["honcho_workspace_id"], "workspace");
+    }
+
+    #[tokio::test]
+    async fn copilot_auth_states_include_provider_row_when_unconfigured() {
+        let _lock = copilot_env_lock();
+        let _guard = EnvGuard::new(&[
+            "TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI",
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            "COPILOT_GITHUB_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+        ]);
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        std::env::set_var("TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI", "1");
+        std::env::set_var(
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            root.path().join("provider-auth.db"),
+        );
+        std::env::remove_var("COPILOT_GITHUB_TOKEN");
+        std::env::remove_var("GITHUB_TOKEN");
+        std::env::remove_var("GH_TOKEN");
+
+        let states = engine.get_provider_auth_states().await;
+        let copilot = states
+            .into_iter()
+            .find(|state| state.provider_id == "github-copilot")
+            .expect("github copilot provider row should be present");
+
+        assert!(!copilot.authenticated);
     }
 }

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, clipboard, ipcMain, screen, shell, session } = require('electron');
 const { spawn, spawnSync, execSync, execFileSync, execFile } = require('child_process');
 const { promisify } = require('util');
+const { DatabaseSync } = require('node:sqlite');
 const execFileAsync = promisify(execFile);
 const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const path = require('path');
@@ -24,7 +25,6 @@ const OPENAI_CODEX_AUTH_AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize
 const OPENAI_CODEX_AUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_AUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback';
 const OPENAI_CODEX_AUTH_SCOPE = 'openid profile email offline_access';
-const OPENAI_CODEX_AUTH_FILE = 'openai-codex-auth.json';
 let mainWindow = null;
 const terminalBridges = new Map();
 const paneSessionHints = new Map();
@@ -715,8 +715,32 @@ function ensureTamuxDataDir() {
     return dataDir;
 }
 
-function getOpenAICodexAuthPath() {
-    return path.join(ensureTamuxDataDir(), OPENAI_CODEX_AUTH_FILE);
+function getProviderAuthDbPath() {
+    return process.env.TAMUX_PROVIDER_AUTH_DB_PATH
+        ? path.resolve(process.env.TAMUX_PROVIDER_AUTH_DB_PATH)
+        : path.join(ensureTamuxDataDir(), 'history', 'command-history.db');
+}
+
+function withProviderAuthDb(callback) {
+    const dbPath = getProviderAuthDbPath();
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new DatabaseSync(dbPath);
+    try {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS provider_auth_state (
+                provider_id TEXT NOT NULL,
+                auth_mode   TEXT NOT NULL,
+                state_json  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                PRIMARY KEY (provider_id, auth_mode)
+            );
+            CREATE INDEX IF NOT EXISTS idx_provider_auth_state_updated
+            ON provider_auth_state(updated_at DESC);
+        `);
+        return callback(db);
+    } finally {
+        db.close();
+    }
 }
 
 function decodeJwtPayload(token) {
@@ -757,7 +781,12 @@ function readJsonFileSafe(filePath) {
 }
 
 function readStoredOpenAICodexAuth() {
-    const parsed = readJsonFileSafe(getOpenAICodexAuthPath());
+    const parsed = withProviderAuthDb((db) => {
+        const row = db
+            .prepare('SELECT state_json FROM provider_auth_state WHERE provider_id = ? AND auth_mode = ?')
+            .get('openai', 'chatgpt_subscription');
+        return typeof row?.state_json === 'string' ? JSON.parse(row.state_json) : null;
+    });
     if (!parsed || typeof parsed !== 'object') {
         return null;
     }
@@ -768,8 +797,7 @@ function readStoredOpenAICodexAuth() {
 }
 
 function writeStoredOpenAICodexAuth(auth) {
-    const authPath = getOpenAICodexAuthPath();
-    fs.writeFileSync(authPath, JSON.stringify({
+    const payload = JSON.stringify({
         provider: 'openai-codex',
         authMode: 'chatgpt_subscription',
         accessToken: auth.accessToken,
@@ -779,15 +807,21 @@ function writeStoredOpenAICodexAuth(auth) {
         source: auth.source || 'tamux',
         updatedAt: Date.now(),
         createdAt: auth.createdAt || Date.now(),
-    }, null, 2), 'utf8');
+    });
+    withProviderAuthDb((db) => {
+        db.prepare(`
+            INSERT OR REPLACE INTO provider_auth_state
+            (provider_id, auth_mode, state_json, updated_at)
+            VALUES (?, ?, ?, ?)
+        `).run('openai', 'chatgpt_subscription', payload, Date.now());
+    });
 }
 
 function deleteStoredOpenAICodexAuth() {
-    try {
-        fs.unlinkSync(getOpenAICodexAuthPath());
-    } catch {
-        // Ignore missing file.
-    }
+    withProviderAuthDb((db) => {
+        db.prepare('DELETE FROM provider_auth_state WHERE provider_id = ? AND auth_mode = ?')
+            .run('openai', 'chatgpt_subscription');
+    });
 }
 
 function importCodexCliAuthIfPresent() {

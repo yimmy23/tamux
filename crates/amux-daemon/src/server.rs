@@ -4812,6 +4812,9 @@ where
                 }
 
                 ClientMessage::AgentLogoutProvider { provider_id } => {
+                    if provider_id == "github-copilot" {
+                        let _ = crate::agent::copilot_auth::clear_stored_github_copilot_auth();
+                    }
                     let mut config = agent.get_config().await;
                     if let Some(entry) = config.providers.get_mut(&provider_id) {
                         entry.api_key.clear();
@@ -4875,10 +4878,12 @@ where
                         };
                         (url, key)
                     };
-                    let auth_source = if auth_source == "chatgpt_subscription" {
-                        crate::agent::types::AuthSource::ChatgptSubscription
-                    } else {
-                        crate::agent::types::AuthSource::ApiKey
+                    let auth_source = match auth_source.as_str() {
+                        "chatgpt_subscription" => {
+                            crate::agent::types::AuthSource::ChatgptSubscription
+                        }
+                        "github_copilot" => crate::agent::types::AuthSource::GithubCopilot,
+                        _ => crate::agent::types::AuthSource::ApiKey,
                     };
                     tracing::info!(
                         provider = %provider_id,

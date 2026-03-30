@@ -22,6 +22,7 @@ pub const RESPONSES_AND_CHAT_TRANSPORTS: &[&str] = &["responses", "chat_completi
 pub const NATIVE_AND_CHAT_TRANSPORTS: &[&str] = &["native_assistant", "chat_completions"];
 pub const API_KEY_ONLY_AUTH_SOURCES: &[&str] = &["api_key"];
 pub const OPENAI_AUTH_SOURCES: &[&str] = &["chatgpt_subscription", "api_key"];
+pub const GITHUB_COPILOT_AUTH_SOURCES: &[&str] = &["github_copilot", "api_key"];
 
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
@@ -33,6 +34,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         default_transport: "responses",
         supported_auth_sources: OPENAI_AUTH_SOURCES,
         default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
+        id: "github-copilot",
+        name: "GitHub Copilot",
+        default_base_url: "https://models.github.ai",
+        default_model: "openai/gpt-4.1",
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: GITHUB_COPILOT_AUTH_SOURCES,
+        default_auth_source: "github_copilot",
         native_base_url: None,
     },
     ProviderDef {
@@ -451,8 +463,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn provider_count_is_20() {
-        assert_eq!(PROVIDERS.len(), 20);
+    fn provider_count_is_21() {
+        assert_eq!(PROVIDERS.len(), 21);
     }
 
     #[test]
@@ -516,5 +528,12 @@ mod tests {
     fn known_models_unknown_returns_empty() {
         let models = known_models_for_provider("nonexistent");
         assert!(models.is_empty());
+    }
+
+    #[test]
+    fn github_copilot_supports_browser_and_token_auth() {
+        let provider = find_by_id("github-copilot").unwrap();
+        assert_eq!(provider.default_auth_source, "github_copilot");
+        assert_eq!(provider.supported_auth_sources, GITHUB_COPILOT_AUTH_SOURCES);
     }
 }

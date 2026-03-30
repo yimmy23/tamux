@@ -42,6 +42,7 @@ pub enum AuthSource {
     #[default]
     ApiKey,
     ChatgptSubscription,
+    GithubCopilot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -701,6 +702,22 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         native_transport_kind: None,
         native_base_url: None,
         supports_response_continuity: true,
+    },
+    ProviderDefinition {
+        id: "github-copilot",
+        name: "GitHub Copilot",
+        default_base_url: "https://models.github.ai",
+        default_model: "openai/gpt-4.1",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: EMPTY_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
     },
     ProviderDefinition {
         id: "qwen",

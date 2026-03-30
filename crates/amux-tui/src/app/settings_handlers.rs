@@ -533,6 +533,10 @@ impl TuiModel {
                                 self.status_line = format!("Failed to clear ChatGPT auth: {err}");
                             }
                         }
+                    } else if entry.provider_id == "github-copilot"
+                        && entry.auth_source == "github_copilot"
+                    {
+                        self.status_line = "GitHub Copilot auth comes from GitHub CLI; use `gh auth logout` to disconnect.".to_string();
                     } else {
                         if self.config.provider == entry.provider_id {
                             self.config.api_key.clear();
@@ -586,6 +590,10 @@ impl TuiModel {
                             self.status_line = format!("Failed to start ChatGPT auth: {err}");
                         }
                     }
+                } else if entry.provider_id == "github-copilot"
+                    && entry.auth_source == "github_copilot"
+                {
+                    self.start_auth_login(&entry.provider_id, &entry.provider_name);
                 } else {
                     self.start_auth_login(&entry.provider_id, &entry.provider_name);
                 }
@@ -613,6 +621,27 @@ impl TuiModel {
                         }
                         Err(err) => {
                             self.status_line = format!("Failed to start ChatGPT auth: {err}");
+                        }
+                    }
+                } else if !entry.authenticated
+                    && entry.provider_id == "github-copilot"
+                    && entry.auth_source == "github_copilot"
+                {
+                    match crate::auth::begin_github_copilot_auth_flow() {
+                        Ok(crate::auth::GithubCopilotAuthFlowResult::AlreadyAvailable) => {
+                            self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                            self.status_line =
+                                "GitHub Copilot auth already available via GitHub CLI"
+                                    .to_string();
+                        }
+                        Ok(crate::auth::GithubCopilotAuthFlowResult::Started) => {
+                            self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                            self.status_line =
+                                "Started GitHub Copilot login via GitHub CLI".to_string();
+                        }
+                        Err(err) => {
+                            self.status_line =
+                                format!("Failed to start GitHub Copilot auth: {err}");
                         }
                     }
                 } else {

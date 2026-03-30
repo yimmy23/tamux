@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
 use base64::Engine;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use url::Url;
@@ -14,6 +16,7 @@ const OPENAI_CODEX_AUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/aut
 const OPENAI_CODEX_AUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_AUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const OPENAI_CODEX_AUTH_SCOPE: &str = "openid profile email offline_access";
+const PROVIDER_AUTH_DB_PATH_ENV: &str = "TAMUX_PROVIDER_AUTH_DB_PATH";
 
 static AUTH_FLOW_ACTIVE: OnceLock<Mutex<bool>> = OnceLock::new();
 
@@ -73,15 +76,13 @@ fn auth_flag() -> &'static Mutex<bool> {
     AUTH_FLOW_ACTIVE.get_or_init(|| Mutex::new(false))
 }
 
-fn openai_codex_auth_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()?;
-    Some(
-        std::path::PathBuf::from(home)
-            .join(".tamux")
-            .join("openai-codex-auth.json"),
-    )
+fn provider_auth_db_path() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os(PROVIDER_AUTH_DB_PATH_ENV) {
+        return Ok(PathBuf::from(path));
+    }
+    Ok(amux_protocol::ensure_amux_data_dir()?
+        .join("history")
+        .join("command-history.db"))
 }
 
 fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
@@ -95,9 +96,44 @@ fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
     )
 }
 
+fn ensure_provider_auth_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS provider_auth_state (
+            provider_id TEXT NOT NULL,
+            auth_mode   TEXT NOT NULL,
+            state_json  TEXT NOT NULL,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (provider_id, auth_mode)
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_auth_state_updated
+        ON provider_auth_state(updated_at DESC);
+        ",
+    )?;
+    Ok(())
+}
+
+fn open_provider_auth_db() -> Result<Connection> {
+    let db_path = provider_auth_db_path()?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let conn = Connection::open(&db_path)
+        .with_context(|| format!("failed to open auth db '{}'", db_path.display()))?;
+    ensure_provider_auth_schema(&conn)?;
+    Ok(conn)
+}
+
 fn read_stored_openai_codex_auth() -> Option<StoredOpenAICodexAuth> {
-    let path = openai_codex_auth_path()?;
-    let raw = std::fs::read_to_string(path).ok()?;
+    let conn = open_provider_auth_db().ok()?;
+    let raw = conn
+        .query_row(
+            "SELECT state_json FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+            params!["openai", "chatgpt_subscription"],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .ok()??;
     serde_json::from_str(&raw).ok()
 }
 
@@ -121,22 +157,26 @@ pub fn openai_codex_auth_status() -> OpenAICodexAuthStatus {
 }
 
 fn write_stored_openai_codex_auth(auth: &StoredOpenAICodexAuth) -> Result<()> {
-    let path = openai_codex_auth_path().context("home directory unavailable for tamux auth")?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, serde_json::to_vec_pretty(auth)?)?;
+    let conn = open_provider_auth_db()?;
+    conn.execute(
+        "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            "openai",
+            "chatgpt_subscription",
+            serde_json::to_string(auth)?,
+            now_millis(),
+        ],
+    )?;
     Ok(())
 }
 
 pub fn clear_openai_codex_auth() -> Result<()> {
-    if let Some(path) = openai_codex_auth_path() {
-        match std::fs::remove_file(path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-            Err(err) => return Err(err.into()),
-        }
-    }
+    let conn = open_provider_auth_db()?;
+    conn.execute(
+        "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+        params!["openai", "chatgpt_subscription"],
+    )?;
     Ok(())
 }
 
@@ -373,4 +413,29 @@ pub fn begin_openai_codex_auth_flow() -> Result<OpenAICodexAuthFlowResult> {
     });
 
     Ok(OpenAICodexAuthFlowResult::Started { url })
+}
+
+#[derive(Debug)]
+pub enum GithubCopilotAuthFlowResult {
+    AlreadyAvailable,
+    Started,
+}
+
+pub fn begin_github_copilot_auth_flow() -> Result<GithubCopilotAuthFlowResult> {
+    let status = std::process::Command::new("gh")
+        .args(["auth", "status"])
+        .status();
+    if matches!(status, Ok(status) if status.success()) {
+        return Ok(GithubCopilotAuthFlowResult::AlreadyAvailable);
+    }
+
+    let status = std::process::Command::new("gh")
+        .args(["auth", "login", "--web", "--scopes", "read:org"])
+        .status()
+        .context("failed to start GitHub CLI login flow")?;
+    if !status.success() {
+        anyhow::bail!("GitHub CLI login flow failed");
+    }
+
+    Ok(GithubCopilotAuthFlowResult::Started)
 }

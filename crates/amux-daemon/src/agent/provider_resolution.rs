@@ -188,6 +188,19 @@ pub(super) fn resolve_provider_model_switch(
                 );
             }
         }
+        AuthSource::GithubCopilot => {
+            if provider_id != "github-copilot"
+                || !super::copilot_auth::github_copilot_has_available_models(
+                    &config.api_key,
+                    config.auth_source,
+                )
+            {
+                bail!(
+                    "GitHub Copilot auth is not available for provider '{}'",
+                    provider_id
+                );
+            }
+        }
     }
 
     Ok(ProviderModelSwitch {

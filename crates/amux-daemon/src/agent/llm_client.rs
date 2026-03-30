@@ -250,13 +250,6 @@ impl Stream for CompletionStream {
     }
 }
 
-fn openai_codex_auth_path() -> Option<std::path::PathBuf> {
-    if let Some(path) = std::env::var_os("TAMUX_OPENAI_CODEX_AUTH_PATH") {
-        return Some(std::path::PathBuf::from(path));
-    }
-    dirs::home_dir().map(|home| home.join(".tamux").join("openai-codex-auth.json"))
-}
-
 fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
     if let Some(path) = std::env::var_os("TAMUX_CODEX_CLI_AUTH_PATH") {
         return Some(std::path::PathBuf::from(path));
@@ -288,9 +281,12 @@ fn extract_jwt_expiry(access_token: &str) -> Option<i64> {
 }
 
 fn read_stored_openai_codex_auth() -> Option<StoredOpenAICodexAuth> {
-    let path = openai_codex_auth_path()?;
-    let raw = std::fs::read_to_string(path).ok()?;
-    let parsed: StoredOpenAICodexAuth = serde_json::from_str(&raw).ok()?;
+    let value = super::provider_auth_store::load_provider_auth_state(
+        "openai",
+        "chatgpt_subscription",
+    )
+    .ok()??;
+    let parsed: StoredOpenAICodexAuth = serde_json::from_value(value).ok()?;
     if parsed.access_token.trim().is_empty() || parsed.refresh_token.trim().is_empty() {
         return None;
     }
@@ -298,12 +294,11 @@ fn read_stored_openai_codex_auth() -> Option<StoredOpenAICodexAuth> {
 }
 
 fn write_stored_openai_codex_auth(auth: &StoredOpenAICodexAuth) -> Result<()> {
-    let path = openai_codex_auth_path().context("home directory unavailable for tamux auth")?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, serde_json::to_vec_pretty(auth)?)?;
-    Ok(())
+    super::provider_auth_store::save_provider_auth_state(
+        "openai",
+        "chatgpt_subscription",
+        &serde_json::to_value(auth)?,
+    )
 }
 
 fn import_codex_cli_auth_if_present() -> Option<StoredOpenAICodexAuth> {
@@ -2499,6 +2494,21 @@ pub async fn fetch_models(
     base_url: &str,
     api_key: &str,
 ) -> Result<Vec<FetchedModel>> {
+    if provider_id == "github-copilot" {
+        return super::copilot_auth::list_github_copilot_models(api_key, AuthSource::ApiKey).map(
+            |models| {
+                models
+                    .into_iter()
+                    .map(|model| FetchedModel {
+                        id: model.id,
+                        name: model.name,
+                        context_window: model.context_window,
+                    })
+                    .collect()
+            },
+        );
+    }
+
     let def = super::types::get_provider_definition(provider_id);
 
     if !def.map(|d| d.supports_model_fetch).unwrap_or(false) {
@@ -2576,6 +2586,21 @@ pub async fn validate_provider_connection(
     } else {
         base_url.trim().to_string()
     };
+
+    if provider_id == "github-copilot" {
+        let models = super::copilot_auth::list_github_copilot_models(api_key, auth_source)?
+            .into_iter()
+            .map(|model| FetchedModel {
+                id: model.id,
+                name: model.name,
+                context_window: model.context_window,
+            })
+            .collect::<Vec<_>>();
+        if models.is_empty() {
+            anyhow::bail!("GitHub Copilot auth is valid but no models are available");
+        }
+        return Ok(Some(models));
+    }
 
     if provider_id == "openai" && auth_source == AuthSource::ChatgptSubscription {
         let client = reqwest::Client::new();
@@ -2662,7 +2687,9 @@ pub async fn validate_provider_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::types::{AgentMessage, MessageRole, ToolCall, ToolFunction};
+    use crate::agent::provider_auth_store;
+    use crate::agent::types::{AgentMessage, AuthSource, MessageRole, ToolCall, ToolFunction};
+    use tempfile::tempdir;
 
     #[test]
     fn anthropic_groups_consecutive_tool_results_into_one_user_message() {
@@ -2952,6 +2979,48 @@ mod tests {
         assert_eq!(serialized[1]["role"], "assistant");
         assert!(serialized[1]["content"].is_null());
         assert_eq!(serialized[1]["tool_calls"][0]["id"], "call_1");
+    }
+
+    #[tokio::test]
+    async fn copilot_validation_returns_models_when_sdk_lists_them() {
+        let root = tempdir().unwrap();
+        let db_path = root.path().join("provider-auth.db");
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
+        std::env::set_var("TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI", "1");
+        std::env::set_var(
+            "TAMUX_GITHUB_COPILOT_MOCK_MODELS_JSON",
+            r#"[{"id":"gpt-5.4","name":"GPT-5.4","context_window":400000}]"#,
+        );
+        let auth = serde_json::json!({
+            "auth_mode": "github_copilot",
+            "access_token": "ghu_browser_token",
+            "source": "test",
+            "updated_at": 1,
+            "created_at": 1
+        });
+        provider_auth_store::save_provider_auth_state(
+            "github-copilot",
+            "github_copilot",
+            &auth,
+        )
+        .unwrap();
+
+        let models = validate_provider_connection(
+            "github-copilot",
+            "https://models.github.ai",
+            "",
+            AuthSource::GithubCopilot,
+        )
+        .await
+        .expect("validation should succeed")
+        .expect("copilot validation should return models");
+
+        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
+        std::env::remove_var("TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI");
+        std::env::remove_var("TAMUX_GITHUB_COPILOT_MOCK_MODELS_JSON");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.4");
     }
 
 }

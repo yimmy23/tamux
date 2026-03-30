@@ -641,16 +641,8 @@ fn auth_row_action_offsets(
     content_area: Rect,
     entry: &crate::state::auth::ProviderAuthEntry,
 ) -> (u16, u16, u16) {
-    let primary_label = if entry.authenticated {
-        "[Logout]"
-    } else {
-        "[API Key]"
-    };
-    let test_label = if !entry.authenticated && entry.provider_id == "openai" {
-        "[ChatGPT]"
-    } else {
-        "[Test]"
-    };
+    let primary_label = auth_primary_label(entry);
+    let test_label = auth_secondary_label(entry);
     let actions_width =
         primary_label.chars().count() as u16 + 1 + test_label.chars().count() as u16;
     let primary_start = content_area
@@ -659,6 +651,30 @@ fn auth_row_action_offsets(
     let primary_end = primary_start.saturating_add(primary_label.chars().count() as u16);
     let test_start = primary_end.saturating_add(1);
     (primary_start, primary_end, test_start)
+}
+
+fn auth_primary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
+    match (
+        entry.provider_id.as_str(),
+        entry.authenticated,
+        entry.auth_source.as_str(),
+    ) {
+        ("github-copilot", false, "github_copilot") => "[Token]",
+        (_, true, _) => "[Logout]",
+        _ => "[API Key]",
+    }
+}
+
+fn auth_secondary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
+    match (
+        entry.provider_id.as_str(),
+        entry.authenticated,
+        entry.auth_source.as_str(),
+    ) {
+        ("openai", false, _) => "[ChatGPT]",
+        ("github-copilot", false, "github_copilot") => "[Browser]",
+        _ => "[Test]",
+    }
 }
 
 fn auth_hit_test(
@@ -814,6 +830,7 @@ fn render_provider_tab<'a>(
     };
     let auth_source_val = match config.auth_source.as_str() {
         "chatgpt_subscription" => "ChatGPT subscription".to_string(),
+        "github_copilot" => "GitHub browser login".to_string(),
         _ => "API key".to_string(),
     };
     let uses_fixed_anthropic_messages =
@@ -3057,16 +3074,8 @@ fn render_auth_tab<'a>(
         } else {
             String::new()
         };
-        let primary_label = if entry.authenticated {
-            "[Logout]"
-        } else {
-            "[API Key]"
-        };
-        let test_label = if !entry.authenticated && entry.provider_id == "openai" {
-            "[ChatGPT]"
-        } else {
-            "[Test]"
-        };
+        let primary_label = auth_primary_label(entry);
+        let test_label = auth_secondary_label(entry);
         let left_width = marker.chars().count()
             + dot.chars().count()
             + entry.provider_name.chars().count()

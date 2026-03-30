@@ -32,3 +32,4 @@ tui-markdown = "0.3"
 ratatui-core = "0.1"
 arboard = "3"
 url = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }

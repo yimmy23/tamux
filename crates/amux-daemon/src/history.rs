@@ -89,6 +89,14 @@ pub struct OperatorProfileSessionRow {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ProviderAuthStateRow {
+    pub provider_id: String,
+    pub auth_mode: String,
+    pub state_json: serde_json::Value,
+    pub updated_at: i64,
+}
+
 /// A single learned or answered profile field for the operator.
 #[derive(Debug, Clone)]
 pub struct OperatorProfileFieldRow {
@@ -535,6 +543,82 @@ impl HistoryStore {
             transaction.commit()?;
             Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn load_provider_auth_state(
+        &self,
+        provider_id: &str,
+        auth_mode: &str,
+    ) -> Result<Option<ProviderAuthStateRow>> {
+        let provider_id = provider_id.to_string();
+        let auth_mode = auth_mode.to_string();
+        self.conn
+            .call(move |conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT provider_id, auth_mode, state_json, updated_at
+                         FROM provider_auth_state
+                         WHERE provider_id = ?1 AND auth_mode = ?2",
+                        params![provider_id, auth_mode],
+                        |row| {
+                            let state_json = row.get::<_, String>(2)?;
+                            let parsed = serde_json::from_str::<serde_json::Value>(&state_json)
+                                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                            Ok(ProviderAuthStateRow {
+                                provider_id: row.get(0)?,
+                                auth_mode: row.get(1)?,
+                                state_json: parsed,
+                                updated_at: row.get(3)?,
+                            })
+                        },
+                    )
+                    .optional()?;
+                Ok(row)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn save_provider_auth_state(
+        &self,
+        provider_id: &str,
+        auth_mode: &str,
+        state: &serde_json::Value,
+    ) -> Result<()> {
+        let provider_id = provider_id.to_string();
+        let auth_mode = auth_mode.to_string();
+        let state_json = serde_json::to_string(state)?;
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO provider_auth_state
+                     (provider_id, auth_mode, state_json, updated_at)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![provider_id, auth_mode, state_json, now_ts() as i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn delete_provider_auth_state(
+        &self,
+        provider_id: &str,
+        auth_mode: &str,
+    ) -> Result<()> {
+        let provider_id = provider_id.to_string();
+        let auth_mode = auth_mode.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+                    params![provider_id, auth_mode],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     #[cfg(test)]
@@ -3546,6 +3630,15 @@ impl HistoryStore {
             );
             CREATE INDEX IF NOT EXISTS idx_agent_config_updates_key_ts ON agent_config_updates(key_path, updated_at DESC);
 
+            CREATE TABLE IF NOT EXISTS provider_auth_state (
+                provider_id TEXT NOT NULL,
+                auth_mode   TEXT NOT NULL,
+                state_json  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                PRIMARY KEY (provider_id, auth_mode)
+            );
+            CREATE INDEX IF NOT EXISTS idx_provider_auth_state_updated ON provider_auth_state(updated_at DESC);
+
             CREATE TABLE IF NOT EXISTS heartbeat_history (
                 id              TEXT PRIMARY KEY,
                 cycle_timestamp INTEGER NOT NULL,
@@ -5875,7 +5968,7 @@ fn verify_ledger_file(kind: &str, path: &PathBuf) -> WormIntegrityResult {
     }
 }
 
-fn now_ts() -> u64 {
+pub(crate) fn now_ts() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -6336,6 +6429,88 @@ mod tests {
         let root = std::env::temp_dir().join(format!("tamux-history-test-{}", Uuid::new_v4()));
         let store = HistoryStore::new_test_store(&root).await?;
         Ok((store, root))
+    }
+
+    #[tokio::test]
+    async fn provider_auth_state_round_trips_by_provider_and_mode() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
+
+        assert!(
+            store
+                .load_provider_auth_state("openai", "chatgpt_subscription")
+                .await?
+                .is_none()
+        );
+
+        let state = serde_json::json!({
+            "access_token": "token",
+            "refresh_token": "refresh",
+            "account_id": "acct_123",
+            "expires_at": 12345,
+        });
+        store
+            .save_provider_auth_state("openai", "chatgpt_subscription", &state)
+            .await?;
+
+        let row = store
+            .load_provider_auth_state("openai", "chatgpt_subscription")
+            .await?
+            .expect("provider auth state should exist");
+        assert_eq!(row.provider_id, "openai");
+        assert_eq!(row.auth_mode, "chatgpt_subscription");
+        assert_eq!(row.state_json, state);
+
+        assert!(
+            store
+                .load_provider_auth_state("openai", "github_copilot")
+                .await?
+                .is_none()
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn provider_auth_state_delete_removes_only_target_mode() -> Result<()> {
+        let (store, root) = make_test_store().await?;
+        store.init_schema().await?;
+
+        store
+            .save_provider_auth_state(
+                "openai",
+                "chatgpt_subscription",
+                &serde_json::json!({ "access_token": "token-a" }),
+            )
+            .await?;
+        store
+            .save_provider_auth_state(
+                "openai",
+                "api_key",
+                &serde_json::json!({ "access_token": "token-b" }),
+            )
+            .await?;
+
+        store
+            .delete_provider_auth_state("openai", "chatgpt_subscription")
+            .await?;
+
+        assert!(
+            store
+                .load_provider_auth_state("openai", "chatgpt_subscription")
+                .await?
+                .is_none()
+        );
+        assert!(
+            store
+                .load_provider_auth_state("openai", "api_key")
+                .await?
+                .is_some()
+        );
+
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 
     #[tokio::test]
