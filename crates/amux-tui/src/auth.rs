@@ -180,6 +180,15 @@ pub fn clear_openai_codex_auth() -> Result<()> {
     Ok(())
 }
 
+pub fn clear_github_copilot_auth() -> Result<()> {
+    let conn = open_provider_auth_db()?;
+    conn.execute(
+        "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+        params!["github-copilot", "github_copilot"],
+    )?;
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 pub fn open_external_url(url: &str) -> Result<()> {
     std::process::Command::new("cmd")

@@ -536,7 +536,16 @@ impl TuiModel {
                     } else if entry.provider_id == "github-copilot"
                         && entry.auth_source == "github_copilot"
                     {
-                        self.status_line = "GitHub Copilot auth comes from GitHub CLI; use `gh auth logout` to disconnect.".to_string();
+                        match crate::auth::clear_github_copilot_auth() {
+                            Ok(()) => {
+                                self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                                self.status_line = "GitHub Copilot auth cleared".to_string();
+                            }
+                            Err(err) => {
+                                self.status_line =
+                                    format!("Failed to clear GitHub Copilot auth: {err}");
+                            }
+                        }
                     } else {
                         if self.config.provider == entry.provider_id {
                             self.config.api_key.clear();
@@ -1050,6 +1059,20 @@ impl TuiModel {
                     return;
                 }
                 let supported = providers::supported_transports_for(&self.config.provider);
+                if supported.len() <= 1 {
+                    let only = supported.first().copied().unwrap_or("chat_completions");
+                    let transport_label = match only {
+                        "native_assistant" => "native assistant",
+                        "responses" => "responses",
+                        _ => "chat completions",
+                    };
+                    let provider_name = providers::find_by_id(&self.config.provider)
+                        .map(|def| def.name)
+                        .unwrap_or("This provider");
+                    self.status_line =
+                        format!("{provider_name} supports {transport_label} only.");
+                    return;
+                }
                 let current_idx = supported
                     .iter()
                     .position(|transport| *transport == self.config.api_transport)
@@ -1942,6 +1965,10 @@ impl TuiModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::{params, Connection};
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
     use tokio::sync::mpsc::unbounded_channel;
 
     fn make_model() -> (
@@ -1951,6 +1978,88 @@ mod tests {
         let (_event_tx, event_rx) = std::sync::mpsc::channel();
         let (daemon_tx, daemon_rx) = unbounded_channel();
         (TuiModel::new(event_rx, daemon_tx), daemon_rx)
+    }
+
+    fn auth_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl EnvGuard {
+        fn new(keys: &[&'static str]) -> Self {
+            Self {
+                saved: keys
+                    .iter()
+                    .map(|key| (*key, std::env::var_os(key)))
+                    .collect(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in &self.saved {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn init_provider_auth_db(path: &std::path::Path) {
+        let conn = Connection::open(path).expect("open auth db");
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS provider_auth_state (
+                provider_id TEXT NOT NULL,
+                auth_mode   TEXT NOT NULL,
+                state_json  TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL,
+                PRIMARY KEY (provider_id, auth_mode)
+            );
+            ",
+        )
+        .expect("create auth schema");
+    }
+
+    fn write_provider_auth_row(path: &std::path::Path, provider_id: &str, auth_mode: &str) {
+        init_provider_auth_db(path);
+        let conn = Connection::open(path).expect("open auth db");
+        conn.execute(
+            "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                provider_id,
+                auth_mode,
+                "{\"token\":\"test\"}",
+                1_i64
+            ],
+        )
+        .expect("insert auth row");
+    }
+
+    fn has_provider_auth_row(path: &std::path::Path, provider_id: &str, auth_mode: &str) -> bool {
+        init_provider_auth_db(path);
+        let conn = Connection::open(path).expect("open auth db");
+        conn.query_row(
+            "SELECT 1 FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+            params![provider_id, auth_mode],
+            |_row| Ok(()),
+        )
+        .is_ok()
+    }
+
+    fn unique_test_db_path(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("tamux-{name}-{nanos}.sqlite"))
     }
 
     #[test]
@@ -2123,5 +2232,57 @@ mod tests {
         assert!(daemon_rx.try_recv().is_err());
         assert_eq!(model.status_line, "Starting WhatsApp link workflow");
         assert_eq!(model.modal.top(), Some(modal::ModalKind::WhatsAppLink));
+    }
+
+    #[test]
+    fn github_copilot_logout_clears_db_auth_and_refreshes_entries() {
+        let _lock = auth_env_lock();
+        let _guard = EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH"]);
+        let db_path = unique_test_db_path("copilot-logout");
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
+        write_provider_auth_row(&db_path, "github-copilot", "github_copilot");
+
+        let (mut model, mut daemon_rx) = make_model();
+        model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+            provider_id: "github-copilot".to_string(),
+            provider_name: "GitHub Copilot".to_string(),
+            authenticated: true,
+            auth_source: "github_copilot".to_string(),
+            model: "openai/gpt-4.1".to_string(),
+        }];
+        model.auth.action_cursor = 0;
+
+        model.run_auth_tab_action();
+
+        assert!(!has_provider_auth_row(
+            &db_path,
+            "github-copilot",
+            "github_copilot"
+        ));
+        assert_eq!(model.status_line, "GitHub Copilot auth cleared");
+        assert!(matches!(
+            daemon_rx.try_recv().expect("expected auth refresh"),
+            DaemonCommand::GetProviderAuthStates
+        ));
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn api_transport_reports_when_provider_has_single_transport() {
+        let (mut model, _daemon_rx) = make_model();
+        model.apply_provider_selection("github-copilot");
+        model
+            .settings
+            .reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+        model.settings.reduce(SettingsAction::NavigateField(4));
+        assert_eq!(model.settings.current_field_name(), "api_transport");
+
+        model.activate_settings_field();
+
+        assert_eq!(model.config.api_transport, "chat_completions");
+        assert_eq!(
+            model.status_line,
+            "GitHub Copilot supports chat completions only."
+        );
     }
 }
