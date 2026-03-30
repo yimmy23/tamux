@@ -1297,6 +1297,43 @@ mod tests {
         assert!(constraint.direct_observation);
     }
 
+    #[tokio::test]
+    async fn record_negative_knowledge_from_episode_initializes_failure_derived_constraint_fields(
+    ) -> anyhow::Result<()> {
+        let engine = make_test_engine().await;
+        let episode = make_failure_episode("Deploy CONFIG rollback failed", Some(0.84));
+
+        engine.record_negative_knowledge_from_episode(&episode).await?;
+
+        let constraints = select_constraints_for_subject(&engine, "Deploy CONFIG rollback failed").await?;
+
+        assert_eq!(constraints.len(), 1);
+        assert_eq!(constraints[0].related_subject_tokens, vec!["config", "deploy", "failed", "rollback"]);
+        assert!(constraints[0].direct_observation);
+        assert_eq!(constraints[0].state, ConstraintState::Dying);
+        assert_eq!(constraints[0].evidence_count, 1);
+        assert!(constraints[0].derived_from_constraint_ids.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn record_negative_knowledge_from_episode_promotes_high_confidence_failure_to_dead(
+    ) -> anyhow::Result<()> {
+        let engine = make_test_engine().await;
+        let episode = make_failure_episode("Deploy CONFIG rollback failed", Some(0.85));
+
+        engine.record_negative_knowledge_from_episode(&episode).await?;
+
+        let constraints = select_constraints_for_subject(&engine, "Deploy CONFIG rollback failed").await?;
+
+        assert_eq!(constraints.len(), 1);
+        assert_eq!(constraints[0].state, ConstraintState::Dead);
+        assert!(constraints[0].direct_observation);
+
+        Ok(())
+    }
+
     #[test]
     fn propagation_merge_matching_evidence_upgrades_suspicious_to_dying() {
         let existing = NegativeConstraint {
