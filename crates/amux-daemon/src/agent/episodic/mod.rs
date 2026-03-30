@@ -139,9 +139,28 @@ pub struct NegativeConstraint {
     pub solution_class: Option<String>,
     pub description: String,
     pub confidence: f64,
+    #[serde(default = "default_constraint_state")]
+    pub state: ConstraintState,
+    #[serde(default = "default_evidence_count")]
+    pub evidence_count: u32,
+    #[serde(default = "default_direct_observation")]
+    pub direct_observation: bool,
+    #[serde(default)]
+    pub derived_from_constraint_ids: Vec<String>,
+    #[serde(default)]
+    pub related_subject_tokens: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_until: Option<u64>,
     pub created_at: u64,
+}
+
+/// Lifecycle state of a negative constraint.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConstraintState {
+    Suspicious,
+    Dying,
+    Dead,
 }
 
 /// Classification of negative knowledge constraints.
@@ -151,6 +170,18 @@ pub enum ConstraintType {
     RuledOut,
     ImpossibleCombination,
     KnownLimitation,
+}
+
+fn default_constraint_state() -> ConstraintState {
+    ConstraintState::Dying
+}
+
+fn default_evidence_count() -> u32 {
+    1
+}
+
+fn default_direct_observation() -> bool {
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn negative_constraint_round_trip() {
+    fn negative_constraint_round_trip_serialization() {
         let constraint = NegativeConstraint {
             id: "nc-001".to_string(),
             episode_id: Some("ep-001".to_string()),
@@ -412,6 +443,11 @@ mod tests {
             solution_class: Some("dependency-resolution".to_string()),
             description: "npm install causes version conflict with react 19".to_string(),
             confidence: 0.9,
+            state: ConstraintState::Dead,
+            evidence_count: 3,
+            direct_observation: false,
+            derived_from_constraint_ids: vec!["nc-parent".to_string()],
+            related_subject_tokens: vec!["deploy".to_string(), "config".to_string()],
             valid_until: Some(1700000000000),
             created_at: 1699000000000,
         };
@@ -426,8 +462,45 @@ mod tests {
         assert_eq!(deserialized.solution_class, constraint.solution_class);
         assert_eq!(deserialized.description, constraint.description);
         assert_eq!(deserialized.confidence, constraint.confidence);
+        assert_eq!(deserialized.state, constraint.state);
+        assert_eq!(deserialized.evidence_count, constraint.evidence_count);
+        assert_eq!(
+            deserialized.direct_observation,
+            constraint.direct_observation
+        );
+        assert_eq!(
+            deserialized.derived_from_constraint_ids,
+            constraint.derived_from_constraint_ids
+        );
+        assert_eq!(
+            deserialized.related_subject_tokens,
+            constraint.related_subject_tokens
+        );
         assert_eq!(deserialized.valid_until, constraint.valid_until);
         assert_eq!(deserialized.created_at, constraint.created_at);
+    }
+
+    #[test]
+    fn negative_constraint_deserialization_applies_backward_compat_defaults() {
+        let json = r#"{
+            "id":"nc-legacy",
+            "episode_id":"ep-001",
+            "constraint_type":"ruled_out",
+            "subject":"legacy deploy approach",
+            "solution_class":"deployment",
+            "description":"legacy payload without new metadata",
+            "confidence":0.8,
+            "valid_until":1700000000000,
+            "created_at":1699000000000
+        }"#;
+
+        let deserialized: NegativeConstraint = serde_json::from_str(json).expect("deserialize");
+
+        assert_eq!(deserialized.state, ConstraintState::Dying);
+        assert_eq!(deserialized.evidence_count, 1);
+        assert!(deserialized.direct_observation);
+        assert!(deserialized.derived_from_constraint_ids.is_empty());
+        assert!(deserialized.related_subject_tokens.is_empty());
     }
 
     #[test]
