@@ -520,6 +520,7 @@ mod tests {
 
         let result = format_negative_constraints(&constraints, 1_000_000_000);
 
+        assert!(result.starts_with("## Ruled-Out Approaches (Negative Knowledge)\n"));
         assert!(result.contains("DO NOT attempt: dead path"));
         assert!(result.contains("Avoid unless you have new evidence: dying path"));
         assert!(result.contains("Use caution: suspicious path"));
@@ -533,7 +534,59 @@ mod tests {
         assert!(result.contains("Source: inferred"));
         assert!(result.contains("Source: direct from 1 related dead constraint"));
         assert!(result.contains("Source: inferred from 1 related dead constraint"));
+        assert!(result.contains("\n  Source: direct\n  Solution class: test-class\n"));
         assert!(!result.contains("Source: direct from 0 related dead constraints"));
+    }
+
+    #[test]
+    fn format_negative_constraints_excludes_expired_constraints() {
+        let constraints = vec![
+            make_constraint_with_details("active path", ConstraintState::Dead, 300, true, &[]),
+            make_constraint("expired path", Some(999_999_999)),
+        ];
+
+        let result = format_negative_constraints(&constraints, 1_000_000_000);
+
+        assert!(result.contains("DO NOT attempt: active path"));
+        assert!(!result.contains("expired path"));
+    }
+
+    #[test]
+    fn format_negative_constraints_caps_display_at_ten_and_shows_overflow_count() {
+        let constraints: Vec<NegativeConstraint> = (0..11)
+            .map(|idx| {
+                make_constraint_with_details(
+                    &format!("constraint {idx}"),
+                    ConstraintState::Dead,
+                    1_000 + idx,
+                    true,
+                    &[],
+                )
+            })
+            .collect();
+
+        let result = format_negative_constraints(&constraints, 1_000_000_000);
+
+        assert!(result.contains("DO NOT attempt: constraint 10"));
+        assert!(result.contains("DO NOT attempt: constraint 1"));
+        assert!(!result.contains("DO NOT attempt: constraint 0"));
+        assert!(result.contains("(1 more constraints not shown)"));
+    }
+
+    #[test]
+    fn format_negative_constraints_renders_exact_inferred_source_without_provenance() {
+        let constraints = vec![make_constraint_with_details(
+            "inferred path",
+            ConstraintState::Suspicious,
+            100,
+            false,
+            &[],
+        )];
+
+        let result = format_negative_constraints(&constraints, 1_000_000_000);
+
+        assert!(result.contains("\n  Source: inferred\n  Solution class: test-class\n"));
+        assert!(!result.contains("Source: inferred from"));
     }
 
     #[test]
