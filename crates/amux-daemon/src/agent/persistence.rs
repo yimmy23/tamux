@@ -749,6 +749,73 @@ impl AgentEngine {
             topic
         ))
     }
+
+    pub(super) async fn record_policy_decision(
+        &self,
+        thread_id: &str,
+        decision: super::orchestrator_policy::PolicyDecision,
+        now_epoch_secs: u64,
+    ) {
+        {
+            let mut recent_decisions = self.recent_policy_decisions.write().await;
+            super::orchestrator_policy::record_policy_decision(
+                &mut recent_decisions,
+                thread_id,
+                decision.clone(),
+                now_epoch_secs,
+            );
+        }
+
+        if let Some(retry_guard) = decision.retry_guard.as_deref() {
+            self.record_retry_guard(thread_id, retry_guard, now_epoch_secs)
+                .await;
+        }
+    }
+
+    pub(super) async fn latest_policy_decision(
+        &self,
+        thread_id: &str,
+        now_epoch_secs: u64,
+    ) -> Option<super::orchestrator_policy::RecentPolicyDecision> {
+        let recent_decisions = self.recent_policy_decisions.read().await;
+        super::orchestrator_policy::latest_policy_decision(
+            &recent_decisions,
+            thread_id,
+            now_epoch_secs,
+            super::orchestrator_policy::SHORT_LIVED_POLICY_WINDOW_SECS,
+        )
+    }
+
+    pub(super) async fn record_retry_guard(
+        &self,
+        thread_id: &str,
+        approach_hash: &str,
+        now_epoch_secs: u64,
+    ) {
+        let mut retry_guards = self.retry_guards.write().await;
+        super::orchestrator_policy::record_retry_guard(
+            &mut retry_guards,
+            thread_id,
+            approach_hash,
+            now_epoch_secs,
+        );
+    }
+
+    pub(super) async fn is_retry_guard_active(
+        &self,
+        thread_id: &str,
+        approach_hash: &str,
+        now_epoch_secs: u64,
+    ) -> bool {
+        let retry_guards = self.retry_guards.read().await;
+        super::orchestrator_policy::is_retry_guard_active(
+            &retry_guards,
+            thread_id,
+            approach_hash,
+            now_epoch_secs,
+            super::orchestrator_policy::SHORT_LIVED_POLICY_WINDOW_SECS,
+        )
+    }
 }
 
 fn persisted_agent_name_for_thread(thread: &AgentThread) -> String {
@@ -764,6 +831,9 @@ fn persisted_agent_name_for_thread(thread: &AgentThread) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::orchestrator_policy::{
+        PolicyAction, PolicyDecision, RecentPolicyDecision, SHORT_LIVED_POLICY_WINDOW_SECS,
+    };
     use crate::session_manager::SessionManager;
     use tempfile::tempdir;
 
@@ -834,5 +904,52 @@ mod tests {
             in_memory.get("Discord:456").map(String::as_str),
             Some("thread_beta")
         );
+    }
+
+    #[tokio::test]
+    async fn latest_policy_decision_round_trips_through_agent_engine_memory() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let decision = PolicyDecision {
+            action: PolicyAction::Pivot,
+            reason: "Try a narrower recovery path.".to_string(),
+            strategy_hint: Some("inspect logs first".to_string()),
+            retry_guard: Some("approach-hash-1".to_string()),
+        };
+
+        engine
+            .record_policy_decision("thread-1", decision.clone(), 1_000)
+            .await;
+
+        assert_eq!(
+            engine.latest_policy_decision("thread-1", 1_030).await,
+            Some(RecentPolicyDecision {
+                decision,
+                decided_at_epoch_secs: 1_000,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_guard_expires_from_agent_engine_short_lived_memory() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .record_retry_guard("thread-1", "approach-hash-1", 1_000)
+            .await;
+
+        assert!(engine
+            .is_retry_guard_active("thread-1", "approach-hash-1", 1_000 + SHORT_LIVED_POLICY_WINDOW_SECS)
+            .await);
+        assert!(!engine
+            .is_retry_guard_active(
+                "thread-1",
+                "approach-hash-1",
+                1_001 + SHORT_LIVED_POLICY_WINDOW_SECS,
+            )
+            .await);
     }
 }

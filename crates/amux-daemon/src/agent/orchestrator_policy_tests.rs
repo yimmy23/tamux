@@ -29,6 +29,12 @@ fn decision(action: PolicyAction) -> PolicyDecision {
     }
 }
 
+fn reasoned_decision(action: PolicyAction, reason: &str) -> PolicyDecision {
+    let mut decision = decision(action);
+    decision.reason = reason.to_string();
+    decision
+}
+
 fn scope(thread_id: &str, goal_run_id: Option<&str>) -> PolicyDecisionScope {
     PolicyDecisionScope {
         thread_id: thread_id.to_string(),
@@ -431,6 +437,80 @@ fn decision_pivot_without_retry_guard_and_normalized_strategy_hint_reuses() {
         &scope,
         &candidate,
         1_030,
+        60,
+    ));
+}
+
+#[test]
+fn policy_memory_stores_and_retrieves_latest_decision_by_thread_id() {
+    let mut recent_decisions = RecentPolicyDecisionsByThread::new();
+    let recorded = reasoned_decision(PolicyAction::Pivot, "Switch to a narrower recovery path.");
+
+    record_policy_decision(&mut recent_decisions, "thread-1", recorded.clone(), 1_000);
+
+    assert_eq!(
+        latest_policy_decision(&recent_decisions, "thread-1", 1_030, 60),
+        Some(RecentPolicyDecision {
+            decision: recorded,
+            decided_at_epoch_secs: 1_000,
+        })
+    );
+}
+
+#[test]
+fn retry_guard_blocks_same_approach_hash_in_same_thread_id() {
+    let mut retry_guards = RetryGuardsByThread::new();
+
+    record_retry_guard(&mut retry_guards, "thread-1", "approach-hash-1", 1_000);
+
+    assert!(is_retry_guard_active(
+        &retry_guards,
+        "thread-1",
+        "approach-hash-1",
+        1_030,
+        60,
+    ));
+}
+
+#[test]
+fn retry_guard_does_not_block_different_approach_hash() {
+    let mut retry_guards = RetryGuardsByThread::new();
+
+    record_retry_guard(&mut retry_guards, "thread-1", "approach-hash-1", 1_000);
+
+    assert!(!is_retry_guard_active(
+        &retry_guards,
+        "thread-1",
+        "approach-hash-2",
+        1_030,
+        60,
+    ));
+}
+
+#[test]
+fn policy_memory_expired_entries_stop_applying() {
+    let mut recent_decisions = RecentPolicyDecisionsByThread::new();
+    let recorded = reasoned_decision(PolicyAction::HaltRetries, "Stop retrying the same failure.");
+
+    record_policy_decision(&mut recent_decisions, "thread-1", recorded, 1_000);
+
+    assert_eq!(
+        latest_policy_decision(&recent_decisions, "thread-1", 1_061, 60),
+        None
+    );
+}
+
+#[test]
+fn retry_guard_expired_entries_stop_applying() {
+    let mut retry_guards = RetryGuardsByThread::new();
+
+    record_retry_guard(&mut retry_guards, "thread-1", "approach-hash-1", 1_000);
+
+    assert!(!is_retry_guard_active(
+        &retry_guards,
+        "thread-1",
+        "approach-hash-1",
+        1_061,
         60,
     ));
 }

@@ -421,6 +421,8 @@ mod tests {
             heartbeat_items: RwLock::new(Vec::new()),
             event_tx,
             memory: RwLock::new(HashMap::new()),
+            recent_policy_decisions: RwLock::new(HashMap::new()),
+            retry_guards: RwLock::new(HashMap::new()),
             operator_model: RwLock::new(OperatorModel::default()),
             anticipatory: RwLock::new(AnticipatoryRuntime::default()),
             collaboration: RwLock::new(HashMap::new()),

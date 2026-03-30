@@ -102,6 +102,10 @@ pub(crate) fn aggregate_trigger_contexts(
 
 pub(crate) type RecentPolicyDecisionsByScope = HashMap<PolicyDecisionScope, RecentPolicyDecision>;
 pub(crate) type RetryGuardsByScope = HashMap<PolicyDecisionScope, String>;
+pub(crate) type RecentPolicyDecisionsByThread = HashMap<String, RecentPolicyDecision>;
+pub(crate) type RetryGuardsByThread = HashMap<String, RecentRetryGuard>;
+
+pub(crate) const SHORT_LIVED_POLICY_WINDOW_SECS: u64 = 60;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PolicyDecisionScope {
@@ -131,6 +135,12 @@ pub(crate) struct PolicyDecision {
 pub(crate) struct RecentPolicyDecision {
     pub decision: PolicyDecision,
     pub decided_at_epoch_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecentRetryGuard {
+    pub approach_hash: String,
+    pub recorded_at_epoch_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +223,77 @@ pub(crate) fn validate_policy_decision(
     })
 }
 
+fn is_within_active_window(
+    recorded_at_epoch_secs: u64,
+    now_epoch_secs: u64,
+    active_window_secs: u64,
+) -> bool {
+    now_epoch_secs.saturating_sub(recorded_at_epoch_secs) <= active_window_secs
+}
+
+pub(crate) fn record_policy_decision(
+    recent_decisions: &mut RecentPolicyDecisionsByThread,
+    thread_id: &str,
+    decision: PolicyDecision,
+    now_epoch_secs: u64,
+) {
+    recent_decisions.insert(
+        thread_id.to_string(),
+        RecentPolicyDecision {
+            decision,
+            decided_at_epoch_secs: now_epoch_secs,
+        },
+    );
+}
+
+pub(crate) fn latest_policy_decision(
+    recent_decisions: &RecentPolicyDecisionsByThread,
+    thread_id: &str,
+    now_epoch_secs: u64,
+    active_window_secs: u64,
+) -> Option<RecentPolicyDecision> {
+    recent_decisions.get(thread_id).and_then(|recent| {
+        is_within_active_window(
+            recent.decided_at_epoch_secs,
+            now_epoch_secs,
+            active_window_secs,
+        )
+        .then(|| recent.clone())
+    })
+}
+
+pub(crate) fn record_retry_guard(
+    retry_guards: &mut RetryGuardsByThread,
+    thread_id: &str,
+    approach_hash: &str,
+    now_epoch_secs: u64,
+) {
+    retry_guards.insert(
+        thread_id.to_string(),
+        RecentRetryGuard {
+            approach_hash: approach_hash.to_string(),
+            recorded_at_epoch_secs: now_epoch_secs,
+        },
+    );
+}
+
+pub(crate) fn is_retry_guard_active(
+    retry_guards: &RetryGuardsByThread,
+    thread_id: &str,
+    approach_hash: &str,
+    now_epoch_secs: u64,
+    active_window_secs: u64,
+) -> bool {
+    retry_guards.get(thread_id).is_some_and(|recent| {
+        recent.approach_hash == approach_hash
+            && is_within_active_window(
+                recent.recorded_at_epoch_secs,
+                now_epoch_secs,
+                active_window_secs,
+            )
+    })
+}
+
 pub(crate) fn should_reuse_recent_decision(
     recent_decisions: &RecentPolicyDecisionsByScope,
     scope: &PolicyDecisionScope,
@@ -222,7 +303,11 @@ pub(crate) fn should_reuse_recent_decision(
 ) -> bool {
     recent_decisions.get(scope).is_some_and(|recent| {
         recent.decision.semantic_identity() == candidate.semantic_identity()
-            && now_epoch_secs.saturating_sub(recent.decided_at_epoch_secs) <= active_window_secs
+            && is_within_active_window(
+                recent.decided_at_epoch_secs,
+                now_epoch_secs,
+                active_window_secs,
+            )
     })
 }
 
