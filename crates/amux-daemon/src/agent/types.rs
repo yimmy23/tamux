@@ -91,151 +91,151 @@ pub const MULTIMODAL: &[Modality] = &[
 
 pub const GITHUB_COPILOT_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
-        id: "anthropic/claude-haiku-4.5",
+        id: "claude-haiku-4.5",
         name: "Claude Haiku 4.5",
         context_window: 160_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "anthropic/claude-opus-4.5",
+        id: "claude-opus-4.5",
         name: "Claude Opus 4.5",
         context_window: 160_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "anthropic/claude-opus-4.6",
+        id: "claude-opus-4.6",
         name: "Claude Opus 4.6",
         context_window: 192_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "anthropic/claude-opus-4.6-fast",
+        id: "claude-opus-4.6-fast",
         name: "Claude Opus 4.6 (fast mode) (Preview)",
         context_window: 192_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "anthropic/claude-sonnet-4",
+        id: "claude-sonnet-4",
         name: "Claude Sonnet 4",
         context_window: 144_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "anthropic/claude-sonnet-4.5",
+        id: "claude-sonnet-4.5",
         name: "Claude Sonnet 4.5",
         context_window: 160_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "anthropic/claude-sonnet-4.6",
+        id: "claude-sonnet-4.6",
         name: "Claude Sonnet 4.6",
         context_window: 160_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "google/gemini-2.5-pro",
+        id: "gemini-2.5-pro",
         name: "Gemini 2.5 Pro",
         context_window: 173_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "google/gemini-3-flash-preview",
+        id: "gemini-3-flash-preview",
         name: "Gemini 3 Flash (Preview)",
         context_window: 173_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "google/gemini-3.1-pro-preview",
+        id: "gemini-3.1-pro-preview",
         name: "Gemini 3.1 Pro (Preview)",
         context_window: 173_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-4.1",
+        id: "gpt-4.1",
         name: "GPT-4.1",
         context_window: 128_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-4o",
+        id: "gpt-4o",
         name: "GPT-4o",
         context_window: 128_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5-mini",
+        id: "gpt-5-mini",
         name: "GPT-5 mini",
         context_window: 192_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.1",
+        id: "gpt-5.1",
         name: "GPT-5.1",
         context_window: 192_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.1-codex",
+        id: "gpt-5.1-codex",
         name: "GPT-5.1-Codex",
         context_window: 256_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.1-codex-max",
+        id: "gpt-5.1-codex-max",
         name: "GPT-5.1-Codex-Max",
         context_window: 256_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.1-codex-mini",
+        id: "gpt-5.1-codex-mini",
         name: "GPT-5.1-Codex-Mini (Preview)",
         context_window: 256_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.2",
+        id: "gpt-5.2",
         name: "GPT-5.2",
         context_window: 192_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.2-codex",
+        id: "gpt-5.2-codex",
         name: "GPT-5.2-Codex",
         context_window: 400_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.3-codex",
+        id: "gpt-5.3-codex",
         name: "GPT-5.3-Codex",
         context_window: 400_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.4",
+        id: "gpt-5.4",
         name: "GPT-5.4",
         context_window: 400_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "openai/gpt-5.4-mini",
+        id: "gpt-5.4-mini",
         name: "GPT-5.4 mini",
         context_window: 400_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "xai/grok-code-fast-1",
+        id: "grok-code-fast-1",
         name: "Grok Code Fast 1",
         context_window: 173_000,
         modalities: TEXT_ONLY,
     },
     ModelDefinition {
-        id: "github/raptor-mini",
+        id: "raptor-mini",
         name: "Raptor mini (Preview)",
         context_window: 264_000,
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
-        id: "github/goldeneye",
+        id: "goldeneye",
         name: "Goldeneye",
         context_window: 524_000,
         modalities: TEXT_IMAGE,
@@ -859,8 +859,8 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
     ProviderDefinition {
         id: "github-copilot",
         name: "GitHub Copilot",
-        default_base_url: "https://models.github.ai",
-        default_model: "openai/gpt-4.1",
+        default_base_url: "https://api.githubcopilot.com",
+        default_model: "gpt-4.1",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: GITHUB_COPILOT_MODELS,
@@ -4094,12 +4094,12 @@ mod tests {
     fn github_copilot_provider_exposes_static_catalog_models() {
         let provider = get_provider_definition("github-copilot").expect("copilot provider");
         assert!(!provider.models.is_empty());
-        assert_eq!(provider.default_model, "openai/gpt-4.1");
-        assert!(provider.models.iter().any(|model| model.id == "openai/gpt-5.4"));
+        assert_eq!(provider.default_model, "gpt-4.1");
+        assert!(provider.models.iter().any(|model| model.id == "gpt-5.4"));
         assert!(provider
             .models
             .iter()
-            .any(|model| model.id == "anthropic/claude-opus-4.6"));
-        assert!(provider.models.iter().any(|model| model.id == "github/goldeneye"));
+            .any(|model| model.id == "claude-opus-4.6"));
+        assert!(provider.models.iter().any(|model| model.id == "goldeneye"));
     }
 }

@@ -30,7 +30,6 @@ use tokio::sync::mpsc as tokio_mpsc;
 use crate::app::TuiModel;
 use crate::client::DaemonClient;
 use crate::state::DaemonCommand;
-use crate::wire::FetchedModel;
 
 fn main() -> Result<()> {
     let home = std::env::var("HOME")
@@ -249,20 +248,12 @@ fn start_daemon_bridge(
                             DaemonCommand::DeleteMessages { thread_id, message_ids } => {
                                 let _ = client.delete_messages(thread_id, message_ids);
                             }
-                            DaemonCommand::FetchModels { provider_id: _, base_url, api_key } => {
-                                // Fetch models directly from provider API
-                                let tx = daemon_event_tx.clone();
-                                tokio::spawn(async move {
-                                    match fetch_models_http(&base_url, &api_key).await {
-                                        Ok(models) => {
-                                            let _ = tx.send(client::ClientEvent::ModelsFetched(models));
-                                        }
-                                        Err(err) => {
-                                            tracing::warn!("Model fetch failed: {}", err);
-                                            // Don't send error — hardcoded fallback will be used
-                                        }
-                                    }
-                                });
+                            DaemonCommand::FetchModels {
+                                provider_id,
+                                base_url,
+                                api_key,
+                            } => {
+                                let _ = client.fetch_models(provider_id, base_url, api_key);
                             }
                             DaemonCommand::SetConfigItem { key_path, value_json } => {
                                 let _ = client.set_config_item_json(key_path, value_json);
@@ -431,102 +422,70 @@ fn start_daemon_bridge(
     });
 }
 
-/// Fetch models from a provider's /models API endpoint.
-/// Most OpenAI-compatible providers expose GET /models (or /v1/models).
-async fn fetch_models_http(base_url: &str, api_key: &str) -> Result<Vec<FetchedModel>> {
-    // Normalize URL: ensure it ends with /models
-    let url = if base_url.ends_with("/models") {
-        base_url.to_string()
-    } else {
-        let base = base_url.trim_end_matches('/');
-        if base.ends_with("/v1") {
-            format!("{}/models", base)
-        } else {
-            format!("{}/v1/models", base)
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
     };
 
-    let api_key = api_key.to_string();
-    let mut last_error: Option<anyhow::Error> = None;
+    #[test]
+    fn fetch_models_command_does_not_use_local_http_bridge() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test http server");
+        listener
+            .set_nonblocking(true)
+            .expect("set nonblocking listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let hit = Arc::new(AtomicBool::new(false));
+        let hit_for_server = Arc::clone(&hit);
 
-    for attempt in 0..3 {
-        let url = url.clone();
-        let api_key = api_key.clone();
-        let result = tokio::task::spawn_blocking(move || -> Result<Vec<FetchedModel>> {
-            let mut resp = ureq::get(&url)
-                .header("Authorization", &format!("Bearer {}", api_key))
-                .header("Accept", "application/json")
-                .call()
-                .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
-
-            let body: serde_json::Value = resp
-                .body_mut()
-                .read_json()
-                .map_err(|e| anyhow::anyhow!("JSON parse failed: {}", e))?;
-
-            let mut models = Vec::new();
-            if let Some(data) = body.get("data").and_then(|d| d.as_array()) {
-                for item in data {
-                    let id = item
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if id.is_empty() {
-                        continue;
+        let server = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_millis(700);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        hit_for_server.store(true, Ordering::SeqCst);
+                        let mut buffer = [0_u8; 1024];
+                        let _ = stream.read(&mut buffer);
+                        let body = r#"{"data":[{"id":"sdk-model"}]}"#;
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        return;
                     }
-                    if id.contains("embedding")
-                        || id.contains("tts")
-                        || id.contains("whisper")
-                        || id.contains("dall-e")
-                        || id.contains("davinci")
-                        || id.contains("babbage")
-                        || id.contains("moderation")
-                    {
-                        continue;
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
                     }
-                    let name = item.get("name").and_then(|v| v.as_str()).map(String::from);
-                    let context_window = item
-                        .get("context_window")
-                        .and_then(|v| v.as_u64())
-                        .map(|v| v as u32);
-                    models.push(FetchedModel {
-                        id,
-                        name,
-                        context_window,
-                    });
+                    Err(_) => return,
                 }
             }
+        });
 
-            models.sort_by(|a, b| {
-                b.context_window
-                    .unwrap_or(0)
-                    .cmp(&a.context_window.unwrap_or(0))
-                    .then(a.id.cmp(&b.id))
-            });
+        let (daemon_event_tx, _daemon_event_rx) = mpsc::channel();
+        let (daemon_cmd_tx, daemon_cmd_rx) = tokio_mpsc::unbounded_channel();
+        start_daemon_bridge(daemon_event_tx, daemon_cmd_rx);
 
-            Ok(models)
-        })
-        .await?;
+        daemon_cmd_tx
+            .send(DaemonCommand::FetchModels {
+                provider_id: "github-copilot".to_string(),
+                base_url: format!("http://{addr}"),
+                api_key: "test-key".to_string(),
+            })
+            .expect("queue fetch models command");
 
-        match result {
-            Ok(models) => return Ok(models),
-            Err(err) => {
-                let message = err.to_string().to_ascii_lowercase();
-                let retryable = message.contains("connection")
-                    || message.contains("timed out")
-                    || message.contains("error sending request")
-                    || message.contains("transport")
-                    || message.contains("io");
-                last_error = Some(err);
-                if retryable && attempt < 2 {
-                    tokio::time::sleep(std::time::Duration::from_millis(1_000)).await;
-                    continue;
-                }
-                break;
-            }
-        }
+        thread::sleep(Duration::from_millis(350));
+
+        assert!(
+            !hit.load(Ordering::SeqCst),
+            "fetch models should be delegated to the daemon, not fetched directly over HTTP"
+        );
+
+        server.join().expect("join test http server");
     }
-
-    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("model fetch failed")))
 }

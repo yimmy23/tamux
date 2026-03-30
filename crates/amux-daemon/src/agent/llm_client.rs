@@ -958,6 +958,11 @@ fn apply_openai_auth_headers(
     config: &ProviderConfig,
 ) -> reqwest::RequestBuilder {
     if provider == "github-copilot" {
+        let req = req
+            .header("Accept", "application/json")
+            .header("Openai-Intent", "conversation-edits")
+            .header("x-initiator", "user")
+            .header("User-Agent", "tamux-daemon");
         if let Some(resolved) =
             super::copilot_auth::resolve_github_copilot_auth(&config.api_key, config.auth_source)
         {
@@ -968,9 +973,10 @@ fn apply_openai_auth_headers(
             {
                 return req
                     .header("Authorization", format!("Bearer {token}"))
-                    .header("Accept", "application/json");
+                    .header("editor-version", "tamux/0.1.10");
             }
         }
+        return req;
     }
 
     if !config.api_key.is_empty() {
@@ -3058,6 +3064,16 @@ mod tests {
     }
 
     #[test]
+    fn github_copilot_default_url_uses_copilot_api_origin() {
+        let provider = get_provider_definition("github-copilot").expect("copilot provider");
+        assert_eq!(provider.default_base_url, "https://api.githubcopilot.com");
+        assert_eq!(
+            build_chat_completion_url(provider.default_base_url),
+            "https://api.githubcopilot.com/chat/completions"
+        );
+    }
+
+    #[test]
     fn github_copilot_stored_auth_adds_bearer_header_to_requests() {
         let _lock = auth_env_lock().lock().expect("lock auth env");
         let _guard = EnvGuard::new(&[
@@ -3116,6 +3132,73 @@ mod tests {
         );
     }
 
+    #[test]
+    fn github_copilot_requests_include_copilot_headers() {
+        let _lock = auth_env_lock().lock().expect("lock auth env");
+        let _guard = EnvGuard::new(&[
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            "TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI",
+            "TAMUX_GITHUB_COPILOT_DISABLE_ENV_AUTH",
+            "COPILOT_GITHUB_TOKEN",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+        ]);
+        let root = tempdir().unwrap();
+        let db_path = root.path().join("provider-auth.db");
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
+        std::env::set_var("TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI", "1");
+        std::env::set_var("TAMUX_GITHUB_COPILOT_DISABLE_ENV_AUTH", "1");
+        let auth = serde_json::json!({
+            "auth_mode": "github_copilot",
+            "access_token": "ghu_browser_token",
+            "source": "test",
+            "updated_at": 1,
+            "created_at": 1
+        });
+        provider_auth_store::save_provider_auth_state(
+            "github-copilot",
+            "github_copilot",
+            &auth,
+        )
+        .unwrap();
+
+        let client = reqwest::Client::new();
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-4.1".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        };
+        let request = apply_openai_auth_headers(
+            client.get("https://api.githubcopilot.com/chat/completions"),
+            "github-copilot",
+            &config,
+        )
+        .build()
+        .expect("request should build");
+
+        assert_eq!(
+            request
+                .headers()
+                .get("openai-intent")
+                .and_then(|value| value.to_str().ok()),
+            Some("conversation-edits")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-initiator")
+                .and_then(|value| value.to_str().ok()),
+            Some("user")
+        );
+        assert!(request.headers().get("user-agent").is_some());
+    }
+
     #[tokio::test]
     async fn copilot_validation_returns_static_catalog_models() {
         let _lock = auth_env_lock().lock().expect("lock auth env");
@@ -3148,7 +3231,7 @@ mod tests {
 
         let models = validate_provider_connection(
             "github-copilot",
-            "https://models.github.ai",
+            "https://api.githubcopilot.com",
             "",
             AuthSource::GithubCopilot,
         )
@@ -3157,11 +3240,11 @@ mod tests {
         .expect("copilot validation should return models");
 
         assert!(models.len() > 10);
-        assert!(models.iter().any(|model| model.id == "openai/gpt-4.1"));
-        assert!(models.iter().any(|model| model.id == "openai/gpt-5.4"));
-        assert!(models.iter().any(|model| model.id == "anthropic/claude-sonnet-4.6"));
-        assert!(models.iter().any(|model| model.id == "github/raptor-mini"));
-        assert!(models.iter().any(|model| model.id == "github/goldeneye"));
+        assert!(models.iter().any(|model| model.id == "gpt-4.1"));
+        assert!(models.iter().any(|model| model.id == "gpt-5.4"));
+        assert!(models.iter().any(|model| model.id == "claude-sonnet-4.6"));
+        assert!(models.iter().any(|model| model.id == "raptor-mini"));
+        assert!(models.iter().any(|model| model.id == "goldeneye"));
     }
 
 }
