@@ -752,7 +752,7 @@ impl AgentEngine {
 
     pub(super) async fn record_policy_decision(
         &self,
-        thread_id: &str,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
         decision: super::orchestrator_policy::PolicyDecision,
         now_epoch_secs: u64,
     ) {
@@ -760,27 +760,27 @@ impl AgentEngine {
             let mut recent_decisions = self.recent_policy_decisions.write().await;
             super::orchestrator_policy::record_policy_decision(
                 &mut recent_decisions,
-                thread_id,
+                scope,
                 decision.clone(),
                 now_epoch_secs,
             );
         }
 
         if let Some(retry_guard) = decision.retry_guard.as_deref() {
-            self.record_retry_guard(thread_id, retry_guard, now_epoch_secs)
+            self.record_retry_guard(scope, retry_guard, now_epoch_secs)
                 .await;
         }
     }
 
     pub(super) async fn latest_policy_decision(
         &self,
-        thread_id: &str,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
         now_epoch_secs: u64,
     ) -> Option<super::orchestrator_policy::RecentPolicyDecision> {
-        let recent_decisions = self.recent_policy_decisions.read().await;
+        let mut recent_decisions = self.recent_policy_decisions.write().await;
         super::orchestrator_policy::latest_policy_decision(
-            &recent_decisions,
-            thread_id,
+            &mut recent_decisions,
+            scope,
             now_epoch_secs,
             super::orchestrator_policy::SHORT_LIVED_POLICY_WINDOW_SECS,
         )
@@ -788,14 +788,14 @@ impl AgentEngine {
 
     pub(super) async fn record_retry_guard(
         &self,
-        thread_id: &str,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
         approach_hash: &str,
         now_epoch_secs: u64,
     ) {
         let mut retry_guards = self.retry_guards.write().await;
         super::orchestrator_policy::record_retry_guard(
             &mut retry_guards,
-            thread_id,
+            scope,
             approach_hash,
             now_epoch_secs,
         );
@@ -803,14 +803,14 @@ impl AgentEngine {
 
     pub(super) async fn is_retry_guard_active(
         &self,
-        thread_id: &str,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
         approach_hash: &str,
         now_epoch_secs: u64,
     ) -> bool {
-        let retry_guards = self.retry_guards.read().await;
+        let mut retry_guards = self.retry_guards.write().await;
         super::orchestrator_policy::is_retry_guard_active(
-            &retry_guards,
-            thread_id,
+            &mut retry_guards,
+            scope,
             approach_hash,
             now_epoch_secs,
             super::orchestrator_policy::SHORT_LIVED_POLICY_WINDOW_SECS,
@@ -832,7 +832,8 @@ fn persisted_agent_name_for_thread(thread: &AgentThread) -> String {
 mod tests {
     use super::*;
     use crate::agent::orchestrator_policy::{
-        PolicyAction, PolicyDecision, RecentPolicyDecision, SHORT_LIVED_POLICY_WINDOW_SECS,
+        PolicyAction, PolicyDecision, PolicyDecisionScope, RecentPolicyDecision,
+        SHORT_LIVED_POLICY_WINDOW_SECS,
     };
     use crate::session_manager::SessionManager;
     use tempfile::tempdir;
@@ -911,6 +912,10 @@ mod tests {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let scope = PolicyDecisionScope {
+            thread_id: "thread-1".to_string(),
+            goal_run_id: Some("goal-1".to_string()),
+        };
         let decision = PolicyDecision {
             action: PolicyAction::Pivot,
             reason: "Try a narrower recovery path.".to_string(),
@@ -919,11 +924,11 @@ mod tests {
         };
 
         engine
-            .record_policy_decision("thread-1", decision.clone(), 1_000)
+            .record_policy_decision(&scope, decision.clone(), 1_000)
             .await;
 
         assert_eq!(
-            engine.latest_policy_decision("thread-1", 1_030).await,
+            engine.latest_policy_decision(&scope, 1_030).await,
             Some(RecentPolicyDecision {
                 decision,
                 decided_at_epoch_secs: 1_000,
@@ -936,20 +941,57 @@ mod tests {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let scope = PolicyDecisionScope {
+            thread_id: "thread-1".to_string(),
+            goal_run_id: Some("goal-1".to_string()),
+        };
 
         engine
-            .record_retry_guard("thread-1", "approach-hash-1", 1_000)
+            .record_retry_guard(&scope, "approach-hash-1", 1_000)
             .await;
 
         assert!(engine
-            .is_retry_guard_active("thread-1", "approach-hash-1", 1_000 + SHORT_LIVED_POLICY_WINDOW_SECS)
+            .is_retry_guard_active(&scope, "approach-hash-1", 1_000 + SHORT_LIVED_POLICY_WINDOW_SECS)
             .await);
         assert!(!engine
             .is_retry_guard_active(
-                "thread-1",
+                &scope,
                 "approach-hash-1",
                 1_001 + SHORT_LIVED_POLICY_WINDOW_SECS,
             )
+            .await);
+    }
+
+    #[tokio::test]
+    async fn policy_memory_does_not_leak_across_goal_runs_in_same_thread() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let goal_one = PolicyDecisionScope {
+            thread_id: "thread-1".to_string(),
+            goal_run_id: Some("goal-1".to_string()),
+        };
+        let goal_two = PolicyDecisionScope {
+            thread_id: "thread-1".to_string(),
+            goal_run_id: Some("goal-2".to_string()),
+        };
+
+        engine
+            .record_policy_decision(
+                &goal_one,
+                PolicyDecision {
+                    action: PolicyAction::HaltRetries,
+                    reason: "Stop retrying this failing path.".to_string(),
+                    strategy_hint: None,
+                    retry_guard: Some("approach-hash-1".to_string()),
+                },
+                1_000,
+            )
+            .await;
+
+        assert_eq!(engine.latest_policy_decision(&goal_two, 1_030).await, None);
+        assert!(!engine
+            .is_retry_guard_active(&goal_two, "approach-hash-1", 1_030)
             .await);
     }
 }

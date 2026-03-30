@@ -272,8 +272,8 @@ pub struct AgentEngine {
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub memory: RwLock<HashMap<String, AgentMemory>>,
     pub(super) recent_policy_decisions:
-        RwLock<super::orchestrator_policy::RecentPolicyDecisionsByThread>,
-    pub(super) retry_guards: RwLock<super::orchestrator_policy::RetryGuardsByThread>,
+        RwLock<super::orchestrator_policy::ShortLivedRecentPolicyDecisions>,
+    pub(super) retry_guards: RwLock<super::orchestrator_policy::ShortLivedRetryGuards>,
     pub(super) operator_model: RwLock<OperatorModel>,
     pub(super) anticipatory: RwLock<AnticipatoryRuntime>,
     pub(super) collaboration: RwLock<HashMap<String, collaboration::CollaborationSession>>,

@@ -443,13 +443,14 @@ fn decision_pivot_without_retry_guard_and_normalized_strategy_hint_reuses() {
 
 #[test]
 fn policy_memory_stores_and_retrieves_latest_decision_by_thread_id() {
-    let mut recent_decisions = RecentPolicyDecisionsByThread::new();
+    let mut recent_decisions = ShortLivedRecentPolicyDecisions::new();
+    let scope = scope("thread-1", Some("goal-1"));
     let recorded = reasoned_decision(PolicyAction::Pivot, "Switch to a narrower recovery path.");
 
-    record_policy_decision(&mut recent_decisions, "thread-1", recorded.clone(), 1_000);
+    record_policy_decision(&mut recent_decisions, &scope, recorded.clone(), 1_000);
 
     assert_eq!(
-        latest_policy_decision(&recent_decisions, "thread-1", 1_030, 60),
+        latest_policy_decision(&mut recent_decisions, &scope, 1_030, 60),
         Some(RecentPolicyDecision {
             decision: recorded,
             decided_at_epoch_secs: 1_000,
@@ -459,13 +460,14 @@ fn policy_memory_stores_and_retrieves_latest_decision_by_thread_id() {
 
 #[test]
 fn retry_guard_blocks_same_approach_hash_in_same_thread_id() {
-    let mut retry_guards = RetryGuardsByThread::new();
+    let mut retry_guards = ShortLivedRetryGuards::new();
+    let scope = scope("thread-1", Some("goal-1"));
 
-    record_retry_guard(&mut retry_guards, "thread-1", "approach-hash-1", 1_000);
+    record_retry_guard(&mut retry_guards, &scope, "approach-hash-1", 1_000);
 
     assert!(is_retry_guard_active(
-        &retry_guards,
-        "thread-1",
+        &mut retry_guards,
+        &scope,
         "approach-hash-1",
         1_030,
         60,
@@ -474,13 +476,14 @@ fn retry_guard_blocks_same_approach_hash_in_same_thread_id() {
 
 #[test]
 fn retry_guard_does_not_block_different_approach_hash() {
-    let mut retry_guards = RetryGuardsByThread::new();
+    let mut retry_guards = ShortLivedRetryGuards::new();
+    let scope = scope("thread-1", Some("goal-1"));
 
-    record_retry_guard(&mut retry_guards, "thread-1", "approach-hash-1", 1_000);
+    record_retry_guard(&mut retry_guards, &scope, "approach-hash-1", 1_000);
 
     assert!(!is_retry_guard_active(
-        &retry_guards,
-        "thread-1",
+        &mut retry_guards,
+        &scope,
         "approach-hash-2",
         1_030,
         60,
@@ -489,28 +492,68 @@ fn retry_guard_does_not_block_different_approach_hash() {
 
 #[test]
 fn policy_memory_expired_entries_stop_applying() {
-    let mut recent_decisions = RecentPolicyDecisionsByThread::new();
+    let mut recent_decisions = ShortLivedRecentPolicyDecisions::new();
+    let scope = scope("thread-1", Some("goal-1"));
     let recorded = reasoned_decision(PolicyAction::HaltRetries, "Stop retrying the same failure.");
 
-    record_policy_decision(&mut recent_decisions, "thread-1", recorded, 1_000);
+    record_policy_decision(&mut recent_decisions, &scope, recorded, 1_000);
 
     assert_eq!(
-        latest_policy_decision(&recent_decisions, "thread-1", 1_061, 60),
+        latest_policy_decision(&mut recent_decisions, &scope, 1_061, 60),
+        None
+    );
+    assert!(recent_decisions.is_empty());
+}
+
+#[test]
+fn retry_guard_expired_entries_stop_applying() {
+    let mut retry_guards = ShortLivedRetryGuards::new();
+    let scope = scope("thread-1", Some("goal-1"));
+
+    record_retry_guard(&mut retry_guards, &scope, "approach-hash-1", 1_000);
+
+    assert!(!is_retry_guard_active(
+        &mut retry_guards,
+        &scope,
+        "approach-hash-1",
+        1_061,
+        60,
+    ));
+    assert!(retry_guards.is_empty());
+}
+
+#[test]
+fn short_lived_policy_memory_does_not_leak_across_goal_runs_in_same_thread() {
+    let mut recent_decisions = ShortLivedRecentPolicyDecisions::new();
+    let goal_one_scope = scope("thread-1", Some("goal-1"));
+    let goal_two_scope = scope("thread-1", Some("goal-2"));
+
+    record_policy_decision(
+        &mut recent_decisions,
+        &goal_one_scope,
+        reasoned_decision(PolicyAction::Pivot, "Switch approach."),
+        1_000,
+    );
+
+    assert_eq!(
+        latest_policy_decision(&mut recent_decisions, &goal_two_scope, 1_030, 60),
         None
     );
 }
 
 #[test]
-fn retry_guard_expired_entries_stop_applying() {
-    let mut retry_guards = RetryGuardsByThread::new();
+fn short_lived_retry_guard_does_not_leak_across_goal_runs_in_same_thread() {
+    let mut retry_guards = ShortLivedRetryGuards::new();
+    let goal_one_scope = scope("thread-1", Some("goal-1"));
+    let goal_two_scope = scope("thread-1", Some("goal-2"));
 
-    record_retry_guard(&mut retry_guards, "thread-1", "approach-hash-1", 1_000);
+    record_retry_guard(&mut retry_guards, &goal_one_scope, "approach-hash-1", 1_000);
 
     assert!(!is_retry_guard_active(
-        &retry_guards,
-        "thread-1",
+        &mut retry_guards,
+        &goal_two_scope,
         "approach-hash-1",
-        1_061,
+        1_030,
         60,
     ));
 }
