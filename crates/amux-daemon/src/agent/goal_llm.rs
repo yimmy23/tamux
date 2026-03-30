@@ -736,13 +736,9 @@ fn orchestrator_policy_json_schema() -> serde_json::Value {
             "strategy_hint": {
                 "type": ["string", "null"],
                 "maxLength": 160
-            },
-            "retry_guard": {
-                "type": ["string", "null"],
-                "maxLength": 160
             }
         },
-        "required": ["action", "reason", "strategy_hint", "retry_guard"],
+        "required": ["action", "reason", "strategy_hint"],
         "additionalProperties": false
     })
 }

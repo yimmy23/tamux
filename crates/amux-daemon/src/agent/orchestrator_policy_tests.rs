@@ -507,6 +507,28 @@ fn decision_validate_continue_accepts_structured_output() {
 }
 
 #[test]
+fn decision_missing_retry_guard_defaults_to_none_during_deserialization() {
+    let decision: PolicyDecision = serde_json::from_str(
+        r#"{
+            "action": "halt_retries",
+            "reason": "Stop retrying the same failing approach.",
+            "strategy_hint": null
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        decision,
+        PolicyDecision {
+            action: PolicyAction::HaltRetries,
+            reason: "Stop retrying the same failing approach.".to_string(),
+            strategy_hint: None,
+            retry_guard: None,
+        }
+    );
+}
+
+#[test]
 fn decision_validate_pivot_accepts_retry_guard() {
     let decision: PolicyDecision = serde_json::from_str(
         r#"{
@@ -840,6 +862,8 @@ fn policy_eval_prompt_builder_includes_recent_context_sections() {
     assert!(prompt.contains("Recent policy decision summary"));
     assert!(prompt.contains("thread-9"));
     assert!(prompt.contains("goal-9"));
+    assert!(!prompt.contains("\"retry_guard\""));
+    assert!(prompt.contains("Do not return `retry_guard`"));
 }
 
 #[test]
@@ -945,6 +969,59 @@ fn policy_eval_missing_result_degrades_to_continue() {
             retry_guard: None,
         }
     );
+}
+
+#[test]
+fn policy_eval_runtime_owns_halt_retry_guard_and_ignores_hallucinated_value() {
+    let evaluated = runtime_owns_policy_retry_guard(
+        PolicyDecision {
+            action: PolicyAction::HaltRetries,
+            reason: "Stop retrying the same failing path.".to_string(),
+            strategy_hint: None,
+            retry_guard: Some("hallucinated-guard".to_string()),
+        },
+        Some("approach-hash-1"),
+    );
+
+    assert_eq!(evaluated.action, PolicyAction::HaltRetries);
+    assert_eq!(evaluated.retry_guard.as_deref(), Some("approach-hash-1"));
+}
+
+#[test]
+fn policy_eval_runtime_drops_retry_guard_for_non_guarded_decisions() {
+    let evaluated = runtime_owns_policy_retry_guard(
+        PolicyDecision {
+            action: PolicyAction::Pivot,
+            reason: "Try a different bounded strategy.".to_string(),
+            strategy_hint: Some("Inspect state before retrying.".to_string()),
+            retry_guard: Some("hallucinated-guard".to_string()),
+        },
+        Some("approach-hash-1"),
+    );
+
+    assert_eq!(evaluated.action, PolicyAction::Pivot);
+    assert_eq!(evaluated.retry_guard, None);
+    assert_eq!(
+        evaluated.strategy_hint.as_deref(),
+        Some("Inspect state before retrying.")
+    );
+}
+
+#[test]
+fn policy_eval_halt_retries_without_live_runtime_guard_degrades_to_continue() {
+    let evaluated = runtime_owns_policy_retry_guard(
+        PolicyDecision {
+            action: PolicyAction::HaltRetries,
+            reason: "Stop retrying the same failing path.".to_string(),
+            strategy_hint: None,
+            retry_guard: Some("hallucinated-guard".to_string()),
+        },
+        None,
+    );
+
+    assert_eq!(evaluated.action, PolicyAction::Continue);
+    assert_eq!(evaluated.retry_guard, None);
+    assert!(evaluated.reason.contains("without a live retry guard"));
 }
 
 #[tokio::test]
@@ -1247,7 +1324,7 @@ async fn apply_recent_policy_decision_is_persisted_and_reused_on_next_relevant_t
 async fn evaluate_policy_turn_reuses_persisted_recent_decision_for_matching_runtime_candidate() {
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
     let engine = policy_runtime_engine(
-        r#"{"action":"pivot","reason":"Current path is still stuck.","strategy_hint":"Inspect the workspace before running commands again.","retry_guard":"approach-hash-1"}"#,
+        r#"{"action":"pivot","reason":"Current path is still stuck.","strategy_hint":"Inspect the workspace before running commands again."}"#,
         recorded_bodies.clone(),
     )
     .await;
@@ -1280,7 +1357,7 @@ async fn evaluate_policy_turn_reuses_persisted_recent_decision_for_matching_runt
 async fn evaluate_policy_turn_does_not_reuse_recent_decision_for_different_runtime_retry_guard() {
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
     let engine = policy_runtime_engine(
-        r#"{"action":"halt_retries","reason":"Stop retrying the new failing approach.","strategy_hint":null,"retry_guard":"approach-hash-2"}"#,
+        r#"{"action":"halt_retries","reason":"Stop retrying the new failing approach.","strategy_hint":null}"#,
         recorded_bodies.clone(),
     )
     .await;
@@ -1322,10 +1399,58 @@ async fn evaluate_policy_turn_does_not_reuse_recent_decision_for_different_runti
 }
 
 #[tokio::test]
+async fn evaluate_policy_turn_records_runtime_owned_guard_for_fresh_halt_retries() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let engine = policy_runtime_engine(
+        r#"{"action":"halt_retries","reason":"Stop retrying the same failing approach.","strategy_hint":null}"#,
+        recorded_bodies,
+    )
+    .await;
+    let scope = scope("thread-runtime-owned-guard", Some("goal-1"));
+
+    let selection = engine
+        .evaluate_orchestrator_policy_turn(&scope, policy_eval_context(), 1_010)
+        .await
+        .expect("policy evaluation should succeed");
+
+    assert_eq!(selection.source, PolicyDecisionSource::FreshEvaluation);
+    assert_eq!(selection.decision.action, PolicyAction::HaltRetries);
+    assert_eq!(selection.decision.retry_guard.as_deref(), Some("approach-hash-1"));
+
+    let recent = engine
+        .latest_policy_decision(&scope, 1_020)
+        .await
+        .expect("recent policy decision");
+    assert_eq!(recent.decision.retry_guard.as_deref(), Some("approach-hash-1"));
+}
+
+#[tokio::test]
+async fn evaluate_policy_turn_fresh_halt_retries_without_live_guard_degrades_to_continue() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let engine = policy_runtime_engine(
+        r#"{"action":"halt_retries","reason":"Stop retrying the same failing approach.","strategy_hint":null}"#,
+        recorded_bodies,
+    )
+    .await;
+    let scope = scope("thread-runtime-no-live-guard", Some("goal-1"));
+    let mut context = policy_eval_context();
+    context.current_retry_guard = None;
+
+    let selection = engine
+        .evaluate_orchestrator_policy_turn(&scope, context, 1_010)
+        .await
+        .expect("policy evaluation should succeed");
+
+    assert_eq!(selection.source, PolicyDecisionSource::FreshEvaluation);
+    assert_eq!(selection.decision.action, PolicyAction::Continue);
+    assert_eq!(selection.decision.retry_guard, None);
+}
+
+#[tokio::test]
 async fn evaluate_policy_turn_reuses_recent_non_guarded_decision_for_matching_runtime_candidate() {
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
     let engine = policy_runtime_engine(
-        r#"{"action":"escalate","reason":"Operator guidance is still needed.","strategy_hint":null,"retry_guard":null}"#,
+        r#"{"action":"escalate","reason":"Operator guidance is still needed.","strategy_hint":null}"#,
         recorded_bodies.clone(),
     )
     .await;
@@ -1363,7 +1488,7 @@ async fn evaluate_policy_turn_reuses_recent_non_guarded_decision_for_matching_ru
 async fn evaluate_policy_turn_does_not_reuse_recent_non_guarded_decision_for_materially_different_candidate() {
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
     let engine = policy_runtime_engine(
-        r#"{"action":"pivot","reason":"A different bounded strategy is more appropriate.","strategy_hint":"Inspect the workspace before running commands again.","retry_guard":null}"#,
+        r#"{"action":"pivot","reason":"A different bounded strategy is more appropriate.","strategy_hint":"Inspect the workspace before running commands again."}"#,
         recorded_bodies.clone(),
     )
     .await;

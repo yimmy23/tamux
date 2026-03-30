@@ -430,12 +430,12 @@ pub(crate) fn build_policy_eval_prompt(context: &PolicyEvaluationContext) -> Str
     let mut prompt = String::from(
         "You are evaluating whether the tamux orchestrator should continue, pivot, escalate, or halt_retries.\n\
          Return strict JSON only with this shape:\n\
-         {\"action\":\"continue|pivot|escalate|halt_retries\",\"reason\":\"...\",\"strategy_hint\":null,\"retry_guard\":null}\n\
+         {\"action\":\"continue|pivot|escalate|halt_retries\",\"reason\":\"...\",\"strategy_hint\":null}\n\
          Requirements:\n\
          - Use `continue` when evidence is weak or mixed.\n\
          - Keep `reason` short and concrete.\n\
          - Keep `strategy_hint` short and only use it for pivot.\n\
-         - Only set `retry_guard` when blocking the same failing approach is justified.\n\
+         - Do not return `retry_guard`; runtime owns any retry guard binding.\n\
          - Do not invent missing context.\n\n",
     );
 
@@ -531,6 +531,37 @@ pub(crate) fn normalize_policy_eval_decision(decision: Option<PolicyDecision>) -
         },
         None => {
             continue_policy_decision("Policy evaluation unavailable; continuing current execution.")
+        }
+    }
+}
+
+fn runtime_owns_policy_retry_guard(
+    decision: PolicyDecision,
+    current_retry_guard: Option<&str>,
+) -> PolicyDecision {
+    match decision.action {
+        PolicyAction::Continue | PolicyAction::Escalate => PolicyDecision {
+            retry_guard: None,
+            ..decision
+        },
+        PolicyAction::Pivot => PolicyDecision {
+            retry_guard: None,
+            ..decision
+        },
+        PolicyAction::HaltRetries => {
+            let Some(current_retry_guard) = current_retry_guard
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return continue_policy_decision(
+                    "Policy evaluation requested halt_retries without a live retry guard; continuing current execution.",
+                );
+            };
+
+            PolicyDecision {
+                retry_guard: Some(current_retry_guard.to_string()),
+                ..decision
+            }
         }
     }
 }
@@ -915,9 +946,16 @@ impl AgentEngine {
         let mut context = context;
         context.recent_decision_summary = recent.as_ref().map(summarize_recent_policy_decision);
         let prompt = build_policy_eval_prompt(&context);
-        let evaluated = normalize_policy_eval_decision(
-            self.request_orchestrator_policy_decision(&prompt).await?,
-        );
+        let evaluated = normalize_policy_eval_decision(Some(runtime_owns_policy_retry_guard(
+            self.request_orchestrator_policy_decision(&prompt)
+                .await?
+                .unwrap_or_else(|| {
+                    continue_policy_decision(
+                        "Policy evaluation unavailable; continuing current execution.",
+                    )
+                }),
+            context.current_retry_guard.as_deref(),
+        )));
         let selection = if evaluated.retry_guard.is_none()
             || retry_guard_matches_runtime_context(&evaluated, &context)
         {
