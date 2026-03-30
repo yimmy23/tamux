@@ -91,10 +91,50 @@ pub fn is_constraint_active(constraint: &NegativeConstraint, now_ms: u64) -> boo
     }
 }
 
+fn constraint_state_rank(state: ConstraintState) -> u8 {
+    match state {
+        ConstraintState::Dead => 3,
+        ConstraintState::Dying => 2,
+        ConstraintState::Suspicious => 1,
+    }
+}
+
+fn constraint_state_label(state: ConstraintState) -> &'static str {
+    match state {
+        ConstraintState::Dead => "DO NOT attempt",
+        ConstraintState::Dying => "Avoid unless you have new evidence",
+        ConstraintState::Suspicious => "Use caution",
+    }
+}
+
+fn constraint_state_str(state: ConstraintState) -> &'static str {
+    match state {
+        ConstraintState::Dead => "dead",
+        ConstraintState::Dying => "dying",
+        ConstraintState::Suspicious => "suspicious",
+    }
+}
+
+fn constraint_source_line(constraint: &NegativeConstraint) -> String {
+    let source = if constraint.direct_observation {
+        "direct"
+    } else {
+        "inferred"
+    };
+
+    if constraint.derived_from_constraint_ids.is_empty() {
+        format!("Source: {source}")
+    } else {
+        let count = constraint.derived_from_constraint_ids.len();
+        let noun = if count == 1 { "constraint" } else { "constraints" };
+        format!("Source: {source} from {count} related dead {noun}")
+    }
+}
+
 /// Format active negative constraints for system prompt injection.
-/// Filters to active only, caps at 10, produces "DO NOT attempt" labels.
+/// Filters to active only, sorts strongest-first, and caps at 10.
 pub fn format_negative_constraints(constraints: &[NegativeConstraint], now_ms: u64) -> String {
-    let active: Vec<&NegativeConstraint> = constraints
+    let mut active: Vec<&NegativeConstraint> = constraints
         .iter()
         .filter(|c| is_constraint_active(c, now_ms))
         .collect();
@@ -102,6 +142,12 @@ pub fn format_negative_constraints(constraints: &[NegativeConstraint], now_ms: u
     if active.is_empty() {
         return String::new();
     }
+
+    active.sort_by(|a, b| {
+        constraint_state_rank(b.state)
+            .cmp(&constraint_state_rank(a.state))
+            .then_with(|| b.created_at.cmp(&a.created_at))
+    });
 
     let mut out = String::new();
     out.push_str("## Ruled-Out Approaches (Negative Knowledge)\n");
@@ -114,13 +160,19 @@ pub fn format_negative_constraints(constraints: &[NegativeConstraint], now_ms: u
             ConstraintType::KnownLimitation => "known_limitation",
         };
 
-        out.push_str(&format!("DO NOT attempt: {}\n", constraint.subject));
+        out.push_str(&format!(
+            "{}: {}\n",
+            constraint_state_label(constraint.state),
+            constraint.subject
+        ));
+        out.push_str(&format!("  State: {}\n", constraint_state_str(constraint.state)));
         out.push_str(&format!("  Reason: {}\n", constraint.description));
         out.push_str(&format!(
             "  Type: {} (confidence: {:.0}%)\n",
             constraint_type_str,
             constraint.confidence * 100.0
         ));
+        out.push_str(&format!("  {}\n", constraint_source_line(constraint)));
 
         if let Some(ref sc) = constraint.solution_class {
             out.push_str(&format!("  Solution class: {sc}\n"));
@@ -408,9 +460,80 @@ mod tests {
         }
     }
 
+    fn make_constraint_with_details(
+        subject: &str,
+        state: ConstraintState,
+        created_at: u64,
+        direct_observation: bool,
+        derived_from_constraint_ids: &[&str],
+    ) -> NegativeConstraint {
+        NegativeConstraint {
+            subject: subject.to_string(),
+            state,
+            created_at,
+            direct_observation,
+            derived_from_constraint_ids: derived_from_constraint_ids
+                .iter()
+                .map(|id| (*id).to_string())
+                .collect(),
+            valid_until: Some(2_000_000_000),
+            ..make_constraint(subject, Some(2_000_000_000))
+        }
+    }
+
     #[test]
     fn format_negative_constraints_empty_returns_empty() {
         assert!(format_negative_constraints(&[], 1_000_000_000).is_empty());
+    }
+
+    #[test]
+    fn format_negative_constraints_groups_and_sorts_by_state_then_created_at() {
+        let constraints = vec![
+            make_constraint_with_details("suspicious old", ConstraintState::Suspicious, 100, true, &[]),
+            make_constraint_with_details("dead newer", ConstraintState::Dead, 300, true, &["nc-1"]),
+            make_constraint_with_details("dying newest", ConstraintState::Dying, 400, false, &["nc-2"]),
+            make_constraint_with_details("dead oldest", ConstraintState::Dead, 200, true, &[]),
+            make_constraint_with_details("suspicious newer", ConstraintState::Suspicious, 500, false, &[]),
+        ];
+
+        let result = format_negative_constraints(&constraints, 1_000_000_000);
+
+        let dead_newer = result.find("DO NOT attempt: dead newer").unwrap();
+        let dead_oldest = result.find("DO NOT attempt: dead oldest").unwrap();
+        let dying_newest = result.find("Avoid unless you have new evidence: dying newest").unwrap();
+        let suspicious_newer = result.find("Use caution: suspicious newer").unwrap();
+        let suspicious_old = result.find("Use caution: suspicious old").unwrap();
+
+        assert!(dead_newer < dead_oldest);
+        assert!(dead_oldest < dying_newest);
+        assert!(dying_newest < suspicious_newer);
+        assert!(suspicious_newer < suspicious_old);
+    }
+
+    #[test]
+    fn format_negative_constraints_renders_state_metadata_and_conditional_provenance() {
+        let constraints = vec![
+            make_constraint_with_details("dead path", ConstraintState::Dead, 300, true, &["nc-1"]),
+            make_constraint_with_details("dying path", ConstraintState::Dying, 200, false, &["nc-2"]),
+            make_constraint_with_details("suspicious path", ConstraintState::Suspicious, 100, true, &[]),
+        ];
+
+        let result = format_negative_constraints(&constraints, 1_000_000_000);
+
+        assert!(result.contains("DO NOT attempt: dead path"));
+        assert!(result.contains("Avoid unless you have new evidence: dying path"));
+        assert!(result.contains("Use caution: suspicious path"));
+        assert!(result.contains("State: dead"));
+        assert!(result.contains("State: dying"));
+        assert!(result.contains("State: suspicious"));
+        assert!(result.contains("Reason: Reason for dead path"));
+        assert!(result.contains("Type: ruled_out"));
+        assert!(result.contains("confidence: 85%"));
+        assert!(result.contains("Source: direct"));
+        assert!(result.contains("Source: inferred"));
+        assert!(result.contains("Source: direct from 1 related dead constraint"));
+        assert!(result.contains("Source: inferred from 1 related dead constraint"));
+        assert!(!result.contains("Source: direct from 0 related dead constraints"));
     }
 
     #[test]
@@ -420,11 +543,14 @@ mod tests {
             make_constraint("yarn install approach", None),
         ];
         let result = format_negative_constraints(&constraints, 1_000_000_000);
-        assert!(result.contains("DO NOT attempt: npm install approach"));
-        assert!(result.contains("DO NOT attempt: yarn install approach"));
+        assert!(result.contains("Avoid unless you have new evidence: npm install approach"));
+        assert!(result.contains("Avoid unless you have new evidence: yarn install approach"));
         assert!(result.contains("Ruled-Out Approaches"));
+        assert!(result.contains("State: dying"));
         assert!(result.contains("Reason: Reason for npm install approach"));
+        assert!(result.contains("Type: ruled_out"));
         assert!(result.contains("confidence: 85%"));
+        assert!(result.contains("Source: direct"));
     }
 
     #[test]
