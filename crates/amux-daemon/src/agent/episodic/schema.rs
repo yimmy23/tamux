@@ -191,10 +191,16 @@ fn ensure_column(
         .into_iter()
         .any(|existing| existing == column);
     if !exists {
-        conn.execute(
+        match conn.execute(
             &format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}"),
             [],
-        )?;
+        ) {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(err, Some(message)))
+                if err.code == rusqlite::ErrorCode::Unknown
+                    && message.contains("duplicate column name") => {}
+            Err(err) => return Err(err.into()),
+        }
     }
     Ok(())
 }
@@ -204,6 +210,9 @@ mod tests {
     use super::init_episodic_schema;
     use anyhow::Result;
     use rusqlite::Connection;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use uuid::Uuid;
 
     fn assert_constraint_state_columns_exist(conn: &Connection) -> Result<()> {
         let mut stmt = conn.prepare("PRAGMA table_info(negative_knowledge)")?;
@@ -260,6 +269,53 @@ mod tests {
         init_episodic_schema(&conn)?;
 
         assert_constraint_state_columns_exist(&conn)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn init_episodic_schema_tolerates_concurrent_legacy_migration() -> Result<()> {
+        let db_path = std::env::temp_dir().join(format!(
+            "tamux-episodic-schema-concurrency-{}.db",
+            Uuid::new_v4()
+        ));
+
+        Connection::open(&db_path)?.execute_batch(
+            "CREATE TABLE negative_knowledge (
+                id              TEXT PRIMARY KEY,
+                agent_id        TEXT,
+                episode_id      TEXT,
+                constraint_type TEXT NOT NULL,
+                subject         TEXT NOT NULL,
+                solution_class  TEXT,
+                description     TEXT NOT NULL,
+                confidence      REAL NOT NULL,
+                valid_until     INTEGER,
+                created_at      INTEGER NOT NULL
+            );",
+        )?;
+
+        let workers = 8;
+        let barrier = Arc::new(Barrier::new(workers));
+        let mut handles = Vec::with_capacity(workers);
+
+        for _ in 0..workers {
+            let barrier = Arc::clone(&barrier);
+            let db_path = db_path.clone();
+            handles.push(thread::spawn(move || -> Result<()> {
+                let conn = Connection::open(db_path)?;
+                barrier.wait();
+                init_episodic_schema(&conn)
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("schema worker panicked")?;
+        }
+
+        let conn = Connection::open(&db_path)?;
+        assert_constraint_state_columns_exist(&conn)?;
+        let _ = std::fs::remove_file(db_path);
 
         Ok(())
     }
