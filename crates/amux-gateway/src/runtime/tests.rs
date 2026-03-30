@@ -37,6 +37,15 @@ fn sample_bootstrap() -> GatewayBootstrapPayload {
                 route_mode: GatewayRouteMode::Swarog,
                 updated_at_ms: 3333,
             }],
+            health_snapshots: vec![GatewayHealthState {
+                platform: "slack".to_string(),
+                status: GatewayConnectionStatus::Connected,
+                last_success_at_ms: Some(4444),
+                last_error_at_ms: None,
+                consecutive_failure_count: 0,
+                last_error: None,
+                current_backoff_secs: 0,
+            }],
         },
     }
 }
@@ -90,6 +99,10 @@ async fn gateway_runtime_bootstraps_from_daemon_message() {
     assert_eq!(
         state.route_mode("slack:C123"),
         Some(GatewayRouteMode::Swarog)
+    );
+    assert_eq!(
+        state.health_snapshot("slack").map(|value| value.status),
+        Some(GatewayConnectionStatus::Connected)
     );
     assert!(daemon_rx.try_recv().is_err());
 }
@@ -183,6 +196,11 @@ async fn gateway_runtime_emits_live_cursor_thread_binding_and_route_mode_updates
             current_backoff_secs: 0,
         })
         .expect("health update should emit");
+
+    assert_eq!(
+        runtime.state().health_snapshot("SLACK").map(|value| value.status),
+        Some(GatewayConnectionStatus::Connected)
+    );
 
     assert!(matches!(
         daemon_rx.recv().await,

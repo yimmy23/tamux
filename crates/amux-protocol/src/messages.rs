@@ -98,6 +98,8 @@ pub struct GatewayContinuityState {
     pub thread_bindings: Vec<GatewayThreadBindingState>,
     #[serde(default)]
     pub route_modes: Vec<GatewayRouteModeState>,
+    #[serde(default)]
+    pub health_snapshots: Vec<GatewayHealthState>,
 }
 
 /// Full daemon -> gateway bootstrap payload sent after registration succeeds.
@@ -889,42 +891,28 @@ pub enum ClientMessage {
     // Gateway runtime
     // -----------------------------------------------------------------------
     /// Gateway -> daemon: register a dedicated gateway runtime on the existing IPC socket.
-    GatewayRegister {
-        registration: GatewayRegistration,
-    },
+    GatewayRegister { registration: GatewayRegistration },
 
     /// Gateway -> daemon: acknowledge bootstrap or a daemon-issued control command.
     GatewayAck { ack: GatewayAck },
 
     /// Gateway -> daemon: forward a normalized inbound platform event for routing.
-    GatewayIncomingEvent {
-        event: GatewayIncomingEvent,
-    },
+    GatewayIncomingEvent { event: GatewayIncomingEvent },
 
     /// Gateway -> daemon: persist replay cursor progress after ingesting an event batch.
-    GatewayCursorUpdate {
-        update: GatewayCursorState,
-    },
+    GatewayCursorUpdate { update: GatewayCursorState },
 
     /// Gateway -> daemon: persist the current channel -> thread binding.
-    GatewayThreadBindingUpdate {
-        update: GatewayThreadBindingState,
-    },
+    GatewayThreadBindingUpdate { update: GatewayThreadBindingState },
 
     /// Gateway -> daemon: persist the current sticky route mode for a channel.
-    GatewayRouteModeUpdate {
-        update: GatewayRouteModeState,
-    },
+    GatewayRouteModeUpdate { update: GatewayRouteModeState },
 
     /// Gateway -> daemon: report the result of a daemon-issued outbound send request.
-    GatewaySendResult {
-        result: GatewaySendResult,
-    },
+    GatewaySendResult { result: GatewaySendResult },
 
     /// Gateway -> daemon: report per-platform runtime health for supervision and UI status.
-    GatewayHealthUpdate {
-        update: GatewayHealthState,
-    },
+    GatewayHealthUpdate { update: GatewayHealthState },
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,24 +1477,16 @@ pub enum DaemonMessage {
     // Gateway runtime
     // -----------------------------------------------------------------------
     /// Daemon -> gateway: deliver the bootstrap payload after registration succeeds.
-    GatewayBootstrap {
-        payload: GatewayBootstrapPayload,
-    },
+    GatewayBootstrap { payload: GatewayBootstrapPayload },
 
     /// Daemon -> gateway: request an outbound platform send correlated by request ID.
-    GatewaySendRequest {
-        request: GatewaySendRequest,
-    },
+    GatewaySendRequest { request: GatewaySendRequest },
 
     /// Daemon -> gateway: reload provider configuration / feature flags without reconnecting.
-    GatewayReloadCommand {
-        command: GatewayReloadCommand,
-    },
+    GatewayReloadCommand { command: GatewayReloadCommand },
 
     /// Daemon -> gateway: stop the dedicated runtime gracefully.
-    GatewayShutdownCommand {
-        command: GatewayShutdownCommand,
-    },
+    GatewayShutdownCommand { command: GatewayShutdownCommand },
 }
 
 // ---------------------------------------------------------------------------
@@ -2129,6 +2109,15 @@ mod tests {
                         route_mode: GatewayRouteMode::Rarog,
                         updated_at_ms: 1_710_000_000_002,
                     }],
+                    health_snapshots: vec![GatewayHealthState {
+                        platform: "slack".to_string(),
+                        status: GatewayConnectionStatus::Error,
+                        last_success_at_ms: Some(1_710_000_000_000),
+                        last_error_at_ms: Some(1_710_000_000_100),
+                        consecutive_failure_count: 2,
+                        last_error: Some("timeout".to_string()),
+                        current_backoff_secs: 30,
+                    }],
                 },
             },
         };
@@ -2143,6 +2132,7 @@ mod tests {
                 assert_eq!(payload.continuity.cursors.len(), 1);
                 assert_eq!(payload.continuity.thread_bindings.len(), 1);
                 assert_eq!(payload.continuity.route_modes.len(), 1);
+                assert_eq!(payload.continuity.health_snapshots.len(), 1);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

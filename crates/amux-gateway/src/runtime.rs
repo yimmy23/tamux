@@ -177,6 +177,7 @@ impl GatewayRuntimeCore {
     }
 
     pub fn emit_health_update(&mut self, update: GatewayHealthState) -> Result<()> {
+        self.state.apply_health_update(update.clone());
         self.send_to_daemon(ClientMessage::GatewayHealthUpdate { update })
     }
 
