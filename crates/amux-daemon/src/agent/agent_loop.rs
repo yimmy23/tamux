@@ -505,13 +505,15 @@ impl AgentEngine {
             // Call LLM
             // Circuit breaker check: reject fast if the provider is unhealthy.
             if let Err(e) = self.check_circuit_breaker(&config.provider).await {
-                let suggestion = self
+                let outage_context = self
                     .suggest_alternative_provider(&config.provider)
                     .await
-                    .unwrap_or_default();
+                    .unwrap_or_else(|| {
+                        "No healthy fallback providers are currently available.".to_string()
+                    });
                 let error_msg = format!(
                     "Provider '{}' is temporarily unavailable (circuit breaker open). {}",
-                    config.provider, suggestion
+                    config.provider, outage_context
                 );
                 let _ = self.event_tx.send(AgentEvent::Error {
                     thread_id: tid.clone(),

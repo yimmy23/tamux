@@ -1889,6 +1889,41 @@ pub struct ProviderAuthState {
     pub base_url: String,
 }
 
+/// A structured fallback suggestion for an outage or degraded provider.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderAlternativeSuggestion {
+    pub provider_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub reason: String,
+}
+
+/// Structured outage metadata attached to provider circuit-breaker events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderCircuitOpenDetails {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_model: Option<String>,
+    pub trip_count: u32,
+    pub reason: String,
+    #[serde(default)]
+    pub suggested_alternatives: Vec<ProviderAlternativeSuggestion>,
+}
+
+/// Structured provider-health snapshot entry exposed in `provider_health_json`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderHealthSnapshot {
+    pub provider_id: String,
+    pub can_execute: bool,
+    pub trip_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub suggested_alternatives: Vec<ProviderAlternativeSuggestion>,
+}
+
 // ---------------------------------------------------------------------------
 // Concierge
 // ---------------------------------------------------------------------------
@@ -2266,7 +2301,12 @@ pub enum AgentEvent {
     /// A provider's circuit breaker has tripped to Open state (per D-06).
     ProviderCircuitOpen {
         provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failed_model: Option<String>,
         trip_count: u32,
+        reason: String,
+        #[serde(default)]
+        suggested_alternatives: Vec<ProviderAlternativeSuggestion>,
     },
     /// A provider's circuit breaker has recovered to Closed state (per D-07).
     ProviderCircuitRecovered {
@@ -3586,17 +3626,31 @@ mod tests {
     fn circuit_breaker_event_serde_roundtrip() {
         let event = AgentEvent::ProviderCircuitOpen {
             provider: "openai".to_string(),
+            failed_model: None,
             trip_count: 3,
+            reason: "circuit breaker open".to_string(),
+            suggested_alternatives: vec![ProviderAlternativeSuggestion {
+                provider_id: "groq".to_string(),
+                model: Some("llama-3.3-70b-versatile".to_string()),
+                reason: "healthy and configured".to_string(),
+            }],
         };
         let json = serde_json::to_string(&event).unwrap();
         let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
         match parsed {
             AgentEvent::ProviderCircuitOpen {
                 provider,
+                failed_model,
                 trip_count,
+                reason,
+                suggested_alternatives,
             } => {
                 assert_eq!(provider, "openai");
+                assert!(failed_model.is_none());
                 assert_eq!(trip_count, 3);
+                assert_eq!(reason, "circuit breaker open");
+                assert_eq!(suggested_alternatives.len(), 1);
+                assert_eq!(suggested_alternatives[0].provider_id, "groq");
             }
             _ => panic!("wrong variant after deserialize"),
         }
@@ -3609,6 +3663,47 @@ mod tests {
         match parsed {
             AgentEvent::ProviderCircuitRecovered { provider } => {
                 assert_eq!(provider, "anthropic");
+            }
+            _ => panic!("wrong variant after deserialize"),
+        }
+    }
+
+    #[test]
+    fn circuit_breaker_event_deserializes_richer_outage_metadata() {
+        let json = serde_json::json!({
+            "type": "provider_circuit_open",
+            "provider": "openai",
+            "failed_model": "gpt-4o",
+            "trip_count": 4,
+            "reason": "circuit breaker open after repeated failures",
+            "suggested_alternatives": [
+                {
+                    "provider_id": "groq",
+                    "model": "llama-3.3-70b-versatile",
+                    "reason": "healthy and configured"
+                }
+            ]
+        });
+
+        let parsed: AgentEvent = serde_json::from_value(json).unwrap();
+        match parsed {
+            AgentEvent::ProviderCircuitOpen {
+                provider,
+                failed_model,
+                trip_count,
+                reason,
+                suggested_alternatives,
+            } => {
+                assert_eq!(provider, "openai");
+                assert_eq!(failed_model.as_deref(), Some("gpt-4o"));
+                assert_eq!(trip_count, 4);
+                assert_eq!(reason, "circuit breaker open after repeated failures");
+                assert_eq!(suggested_alternatives.len(), 1);
+                assert_eq!(suggested_alternatives[0].provider_id, "groq");
+                assert_eq!(
+                    suggested_alternatives[0].model.as_deref(),
+                    Some("llama-3.3-70b-versatile")
+                );
             }
             _ => panic!("wrong variant after deserialize"),
         }

@@ -73,6 +73,184 @@ pub(crate) fn aline_available() -> bool {
     *AVAILABLE.get_or_init(|| which::which("aline").is_ok())
 }
 
+pub(super) async fn provider_is_eligible_for_alternative(
+    config: &Arc<RwLock<AgentConfig>>,
+    circuit_breakers: &Arc<CircuitBreakerRegistry>,
+    failed_provider: &str,
+    provider_id: &str,
+) -> bool {
+    if provider_id == failed_provider {
+        return false;
+    }
+
+    let config_guard = config.read().await;
+    let Ok(resolved) = resolve_candidate_provider_config(&config_guard, provider_id) else {
+        return false;
+    };
+    drop(config_guard);
+
+    if resolved.model.trim().is_empty() || resolved.base_url.trim().is_empty() {
+        return false;
+    }
+
+    match resolved.auth_source {
+        AuthSource::ApiKey => {
+            if resolved.api_key.trim().is_empty() {
+                return false;
+            }
+        }
+        AuthSource::ChatgptSubscription => {
+            if provider_id != "openai" || !super::llm_client::has_openai_chatgpt_subscription_auth()
+            {
+                return false;
+            }
+        }
+    }
+
+    let breaker_arc = circuit_breakers.get(provider_id).await;
+    let mut breaker = breaker_arc.lock().await;
+    breaker.can_execute(now_millis())
+}
+
+async fn collect_provider_alternatives(
+    config: &Arc<RwLock<AgentConfig>>,
+    circuit_breakers: &Arc<CircuitBreakerRegistry>,
+    failed_provider: &str,
+) -> Vec<ProviderAlternativeSuggestion> {
+    let provider_ids: Vec<String> = config.read().await.providers.keys().cloned().collect();
+    let mut alternatives = Vec::new();
+
+    for provider_id in provider_ids {
+        if !provider_is_eligible_for_alternative(
+            config,
+            circuit_breakers,
+            failed_provider,
+            provider_id.as_str(),
+        )
+        .await
+        {
+            continue;
+        }
+
+        let config_guard = config.read().await;
+        let Ok(resolved) = resolve_candidate_provider_config(&config_guard, &provider_id) else {
+            continue;
+        };
+
+        alternatives.push(ProviderAlternativeSuggestion {
+            provider_id,
+            model: Some(resolved.model),
+            reason: "configured and healthy".to_string(),
+        });
+    }
+
+    alternatives
+}
+
+pub(super) async fn collect_provider_outage_metadata(
+    config: &Arc<RwLock<AgentConfig>>,
+    circuit_breakers: &Arc<CircuitBreakerRegistry>,
+    failed_provider: &str,
+    trip_count: u32,
+    reason: impl Into<String>,
+) -> ProviderCircuitOpenDetails {
+    let failed_model = {
+        let config_guard = config.read().await;
+        resolve_candidate_provider_config(&config_guard, failed_provider)
+            .ok()
+            .and_then(|resolved| (!resolved.model.trim().is_empty()).then_some(resolved.model))
+    };
+
+    ProviderCircuitOpenDetails {
+        provider: failed_provider.to_string(),
+        failed_model,
+        trip_count,
+        reason: reason.into(),
+        suggested_alternatives: collect_provider_alternatives(
+            config,
+            circuit_breakers,
+            failed_provider,
+        )
+        .await,
+    }
+}
+
+pub(super) async fn collect_provider_health_snapshot(
+    config: &Arc<RwLock<AgentConfig>>,
+    circuit_breakers: &Arc<CircuitBreakerRegistry>,
+) -> Vec<ProviderHealthSnapshot> {
+    let provider_ids: Vec<String> = config.read().await.providers.keys().cloned().collect();
+    let mut snapshots = Vec::new();
+
+    for provider_id in provider_ids {
+        let breaker_arc = circuit_breakers.get(&provider_id).await;
+        let mut breaker = breaker_arc.lock().await;
+        let can_execute = breaker.can_execute(now_millis());
+        let trip_count = breaker.trip_count();
+        drop(breaker);
+
+        if can_execute {
+            snapshots.push(ProviderHealthSnapshot {
+                provider_id,
+                can_execute,
+                trip_count,
+                failed_model: None,
+                reason: None,
+                suggested_alternatives: Vec::new(),
+            });
+            continue;
+        }
+
+        let outage = collect_provider_outage_metadata(
+            config,
+            circuit_breakers,
+            &provider_id,
+            trip_count,
+            "circuit breaker open",
+        )
+        .await;
+        snapshots.push(ProviderHealthSnapshot {
+            provider_id: outage.provider,
+            can_execute,
+            trip_count: outage.trip_count,
+            failed_model: outage.failed_model,
+            reason: Some(outage.reason),
+            suggested_alternatives: outage.suggested_alternatives,
+        });
+    }
+
+    snapshots
+}
+
+pub(super) fn format_provider_outage_message(
+    outage: &ProviderCircuitOpenDetails,
+) -> Option<String> {
+    if outage.suggested_alternatives.is_empty() {
+        return None;
+    }
+
+    let alternatives = outage
+        .suggested_alternatives
+        .iter()
+        .map(|alt| match &alt.model {
+            Some(model) => format!("{} ({})", alt.provider_id, model),
+            None => alt.provider_id.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let model = outage
+        .failed_model
+        .as_ref()
+        .map(|m| format!(" model '{}'", m))
+        .unwrap_or_default();
+
+    Some(format!(
+        "Provider '{}'{} is temporarily unavailable ({}). Alternatives: {}.",
+        outage.provider, model, outage.reason, alternatives
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // AgentEngine
 // ---------------------------------------------------------------------------
@@ -303,15 +481,28 @@ impl AgentEngine {
         let now = now_millis();
 
         if !breaker.can_execute(now) {
+            let trip_count = breaker.trip_count();
+            drop(breaker);
+            let outage = collect_provider_outage_metadata(
+                &self.config,
+                &self.circuit_breakers,
+                provider,
+                trip_count,
+                "circuit breaker open",
+            )
+            .await;
             let _ = self.event_tx.send(AgentEvent::ProviderCircuitOpen {
-                provider: provider.to_string(),
-                trip_count: breaker.trip_count(),
+                provider: outage.provider,
+                failed_model: outage.failed_model,
+                trip_count: outage.trip_count,
+                reason: outage.reason,
+                suggested_alternatives: outage.suggested_alternatives,
             });
             anyhow::bail!(
                 "Circuit breaker open for provider '{}' — {} consecutive failures. \
                  Requests are blocked for ~30s to allow recovery.",
                 provider,
-                breaker.trip_count()
+                trip_count
             );
         }
         Ok(())
@@ -343,14 +534,27 @@ impl AgentEngine {
             let was_closed_or_half = breaker.state() != CircuitState::Open;
             breaker.record_failure(now);
             if was_closed_or_half && breaker.state() == CircuitState::Open {
+                let trip_count = breaker.trip_count();
+                drop(breaker);
+                let outage = collect_provider_outage_metadata(
+                    &self.config,
+                    &self.circuit_breakers,
+                    provider,
+                    trip_count,
+                    "circuit breaker tripped",
+                )
+                .await;
                 tracing::warn!(
                     provider,
-                    trips = breaker.trip_count(),
+                    trips = trip_count,
                     "circuit breaker tripped — provider marked unhealthy"
                 );
                 let _ = self.event_tx.send(AgentEvent::ProviderCircuitOpen {
-                    provider: provider.to_string(),
-                    trip_count: breaker.trip_count(),
+                    provider: outage.provider,
+                    failed_model: outage.failed_model,
+                    trip_count: outage.trip_count,
+                    reason: outage.reason,
+                    suggested_alternatives: outage.suggested_alternatives,
                 });
             }
         }
@@ -361,38 +565,13 @@ impl AgentEngine {
         failed_provider: &str,
         provider_id: &str,
     ) -> bool {
-        if provider_id == failed_provider {
-            return false;
-        }
-
-        let config = self.config.read().await;
-        let Ok(resolved) = resolve_candidate_provider_config(&config, provider_id) else {
-            return false;
-        };
-        drop(config);
-
-        if resolved.model.trim().is_empty() || resolved.base_url.trim().is_empty() {
-            return false;
-        }
-
-        match resolved.auth_source {
-            AuthSource::ApiKey => {
-                if resolved.api_key.trim().is_empty() {
-                    return false;
-                }
-            }
-            AuthSource::ChatgptSubscription => {
-                if provider_id != "openai"
-                    || !super::llm_client::has_openai_chatgpt_subscription_auth()
-                {
-                    return false;
-                }
-            }
-        }
-
-        let breaker_arc = self.circuit_breakers.get(provider_id).await;
-        let mut breaker = breaker_arc.lock().await;
-        breaker.can_execute(now_millis())
+        provider_is_eligible_for_alternative(
+            &self.config,
+            &self.circuit_breakers,
+            failed_provider,
+            provider_id,
+        )
+        .await
     }
 
     /// Suggest an alternative healthy provider when the requested one is unavailable.
@@ -400,20 +579,15 @@ impl AgentEngine {
         &self,
         failed_provider: &str,
     ) -> Option<String> {
-        let provider_ids: Vec<String> =
-            self.config.read().await.providers.keys().cloned().collect();
-        for name in provider_ids {
-            if self
-                .provider_is_eligible_for_alternative(failed_provider, name.as_str())
-                .await
-            {
-                return Some(format!(
-                    "Consider switching to provider '{}' which is currently healthy.",
-                    name
-                ));
-            }
-        }
-        None
+        let outage = collect_provider_outage_metadata(
+            &self.config,
+            &self.circuit_breakers,
+            failed_provider,
+            0,
+            "circuit breaker open",
+        )
+        .await;
+        format_provider_outage_message(&outage)
     }
 
     #[cfg(test)]

@@ -871,16 +871,27 @@ impl ConciergeEngine {
     // ── Circuit breaker helpers (delegated to shared registry) ───────────
 
     async fn check_circuit_breaker(&self, provider: &str) -> Result<()> {
-        use super::circuit_breaker::CircuitState;
-
         let breaker_arc = self.circuit_breakers.get(provider).await;
         let mut breaker = breaker_arc.lock().await;
         let now = super::now_millis();
 
         if !breaker.can_execute(now) {
+            let trip_count = breaker.trip_count();
+            drop(breaker);
+            let outage = super::engine::collect_provider_outage_metadata(
+                &self.config,
+                &self.circuit_breakers,
+                provider,
+                trip_count,
+                "circuit breaker open",
+            )
+            .await;
             let _ = self.event_tx.send(AgentEvent::ProviderCircuitOpen {
-                provider: provider.to_string(),
-                trip_count: breaker.trip_count(),
+                provider: outage.provider,
+                failed_model: outage.failed_model,
+                trip_count: outage.trip_count,
+                reason: outage.reason,
+                suggested_alternatives: outage.suggested_alternatives,
             });
             anyhow::bail!(
                 "Circuit breaker open for provider '{}' — requests blocked for ~30s",
@@ -909,9 +920,22 @@ impl ConciergeEngine {
             let was_closed_or_half = breaker.state() != CircuitState::Open;
             breaker.record_failure(now);
             if was_closed_or_half && breaker.state() == CircuitState::Open {
+                let trip_count = breaker.trip_count();
+                drop(breaker);
+                let outage = super::engine::collect_provider_outage_metadata(
+                    &self.config,
+                    &self.circuit_breakers,
+                    provider,
+                    trip_count,
+                    "circuit breaker tripped",
+                )
+                .await;
                 let _ = self.event_tx.send(AgentEvent::ProviderCircuitOpen {
-                    provider: provider.to_string(),
-                    trip_count: breaker.trip_count(),
+                    provider: outage.provider,
+                    failed_model: outage.failed_model,
+                    trip_count: outage.trip_count,
+                    reason: outage.reason,
+                    suggested_alternatives: outage.suggested_alternatives,
                 });
             }
         }

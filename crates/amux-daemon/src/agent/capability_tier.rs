@@ -295,20 +295,18 @@ impl AgentEngine {
             .map(|t| t.id.clone());
         drop(threads);
 
-        // Provider health: serialize circuit breaker summaries.
+        // Provider health: serialize circuit breaker summaries with outage context.
         let provider_health_json = {
-            let config = self.config.read().await;
+            let snapshots = super::engine::collect_provider_health_snapshot(
+                &self.config,
+                &self.circuit_breakers,
+            )
+            .await;
             let mut health = serde_json::Map::new();
-            for name in config.providers.keys() {
-                let breaker = self.circuit_breakers.get(name).await;
-                let mut b = breaker.lock().await;
-                health.insert(
-                    name.clone(),
-                    serde_json::json!({
-                        "can_execute": b.can_execute(super::now_millis()),
-                        "trip_count": b.trip_count(),
-                    }),
-                );
+            for snapshot in snapshots {
+                if let Ok(value) = serde_json::to_value(&snapshot) {
+                    health.insert(snapshot.provider_id, value);
+                }
             }
             serde_json::to_string(&health).unwrap_or_else(|_| "{}".to_string())
         };
@@ -531,6 +529,33 @@ fn tier_disclosure_features(tier: CapabilityTier) -> Vec<FeatureDisclosure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::engine::AgentEngine;
+    use crate::agent::types::{AgentConfig, ApiTransport, AuthSource, ProviderConfig};
+    use crate::session_manager::SessionManager;
+    use amux_protocol::DaemonMessage;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    async fn make_test_engine(config: AgentConfig) -> (Arc<AgentEngine>, TempDir) {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let session_manager = SessionManager::new_test(temp_dir.path()).await;
+        let engine = AgentEngine::new_test(session_manager, config, temp_dir.path()).await;
+        (engine, temp_dir)
+    }
+
+    fn provider_config(base_url: &str, model: &str, api_key: &str) -> ProviderConfig {
+        ProviderConfig {
+            base_url: base_url.to_string(),
+            model: model.to_string(),
+            api_key: api_key.to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        }
+    }
 
     fn make_signals() -> TierSignals {
         TierSignals {
@@ -671,5 +696,51 @@ mod tests {
         assert!(CapabilityTier::Newcomer < CapabilityTier::Familiar);
         assert!(CapabilityTier::Familiar < CapabilityTier::PowerUser);
         assert!(CapabilityTier::PowerUser < CapabilityTier::Expert);
+    }
+
+    #[tokio::test]
+    async fn status_snapshot_includes_outage_metadata_for_open_provider() {
+        let mut config = AgentConfig::default();
+        config.providers.insert(
+            "custom".to_string(),
+            provider_config("https://example.invalid/v1", "model-a", "valid-key"),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+        {
+            let breaker = engine.circuit_breakers.get("custom").await;
+            let mut breaker = breaker.lock().await;
+            let now = super::super::now_millis();
+            for offset in 0..5 {
+                breaker.record_failure(now + offset);
+            }
+        }
+
+        let snapshot = engine.get_status_snapshot().await;
+        let DaemonMessage::AgentStatusResponse {
+            provider_health_json,
+            ..
+        } = snapshot
+        else {
+            panic!("expected agent status response");
+        };
+
+        let health: serde_json::Value = serde_json::from_str(&provider_health_json).unwrap();
+        let custom = health.get("custom").expect("custom provider health");
+        assert_eq!(
+            custom.get("can_execute").and_then(|v| v.as_bool()),
+            Some(false)
+        );
+        assert_eq!(custom.get("trip_count").and_then(|v| v.as_u64()), Some(1));
+        assert!(
+            custom.get("reason").and_then(|v| v.as_str()).is_some(),
+            "expected outage reason in provider health snapshot"
+        );
+        assert!(
+            custom
+                .get("suggested_alternatives")
+                .and_then(|v| v.as_array())
+                .is_some(),
+            "expected structured alternatives in provider health snapshot"
+        );
     }
 }
