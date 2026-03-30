@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use amux_protocol::{GatewayCursorState, GatewayProviderBootstrap, GatewaySendRequest};
@@ -14,6 +14,7 @@ pub struct DiscordProvider {
     token: String,
     api_base: String,
     channels: Vec<String>,
+    allowed_users: HashSet<String>,
     connected: bool,
     cursors: HashMap<String, String>,
     pending_events: VecDeque<GatewayProviderEvent>,
@@ -64,6 +65,9 @@ impl DiscordProvider {
                 .trim_end_matches('/')
                 .to_string(),
             channels: csv_values(config.get("channel_filter").and_then(Value::as_str).unwrap_or("")),
+            allowed_users: csv_values(config.get("allowed_users").and_then(Value::as_str).unwrap_or(""))
+                .into_iter()
+                .collect(),
             connected: false,
             cursors: replay_cursors,
             pending_events: VecDeque::new(),
@@ -101,6 +105,48 @@ impl DiscordProvider {
             .json::<Value>()
             .await
             .with_context(|| format!("discord response parse failed for {url}"))
+    }
+
+    async fn resolve_target_channel(&self, channel_or_user: &str) -> Result<String> {
+        let explicit_user = channel_or_user
+            .strip_prefix("user:")
+            .or_else(|| channel_or_user.strip_prefix("dm:"))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let treat_as_user = explicit_user
+            .clone()
+            .or_else(|| {
+                self.allowed_users
+                    .contains(channel_or_user)
+                    .then(|| channel_or_user.to_string())
+            });
+
+        let Some(user_id) = treat_as_user else {
+            return Ok(channel_or_user.to_string());
+        };
+
+        let response = reqwest::Client::new()
+            .post(format!("{}/users/@me/channels", self.api_base))
+            .header("Authorization", self.authorization_header())
+            .json(&json!({ "recipient_id": user_id }))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .context("discord DM channel creation failed")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("discord DM creation rejected: status={status}, body={body}");
+        }
+        let body = response
+            .json::<Value>()
+            .await
+            .context("discord DM channel parse failed")?;
+        body.get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("discord DM channel response missing id"))
     }
 
     async fn poll_channel(&mut self, channel_id: &str) -> Result<()> {
@@ -266,6 +312,7 @@ impl GatewayProvider for DiscordProvider {
             let formatted = markdown_to_discord(&request.content);
             let chunks = chunk_message(&formatted, DISCORD_MAX_CHARS);
             let mut delivery_id = None::<String>;
+            let target_channel = self.resolve_target_channel(&request.channel_id).await?;
 
             for (index, chunk) in chunks.iter().enumerate() {
                 let mut payload = json!({ "content": chunk });
@@ -281,14 +328,20 @@ impl GatewayProvider for DiscordProvider {
                 let body = reqwest::Client::new()
                     .post(format!(
                         "{}/channels/{}/messages",
-                        self.api_base, request.channel_id
+                        self.api_base, target_channel
                     ))
                     .header("Authorization", self.authorization_header())
                     .json(&payload)
                     .timeout(Duration::from_secs(5))
                     .send()
                     .await
-                    .context("discord send request failed")?
+                    .context("discord send request failed")?;
+                if !body.status().is_success() {
+                    let status = body.status();
+                    let error_body = body.text().await.unwrap_or_default();
+                    bail!("Discord API error (status {status}): {error_body}");
+                }
+                let body = body
                     .json::<Value>()
                     .await
                     .context("discord send response parse failed")?;
@@ -319,9 +372,24 @@ fn parse_discord_message(channel_id: &str, message: &Value) -> Option<crate::rou
             .and_then(|value| value.get("username"))
             .and_then(Value::as_str)
             .unwrap_or("unknown"),
+        sender_display: author
+            .and_then(|value| value.get("username"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
         text: content,
-        timestamp: id.parse::<u64>().unwrap_or(0),
+        message_id: Some(format!("discord:{id}")),
+        thread_id: Some(id.to_string()),
+        timestamp: discord_timestamp_secs(id),
+        raw_event_json: serde_json::to_string(message).ok(),
     })
+}
+
+fn discord_timestamp_secs(id: &str) -> u64 {
+    const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
+    id.parse::<u64>()
+        .ok()
+        .map(|snowflake| ((snowflake >> 22) + DISCORD_EPOCH_MS) / 1000)
+        .unwrap_or(0)
 }
 
 fn csv_values(value: &str) -> Vec<String> {
@@ -347,6 +415,11 @@ mod tests {
     use super::*;
     use crate::runtime::GatewayProviderEvent;
     use crate::test_support::{HttpResponse, TestHttpServer};
+
+    #[test]
+    fn discord_timestamp_secs_decodes_snowflake_epoch() {
+        assert_eq!(discord_timestamp_secs("175928847299117063"), 1462015105);
+    }
 
     #[tokio::test]
     async fn discord_provider_polls_and_filters_bot_messages() {

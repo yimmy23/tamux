@@ -46,8 +46,12 @@ fn sample_incoming_message() -> GatewayMessage {
         platform: "slack".to_string(),
         channel_id: "C123".to_string(),
         user_id: "U123".to_string(),
+        sender_display: Some("Alice".to_string()),
         text: "hello from provider".to_string(),
+        message_id: Some("msg-123".to_string()),
+        thread_id: Some("thread-1".to_string()),
         timestamp: 1712345678,
+        raw_event_json: Some("{\"text\":\"hello from provider\"}".to_string()),
     }
 }
 
@@ -108,12 +112,12 @@ async fn gateway_runtime_routes_incoming_event_to_daemon_channel() {
                     platform: "slack".to_string(),
                     channel_id: "C123".to_string(),
                     sender_id: "U123".to_string(),
-                    sender_display: None,
+                    sender_display: Some("Alice".to_string()),
                     content: "hello from provider".to_string(),
-                    message_id: None,
-                    thread_id: None,
+                    message_id: Some("msg-123".to_string()),
+                    thread_id: Some("thread-1".to_string()),
                     received_at_ms: 1712345678000,
-                    raw_event_json: None,
+                    raw_event_json: Some("{\"text\":\"hello from provider\"}".to_string()),
                 }
             );
         }

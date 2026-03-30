@@ -115,12 +115,12 @@ impl GatewayRuntimeCore {
                 platform: msg.platform,
                 channel_id: msg.channel_id,
                 sender_id: msg.user_id,
-                sender_display: None,
+                sender_display: msg.sender_display,
                 content: msg.text,
-                message_id: None,
-                thread_id: None,
+                message_id: msg.message_id,
+                thread_id: msg.thread_id,
                 received_at_ms: msg.timestamp.saturating_mul(1000),
-                raw_event_json: None,
+                raw_event_json: msg.raw_event_json,
             },
         })
     }

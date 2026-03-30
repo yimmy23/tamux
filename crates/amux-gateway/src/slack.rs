@@ -367,8 +367,16 @@ fn parse_slack_message(channel_id: &str, message: &Value) -> Option<crate::route
             .get("user")
             .and_then(Value::as_str)
             .unwrap_or("unknown"),
+        sender_display: None,
         text,
+        message_id: Some(format!("slack:{channel_id}:{ts}")),
+        thread_id: message
+            .get("thread_ts")
+            .and_then(Value::as_str)
+            .or(Some(ts))
+            .map(str::to_string),
         timestamp: parse_slack_timestamp(ts),
+        raw_event_json: serde_json::to_string(message).ok(),
     })
 }
 

@@ -151,7 +151,7 @@ pub fn markdown_to_plain(input: &str) -> String {
 }
 
 pub fn chunk_message(message: &str, max_chars: usize) -> Vec<String> {
-    if message.len() <= max_chars {
+    if message.chars().count() <= max_chars {
         return vec![message.to_string()];
     }
 
@@ -159,12 +159,13 @@ pub fn chunk_message(message: &str, max_chars: usize) -> Vec<String> {
     let mut remaining = message;
 
     while !remaining.is_empty() {
-        if remaining.len() <= max_chars {
+        if remaining.chars().count() <= max_chars {
             chunks.push(remaining.to_string());
             break;
         }
 
-        let window = &remaining[..max_chars];
+        let split_at = char_boundary_after_chars(remaining, max_chars);
+        let window = &remaining[..split_at];
 
         if let Some(pos) = window.rfind('\n') {
             if pos > 0 {
@@ -190,9 +191,35 @@ pub fn chunk_message(message: &str, max_chars: usize) -> Vec<String> {
             }
         }
 
-        chunks.push(remaining[..max_chars].to_string());
-        remaining = &remaining[max_chars..];
+        chunks.push(window.to_string());
+        remaining = &remaining[split_at..];
     }
 
     chunks
+}
+
+fn char_boundary_after_chars(value: &str, max_chars: usize) -> usize {
+    if max_chars == 0 {
+        return 0;
+    }
+
+    match value.char_indices().nth(max_chars) {
+        Some((index, _)) => index,
+        None => value.len(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chunk_message_preserves_utf8_boundaries() {
+        let message = "zażółćgęśląjaźń";
+        let chunks = chunk_message(message, 5);
+        assert!(!chunks.is_empty());
+        assert_eq!(chunks.concat(), message);
+        assert!(chunks.iter().all(|chunk| std::str::from_utf8(chunk.as_bytes()).is_ok()));
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 5));
+    }
 }

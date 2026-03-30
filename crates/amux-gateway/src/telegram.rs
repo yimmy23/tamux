@@ -276,8 +276,18 @@ impl GatewayProvider for TelegramProvider {
                             platform: "telegram",
                             channel_id: &chat_id,
                             user_id: sender,
+                            sender_display: Some(sender.to_string()),
                             text,
+                            message_id: message
+                                .get("message_id")
+                                .and_then(Value::as_i64)
+                                .map(|value| format!("tg:{value}")),
+                            thread_id: message
+                                .get("message_id")
+                                .and_then(Value::as_i64)
+                                .map(|value| value.to_string()),
                             timestamp: message.get("date").and_then(Value::as_u64).unwrap_or(0),
+                            raw_event_json: serde_json::to_string(message).ok(),
                         }) {
                             self.pending_events
                                 .push_back(GatewayProviderEvent::Incoming(normalized));
