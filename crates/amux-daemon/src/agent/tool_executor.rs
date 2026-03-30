@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::future::Future;
 
 use amux_protocol::{
     DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SecurityLevel, SessionId,
@@ -41,8 +42,340 @@ use super::AgentEngine;
 
 const ONECONTEXT_TOOL_QUERY_MAX_CHARS: usize = 300;
 const ONECONTEXT_TOOL_OUTPUT_MAX_CHARS: usize = 12_000;
-const ONECONTEXT_TOOL_TIMEOUT_SECS: u64 = 8;
+const DEFAULT_DAEMON_TOOL_TIMEOUT_SECS: u64 = 120;
+const MAX_DAEMON_TOOL_TIMEOUT_SECS: u64 = 600;
 const SESSION_SEARCH_OUTPUT_MAX_CHARS: usize = 12_000;
+
+#[derive(Clone)]
+struct OnecontextSearchRequest {
+    bounded_query: String,
+    scope: String,
+    no_regex: bool,
+    timeout_seconds: u64,
+}
+
+#[derive(Clone)]
+struct SearchFilesRequest {
+    pattern: String,
+    path: String,
+    file_pattern: Option<String>,
+    max_results: u64,
+    timeout_seconds: u64,
+}
+
+#[derive(Clone)]
+struct WebSearchRequest {
+    query: String,
+    max_results: u64,
+    timeout_seconds: u64,
+}
+
+#[derive(Clone)]
+struct FetchUrlRequest {
+    url: String,
+    max_length: usize,
+    timeout_seconds: u64,
+}
+
+fn default_timeout_seconds_for_tool(tool_name: &str) -> u64 {
+    match tool_name {
+        "onecontext_search" | "fetch_url" | "web_search" => 300,
+        _ => DEFAULT_DAEMON_TOOL_TIMEOUT_SECS,
+    }
+}
+
+fn daemon_tool_timeout_seconds(tool_name: &str, args: &serde_json::Value) -> u64 {
+    args.get("timeout_seconds")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_else(|| default_timeout_seconds_for_tool(tool_name))
+        .min(MAX_DAEMON_TOOL_TIMEOUT_SECS)
+}
+
+fn onecontext_search_request(args: &serde_json::Value) -> Result<OnecontextSearchRequest> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?
+        .trim();
+
+    if query.is_empty() {
+        return Err(anyhow::anyhow!("'query' must not be empty"));
+    }
+
+    let scope = args
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("session");
+    if !matches!(scope, "session" | "event" | "turn") {
+        return Err(anyhow::anyhow!(
+            "invalid 'scope': {scope} (expected session, event, or turn)"
+        ));
+    }
+
+    if args.get("timeout_seconds").is_some_and(|value| value.as_u64().is_none()) {
+        return Err(anyhow::anyhow!(
+            "'timeout_seconds' must be a non-negative integer"
+        ));
+    }
+
+    let no_regex = args
+        .get("no_regex")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let bounded_query = query
+        .chars()
+        .take(ONECONTEXT_TOOL_QUERY_MAX_CHARS)
+        .collect::<String>();
+
+    Ok(OnecontextSearchRequest {
+        bounded_query,
+        scope: scope.to_string(),
+        no_regex,
+        timeout_seconds: daemon_tool_timeout_seconds("onecontext_search", args),
+    })
+}
+
+fn search_files_request(args: &serde_json::Value) -> Result<SearchFilesRequest> {
+    let pattern = args
+        .get("pattern")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'pattern' argument"))?;
+
+    if args.get("timeout_seconds").is_some_and(|value| value.as_u64().is_none()) {
+        return Err(anyhow::anyhow!(
+            "'timeout_seconds' must be a non-negative integer"
+        ));
+    }
+
+    Ok(SearchFilesRequest {
+        pattern: pattern.to_string(),
+        path: args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or(".")
+            .to_string(),
+        file_pattern: args
+            .get("file_pattern")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        max_results: args
+            .get("max_results")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(50),
+        timeout_seconds: daemon_tool_timeout_seconds("search_files", args),
+    })
+}
+
+fn web_search_request(args: &serde_json::Value) -> Result<WebSearchRequest> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?;
+
+    if args.get("timeout_seconds").is_some_and(|value| value.as_u64().is_none()) {
+        return Err(anyhow::anyhow!(
+            "'timeout_seconds' must be a non-negative integer"
+        ));
+    }
+
+    Ok(WebSearchRequest {
+        query: query.to_string(),
+        max_results: args
+            .get("max_results")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5),
+        timeout_seconds: daemon_tool_timeout_seconds("web_search", args),
+    })
+}
+
+fn fetch_url_request(args: &serde_json::Value) -> Result<FetchUrlRequest> {
+    let url = args
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'url' argument"))?
+        .trim();
+
+    if url.is_empty() {
+        return Err(anyhow::anyhow!("'url' must not be empty"));
+    }
+
+    if args.get("timeout_seconds").is_some_and(|value| value.as_u64().is_none()) {
+        return Err(anyhow::anyhow!(
+            "'timeout_seconds' must be a non-negative integer"
+        ));
+    }
+
+    Ok(FetchUrlRequest {
+        url: url.to_string(),
+        max_length: args
+            .get("max_length")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10_000) as usize,
+        timeout_seconds: daemon_tool_timeout_seconds("fetch_url", args),
+    })
+}
+
+async fn run_search_files_subprocess(
+    request: SearchFilesRequest,
+) -> Result<std::process::Output> {
+    let mut cmd_args = vec!["-rn".to_string(), "--color=never".to_string()];
+    if let Some(file_pattern) = &request.file_pattern {
+        cmd_args.push(format!("--include={file_pattern}"));
+    }
+    cmd_args.push(request.pattern.clone());
+    cmd_args.push(request.path.clone());
+
+    let mut command = tokio::process::Command::new("grep");
+    command.args(&cmd_args);
+    run_search_files_command(command).await
+}
+
+async fn run_search_files_command(
+    mut command: tokio::process::Command,
+) -> Result<std::process::Output> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let child = command
+        .spawn()
+        .context("failed to spawn search_files subprocess")?;
+    child.wait_with_output().await.map_err(Into::into)
+}
+
+async fn execute_search_files_with_runner<F, Fut>(
+    args: &serde_json::Value,
+    runner: F,
+) -> Result<String>
+where
+    F: FnOnce(SearchFilesRequest) -> Fut,
+    Fut: Future<Output = Result<std::process::Output>>,
+{
+    let request = search_files_request(args)?;
+    let timeout_seconds = request.timeout_seconds;
+    let max_results = request.max_results;
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_seconds),
+        runner(request),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("search timed out after {timeout_seconds} seconds"))??;
+
+    match output.status.code() {
+        Some(1) => return Ok("No matches found.".into()),
+        Some(0) => {}
+        Some(code) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if stderr.is_empty() {
+                return Err(anyhow::anyhow!("search failed with grep exit code {code}"));
+            }
+            return Err(anyhow::anyhow!("search failed: {stderr}"));
+        }
+        None => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            if stderr.is_empty() {
+                return Err(anyhow::anyhow!("search failed: grep terminated by signal"));
+            }
+            return Err(anyhow::anyhow!("search failed: {stderr}"));
+        }
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().take(max_results as usize).collect();
+    let total = stdout.lines().count();
+
+    if lines.is_empty() {
+        Ok("No matches found.".into())
+    } else {
+        let mut result = lines.join("\n");
+        if total > lines.len() {
+            result.push_str(&format!("\n\n... ({} more matches)", total - lines.len()));
+        }
+        Ok(result)
+    }
+}
+
+async fn run_onecontext_search_subprocess(
+    request: OnecontextSearchRequest,
+) -> Result<std::process::Output> {
+    let mut cmd = tokio::process::Command::new("aline");
+    cmd.arg("search")
+        .arg(&request.bounded_query)
+        .arg("-t")
+        .arg(&request.scope)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    if request.no_regex {
+        cmd.arg("--no-regex");
+    }
+
+    let child = cmd
+        .spawn()
+        .context("failed to spawn onecontext search subprocess")?;
+    child.wait_with_output().await.map_err(Into::into)
+}
+
+async fn execute_onecontext_search_with_runner<F, Fut>(
+    args: &serde_json::Value,
+    aline_available: bool,
+    runner: F,
+) -> Result<String>
+where
+    F: FnOnce(OnecontextSearchRequest) -> Fut,
+    Fut: Future<Output = Result<std::process::Output>>,
+{
+    let request = onecontext_search_request(args)?;
+
+    if !aline_available {
+        return Ok("OneContext search unavailable: `aline` CLI not found on PATH.".into());
+    }
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(request.timeout_seconds),
+        runner(request.clone()),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("onecontext search timed out"))??;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            return Err(anyhow::anyhow!("onecontext search failed"));
+        }
+        return Err(anyhow::anyhow!("onecontext search failed: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Ok(format!(
+            "No OneContext matches for \"{}\" in {} scope.",
+            request.bounded_query, request.scope
+        ));
+    }
+
+    let trimmed_chars = trimmed.chars().count();
+    let output_text = if trimmed_chars > ONECONTEXT_TOOL_OUTPUT_MAX_CHARS {
+        let shortened = trimmed
+            .chars()
+            .take(ONECONTEXT_TOOL_OUTPUT_MAX_CHARS)
+            .collect::<String>();
+        format!("{}\n\n(truncated, {} chars total)", shortened, trimmed_chars)
+    } else {
+        trimmed.to_string()
+    };
+
+    Ok(format!(
+        "OneContext results for \"{}\" ({} scope):\n\n{output_text}",
+        request.bounded_query, request.scope
+    ))
+}
 
 // ---------------------------------------------------------------------------
 // Source authority classification for web search results (UNCR-03)
@@ -321,7 +654,8 @@ pub fn get_available_tools(
                     "pattern": { "type": "string", "description": "Regex pattern to search for" },
                     "path": { "type": "string", "description": "Directory to search in (default: current directory)" },
                     "file_pattern": { "type": "string", "description": "Glob pattern to filter files (e.g. '*.rs', '*.ts')" },
-                    "max_results": { "type": "integer", "description": "Max results to return (default: 50)" }
+                    "max_results": { "type": "integer", "description": "Max results to return (default: 50)" },
+                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 120, max: 600)" }
                 },
                 "required": ["pattern"]
             }),
@@ -403,7 +737,8 @@ pub fn get_available_tools(
             "properties": {
                 "query": { "type": "string", "description": "Search query" },
                 "scope": { "type": "string", "enum": ["session", "event", "turn"], "description": "Search scope (default: session)" },
-                "no_regex": { "type": "boolean", "description": "Treat query as plain text (default: true)" }
+                "no_regex": { "type": "boolean", "description": "Treat query as plain text (default: true)" },
+                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" }
             },
             "required": ["query"]
         }),
@@ -517,7 +852,8 @@ pub fn get_available_tools(
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Search query" },
-                    "max_results": { "type": "integer", "description": "Max results (default: 5)" }
+                    "max_results": { "type": "integer", "description": "Max results (default: 5)" },
+                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" }
                 },
                 "required": ["query"]
             }),
@@ -532,7 +868,8 @@ pub fn get_available_tools(
                 "type": "object",
                 "properties": {
                     "url": { "type": "string", "description": "URL to fetch" },
-                    "max_length": { "type": "integer", "description": "Max characters to return (default: 10000)" }
+                    "max_length": { "type": "integer", "description": "Max characters to return (default: 10000)" },
+                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" }
                 },
                 "required": ["url"]
             }),
@@ -2259,50 +2596,7 @@ fn parse_capture_output(output: &[u8], token: &str) -> Option<(i32, String)> {
 }
 
 async fn execute_search_files(args: &serde_json::Value) -> Result<String> {
-    let pattern = args
-        .get("pattern")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'pattern' argument"))?;
-
-    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-
-    let max_results = args
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50);
-
-    let file_pattern = args.get("file_pattern").and_then(|v| v.as_str());
-
-    // Use grep for search
-    let mut cmd_args = vec!["-rn".to_string(), "--color=never".to_string()];
-    if let Some(fp) = file_pattern {
-        cmd_args.push(format!("--include={fp}"));
-    }
-    cmd_args.push(pattern.to_string());
-    cmd_args.push(path.to_string());
-
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        tokio::process::Command::new("grep")
-            .args(&cmd_args)
-            .output(),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("search timed out"))??;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout.lines().take(max_results as usize).collect();
-    let total = stdout.lines().count();
-
-    if lines.is_empty() {
-        Ok("No matches found.".into())
-    } else {
-        let mut result = lines.join("\n");
-        if total > lines.len() {
-            result.push_str(&format!("\n\n... ({} more matches)", total - lines.len()));
-        }
-        Ok(result)
-    }
+    execute_search_files_with_runner(args, run_search_files_subprocess).await
 }
 
 async fn execute_system_info() -> Result<String> {
@@ -2487,92 +2781,10 @@ async fn execute_agent_query_memory(
 }
 
 async fn execute_onecontext_search(args: &serde_json::Value) -> Result<String> {
-    let query = args
-        .get("query")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?
-        .trim();
-
-    if query.is_empty() {
-        return Err(anyhow::anyhow!("'query' must not be empty"));
-    }
-
-    let scope = args
-        .get("scope")
-        .and_then(|v| v.as_str())
-        .unwrap_or("session");
-    if !matches!(scope, "session" | "event" | "turn") {
-        return Err(anyhow::anyhow!(
-            "invalid 'scope': {scope} (expected session, event, or turn)"
-        ));
-    }
-
-    if !super::aline_available() {
-        return Ok("OneContext search unavailable: `aline` CLI not found on PATH.".into());
-    }
-
-    let no_regex = args
-        .get("no_regex")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
-    let bounded_query = query
-        .chars()
-        .take(ONECONTEXT_TOOL_QUERY_MAX_CHARS)
-        .collect::<String>();
-
-    let mut cmd = tokio::process::Command::new("aline");
-    cmd.arg("search")
-        .arg(&bounded_query)
-        .arg("-t")
-        .arg(scope)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .stdin(std::process::Stdio::null());
-    if no_regex {
-        cmd.arg("--no-regex");
-    }
-
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(ONECONTEXT_TOOL_TIMEOUT_SECS),
-        cmd.output(),
-    )
+    execute_onecontext_search_with_runner(args, super::aline_available(), |request| async move {
+        run_onecontext_search_subprocess(request).await
+    })
     .await
-    .map_err(|_| anyhow::anyhow!("onecontext search timed out"))??;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.is_empty() {
-            return Err(anyhow::anyhow!("onecontext search failed"));
-        }
-        return Err(anyhow::anyhow!("onecontext search failed: {stderr}"));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
-        return Ok(format!(
-            "No OneContext matches for \"{bounded_query}\" in {scope} scope."
-        ));
-    }
-
-    let trimmed_chars = trimmed.chars().count();
-    let output_text = if trimmed_chars > ONECONTEXT_TOOL_OUTPUT_MAX_CHARS {
-        let shortened = trimmed
-            .chars()
-            .take(ONECONTEXT_TOOL_OUTPUT_MAX_CHARS)
-            .collect::<String>();
-        format!(
-            "{}\n\n(truncated, {} chars total)",
-            shortened, trimmed_chars
-        )
-    } else {
-        trimmed.to_string()
-    };
-
-    Ok(format!(
-        "OneContext results for \"{bounded_query}\" ({scope} scope):\n\n{output_text}"
-    ))
 }
 
 async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<String> {
@@ -2945,25 +3157,58 @@ async fn execute_web_search(
     exa_api_key: &str,
     tavily_api_key: &str,
 ) -> Result<String> {
-    let query = args
-        .get("query")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?;
+    execute_web_search_with_runner(
+        args,
+        search_provider,
+        exa_api_key,
+        tavily_api_key,
+        |request, provider| async move {
+            match provider {
+                "exa" => {
+                    execute_exa_search(http_client, &request.query, request.max_results, exa_api_key)
+                        .await
+                }
+                "tavily" => {
+                    execute_tavily_search(
+                        http_client,
+                        &request.query,
+                        request.max_results,
+                        tavily_api_key,
+                    )
+                    .await
+                }
+                _ => execute_ddg_search(http_client, &request.query, request.max_results).await,
+            }
+        },
+    )
+    .await
+}
 
-    let max_results = args
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(5);
+async fn execute_web_search_with_runner<F, Fut>(
+    args: &serde_json::Value,
+    search_provider: &str,
+    exa_api_key: &str,
+    tavily_api_key: &str,
+    runner: F,
+) -> Result<String>
+where
+    F: FnOnce(WebSearchRequest, &'static str) -> Fut,
+    Fut: Future<Output = Result<String>>,
+{
+    let request = web_search_request(args)?;
+    let timeout_seconds = request.timeout_seconds;
+    let provider = match search_provider {
+        "exa" if !exa_api_key.is_empty() => "exa",
+        "tavily" if !tavily_api_key.is_empty() => "tavily",
+        _ => "ddg",
+    };
 
-    match search_provider {
-        "exa" if !exa_api_key.is_empty() => {
-            execute_exa_search(http_client, query, max_results, exa_api_key).await
-        }
-        "tavily" if !tavily_api_key.is_empty() => {
-            execute_tavily_search(http_client, query, max_results, tavily_api_key).await
-        }
-        _ => execute_ddg_search(http_client, query, max_results).await,
-    }
+    tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_seconds),
+        runner(request, provider),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("web search timed out after {timeout_seconds} seconds"))?
 }
 
 async fn execute_exa_search(
@@ -3360,26 +3605,77 @@ async fn execute_fetch_url(
     http_client: &reqwest::Client,
     browse_provider: &str,
 ) -> Result<String> {
-    let url = args
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("missing 'url' argument"))?;
+    let browser = resolve_browser(browse_provider);
 
-    let max_length = args
-        .get("max_length")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10_000) as usize;
+    execute_fetch_url_with_runner(
+        args,
+        browser.is_some(),
+        |url, timeout_seconds| async move {
+            let browser = browser
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("no headless browser available"))?;
+            fetch_with_headless_browser(browser, &url, timeout_seconds).await
+        },
+        |url, timeout_seconds| async move { fetch_raw_http(http_client, &url, timeout_seconds).await },
+    )
+    .await
+}
+
+async fn execute_fetch_url_with_runner<BrowserRunner, BrowserFut, HttpRunner, HttpFut>(
+    args: &serde_json::Value,
+    browser_available: bool,
+    browser_runner: BrowserRunner,
+    http_runner: HttpRunner,
+) -> Result<String>
+where
+    BrowserRunner: FnOnce(String, u64) -> BrowserFut,
+    BrowserFut: Future<Output = Result<String>>,
+    HttpRunner: FnOnce(String, u64) -> HttpFut,
+    HttpFut: Future<Output = Result<String>>,
+{
+    let request = fetch_url_request(args)?;
+    let timeout_seconds = request.timeout_seconds;
+    let started = tokio::time::Instant::now();
+    let max_length = request.max_length;
+    let url = request.url;
+
+    let remaining_budget = |started: tokio::time::Instant| -> Result<std::time::Duration> {
+        std::time::Duration::from_secs(timeout_seconds)
+            .checked_sub(started.elapsed())
+            .ok_or_else(|| anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"))
+    };
 
     // Try headless browser for JS-rendered content, fall back to raw HTTP.
-    let raw_html = match resolve_browser(browse_provider) {
-        Some(browser) => match fetch_with_headless_browser(&browser, url).await {
-            Ok(html) => html,
-            Err(e) => {
+    let raw_html = if browser_available {
+        match tokio::time::timeout(
+            remaining_budget(started)?,
+            browser_runner(url.clone(), timeout_seconds),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"))
+        {
+            Ok(Ok(html)) => html,
+            Ok(Err(e)) => {
+                if is_fetch_url_timeout_error(&e) {
+                    return Err(anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"));
+                }
                 tracing::warn!("headless browser fetch failed, falling back to HTTP: {e}");
-                fetch_raw_http(http_client, url).await?
+                tokio::time::timeout(
+                    remaining_budget(started)?,
+                    http_runner(url.clone(), timeout_seconds),
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"))??
             }
-        },
-        None => fetch_raw_http(http_client, url).await?,
+            Err(err) => return Err(err),
+        }
+    } else {
+        tokio::time::timeout(
+            remaining_budget(started)?,
+            http_runner(url.clone(), timeout_seconds),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"))??
     };
 
     let stripped = strip_html_tags(&raw_html);
@@ -3396,11 +3692,18 @@ async fn execute_fetch_url(
     Ok(truncated)
 }
 
-async fn fetch_raw_http(http_client: &reqwest::Client, url: &str) -> Result<String> {
+fn is_fetch_url_timeout_error(error: &anyhow::Error) -> bool {
+    error
+        .to_string()
+        .to_ascii_lowercase()
+        .contains("timed out")
+}
+
+async fn fetch_raw_http(http_client: &reqwest::Client, url: &str, timeout_seconds: u64) -> Result<String> {
     let resp = http_client
         .get(url)
         .header("User-Agent", "tamux-agent/0.1")
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(timeout_seconds))
         .send()
         .await?;
     let status = resp.status();
@@ -3460,17 +3763,27 @@ fn detect_chrome() -> Option<HeadlessBrowser> {
     None
 }
 
-async fn fetch_with_headless_browser(browser: &HeadlessBrowser, url: &str) -> Result<String> {
+async fn fetch_with_headless_browser(
+    browser: &HeadlessBrowser,
+    url: &str,
+    timeout_seconds: u64,
+) -> Result<String> {
     let mut args = browser.args_prefix.clone();
     args.push(url.to_string());
 
-    let output = tokio::process::Command::new(&browser.bin)
+    let child = tokio::process::Command::new(&browser.bin)
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
-        .output()
-        .await?;
+        .spawn()?;
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_seconds),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("headless browser fetch timed out after {timeout_seconds} seconds"))??;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -5912,8 +6225,12 @@ mod tests {
     use super::{
         build_list_files_script, build_write_file_command, build_write_file_script,
         command_looks_interactive, command_matches_policy_risk, command_requires_managed_state,
-        execute_gateway_message, execute_get_divergent_session, execute_headless_shell_command,
+        daemon_tool_timeout_seconds, default_timeout_seconds_for_tool,
+        execute_fetch_url_with_runner, execute_gateway_message, execute_get_divergent_session,
+        execute_headless_shell_command, execute_onecontext_search_with_runner,
+        execute_search_files_with_runner, execute_web_search_with_runner,
         get_available_tools, managed_alias_args, parse_capture_output, parse_tool_args,
+        run_search_files_command,
         resolve_skill_path, should_use_linked_whatsapp_transport, should_use_managed_execution,
         validate_read_path, validate_write_path, wait_for_managed_command_outcome,
     };
@@ -5923,10 +6240,733 @@ mod tests {
     use amux_protocol::{DaemonMessage, GatewaySendResult, SessionId};
     use base64::Engine;
     use std::fs;
+    use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
     use tokio::sync::broadcast;
     use tokio::time::{timeout, Duration};
     use tokio_util::sync::CancellationToken;
+
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    #[cfg(windows)]
+    use std::os::windows::process::ExitStatusExt;
+
+    fn successful_exit_status() -> std::process::ExitStatus {
+        exit_status_with_code(0)
+    }
+
+    fn exit_status_with_code(code: i32) -> std::process::ExitStatus {
+        #[cfg(unix)]
+        {
+            std::process::ExitStatus::from_raw(code << 8)
+        }
+
+        #[cfg(windows)]
+        {
+            std::process::ExitStatus::from_raw(code as u32)
+        }
+    }
+
+    #[test]
+    fn daemon_tool_timeout_uses_300_seconds_for_onecontext_search() {
+        assert_eq!(default_timeout_seconds_for_tool("onecontext_search"), 300);
+        assert_eq!(
+            daemon_tool_timeout_seconds("onecontext_search", &serde_json::json!({})),
+            300
+        );
+    }
+
+    #[test]
+    fn daemon_tool_timeout_uses_300_seconds_for_fetch_url() {
+        assert_eq!(default_timeout_seconds_for_tool("fetch_url"), 300);
+        assert_eq!(
+            daemon_tool_timeout_seconds("fetch_url", &serde_json::json!({})),
+            300
+        );
+    }
+
+    #[test]
+    fn daemon_tool_timeout_uses_300_seconds_for_web_search() {
+        assert_eq!(default_timeout_seconds_for_tool("web_search"), 300);
+        assert_eq!(
+            daemon_tool_timeout_seconds("web_search", &serde_json::json!({})),
+            300
+        );
+    }
+
+    #[test]
+    fn daemon_tool_timeout_clamps_explicit_override_to_600_seconds() {
+        assert_eq!(
+            daemon_tool_timeout_seconds(
+                "onecontext_search",
+                &serde_json::json!({ "timeout_seconds": 999 })
+            ),
+            600
+        );
+    }
+
+    #[test]
+    fn onecontext_search_tool_schema_exposes_timeout_seconds() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let onecontext = tools
+            .iter()
+            .find(|tool| tool.function.name == "onecontext_search")
+            .expect("onecontext_search tool should be available");
+
+        let timeout_schema = onecontext
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("timeout_seconds"))
+            .expect("onecontext_search schema should expose timeout_seconds");
+
+        assert_eq!(timeout_schema.get("type").and_then(|value| value.as_str()), Some("integer"));
+        assert_eq!(timeout_schema.get("minimum").and_then(|value| value.as_u64()), Some(0));
+        assert_eq!(timeout_schema.get("maximum").and_then(|value| value.as_u64()), Some(600));
+        assert!(timeout_schema
+            .get("description")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.contains("default: 300") && value.contains("max: 600")));
+    }
+
+    #[test]
+    fn web_search_tool_schema_exposes_timeout_seconds() {
+        let mut config = AgentConfig::default();
+        config.tools.web_search = true;
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let web_search = tools
+            .iter()
+            .find(|tool| tool.function.name == "web_search")
+            .expect("web_search tool should be available");
+
+        let timeout_schema = web_search
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("timeout_seconds"))
+            .expect("web_search schema should expose timeout_seconds");
+
+        assert_eq!(timeout_schema.get("type").and_then(|value| value.as_str()), Some("integer"));
+        assert_eq!(timeout_schema.get("minimum").and_then(|value| value.as_u64()), Some(0));
+        assert_eq!(timeout_schema.get("maximum").and_then(|value| value.as_u64()), Some(600));
+        assert!(timeout_schema
+            .get("description")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.contains("default: 300") && value.contains("max: 600")));
+    }
+
+    #[test]
+    fn fetch_url_tool_schema_exposes_timeout_seconds() {
+        let mut config = AgentConfig::default();
+        config.tools.web_browse = true;
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let fetch_url = tools
+            .iter()
+            .find(|tool| tool.function.name == "fetch_url")
+            .expect("fetch_url tool should be available");
+
+        let timeout_schema = fetch_url
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("timeout_seconds"))
+            .expect("fetch_url schema should expose timeout_seconds");
+
+        assert_eq!(timeout_schema.get("type").and_then(|value| value.as_str()), Some("integer"));
+        assert_eq!(timeout_schema.get("minimum").and_then(|value| value.as_u64()), Some(0));
+        assert_eq!(timeout_schema.get("maximum").and_then(|value| value.as_u64()), Some(600));
+        assert!(timeout_schema
+            .get("description")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.contains("default: 300") && value.contains("max: 600")));
+    }
+
+    #[test]
+    fn search_files_tool_schema_exposes_timeout_seconds() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let search_files = tools
+            .iter()
+            .find(|tool| tool.function.name == "search_files")
+            .expect("search_files tool should be available");
+
+        let timeout_schema = search_files
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|properties| properties.get("timeout_seconds"))
+            .expect("search_files schema should expose timeout_seconds");
+
+        assert_eq!(timeout_schema.get("type").and_then(|value| value.as_str()), Some("integer"));
+        assert_eq!(timeout_schema.get("minimum").and_then(|value| value.as_u64()), Some(0));
+        assert_eq!(timeout_schema.get("maximum").and_then(|value| value.as_u64()), Some(600));
+        assert!(timeout_schema
+            .get("description")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.contains("default: 120") && value.contains("max: 600")));
+    }
+
+    #[tokio::test]
+    async fn onecontext_search_runtime_uses_default_timeout_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        let result = execute_onecontext_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy" }),
+            true,
+            move |request| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(request.timeout_seconds);
+                    Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                        status: successful_exit_status(),
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    })
+                }
+            },
+        )
+        .await
+        .expect("onecontext search should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(300)
+        );
+        assert!(result.contains("No OneContext matches for \"timeout policy\""));
+    }
+
+    #[tokio::test]
+    async fn onecontext_search_runtime_clamps_timeout_override_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        execute_onecontext_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy", "timeout_seconds": 999 }),
+            true,
+            move |request| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(request.timeout_seconds);
+                    Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                        status: successful_exit_status(),
+                        stdout: b"match".to_vec(),
+                        stderr: Vec::new(),
+                    })
+                }
+            },
+        )
+        .await
+        .expect("onecontext search should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(600)
+        );
+    }
+
+    #[tokio::test]
+    async fn search_files_runtime_uses_default_timeout_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        let result = execute_search_files_with_runner(
+            &serde_json::json!({ "pattern": "needle" }),
+            move |request| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(request.timeout_seconds);
+                    Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                        status: successful_exit_status(),
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    })
+                }
+            },
+        )
+        .await
+        .expect("search_files should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(120)
+        );
+        assert_eq!(result, "No matches found.");
+    }
+
+    #[tokio::test]
+    async fn web_search_runtime_uses_default_timeout_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        let result = execute_web_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy" }),
+            "exa",
+            "exa-key",
+            "",
+            move |request: super::WebSearchRequest, provider| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(request.timeout_seconds);
+                    Ok::<String, anyhow::Error>(format!("provider={provider}; query={}", request.query))
+                }
+            },
+        )
+        .await
+        .expect("web_search should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(300)
+        );
+        assert_eq!(result, "provider=exa; query=timeout policy");
+    }
+
+    #[tokio::test]
+    async fn web_search_runtime_clamps_timeout_override_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        execute_web_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy", "timeout_seconds": 999 }),
+            "tavily",
+            "",
+            "tavily-key",
+            move |request: super::WebSearchRequest, provider| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(request.timeout_seconds);
+                    Ok::<String, anyhow::Error>(format!("provider={provider}; max_results={}", request.max_results))
+                }
+            },
+        )
+        .await
+        .expect("web_search should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(600)
+        );
+    }
+
+    #[tokio::test]
+    async fn web_search_runtime_returns_timeout_error_when_runner_exceeds_limit() {
+        let error = execute_web_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy", "timeout_seconds": 0 }),
+            "ddg",
+            "",
+            "",
+            |_request: super::WebSearchRequest, _provider| async move {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                Ok::<String, anyhow::Error>("late result".to_string())
+            },
+        )
+        .await
+        .expect_err("runner exceeding timeout should return timeout error");
+
+        assert!(error.to_string().contains("web search timed out"));
+        assert!(error.to_string().contains("0"));
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_uses_default_timeout_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        let result = execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com" }),
+            true,
+            move |_url, timeout_seconds| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(timeout_seconds);
+                    Ok::<String, anyhow::Error>("<html><body>hello</body></html>".to_string())
+                }
+            },
+            |_url, _timeout_seconds| async move {
+                Ok::<String, anyhow::Error>("<html><body>http</body></html>".to_string())
+            },
+        )
+        .await
+        .expect("fetch_url should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(300)
+        );
+        assert_eq!(result, "hello");
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_clamps_timeout_override_on_caller_path() {
+        let observed_browser_timeout = Arc::new(Mutex::new(None));
+        let browser_timeout_clone = observed_browser_timeout.clone();
+        let observed_http_timeout = Arc::new(Mutex::new(None));
+        let http_timeout_clone = observed_http_timeout.clone();
+
+        execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com", "timeout_seconds": 999 }),
+            true,
+            move |_url, timeout_seconds| {
+                let observed_browser_timeout = browser_timeout_clone.clone();
+                async move {
+                    *observed_browser_timeout
+                        .lock()
+                        .expect("timeout lock should succeed") = Some(timeout_seconds);
+                    Err::<String, anyhow::Error>(anyhow::anyhow!("browser unavailable"))
+                }
+            },
+            move |_url, timeout_seconds| {
+                let observed_http_timeout = http_timeout_clone.clone();
+                async move {
+                    *observed_http_timeout
+                        .lock()
+                        .expect("timeout lock should succeed") = Some(timeout_seconds);
+                    Ok::<String, anyhow::Error>("<html><body>fallback</body></html>".to_string())
+                }
+            },
+        )
+        .await
+        .expect("fetch_url should succeed");
+
+        assert_eq!(
+            *observed_browser_timeout
+                .lock()
+                .expect("timeout lock should succeed"),
+            Some(600)
+        );
+        assert_eq!(
+            *observed_http_timeout.lock().expect("timeout lock should succeed"),
+            Some(600)
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_falls_back_to_http_after_browser_failure() {
+        let browser_attempted = Arc::new(Mutex::new(false));
+        let browser_attempted_clone = browser_attempted.clone();
+        let http_attempted = Arc::new(Mutex::new(false));
+        let http_attempted_clone = http_attempted.clone();
+
+        let result = execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com" }),
+            true,
+            move |_url, _timeout_seconds| {
+                let browser_attempted = browser_attempted_clone.clone();
+                async move {
+                    *browser_attempted.lock().expect("lock should succeed") = true;
+                    Err::<String, anyhow::Error>(anyhow::anyhow!("browser failed"))
+                }
+            },
+            move |_url, _timeout_seconds| {
+                let http_attempted = http_attempted_clone.clone();
+                async move {
+                    *http_attempted.lock().expect("lock should succeed") = true;
+                    Ok::<String, anyhow::Error>("<html><body>fallback content</body></html>".to_string())
+                }
+            },
+        )
+        .await
+        .expect("fetch_url should fall back to http");
+
+        assert!(*browser_attempted.lock().expect("lock should succeed"));
+        assert!(*http_attempted.lock().expect("lock should succeed"));
+        assert_eq!(result, "fallback content");
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_does_not_fallback_after_browser_timeout_exhausts_budget() {
+        let http_attempted = Arc::new(Mutex::new(false));
+        let http_attempted_clone = http_attempted.clone();
+        let started = std::time::Instant::now();
+
+        let error = execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com", "timeout_seconds": 1 }),
+            true,
+            |_url, timeout_seconds| async move {
+                tokio::time::sleep(Duration::from_millis((timeout_seconds * 1000) + 50)).await;
+                Ok::<String, anyhow::Error>("<html><body>late browser</body></html>".to_string())
+            },
+            move |_url, _timeout_seconds| {
+                let http_attempted = http_attempted_clone.clone();
+                async move {
+                    *http_attempted.lock().expect("lock should succeed") = true;
+                    Ok::<String, anyhow::Error>("<html><body>fallback</body></html>".to_string())
+                }
+            },
+        )
+        .await
+        .expect_err("browser timeout should consume overall budget");
+
+        assert!(error.to_string().contains("fetch_url timed out"));
+        assert!(!*http_attempted.lock().expect("lock should succeed"));
+        assert!(
+            started.elapsed() < Duration::from_millis(1500),
+            "overall timeout should not allow a fresh fallback budget"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_uses_remaining_budget_for_http_fallback_after_browser_failure() {
+        let started = std::time::Instant::now();
+
+        let error = execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com", "timeout_seconds": 1 }),
+            true,
+            |_url, _timeout_seconds| async move {
+                tokio::time::sleep(Duration::from_millis(700)).await;
+                Err::<String, anyhow::Error>(anyhow::anyhow!("browser failed after delay"))
+            },
+            |_url, _timeout_seconds| async move {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                Ok::<String, anyhow::Error>("<html><body>late fallback</body></html>".to_string())
+            },
+        )
+        .await
+        .expect_err("http fallback should only get remaining budget");
+
+        assert!(error.to_string().contains("fetch_url timed out"));
+        assert!(
+            started.elapsed() < Duration::from_millis(1300),
+            "fallback should not receive a fresh full timeout budget"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_does_not_fallback_on_browser_timeout_error() {
+        let http_attempted = Arc::new(Mutex::new(false));
+        let http_attempted_clone = http_attempted.clone();
+
+        let error = execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com", "timeout_seconds": 1 }),
+            true,
+            |_url, _timeout_seconds| async move {
+                Err::<String, anyhow::Error>(anyhow::anyhow!(
+                    "headless browser fetch timed out after 1 seconds"
+                ))
+            },
+            move |_url, _timeout_seconds| {
+                let http_attempted = http_attempted_clone.clone();
+                async move {
+                    *http_attempted.lock().expect("lock should succeed") = true;
+                    Ok::<String, anyhow::Error>("<html><body>fallback</body></html>".to_string())
+                }
+            },
+        )
+        .await
+        .expect_err("browser timeout error should not fall back to http");
+
+        assert!(error.to_string().contains("fetch_url timed out after 1 seconds"));
+        assert!(!*http_attempted.lock().expect("lock should succeed"));
+    }
+
+    #[tokio::test]
+    async fn fetch_url_runtime_returns_timeout_error_when_runner_exceeds_limit() {
+        let error = execute_fetch_url_with_runner(
+            &serde_json::json!({ "url": "https://example.com", "timeout_seconds": 0 }),
+            false,
+            |_url, _timeout_seconds| async move {
+                Ok::<String, anyhow::Error>("<html><body>browser</body></html>".to_string())
+            },
+            |_url, _timeout_seconds| async move {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                Ok::<String, anyhow::Error>("<html><body>late</body></html>".to_string())
+            },
+        )
+        .await
+        .expect_err("runner exceeding timeout should return timeout error");
+
+        assert!(error.to_string().contains("fetch_url timed out"));
+        assert!(error.to_string().contains("0"));
+    }
+
+    #[tokio::test]
+    async fn search_files_runtime_clamps_timeout_override_on_caller_path() {
+        let observed_timeout = Arc::new(Mutex::new(None));
+        let observed_timeout_clone = observed_timeout.clone();
+
+        let result = execute_search_files_with_runner(
+            &serde_json::json!({ "pattern": "needle", "timeout_seconds": 999 }),
+            move |request| {
+                let observed_timeout = observed_timeout_clone.clone();
+                async move {
+                    *observed_timeout.lock().expect("timeout lock should succeed") =
+                        Some(request.timeout_seconds);
+                    Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                        status: successful_exit_status(),
+                        stdout: b"file.rs:1:needle\n".to_vec(),
+                        stderr: Vec::new(),
+                    })
+                }
+            },
+        )
+        .await
+        .expect("search_files should succeed");
+
+        assert_eq!(
+            *observed_timeout.lock().expect("timeout lock should succeed"),
+            Some(600)
+        );
+        assert_eq!(result, "file.rs:1:needle");
+    }
+
+    #[tokio::test]
+    async fn search_files_runtime_returns_timeout_error_when_runner_exceeds_limit() {
+        let error = execute_search_files_with_runner(
+            &serde_json::json!({ "pattern": "needle", "timeout_seconds": 0 }),
+            |_| async move {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: successful_exit_status(),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            },
+        )
+        .await
+        .expect_err("runner exceeding timeout should return timeout error");
+
+        assert!(error.to_string().contains("search timed out"));
+        assert!(error.to_string().contains("0"));
+    }
+
+    #[tokio::test]
+    async fn search_files_runtime_returns_no_matches_only_for_grep_exit_code_one() {
+        let result = execute_search_files_with_runner(
+            &serde_json::json!({ "pattern": "needle" }),
+            |_| async move {
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: exit_status_with_code(1),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            },
+        )
+        .await
+        .expect("grep exit code 1 should be treated as no matches");
+
+        assert_eq!(result, "No matches found.");
+    }
+
+    #[tokio::test]
+    async fn search_files_runtime_surfaces_real_grep_failures() {
+        let error = execute_search_files_with_runner(
+            &serde_json::json!({ "pattern": "[" }),
+            |_| async move {
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: exit_status_with_code(2),
+                    stdout: Vec::new(),
+                    stderr: b"grep: Invalid regular expression".to_vec(),
+                })
+            },
+        )
+        .await
+        .expect_err("grep exit code >1 should be treated as a real failure");
+
+        assert!(error.to_string().contains("search failed"));
+        assert!(error.to_string().contains("Invalid regular expression"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn search_files_subprocess_helper_kills_child_when_timeout_drops_future() {
+        let dir = tempdir().expect("tempdir should succeed");
+        let pid_path = dir.path().join("search-files-timeout.pid");
+        let script = format!(
+            "import os, pathlib, time; pathlib.Path(r\"{}\").write_text(str(os.getpid())); time.sleep(30)",
+            pid_path.display()
+        );
+
+        let mut command = tokio::process::Command::new("python3");
+        command.arg("-c").arg(script);
+
+        let timed_out: Result<_, tokio::time::error::Elapsed> = timeout(
+            Duration::from_millis(20),
+            run_search_files_command(command),
+        )
+        .await;
+        assert!(timed_out.is_err(), "helper future should time out");
+
+        let pid = timeout(Duration::from_secs(1), async {
+            loop {
+                if let Ok(raw) = fs::read_to_string(&pid_path) {
+                    break raw
+                        .trim()
+                        .parse::<u32>()
+                        .expect("pid file should contain a valid pid");
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("pid file should be written promptly");
+
+        let proc_path = std::path::PathBuf::from(format!("/proc/{pid}"));
+        timeout(Duration::from_secs(1), async {
+            loop {
+                if !proc_path.exists() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("timed out subprocess should be killed when future is dropped");
+    }
+
+    #[tokio::test]
+    async fn onecontext_search_runtime_returns_timeout_error_when_runner_exceeds_limit() {
+        let error = execute_onecontext_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy", "timeout_seconds": 0 }),
+            true,
+            |_| async move {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: successful_exit_status(),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            },
+        )
+        .await
+        .expect_err("runner exceeding timeout should return timeout error");
+
+        assert!(error.to_string().contains("onecontext search timed out"));
+    }
+
+    #[tokio::test]
+    async fn onecontext_search_rejects_negative_timeout_seconds() {
+        let error = execute_onecontext_search_with_runner(
+            &serde_json::json!({ "query": "timeout policy", "timeout_seconds": -1 }),
+            true,
+            |_| async move {
+                panic!("runner should not execute when timeout is invalid");
+                #[allow(unreachable_code)]
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: successful_exit_status(),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            },
+        )
+        .await
+        .expect_err("negative timeout should be rejected");
+
+        assert!(error
+            .to_string()
+            .contains("'timeout_seconds' must be a non-negative integer"));
+    }
 
     #[test]
     fn write_file_rejects_paths_with_trailing_whitespace() {
@@ -6230,8 +7270,9 @@ mod tests {
     #[test]
     fn list_sessions_tool_requires_workspace_topology() {
         let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
 
-        let no_topology = get_available_tools(&config, std::path::Path::new("/tmp"), false);
+        let no_topology = get_available_tools(&config, &temp_dir, false);
         assert!(no_topology
             .iter()
             .all(|tool| tool.function.name != "list_sessions"));
@@ -6239,7 +7280,7 @@ mod tests {
             .iter()
             .any(|tool| tool.function.name == "list_terminals"));
 
-        let with_topology = get_available_tools(&config, std::path::Path::new("/tmp"), true);
+        let with_topology = get_available_tools(&config, &temp_dir, true);
         assert!(with_topology
             .iter()
             .any(|tool| tool.function.name == "list_sessions"));
