@@ -55,6 +55,7 @@ pub(crate) struct PolicyToolOutcomeSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PolicyEvaluationContext {
     pub trigger: PolicyTriggerContext,
+    pub current_retry_guard: Option<String>,
     pub recent_tool_outcomes: Vec<PolicyToolOutcomeSummary>,
     pub awareness_summary: Option<String>,
     pub counter_who_context: Option<String>,
@@ -580,6 +581,17 @@ fn summarize_recent_policy_decision(recent: &RecentPolicyDecision) -> String {
     }
 }
 
+fn decision_matches_runtime_context(
+    decision: &PolicyDecision,
+    context: &PolicyEvaluationContext,
+) -> bool {
+    decision
+        .retry_guard
+        .as_deref()
+        .zip(context.current_retry_guard.as_deref())
+        .is_some_and(|(decision_guard, current_guard)| decision_guard == current_guard)
+}
+
 fn infer_stuck_reason(trigger: &PolicyTriggerContext) -> Option<crate::agent::types::StuckReason> {
     if trigger.repeated_approach {
         Some(crate::agent::types::StuckReason::ErrorLoop)
@@ -890,22 +902,32 @@ impl AgentEngine {
     ) -> Result<SelectedPolicyDecision> {
         let recent = self.latest_policy_decision(scope, now_epoch_secs).await;
         if let Some(recent) = recent.as_ref() {
-            let selection = select_orchestrator_policy_decision(
-                Some(recent),
-                &context.trigger,
-                continue_policy_decision("Reused active orchestrator policy decision."),
-            );
-            if selection.source == PolicyDecisionSource::ReusedRecent {
-                return Ok(selection);
+            if recent.decision.action != PolicyAction::Continue
+                && decision_matches_runtime_context(&recent.decision, &context)
+            {
+                return Ok(SelectedPolicyDecision {
+                    source: PolicyDecisionSource::ReusedRecent,
+                    decision: recent.decision.clone(),
+                });
             }
         }
-
         let mut context = context;
         context.recent_decision_summary = recent.as_ref().map(summarize_recent_policy_decision);
         let prompt = build_policy_eval_prompt(&context);
         let evaluated = normalize_policy_eval_decision(
             self.request_orchestrator_policy_decision(&prompt).await?,
         );
+        let selection = if decision_matches_runtime_context(&evaluated, &context) {
+            select_orchestrator_policy_decision(recent.as_ref(), &context.trigger, evaluated.clone())
+        } else {
+            SelectedPolicyDecision {
+                source: PolicyDecisionSource::FreshEvaluation,
+                decision: evaluated.clone(),
+            }
+        };
+        if selection.source == PolicyDecisionSource::ReusedRecent {
+            return Ok(selection);
+        }
         self.record_policy_decision(scope, evaluated.clone(), now_epoch_secs)
             .await;
         Ok(SelectedPolicyDecision {

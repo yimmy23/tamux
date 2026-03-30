@@ -191,6 +191,7 @@ async fn build_policy_context_for_tool_result(
         scope,
         super::orchestrator_policy::PolicyEvaluationContext {
             trigger,
+            current_retry_guard: Some(current_approach_hash.to_string()),
             recent_tool_outcomes: recent_tool_outcomes.to_vec(),
             awareness_summary,
             counter_who_context,

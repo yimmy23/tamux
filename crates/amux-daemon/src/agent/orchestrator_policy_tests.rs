@@ -7,7 +7,11 @@ use crate::agent::types::{
     GoalRunStepKind, GoalRunStepStatus, MessageRole, TaskLogLevel, TaskPriority, TaskStatus,
 };
 use crate::session_manager::SessionManager;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::tempdir;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 fn trigger_input(thread_id: &str) -> PolicyTriggerInput {
     PolicyTriggerInput {
@@ -61,6 +65,7 @@ fn policy_eval_context() -> PolicyEvaluationContext {
                 should_escalate: false,
             },
         },
+        current_retry_guard: Some("approach-hash-1".to_string()),
         recent_tool_outcomes: vec![
             PolicyToolOutcomeSummary {
                 tool_name: "read_file".to_string(),
@@ -96,6 +101,65 @@ async fn test_engine() -> std::sync::Arc<AgentEngine> {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await
+}
+
+async fn policy_runtime_engine(
+    response_json: &str,
+    recorded_bodies: Arc<StdMutex<VecDeque<String>>>,
+) -> std::sync::Arc<AgentEngine> {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let server_url = spawn_policy_recording_server(recorded_bodies, response_json.to_string()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = server_url;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    AgentEngine::new_test(manager, config, root.path()).await
+}
+
+async fn spawn_policy_recording_server(
+    recorded_bodies: Arc<StdMutex<VecDeque<String>>>,
+    response_json: String,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind policy server");
+    let addr = listener.local_addr().expect("policy server addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let recorded_bodies = recorded_bodies.clone();
+            let response_json = response_json.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 65536];
+                let read = socket.read(&mut buffer).await.expect("read policy request");
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
+                recorded_bodies
+                    .lock()
+                    .expect("lock request log")
+                    .push_back(body);
+
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\ndata: {{\"choices\":[{{\"delta\":{{\"content\":{response_json:?}}}}}]}}\n\ndata: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":7,\"completion_tokens\":3}}}}\n\ndata: [DONE]\n\n"
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write policy response");
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
 }
 
 fn goal_run_fixture(thread_id: &str) -> GoalRun {
@@ -1177,6 +1241,84 @@ async fn apply_recent_policy_decision_is_persisted_and_reused_on_next_relevant_t
 
     assert_eq!(selection.source, PolicyDecisionSource::ReusedRecent);
     assert_eq!(selection.decision, pivot_decision);
+}
+
+#[tokio::test]
+async fn evaluate_policy_turn_reuses_persisted_recent_decision_for_matching_runtime_candidate() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let engine = policy_runtime_engine(
+        r#"{"action":"pivot","reason":"Current path is still stuck.","strategy_hint":"Inspect the workspace before running commands again.","retry_guard":"approach-hash-1"}"#,
+        recorded_bodies.clone(),
+    )
+    .await;
+    let scope = scope("thread-runtime-reuse", Some("goal-1"));
+    let persisted = PolicyDecision {
+        action: PolicyAction::Pivot,
+        reason: "Switch away from the repeating failure.".to_string(),
+        strategy_hint: Some("Inspect the workspace before running commands again.".to_string()),
+        retry_guard: Some("approach-hash-1".to_string()),
+    };
+
+    engine
+        .record_policy_decision(&scope, persisted.clone(), 1_000)
+        .await;
+
+    let selection = engine
+        .evaluate_orchestrator_policy_turn(&scope, policy_eval_context(), 1_010)
+        .await
+        .expect("policy evaluation should succeed");
+
+    assert_eq!(selection.source, PolicyDecisionSource::ReusedRecent);
+    assert_eq!(selection.decision, persisted);
+    assert!(recorded_bodies
+        .lock()
+        .expect("lock request log")
+        .is_empty());
+}
+
+#[tokio::test]
+async fn evaluate_policy_turn_does_not_reuse_recent_decision_for_different_runtime_retry_guard() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let engine = policy_runtime_engine(
+        r#"{"action":"halt_retries","reason":"Stop retrying the new failing approach.","strategy_hint":null,"retry_guard":"approach-hash-2"}"#,
+        recorded_bodies.clone(),
+    )
+    .await;
+    let scope = scope("thread-runtime-no-reuse", Some("goal-1"));
+
+    engine
+        .record_policy_decision(
+            &scope,
+            PolicyDecision {
+                action: PolicyAction::HaltRetries,
+                reason: "Stop retrying the first failing approach.".to_string(),
+                strategy_hint: None,
+                retry_guard: Some("approach-hash-1".to_string()),
+            },
+            1_000,
+        )
+        .await;
+
+    let mut context = policy_eval_context();
+    context.current_retry_guard = Some("approach-hash-2".to_string());
+
+    let selection = engine
+        .evaluate_orchestrator_policy_turn(&scope, context, 1_010)
+        .await
+        .expect("policy evaluation should succeed");
+
+    assert_eq!(selection.source, PolicyDecisionSource::FreshEvaluation);
+    assert_eq!(selection.decision.action, PolicyAction::HaltRetries);
+    assert_eq!(selection.decision.retry_guard.as_deref(), Some("approach-hash-2"));
+    let recorded = recorded_bodies.lock().expect("lock request log");
+    assert!(
+        recorded.iter().any(|body| {
+            body.contains("structured_output")
+                || body.contains("\"response_format\"")
+                || body.contains("\"text\":{\"format\"")
+        }),
+        "expected a fresh structured policy evaluation request for the new retry guard"
+    );
 }
 
 #[test]
