@@ -870,7 +870,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         default_transport: ApiTransport::Responses,
         native_transport_kind: None,
         native_base_url: None,
-        supports_response_continuity: false,
+        supports_response_continuity: true,
     },
     ProviderDefinition {
         id: "qwen",

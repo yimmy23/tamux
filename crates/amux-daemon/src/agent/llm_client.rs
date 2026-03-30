@@ -525,11 +525,11 @@ pub fn send_completion_request(
                             previous_response_id.as_deref(),
                             &tx,
                         )
-                        .await
-                        {
+                        .await {
                             Ok(()) => Ok(()),
                             Err(err)
-                                if err.downcast_ref::<TransportCompatibilityError>().is_some() =>
+                                if err.downcast_ref::<TransportCompatibilityError>().is_some()
+                                    && should_fallback_responses_to_chat(&provider) =>
                             {
                                 let reason = err.to_string();
                                 let _ = tx
@@ -689,10 +689,11 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
                     let position = pending_tool_results
                         .iter()
                         .position(|pending_id| pending_id == tool_call_id);
-                    let Some(position) = position else {
-                        return None;
-                    };
-                    pending_tool_results.remove(position).unwrap_or_default()
+                    if let Some(position) = position {
+                        pending_tool_results.remove(position).unwrap_or_default()
+                    } else {
+                        tool_call_id.clone()
+                    }
                 } else {
                     let Some(next_pending) = pending_tool_results.pop_front() else {
                         return None;
@@ -869,6 +870,89 @@ fn normalize_reasoning_effort(effort: &str) -> Option<String> {
         "xhigh" => Some("high".to_string()),
         other => Some(other.to_string()),
     }
+}
+
+fn copilot_reasoning_summary(effort: &str) -> Option<&'static str> {
+    normalize_reasoning_effort(effort).map(|_| "auto")
+}
+
+fn should_fallback_responses_to_chat(provider: &str) -> bool {
+    provider != "github-copilot"
+}
+
+fn build_openai_responses_body(
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    previous_response_id: Option<&str>,
+    codex_auth: bool,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "instructions": system_prompt,
+        "input": messages_to_responses_input(messages),
+        "stream": true,
+    });
+
+    if let Some(previous_response_id) = previous_response_id.filter(|value| !value.trim().is_empty()) {
+        body["previous_response_id"] = serde_json::Value::String(previous_response_id.to_string());
+    }
+
+    if !tools.is_empty() {
+        body["tools"] = serde_json::Value::Array(
+            tools
+                .iter()
+                .map(|tool| {
+                    serde_json::json!({
+                        "type": tool.tool_type,
+                        "name": tool.function.name,
+                        "description": tool.function.description,
+                        "parameters": tool.function.parameters,
+                    })
+                })
+                .collect(),
+        );
+    }
+
+    if let Some(ref schema) = config.response_schema {
+        body["text"] = serde_json::json!({
+            "format": {
+                "type": "json_schema",
+                "name": "structured_output",
+                "strict": true,
+                "schema": schema,
+            }
+        });
+    }
+
+    if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
+        let mut reasoning = serde_json::json!({ "effort": effort });
+        if provider == "github-copilot" {
+            if let Some(summary) = copilot_reasoning_summary(&config.reasoning_effort) {
+                reasoning["summary"] = serde_json::Value::String(summary.to_string());
+            }
+        }
+        body["reasoning"] = reasoning;
+    }
+
+    if codex_auth {
+        body["store"] = serde_json::Value::Bool(false);
+        body["include"] = serde_json::Value::Array(vec![serde_json::Value::String(
+            "reasoning.encrypted_content".to_string(),
+        )]);
+        if body.get("text").is_none() {
+            body["text"] = serde_json::json!({ "verbosity": "high" });
+        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut()) {
+            text_obj.insert(
+                "verbosity".to_string(),
+                serde_json::Value::String("high".to_string()),
+            );
+        }
+    }
+
+    body
 }
 
 fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
@@ -1425,6 +1509,25 @@ fn messages_to_responses_input(messages: &[ApiMessage]) -> Vec<serde_json::Value
         .collect()
 }
 
+fn extract_reasoning_summary_text(item: &serde_json::Value) -> Option<String> {
+    let summary = item.get("summary")?.as_array()?;
+    let combined = summary
+        .iter()
+        .filter_map(|part| {
+            let part_type = part.get("type").and_then(|value| value.as_str());
+            match part_type {
+                Some("summary_text") => part.get("text").and_then(|value| value.as_str()),
+                _ => None,
+            }
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!combined.is_empty()).then_some(combined)
+}
+
 fn build_anthropic_message_content(message: &ApiMessage) -> serde_json::Value {
     if message.role == "assistant"
         && message
@@ -1599,65 +1702,15 @@ async fn run_openai_responses(
     } else {
         build_responses_url(&config.base_url)
     };
-    let mut body = serde_json::json!({
-        "model": config.model,
-        "instructions": system_prompt,
-        "input": messages_to_responses_input(messages),
-        "stream": true,
-    });
-
-    if let Some(previous_response_id) =
-        previous_response_id.filter(|value| !value.trim().is_empty())
-    {
-        body["previous_response_id"] = serde_json::Value::String(previous_response_id.to_string());
-    }
-
-    if !tools.is_empty() {
-        body["tools"] = serde_json::Value::Array(
-            tools
-                .iter()
-                .map(|tool| {
-                    serde_json::json!({
-                        "type": tool.tool_type,
-                        "name": tool.function.name,
-                        "description": tool.function.description,
-                        "parameters": tool.function.parameters,
-                    })
-                })
-                .collect(),
-        );
-    }
-
-    if let Some(ref schema) = config.response_schema {
-        body["text"] = serde_json::json!({
-            "format": {
-                "type": "json_schema",
-                "name": "structured_output",
-                "strict": true,
-                "schema": schema,
-            }
-        });
-    }
-
-    if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
-        body["reasoning"] = serde_json::json!({ "effort": effort });
-    }
-
-    if codex_auth.is_some() {
-        body["store"] = serde_json::Value::Bool(false);
-        body["include"] = serde_json::Value::Array(vec![serde_json::Value::String(
-            "reasoning.encrypted_content".to_string(),
-        )]);
-        if body.get("text").is_none() {
-            body["text"] = serde_json::json!({ "verbosity": "high" });
-        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut())
-        {
-            text_obj.insert(
-                "verbosity".to_string(),
-                serde_json::Value::String("high".to_string()),
-            );
-        }
-    }
+    let body = build_openai_responses_body(
+        provider,
+        config,
+        system_prompt,
+        messages,
+        tools,
+        previous_response_id,
+        codex_auth.is_some(),
+    );
 
     let req = if let Some(codex_auth) = codex_auth {
         client
@@ -1989,30 +2042,38 @@ async fn parse_openai_responses_sse(
                         .and_then(|value| value.as_u64())
                         .unwrap_or(0) as u32;
                     if let Some(item) = parsed.get("item") {
-                        if item.get("type").and_then(|value| value.as_str())
-                            == Some("function_call")
-                        {
-                            let entry =
-                                pending_tool_calls.entry(output_index).or_insert_with(|| {
-                                    PendingToolCall {
-                                        id: String::new(),
-                                        name: String::new(),
-                                        arguments: String::new(),
+                        match item.get("type").and_then(|value| value.as_str()) {
+                            Some("function_call") => {
+                                let entry =
+                                    pending_tool_calls.entry(output_index).or_insert_with(|| {
+                                        PendingToolCall {
+                                            id: String::new(),
+                                            name: String::new(),
+                                            arguments: String::new(),
+                                        }
+                                    });
+                                if let Some(call_id) =
+                                    item.get("call_id").and_then(|value| value.as_str())
+                                {
+                                    entry.id = call_id.to_string();
+                                }
+                                if let Some(name) = item.get("name").and_then(|value| value.as_str()) {
+                                    entry.name = name.to_string();
+                                }
+                                if let Some(arguments) =
+                                    item.get("arguments").and_then(|value| value.as_str())
+                                {
+                                    entry.arguments = arguments.to_string();
+                                }
+                            }
+                            Some("reasoning") if event_type == "response.output_item.done" => {
+                                if total_reasoning.trim().is_empty() {
+                                    if let Some(summary_text) = extract_reasoning_summary_text(item) {
+                                        total_reasoning = summary_text;
                                     }
-                                });
-                            if let Some(call_id) =
-                                item.get("call_id").and_then(|value| value.as_str())
-                            {
-                                entry.id = call_id.to_string();
+                                }
                             }
-                            if let Some(name) = item.get("name").and_then(|value| value.as_str()) {
-                                entry.name = name.to_string();
-                            }
-                            if let Some(arguments) =
-                                item.get("arguments").and_then(|value| value.as_str())
-                            {
-                                entry.arguments = arguments.to_string();
-                            }
+                            _ => {}
                         }
                     }
                 }
@@ -3205,6 +3266,46 @@ mod tests {
         assert!(request.headers().get("user-agent").is_some());
     }
 
+    #[test]
+    fn github_copilot_responses_request_includes_reasoning_summary() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+        };
+
+        let body = build_openai_responses_body(
+            "github-copilot",
+            &config,
+            "system prompt",
+            &[ApiMessage {
+                role: "user".to_string(),
+                content: ApiContent::Text("hello".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            }],
+            &[],
+            None,
+            false,
+        );
+
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+    }
+
+    #[test]
+    fn github_copilot_does_not_fallback_responses_to_chat() {
+        assert!(!should_fallback_responses_to_chat("github-copilot"));
+        assert!(should_fallback_responses_to_chat("openai"));
+    }
+
     #[tokio::test]
     async fn copilot_validation_returns_static_catalog_models() {
         let _lock = auth_env_lock().lock().expect("lock auth env");
@@ -3251,6 +3352,119 @@ mod tests {
         assert!(models.iter().any(|model| model.id == "claude-sonnet-4.6"));
         assert!(models.iter().any(|model| model.id == "raptor-mini"));
         assert!(models.iter().any(|model| model.id == "goldeneye"));
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_collects_reasoning_summary_parts() {
+        let client = reqwest::Client::new();
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\"}}\n",
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"enc\"}}\n",
+            "data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"rs_1\",\"summary_index\":0}\n",
+            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"rs_1\",\"summary_index\":0,\"delta\":\"thinking\"}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n"
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        let body = body.to_string();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
+        });
+        let response = client
+            .get(format!("http://{addr}"))
+            .send()
+            .await
+            .expect("send test request");
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_responses_sse(response, "github-copilot", &tx)
+            .await
+            .expect("parse should succeed");
+        drop(tx);
+
+        let mut reasoning_deltas = Vec::new();
+        let mut final_reasoning = None;
+        while let Some(chunk) = rx.recv().await {
+            match chunk.expect("chunk") {
+                CompletionChunk::Delta {
+                    reasoning: Some(reasoning),
+                    ..
+                } => reasoning_deltas.push(reasoning),
+                CompletionChunk::Done {
+                    reasoning: Some(reasoning),
+                    ..
+                } => final_reasoning = Some(reasoning),
+                _ => {}
+            }
+        }
+
+        assert_eq!(reasoning_deltas, vec!["thinking".to_string()]);
+        assert_eq!(final_reasoning.as_deref(), Some("thinking"));
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_collects_reasoning_summary_from_output_item_done() {
+        let client = reqwest::Client::new();
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_456\"}}\n",
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_2\",\"encrypted_content\":\"enc\"}}\n",
+            "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_2_rotated\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"final reasoning\"}]}}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}}\n"
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        let body = body.to_string();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
+        });
+        let response = client
+            .get(format!("http://{addr}"))
+            .send()
+            .await
+            .expect("send test request");
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_responses_sse(response, "github-copilot", &tx)
+            .await
+            .expect("parse should succeed");
+        drop(tx);
+
+        let mut reasoning_deltas = Vec::new();
+        let mut final_reasoning = None;
+        while let Some(chunk) = rx.recv().await {
+            match chunk.expect("chunk") {
+                CompletionChunk::Delta {
+                    reasoning: Some(reasoning),
+                    ..
+                } => reasoning_deltas.push(reasoning),
+                CompletionChunk::Done {
+                    reasoning: Some(reasoning),
+                    ..
+                } => final_reasoning = Some(reasoning),
+                _ => {}
+            }
+        }
+
+        assert!(reasoning_deltas.is_empty());
+        assert_eq!(final_reasoning.as_deref(), Some("final reasoning"));
+        server.await.expect("server task");
     }
 
 }
