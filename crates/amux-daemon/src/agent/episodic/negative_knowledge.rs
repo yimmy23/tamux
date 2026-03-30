@@ -367,6 +367,29 @@ fn str_to_constraint_type(s: &str) -> ConstraintType {
     }
 }
 
+fn load_all_active_constraints(
+    conn: &rusqlite::Connection,
+    agent_id: &str,
+    include_legacy: i64,
+    now_ms: i64,
+) -> rusqlite::Result<Vec<NegativeConstraint>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
+                description, confidence, state, evidence_count, direct_observation,
+                derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
+         FROM negative_knowledge
+         WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
+           AND (valid_until IS NULL OR valid_until > ?3)
+         ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![agent_id, include_legacy, now_ms], row_to_constraint)?;
+    let mut constraints = Vec::new();
+    for row in rows {
+        constraints.push(row?);
+    }
+    Ok(constraints)
+}
+
 fn persist_constraint(
     conn: &rusqlite::Connection,
     constraint: &NegativeConstraint,
@@ -405,6 +428,44 @@ fn persist_constraint(
     Ok(())
 }
 
+fn persist_constraint_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    constraint: &NegativeConstraint,
+    agent_id: &str,
+) -> rusqlite::Result<()> {
+    let derived_from_constraint_ids = serde_json::to_string(&constraint.derived_from_constraint_ids)
+        .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+    let related_subject_tokens = serde_json::to_string(&constraint.related_subject_tokens)
+        .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+
+    tx.execute(
+        "INSERT OR REPLACE INTO negative_knowledge
+         (id, agent_id, episode_id, constraint_type, subject, solution_class,
+          description, confidence, state, evidence_count, direct_observation,
+          derived_from_constraint_ids, related_subject_tokens, valid_until, created_at)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![
+            constraint.id,
+            agent_id,
+            constraint.episode_id,
+            constraint_type_to_str(&constraint.constraint_type),
+            constraint.subject,
+            constraint.solution_class,
+            constraint.description,
+            constraint.confidence,
+            constraint_state_to_str(&constraint.state),
+            constraint.evidence_count,
+            if constraint.direct_observation { 1 } else { 0 },
+            derived_from_constraint_ids,
+            related_subject_tokens,
+            constraint.valid_until.map(|v| v as i64),
+            constraint.created_at as i64,
+        ],
+    )?;
+
+    Ok(())
+}
+
 impl AgentEngine {
     /// Add a negative knowledge constraint (NKNO-01).
     pub(crate) async fn add_negative_constraint(
@@ -414,78 +475,81 @@ impl AgentEngine {
         let agent_id = crate::agent::agent_identity::current_agent_scope_id();
         let scope_id = crate::agent::agent_identity::current_agent_scope_id();
         let now_ms = super::super::now_millis();
-
-        let cached_constraints = {
-            let stores = self.episodic_store.read().await;
-            stores
-                .get(&scope_id)
-                .map(|store| {
-                    store
-                        .cached_constraints
-                        .iter()
-                        .filter(|constraint| is_constraint_active(constraint, now_ms))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        };
-
-        let mut active_constraints = if cached_constraints.is_empty() {
-            self.query_active_constraints(None).await?
-        } else {
-            cached_constraints
-        };
-
-        let merge_idx = active_constraints
-            .iter()
-            .position(|existing| constraints_match_for_merge(existing, &constraint));
-
-        let (persisted_constraint, reached_dead) = if let Some(idx) = merge_idx {
-            let existing = active_constraints[idx].clone();
-            let merged = merge_constraint_evidence(&existing, &constraint);
-            let reached_dead = existing.state != ConstraintState::Dead && merged.state == ConstraintState::Dead;
-            active_constraints[idx] = merged.clone();
-            (merged, reached_dead)
-        } else {
-            let reached_dead = constraint.state == ConstraintState::Dead;
-            active_constraints.push(constraint.clone());
-            (constraint, reached_dead)
-        };
-
-        let propagated_constraints = if reached_dead {
-            let propagated = propagate_dead_constraint(&persisted_constraint, &active_constraints);
-            for propagated_constraint in &propagated {
-                if let Some(idx) = active_constraints
-                    .iter()
-                    .position(|existing| existing.id == propagated_constraint.id)
-                {
-                    active_constraints[idx] = propagated_constraint.clone();
-                }
-            }
-            propagated
-        } else {
-            Vec::new()
-        };
-
-        let persisted_constraint_for_db = persisted_constraint.clone();
-        let propagated_for_db = propagated_constraints.clone();
         let agent_id_for_db = agent_id.clone();
+        let incoming_constraint = constraint.clone();
 
-        self.history
+        let (persisted_constraint, propagated_constraints) = self
+            .history
             .conn
             .call(move |conn| {
-                persist_constraint(conn, &persisted_constraint_for_db, &agent_id_for_db)?;
-                for propagated_constraint in &propagated_for_db {
-                    persist_constraint(conn, propagated_constraint, &agent_id_for_db)?;
+                let include_legacy = crate::agent::is_main_agent_scope(&agent_id_for_db) as i64;
+                let mut active_constraints =
+                    load_all_active_constraints(conn, &agent_id_for_db, include_legacy, now_ms as i64)?;
+
+                let merge_idx = active_constraints
+                    .iter()
+                    .position(|existing| constraints_match_for_merge(existing, &incoming_constraint));
+
+                let (persisted_constraint, reached_dead) = if let Some(idx) = merge_idx {
+                    let existing = active_constraints[idx].clone();
+                    let merged = merge_constraint_evidence(&existing, &incoming_constraint);
+                    let reached_dead = existing.state != ConstraintState::Dead
+                        && merged.state == ConstraintState::Dead;
+                    active_constraints[idx] = merged.clone();
+                    (merged, reached_dead)
+                } else {
+                    let reached_dead = incoming_constraint.state == ConstraintState::Dead;
+                    active_constraints.push(incoming_constraint.clone());
+                    (incoming_constraint.clone(), reached_dead)
+                };
+
+                let propagated_constraints = if reached_dead {
+                    let propagated = propagate_dead_constraint(&persisted_constraint, &active_constraints);
+                    for propagated_constraint in &propagated {
+                        if let Some(idx) = active_constraints
+                            .iter()
+                            .position(|existing| existing.id == propagated_constraint.id)
+                        {
+                            active_constraints[idx] = propagated_constraint.clone();
+                        }
+                    }
+                    propagated
+                } else {
+                    Vec::new()
+                };
+
+                let tx = conn.unchecked_transaction()?;
+                persist_constraint_in_transaction(&tx, &persisted_constraint, &agent_id_for_db)?;
+                for propagated_constraint in &propagated_constraints {
+                    persist_constraint_in_transaction(&tx, propagated_constraint, &agent_id_for_db)?;
                 }
-                Ok(())
+                tx.commit()?;
+
+                Ok((persisted_constraint, propagated_constraints))
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let mut stores = self.episodic_store.write().await;
         let store = stores.entry(scope_id).or_default();
-        store.cached_constraints = active_constraints;
+        store
+            .cached_constraints
+            .retain(|constraint| is_constraint_active(constraint, now_ms));
+
+        let mut touched_constraints = propagated_constraints;
+        touched_constraints.push(persisted_constraint.clone());
+
+        for touched_constraint in touched_constraints {
+            if let Some(existing) = store
+                .cached_constraints
+                .iter_mut()
+                .find(|existing| existing.id == touched_constraint.id)
+            {
+                *existing = touched_constraint;
+            } else {
+                store.cached_constraints.push(touched_constraint);
+            }
+        }
 
         tracing::info!(subject = %persisted_constraint.subject, "Added negative knowledge constraint");
 
@@ -525,7 +589,7 @@ impl AgentEngine {
         &self,
         entity_filter: Option<&str>,
     ) -> Result<Vec<NegativeConstraint>> {
-        let now_ms = super::super::now_millis() as i64;
+        let now_ms = crate::agent::now_millis() as i64;
         let filter = entity_filter.map(|s| format!("%{s}%"));
         let agent_id = crate::agent::agent_identity::current_agent_scope_id();
         let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
@@ -577,7 +641,7 @@ impl AgentEngine {
 
     /// Expire (delete) constraints past their TTL (NKNO-04).
     pub(crate) async fn expire_negative_constraints(&self) -> Result<usize> {
-        let now_ms = super::super::now_millis() as i64;
+        let now_ms = crate::agent::now_millis() as i64;
 
         let deleted = self
             .history
@@ -650,7 +714,9 @@ fn row_to_constraint(row: &rusqlite::Row<'_>) -> rusqlite::Result<NegativeConstr
 mod tests {
     use super::*;
     use super::super::schema::init_episodic_schema;
+    use crate::agent::{types::AgentConfig, SessionManager};
     use rusqlite::{params, Connection};
+    use tempfile::tempdir;
 
     fn make_constraint(subject: &str, valid_until: Option<u64>) -> NegativeConstraint {
         NegativeConstraint {
@@ -734,6 +800,87 @@ mod tests {
             params![id],
             row_to_constraint,
         )
+    }
+
+    async fn make_test_engine() -> std::sync::Arc<AgentEngine> {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await
+    }
+
+    async fn insert_constraint_for_engine(
+        engine: &AgentEngine,
+        constraint: NegativeConstraint,
+    ) -> anyhow::Result<()> {
+        let agent_id = crate::agent::agent_identity::current_agent_scope_id();
+        engine
+            .history
+            .conn
+            .call(move |conn| {
+                persist_constraint(conn, &constraint, &agent_id)?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(())
+    }
+
+    async fn select_constraints_for_subject(
+        engine: &AgentEngine,
+        subject: &str,
+    ) -> anyhow::Result<Vec<NegativeConstraint>> {
+        let subject = subject.to_string();
+        engine
+            .history
+            .conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
+                            description, confidence, state, evidence_count, direct_observation,
+                            derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
+                     FROM negative_knowledge
+                     WHERE subject = ?1
+                     ORDER BY created_at DESC",
+                )?;
+                let rows = stmt.query_map(params![subject], row_to_constraint)?;
+                let mut constraints = Vec::new();
+                for row in rows {
+                    constraints.push(row?);
+                }
+                Ok(constraints)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    async fn count_negative_knowledge_rows(engine: &AgentEngine) -> anyhow::Result<u32> {
+        engine
+            .history
+            .conn
+            .call(|conn| {
+                let count: u32 = conn.query_row("SELECT COUNT(*) FROM negative_knowledge", [], |row| row.get(0))?;
+                Ok(count)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    async fn refresh_full_constraint_cache_for_test(engine: &AgentEngine) -> anyhow::Result<()> {
+        let agent_id = crate::agent::agent_identity::current_agent_scope_id();
+        let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
+        let now_ms = crate::agent::now_millis() as i64;
+        let constraints = engine
+            .history
+            .conn
+            .call(move |conn| Ok(load_all_active_constraints(conn, &agent_id, include_legacy, now_ms)?))
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let scope_id = crate::agent::agent_identity::current_agent_scope_id();
+        let mut stores = engine.episodic_store.write().await;
+        let store = stores.entry(scope_id).or_default();
+        store.cached_constraints = constraints;
+        Ok(())
     }
 
     #[test]
@@ -1332,5 +1479,180 @@ mod tests {
         assert!(!propagated_ids.contains(&"nc-related-0"));
         assert!(propagated_ids.contains(&"nc-related-10"));
         assert!(!propagated_ids.contains(&"nc-second-hop"));
+    }
+
+    #[tokio::test]
+    async fn add_negative_constraint_merges_with_matching_row_beyond_twenty_row_fallback() -> anyhow::Result<()> {
+        let engine = make_test_engine().await;
+
+        let old_match = NegativeConstraint {
+            id: "nc-old-match".to_string(),
+            state: ConstraintState::Suspicious,
+            confidence: 0.4,
+            evidence_count: 1,
+            direct_observation: false,
+            valid_until: None,
+            created_at: 10,
+            ..make_constraint_with_class("deploy config rollback", Some("deploy-fix"))
+        };
+        insert_constraint_for_engine(&engine, old_match).await?;
+
+        for idx in 0..24 {
+            insert_constraint_for_engine(
+                &engine,
+                NegativeConstraint {
+                    id: format!("nc-filler-{idx}"),
+                    created_at: 1_000 + idx,
+                    subject: format!("filler subject {idx}"),
+                    valid_until: None,
+                    ..make_constraint_with_class(&format!("filler subject {idx}"), Some("deploy-fix"))
+                },
+            )
+            .await?;
+        }
+
+        engine
+            .add_negative_constraint(NegativeConstraint {
+                id: "nc-incoming".to_string(),
+                confidence: 0.7,
+                valid_until: None,
+                ..make_constraint_with_class("rollback deploy config", Some("deploy-fix"))
+            })
+            .await?;
+
+        let matching = select_constraints_for_subject(&engine, "deploy config rollback").await?;
+        let row_count = count_negative_knowledge_rows(&engine).await?;
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].id, "nc-old-match");
+        assert_eq!(matching[0].evidence_count, 2);
+        assert_eq!(matching[0].state, ConstraintState::Dying);
+        assert_eq!(row_count, 25);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_negative_constraint_persists_source_and_propagated_target_updates_together() -> anyhow::Result<()> {
+        let engine = make_test_engine().await;
+
+        insert_constraint_for_engine(
+            &engine,
+            NegativeConstraint {
+                id: "nc-source".to_string(),
+                state: ConstraintState::Dying,
+                evidence_count: 2,
+                confidence: 0.72,
+                valid_until: None,
+                created_at: 100,
+                ..make_constraint_with_class("deploy config prod fix", Some("deploy-fix"))
+            },
+        )
+        .await?;
+
+        insert_constraint_for_engine(
+            &engine,
+            NegativeConstraint {
+                id: "nc-target".to_string(),
+                state: ConstraintState::Suspicious,
+                direct_observation: false,
+                valid_until: None,
+                created_at: 90,
+                ..make_constraint_with_class("deploy config rollback", Some("deploy-fix"))
+            },
+        )
+        .await?;
+
+        engine
+            .add_negative_constraint(NegativeConstraint {
+                id: "nc-source-incoming".to_string(),
+                confidence: 0.8,
+                valid_until: None,
+                ..make_constraint_with_class("fix deploy config prod", Some("deploy-fix"))
+            })
+            .await?;
+
+        let source = engine
+            .history
+            .conn
+            .call(|conn| Ok(select_constraint_by_id(conn, "nc-source")?))
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let target = engine
+            .history
+            .conn
+            .call(|conn| Ok(select_constraint_by_id(conn, "nc-target")?))
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        assert_eq!(source.state, ConstraintState::Dead);
+        assert_eq!(source.evidence_count, 3);
+        assert_eq!(target.state, ConstraintState::Dying);
+        assert_eq!(target.derived_from_constraint_ids, vec!["nc-source".to_string()]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_negative_constraint_cache_update_preserves_concurrent_entries() -> anyhow::Result<()> {
+        let engine = make_test_engine().await;
+        let scope_id = crate::agent::agent_identity::current_agent_scope_id();
+
+        {
+            let mut stores = engine.episodic_store.write().await;
+            let store = stores.entry(scope_id.clone()).or_default();
+            store.cached_constraints.push(NegativeConstraint {
+                id: "nc-concurrent-only".to_string(),
+                created_at: 999,
+                valid_until: None,
+                ..make_constraint_with_class("concurrent cache only", Some("deploy-fix"))
+            });
+        }
+
+        engine
+            .add_negative_constraint(NegativeConstraint {
+                id: "nc-new-cache".to_string(),
+                created_at: 1_001,
+                valid_until: None,
+                ..make_constraint_with_class("fresh runtime insert", Some("deploy-fix"))
+            })
+            .await?;
+
+        let stores = engine.episodic_store.read().await;
+        let store = stores.get(&scope_id).expect("store exists");
+
+        assert!(store.cached_constraints.iter().any(|constraint| constraint.id == "nc-concurrent-only"));
+        assert!(store.cached_constraints.iter().any(|constraint| constraint.id == "nc-new-cache"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn refresh_constraint_cache_can_load_more_than_twenty_active_rows() -> anyhow::Result<()> {
+        let engine = make_test_engine().await;
+
+        for idx in 0..25 {
+            insert_constraint_for_engine(
+                &engine,
+                NegativeConstraint {
+                    id: format!("nc-refresh-{idx}"),
+                    created_at: 5_000 + idx,
+                    subject: format!("refresh subject {idx}"),
+                    valid_until: None,
+                    ..make_constraint_with_class(&format!("refresh subject {idx}"), Some("deploy-fix"))
+                },
+            )
+            .await?;
+        }
+
+        refresh_full_constraint_cache_for_test(&engine).await?;
+
+        let scope_id = crate::agent::agent_identity::current_agent_scope_id();
+        let stores = engine.episodic_store.read().await;
+        let store = stores.get(&scope_id).expect("store exists");
+
+        assert_eq!(store.cached_constraints.len(), 25);
+
+        Ok(())
     }
 }
