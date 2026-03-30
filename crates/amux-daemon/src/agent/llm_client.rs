@@ -156,6 +156,24 @@ fn check_rate_limit_response(
     }
 }
 
+fn is_timeout_error(err: &anyhow::Error) -> bool {
+    for cause in err.chain() {
+        if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
+            if reqwest_error.is_timeout() {
+                return true;
+            }
+        }
+
+        if let Some(io_error) = cause.downcast_ref::<std::io::Error>() {
+            if io_error.kind() == std::io::ErrorKind::TimedOut {
+                return true;
+            }
+        }
+    }
+
+    err.to_string().to_ascii_lowercase().contains("timed out")
+}
+
 fn is_transient_transport_error(err: &anyhow::Error) -> bool {
     for cause in err.chain() {
         if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
@@ -194,6 +212,18 @@ fn is_transient_transport_error(err: &anyhow::Error) -> bool {
         || message.contains("connection refused")
         || message.contains("timed out")
         || message.contains("unexpected eof")
+}
+
+fn summarize_transport_error(err: &anyhow::Error) -> String {
+    let chain = err
+        .chain()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    if chain.is_empty() {
+        "unknown transport error".to_string()
+    } else {
+        chain.join(": ")
+    }
 }
 
 fn is_temporary_upstream_error(err: &anyhow::Error) -> bool {
@@ -576,8 +606,12 @@ pub fn send_completion_request(
 
                     let message = if let Some(rate_limit) = e.downcast_ref::<RateLimitError>() {
                         rate_limit.to_string()
+                    } else if is_timeout_error(&e) {
+                        format!("{provider} request timed out: {}", summarize_transport_error(&e))
+                    } else if is_transient_transport_error(&e) {
+                        format!("{provider} transport error: {}", summarize_transport_error(&e))
                     } else {
-                        format!("API error: {e}")
+                        format!("API error: {}", summarize_transport_error(&e))
                     };
                     let _ = tx.send(Ok(CompletionChunk::Error { message })).await;
                     break;

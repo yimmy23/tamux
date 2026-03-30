@@ -2,6 +2,15 @@
 
 use super::*;
 
+fn unexpected_stream_end_message(accumulated_content: &str) -> String {
+    let trimmed = accumulated_content.trim();
+    if trimmed.is_empty() {
+        "Error: provider stream ended without yielding a response.".to_string()
+    } else {
+        accumulated_content.to_string()
+    }
+}
+
 impl AgentEngine {
     pub(super) async fn send_message_inner(
         &self,
@@ -10,8 +19,11 @@ impl AgentEngine {
         task_id: Option<&str>,
         preferred_session_hint: Option<&str>,
         backend_override: Option<&str>,
+        llm_user_content_override: Option<&str>,
         record_operator: bool,
     ) -> Result<SendMessageOutcome> {
+        let stored_user_content = content;
+        let llm_user_content = llm_user_content_override.unwrap_or(content);
         let agent_scope_id = if let Some(current_task_id) = task_id {
             let tasks = self.tasks.lock().await;
             agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id))
@@ -23,7 +35,7 @@ impl AgentEngine {
         if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
             self.send_concierge_message_on_thread(
                 crate::agent::concierge::CONCIERGE_THREAD_ID,
-                content,
+                stored_user_content,
                 preferred_session_hint,
                 record_operator,
                 true,
@@ -48,7 +60,7 @@ impl AgentEngine {
                 let mut runtime_config = config.clone();
                 runtime_config.agent_backend = selected_backend;
                 return self
-                    .send_message_external(&runtime_config, thread_id, content)
+                    .send_message_external(&runtime_config, thread_id, llm_user_content)
                     .await
                     .map(|thread_id| SendMessageOutcome {
                         thread_id,
@@ -59,7 +71,9 @@ impl AgentEngine {
         }
 
         // Get or create thread
-        let (tid, is_new_thread) = self.get_or_create_thread(thread_id, content).await;
+        let (tid, is_new_thread) = self
+            .get_or_create_thread(thread_id, stored_user_content)
+            .await;
 
         // Add user message
         {
@@ -67,13 +81,13 @@ impl AgentEngine {
             if let Some(thread) = threads.get_mut(&tid) {
                 thread
                     .messages
-                    .push(AgentMessage::user(content, now_millis()));
+                    .push(AgentMessage::user(stored_user_content, now_millis()));
                 thread.updated_at = now_millis();
             }
         }
         self.persist_thread_by_id(&tid).await;
         if record_operator {
-            self.record_operator_message(&tid, content, is_new_thread)
+            self.record_operator_message(&tid, stored_user_content, is_new_thread)
                 .await?;
             if let Err(error) = self.maybe_sync_thread_to_honcho(&tid).await {
                 tracing::warn!(thread_id = %tid, error = %error, "failed to sync thread to Honcho");
@@ -159,14 +173,14 @@ impl AgentEngine {
         let (stream_generation, stream_cancel_token) = self.begin_stream_cancellation(&tid).await;
 
         let onecontext_bootstrap = if is_new_thread {
-            self.onecontext_bootstrap_for_new_thread(content).await
+            self.onecontext_bootstrap_for_new_thread(stored_user_content).await
         } else {
             None
         };
         let preferred_session_id =
             resolve_preferred_session_id(&self.session_manager, preferred_session_hint).await;
         let skill_preflight = self
-            .build_skill_preflight_context(content, preferred_session_id.clone())
+            .build_skill_preflight_context(stored_user_content, preferred_session_id.clone())
             .await?;
 
         // Build system prompt with memory.
@@ -434,10 +448,21 @@ impl AgentEngine {
                         anyhow::bail!("thread not found");
                     }
                 };
-                let prepared = prepare_llm_request(thread, &config, &provider_config);
+                let mut request_thread = thread.clone();
+                if llm_user_content != stored_user_content {
+                    if let Some(last_user_message) = request_thread
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .find(|message| message.role == MessageRole::User)
+                    {
+                        last_user_message.content = llm_user_content.to_string();
+                    }
+                }
+                let prepared = prepare_llm_request(&request_thread, &config, &provider_config);
                 if !recorded_compaction_provenance {
                     if let Some(candidate) =
-                        compaction_candidate(&thread.messages, &config, &provider_config)
+                        compaction_candidate(&request_thread.messages, &config, &provider_config)
                     {
                         self.record_provenance_event(
                             "context_compressed",
@@ -1389,9 +1414,12 @@ impl AgentEngine {
                 }
                 _ => {
                     // Stream ended unexpectedly
+                    self.record_llm_outcome(&config.provider, false).await;
+                    let fallback_message =
+                        unexpected_stream_end_message(&accumulated_content);
                     self.add_assistant_message(
                         &tid,
-                        &accumulated_content,
+                        &fallback_message,
                         0,
                         0,
                         None,

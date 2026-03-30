@@ -198,17 +198,90 @@ fn gateway_route_confirmation(mode: gateway::GatewayRouteMode) -> String {
 }
 
 fn gateway_reply_args(platform: &str, channel: &str, message: &str) -> serde_json::Value {
-    match platform {
-        "Discord" => serde_json::json!({"channel_id": channel, "message": message}),
-        "Slack" => serde_json::json!({"channel": channel, "message": message}),
-        "Telegram" => serde_json::json!({"chat_id": channel, "message": message}),
-        "WhatsApp" => serde_json::json!({"phone": channel, "message": message}),
+    match platform.to_ascii_lowercase().as_str() {
+        "discord" => serde_json::json!({"channel_id": channel, "message": message}),
+        "slack" => serde_json::json!({"channel": channel, "message": message}),
+        "telegram" => serde_json::json!({"chat_id": channel, "message": message}),
+        "whatsapp" => serde_json::json!({"phone": channel, "message": message}),
         _ => serde_json::json!({"message": message}),
     }
 }
 
 fn gateway_thread_title(msg: &gateway::IncomingMessage) -> String {
     format!("{} {}", msg.platform, msg.sender)
+}
+
+fn gateway_reply_tool(platform: &str, channel: &str) -> (String, &'static str) {
+    match platform.to_ascii_lowercase().as_str() {
+        "discord" => (
+            format!("send_discord_message with channel_id=\"{}\"", channel),
+            "send_discord_message",
+        ),
+        "slack" => (
+            format!("send_slack_message with channel=\"{}\"", channel),
+            "send_slack_message",
+        ),
+        "telegram" => (
+            format!("send_telegram_message with chat_id=\"{}\"", channel),
+            "send_telegram_message",
+        ),
+        "whatsapp" => (
+            format!("send_whatsapp_message with phone=\"{}\"", channel),
+            "send_whatsapp_message",
+        ),
+        _ => (
+            "the appropriate gateway tool".to_string(),
+            "send_discord_message",
+        ),
+    }
+}
+
+fn latest_gateway_turn_slice(messages: &[AgentMessage]) -> &[AgentMessage] {
+    let turn_start = messages
+        .iter()
+        .rposition(|message| message.role == MessageRole::User)
+        .unwrap_or(0);
+    &messages[turn_start..]
+}
+
+fn gateway_turn_used_send_tool(messages: &[AgentMessage]) -> bool {
+    latest_gateway_turn_slice(messages).iter().any(|message| {
+        message.role == MessageRole::Tool
+            && message
+                .tool_name
+                .as_deref()
+                .map(|name| name.starts_with("send_"))
+                .unwrap_or(false)
+    })
+}
+
+fn latest_gateway_turn_assistant_response(messages: &[AgentMessage]) -> Option<String> {
+    latest_gateway_turn_slice(messages)
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::Assistant && !message.content.is_empty())
+        .map(|message| message.content.clone())
+}
+
+fn build_gateway_agent_prompt(
+    platform: &str,
+    sender: &str,
+    content: &str,
+    history_window: Option<&str>,
+    reply_tool_name: &str,
+) -> String {
+    let mut prompt = format!(
+        "[{platform} message from {sender}]: {content}\n\n\
+         Recent channel history is auto-injected for continuity. \
+         If you need more context, call fetch_gateway_history with a larger count.\n\
+         Reply naturally in plain text. Your final assistant response will be delivered back to the user automatically.\n\
+         If you expect a longer multi-step tool run and want to send an early progress update, you may call {reply_tool_name} first with a brief acknowledgment such as \"On it, give me a moment...\", then continue with the rest of the work.",
+    );
+    if let Some(window) = history_window.filter(|value| !value.trim().is_empty()) {
+        prompt.push_str("\n\nPrevious 10 messages from this channel (oldest first):\n");
+        prompt.push_str(window);
+    }
+    prompt
 }
 
 const GATEWAY_TRIAGE_TIMEOUT_SECS: u64 = 12;
@@ -1454,12 +1527,7 @@ impl AgentEngine {
                      This means they want to start a fresh conversation. \
                      Send a brief confirmation back using {} saying the conversation has been reset.",
                     msg.content, msg.platform, msg.channel,
-                    match msg.platform.as_str() {
-                        "Discord" => format!("send_discord_message with channel_id=\"{}\"", msg.channel),
-                        "Slack" => format!("send_slack_message with channel=\"{}\"", msg.channel),
-                        "Telegram" => format!("send_telegram_message with chat_id=\"{}\"", msg.channel),
-                        _ => "the appropriate gateway tool".to_string(),
-                    }
+                    gateway_reply_tool(&msg.platform, &msg.channel).0
                 );
 
                 if let Err(e) = Box::pin(self.send_message(None, &prompt)).await {
@@ -1472,28 +1540,7 @@ impl AgentEngine {
                 continue;
             }
 
-            let (reply_tool, reply_tool_name) = match msg.platform.as_str() {
-                "Discord" => (
-                    format!("send_discord_message with channel_id=\"{}\"", msg.channel),
-                    "send_discord_message",
-                ),
-                "Slack" => (
-                    format!("send_slack_message with channel=\"{}\"", msg.channel),
-                    "send_slack_message",
-                ),
-                "Telegram" => (
-                    format!("send_telegram_message with chat_id=\"{}\"", msg.channel),
-                    "send_telegram_message",
-                ),
-                "WhatsApp" => (
-                    format!("send_whatsapp_message with phone=\"{}\"", msg.channel),
-                    "send_whatsapp_message",
-                ),
-                _ => (
-                    "the appropriate gateway tool".to_string(),
-                    "send_discord_message",
-                ),
-            };
+            let (_reply_tool, reply_tool_name) = gateway_reply_tool(&msg.platform, &msg.channel);
 
             let route_request = classify_gateway_route_request(&msg.content);
             if let Some(request) = route_request {
@@ -1570,25 +1617,6 @@ impl AgentEngine {
                     continue;
                 }
             }
-
-            let prompt = format!(
-                "[{platform} message from {sender}]: {content}\n\n\
-                 Recent channel history is auto-injected for continuity. \
-                 If you need more context, call fetch_gateway_history with a larger count.\n\
-                 YOU MUST CALL {reply_tool} to reply. Do NOT just write a text response — \
-                 the user is on {platform} and will ONLY see messages sent via the tool. \
-                 Your text response here is invisible to them.\n\
-                 IMPORTANT: If you need to use tools before replying (bash, read_file, \
-                 web_search, etc.), FIRST call {reply_tool_short} with a brief acknowledgment \
-                 like \"On it, give me a moment...\" so the user knows you're working. \
-                 Then do your work, then call {reply_tool_short} again with the full answer.\n\
-                 Your FINAL action MUST be calling {reply_tool_short} to send the reply.",
-                platform = msg.platform,
-                sender = msg.sender,
-                content = msg.content,
-                reply_tool = reply_tool,
-                reply_tool_short = reply_tool_name,
-            );
 
             // Notify frontend about the incoming message (full content)
             let _ = self.event_tx.send(AgentEvent::GatewayIncoming {
@@ -1742,17 +1770,21 @@ impl AgentEngine {
                 );
             }
 
-            let enriched_prompt = if let Some(window) = history_window {
-                format!(
-                    "{prompt}\n\nPrevious 10 messages from this channel (oldest first):\n{window}"
-                )
-            } else {
-                prompt
-            };
+            let enriched_prompt = build_gateway_agent_prompt(
+                &msg.platform,
+                &msg.sender,
+                &msg.content,
+                history_window.as_deref(),
+                reply_tool_name,
+            );
 
             let send_result = Box::pin(tokio::time::timeout(
                 std::time::Duration::from_secs(GATEWAY_AGENT_TIMEOUT_SECS),
-                self.send_message(existing_thread.as_deref(), &enriched_prompt),
+                self.send_message_with_ephemeral_user_override(
+                    existing_thread.as_deref(),
+                    &msg.content,
+                    &enriched_prompt,
+                ),
             ))
             .await;
 
@@ -1766,17 +1798,17 @@ impl AgentEngine {
                     );
 
                     let fallback_text = "I’m still processing your message and hit a timeout. Please send it again, or use !new to start a fresh session.";
-                    let fallback_args = match msg.platform.as_str() {
-                        "Discord" => {
+                    let fallback_args = match msg.platform.to_ascii_lowercase().as_str() {
+                        "discord" => {
                             serde_json::json!({"channel_id": msg.channel, "message": fallback_text})
                         }
-                        "Slack" => {
+                        "slack" => {
                             serde_json::json!({"channel": msg.channel, "message": fallback_text})
                         }
-                        "Telegram" => {
+                        "telegram" => {
                             serde_json::json!({"chat_id": msg.channel, "message": fallback_text})
                         }
-                        "WhatsApp" => {
+                        "whatsapp" => {
                             serde_json::json!({"phone": msg.channel, "message": fallback_text})
                         }
                         _ => serde_json::json!({"message": fallback_text}),
@@ -1835,22 +1867,12 @@ impl AgentEngine {
                     // auto-send the last assistant message to the platform
                     let threads = self.threads.read().await;
                     if let Some(thread) = threads.get(&thread_id) {
-                        let used_gateway_tool = thread.messages.iter().any(|m| {
-                            m.role == MessageRole::Tool
-                                && m.tool_name
-                                    .as_deref()
-                                    .map(|n| n.starts_with("send_"))
-                                    .unwrap_or(false)
-                        });
+                        let used_gateway_tool = gateway_turn_used_send_tool(&thread.messages);
 
                         if !used_gateway_tool {
                             // Find the last assistant text response
-                            let last_response = thread
-                                .messages
-                                .iter()
-                                .rev()
-                                .find(|m| m.role == MessageRole::Assistant && !m.content.is_empty())
-                                .map(|m| m.content.clone());
+                            let last_response =
+                                latest_gateway_turn_assistant_response(&thread.messages);
 
                             if let Some(response_text) = last_response {
                                 tracing::info!(
@@ -1860,17 +1882,17 @@ impl AgentEngine {
                                 drop(threads);
 
                                 // Auto-send via the gateway tool
-                                let auto_args = match msg.platform.as_str() {
-                                    "Discord" => {
+                                let auto_args = match msg.platform.to_ascii_lowercase().as_str() {
+                                    "discord" => {
                                         serde_json::json!({"channel_id": msg.channel, "message": response_text})
                                     }
-                                    "Slack" => {
+                                    "slack" => {
                                         serde_json::json!({"channel": msg.channel, "message": response_text})
                                     }
-                                    "Telegram" => {
+                                    "telegram" => {
                                         serde_json::json!({"chat_id": msg.channel, "message": response_text})
                                     }
-                                    "WhatsApp" => {
+                                    "whatsapp" => {
                                         serde_json::json!({"phone": msg.channel, "message": response_text})
                                     }
                                     _ => serde_json::json!({"message": response_text}),
@@ -2335,6 +2357,129 @@ mod tests {
             "fast-path gateway thread should persist the assistant reply"
         );
         fs::remove_dir_all(&root).expect("cleanup test root");
+    }
+
+    #[test]
+    fn gateway_reply_helpers_accept_lowercase_platform_names() {
+        assert_eq!(
+            gateway_reply_args("discord", "chan-1", "hello"),
+            serde_json::json!({"channel_id": "chan-1", "message": "hello"})
+        );
+        assert_eq!(
+            gateway_reply_tool("discord", "chan-1"),
+            (
+                "send_discord_message with channel_id=\"chan-1\"".to_string(),
+                "send_discord_message"
+            )
+        );
+    }
+
+    #[test]
+    fn gateway_prompt_prefers_auto_delivery_over_forced_send_tool() {
+        let prompt = build_gateway_agent_prompt(
+            "discord",
+            "alice",
+            "What model are you?",
+            Some("- user: hi"),
+            "send_discord_message",
+        );
+
+        assert!(
+            prompt.contains("delivered back to the user automatically"),
+            "gateway prompt should explain automatic delivery"
+        );
+        assert!(
+            !prompt.contains("YOU MUST CALL"),
+            "gateway prompt should not force a gateway send tool call"
+        );
+    }
+
+    #[test]
+    fn gateway_auto_send_ignores_historic_send_tools_from_prior_turns() {
+        let messages = vec![
+            AgentMessage {
+                id: "user-1".to_string(),
+                role: MessageRole::User,
+                content: "old question".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 1,
+            },
+            AgentMessage {
+                id: "assistant-1".to_string(),
+                role: MessageRole::Assistant,
+                content: "old answer".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 2,
+            },
+            AgentMessage {
+                id: "tool-1".to_string(),
+                role: MessageRole::Tool,
+                content: "Discord message sent".to_string(),
+                tool_calls: None,
+                tool_call_id: Some("call-1".to_string()),
+                tool_name: Some("send_discord_message".to_string()),
+                tool_arguments: Some("{\"channel_id\":\"chan-1\"}".to_string()),
+                tool_status: Some("done".to_string()),
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 3,
+            },
+            AgentMessage::user("What model are you bro?", 4),
+            AgentMessage {
+                id: "assistant-2".to_string(),
+                role: MessageRole::Assistant,
+                content: "I am running gpt-test.".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                timestamp: 5,
+            },
+        ];
+
+        assert!(
+            !gateway_turn_used_send_tool(&messages),
+            "only send tools from the current turn should suppress auto-send"
+        );
+        assert_eq!(
+            latest_gateway_turn_assistant_response(&messages).as_deref(),
+            Some("I am running gpt-test.")
+        );
     }
 
     #[test]

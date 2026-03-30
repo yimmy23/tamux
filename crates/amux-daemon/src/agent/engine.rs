@@ -3,6 +3,7 @@
 use super::circuit_breaker::CircuitBreakerRegistry;
 use super::concierge::ConciergeEngine;
 use super::*;
+use std::time::Duration;
 
 pub(super) struct SendMessageOutcome {
     pub thread_id: String,
@@ -48,6 +49,16 @@ pub(super) const MIN_CONTEXT_TARGET_TOKENS: usize = 1024;
 pub(in crate::agent) const APPROX_CHARS_PER_TOKEN: usize = 4;
 pub(super) const FILE_WATCH_DEBOUNCE_MS: u64 = 700;
 pub(super) const FILE_WATCH_TICK_MS: u64 = 250;
+const AGENT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const AGENT_HTTP_READ_TIMEOUT: Duration = Duration::from_secs(125);
+
+fn build_agent_http_client(read_timeout: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(AGENT_HTTP_CONNECT_TIMEOUT)
+        .read_timeout(read_timeout)
+        .build()
+        .expect("agent HTTP client configuration should be valid")
+}
 
 pub(super) fn file_watch_event_is_relevant(event: &Event) -> bool {
     matches!(
@@ -173,6 +184,22 @@ impl AgentEngine {
         history: HistoryStore,
         data_dir: PathBuf,
     ) -> Arc<Self> {
+        Self::new_with_storage_and_http_client(
+            session_manager,
+            config,
+            history,
+            data_dir,
+            build_agent_http_client(AGENT_HTTP_READ_TIMEOUT),
+        )
+    }
+
+    fn new_with_storage_and_http_client(
+        session_manager: Arc<SessionManager>,
+        config: AgentConfig,
+        history: HistoryStore,
+        data_dir: PathBuf,
+        http_client: reqwest::Client,
+    ) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(config.agent_event_channel_capacity);
         let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
 
@@ -184,8 +211,6 @@ impl AgentEngine {
                 external_runner::ExternalAgentRunner::new(agent_type, event_tx.clone()),
             );
         }
-
-        let http_client = reqwest::Client::new();
 
         // Pre-initialize per-provider circuit breakers from configured providers.
         let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
@@ -377,5 +402,78 @@ impl AgentEngine {
     /// Get a reference to the event sender (for server.rs integration).
     pub fn event_sender(&self) -> broadcast::Sender<AgentEvent> {
         self.event_tx.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use tokio::io::AsyncReadExt;
+    use tokio::net::TcpListener;
+
+    async fn spawn_hung_http_server() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind hung http server");
+        let addr = listener.local_addr().expect("hung server local addr");
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut buffer = [0u8; 1024];
+                    let _ = socket.read(&mut buffer).await;
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                });
+            }
+        });
+        format!("http://{addr}/v1")
+    }
+
+    #[tokio::test]
+    async fn send_message_times_out_hung_provider_request() {
+        let server_url = spawn_hung_http_server().await;
+        let temp_dir = TempDir::new().expect("temp dir");
+        let session_manager = SessionManager::new_test(temp_dir.path()).await;
+        let history = HistoryStore::new_test_store(temp_dir.path())
+            .await
+            .expect("history store");
+        let data_dir = temp_dir.path().join("agent");
+        std::fs::create_dir_all(&data_dir).expect("create agent data dir");
+
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.base_url = server_url;
+        config.model = "gpt-4o-mini".to_string();
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.max_retries = 0;
+        config.auto_retry = false;
+
+        let engine = AgentEngine::new_with_storage_and_http_client(
+            session_manager,
+            config,
+            history,
+            data_dir,
+            build_agent_http_client(Duration::from_millis(75)),
+        );
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            engine.send_message_inner(None, "What model are you?", None, None, None, None, true),
+        )
+        .await
+        .expect("hung provider request should time out at the HTTP layer, not the test harness");
+
+        let error = match result {
+            Ok(_) => panic!("hung provider should surface as an error"),
+            Err(error) => error,
+        };
+        let error_text = error.to_string().to_lowercase();
+        assert!(
+            error_text.contains("timed out"),
+            "expected timeout error, got: {error}"
+        );
     }
 }

@@ -271,9 +271,32 @@ impl AgentEngine {
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
         Ok(
-            Box::pin(self.send_message_inner(thread_id, content, None, None, None, true))
+            Box::pin(self.send_message_inner(
+                thread_id, content, None, None, None, None, true,
+            ))
                 .await?
                 .thread_id,
+        )
+    }
+
+    pub async fn send_message_with_ephemeral_user_override(
+        &self,
+        thread_id: Option<&str>,
+        stored_content: &str,
+        llm_user_override: &str,
+    ) -> Result<String> {
+        Ok(
+            Box::pin(self.send_message_inner(
+                thread_id,
+                stored_content,
+                None,
+                None,
+                None,
+                Some(llm_user_override),
+                true,
+            ))
+            .await?
+            .thread_id,
         )
     }
 
@@ -289,6 +312,7 @@ impl AgentEngine {
                 content,
                 None,
                 preferred_session_hint,
+                None,
                 None,
                 true,
             ))
@@ -311,6 +335,7 @@ impl AgentEngine {
             Some(task_id),
             preferred_session_hint,
             backend_override,
+            None,
             true,
         ))
         .await
@@ -350,6 +375,7 @@ impl AgentEngine {
             None,
             preferred_session_hint,
             None,
+            None,
             true,
         ))
         .await?
@@ -385,6 +411,7 @@ impl AgentEngine {
                 &wrapped,
                 None,
                 preferred_session_hint,
+                None,
                 None,
                 false,
             ))
@@ -602,9 +629,13 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use crate::session_manager::SessionManager;
+    use std::collections::VecDeque;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -613,6 +644,55 @@ mod tests {
             .parent()
             .expect("workspace root")
             .to_path_buf()
+    }
+
+    async fn spawn_recording_openai_server(
+        recorded_bodies: Arc<StdMutex<VecDeque<String>>>,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind recording openai server");
+        let addr = listener.local_addr().expect("recording server local addr");
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let recorded_bodies = recorded_bodies.clone();
+                tokio::spawn(async move {
+                    let mut buffer = vec![0u8; 65536];
+                    let read = socket
+                        .read(&mut buffer)
+                        .await
+                        .expect("read request from test client");
+                    let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                    let body = request
+                        .split("\r\n\r\n")
+                        .nth(1)
+                        .unwrap_or_default()
+                        .to_string();
+                    recorded_bodies.lock().expect("lock request log").push_back(body);
+
+                    let response = concat!(
+                        "HTTP/1.1 200 OK\r\n",
+                        "content-type: text/event-stream\r\n",
+                        "cache-control: no-cache\r\n",
+                        "connection: close\r\n",
+                        "\r\n",
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"Gateway reply ok\"}}]}\n\n",
+                        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                        "data: [DONE]\n\n"
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write response");
+                });
+            }
+        });
+
+        format!("http://{addr}/v1")
     }
 
     #[test]
@@ -633,7 +713,7 @@ mod tests {
             .unwrap_or(agent_loop_source.as_str());
 
         for required in [
-            "Box::pin(self.send_message_inner(thread_id, content, None, None, None, true))",
+            "Box::pin(self.send_message_inner(\n                thread_id, content, None, None, None, None, true,\n            ))",
             "Box::pin(self.send_message_inner(",
             "let target_thread_id = Box::pin(self.send_message_inner(",
         ] {
@@ -709,5 +789,55 @@ mod tests {
         assert_eq!(persisted.len(), 2);
         assert_eq!(persisted[0].content, "first");
         assert_eq!(persisted[1].content, "third");
+    }
+
+    #[tokio::test]
+    async fn send_message_with_ephemeral_user_override_keeps_thread_history_clean() {
+        let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+        let server_url = spawn_recording_openai_server(recorded_bodies.clone()).await;
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.base_url = server_url;
+        config.model = "gpt-4o-mini".to_string();
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.max_retries = 0;
+        config.auto_retry = false;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let thread_id = engine
+            .send_message_with_ephemeral_user_override(
+                None,
+                "What model are you bro?",
+                "[discord message from mariuszkurman]: What model are you bro?\nYour final assistant response will be delivered back to the user automatically.",
+            )
+            .await
+            .expect("send message with ephemeral override");
+
+        let messages = engine
+            .history
+            .list_messages(&thread_id, Some(10))
+            .await
+            .expect("load persisted messages");
+        let stored_user = messages
+            .iter()
+            .find(|message| message.role == "user")
+            .expect("stored user message");
+        assert_eq!(stored_user.content, "What model are you bro?");
+
+        let request_body = recorded_bodies
+            .lock()
+            .expect("lock request log")
+            .pop_front()
+            .expect("captured llm request");
+        assert!(
+            request_body.contains("Your final assistant response will be delivered back to the user automatically."),
+            "LLM request should include the ephemeral gateway wrapper"
+        );
+        assert!(
+            !request_body.contains("\"content\":\"What model are you bro?\""),
+            "LLM request should replace the raw stored user text with the ephemeral override"
+        );
     }
 }
