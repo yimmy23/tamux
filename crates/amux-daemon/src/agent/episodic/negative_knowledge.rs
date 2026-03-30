@@ -11,6 +11,76 @@ use rusqlite::params;
 // Pure functions
 // ---------------------------------------------------------------------------
 
+/// Normalize a subject into lowercase alphanumeric tokens.
+/// Drops tokens shorter than 3 characters, then sorts and dedupes.
+pub fn normalize_subject_tokens(subject: &str) -> Vec<String> {
+    let mut tokens: Vec<String> = subject
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| token.len() >= 3)
+        .map(|token| token.to_ascii_lowercase())
+        .collect();
+
+    tokens.sort();
+    tokens.dedup();
+    tokens
+}
+
+/// Build a stable deduped subject key for exact normalized comparisons.
+pub fn normalized_subject_key(subject: &str) -> String {
+    normalize_subject_tokens(subject).join(" ")
+}
+
+/// Compute the next monotonic constraint state from accumulated evidence.
+pub fn next_constraint_state(
+    current: ConstraintState,
+    evidence_count: u32,
+    direct_observation: bool,
+    confidence: f64,
+) -> ConstraintState {
+    if current == ConstraintState::Dead {
+        return ConstraintState::Dead;
+    }
+
+    if (direct_observation && confidence >= 0.85) || evidence_count >= 3 {
+        return ConstraintState::Dead;
+    }
+
+    if evidence_count >= 2 {
+        return ConstraintState::Dying;
+    }
+
+    current
+}
+
+/// Determine whether two constraints are identical enough to merge.
+pub fn constraints_match_for_merge(a: &NegativeConstraint, b: &NegativeConstraint) -> bool {
+    normalized_subject_key(&a.subject) == normalized_subject_key(&b.subject)
+        && a.solution_class == b.solution_class
+}
+
+fn shared_normalized_subject_token_count(a: &NegativeConstraint, b: &NegativeConstraint) -> usize {
+    let a_tokens = normalize_subject_tokens(&a.subject);
+    let b_tokens = normalize_subject_tokens(&b.subject);
+
+    a_tokens
+        .iter()
+        .filter(|token| b_tokens.binary_search(token).is_ok())
+        .count()
+}
+
+/// Determine whether two constraints are related enough for propagation.
+pub fn related_for_propagation(source: &NegativeConstraint, target: &NegativeConstraint) -> bool {
+    let shared_tokens = shared_normalized_subject_token_count(source, target);
+
+    match (&source.solution_class, &target.solution_class) {
+        (Some(source_class), Some(target_class)) => {
+            source_class == target_class && shared_tokens >= 2
+        }
+        (None, None) => shared_tokens >= 3,
+        _ => false,
+    }
+}
+
 /// Check if a constraint is still active (not expired).
 pub fn is_constraint_active(constraint: &NegativeConstraint, now_ms: u64) -> bool {
     match constraint.valid_until {
@@ -329,6 +399,13 @@ mod tests {
         }
     }
 
+    fn make_constraint_with_class(subject: &str, solution_class: Option<&str>) -> NegativeConstraint {
+        NegativeConstraint {
+            solution_class: solution_class.map(str::to_string),
+            ..make_constraint(subject, Some(2_000_000_000))
+        }
+    }
+
     #[test]
     fn format_negative_constraints_empty_returns_empty() {
         assert!(format_negative_constraints(&[], 1_000_000_000).is_empty());
@@ -380,5 +457,149 @@ mod tests {
     fn is_constraint_active_past_valid_until_returns_false() {
         let c = make_constraint("test", Some(500_000_000));
         assert!(!is_constraint_active(&c, 1_000_000_000));
+    }
+
+    #[test]
+    fn normalize_subject_tokens_sorts_dedupes_and_filters() {
+        assert_eq!(
+            normalize_subject_tokens("Fix deploy-config in prod!"),
+            vec!["config", "deploy", "fix", "prod"]
+        );
+    }
+
+    #[test]
+    fn normalize_subject_tokens_is_stable_across_case_and_punctuation() {
+        assert_eq!(
+            normalize_subject_tokens("Deploy, CONFIG; fix fix prod??"),
+            vec!["config", "deploy", "fix", "prod"]
+        );
+    }
+
+    #[test]
+    fn normalized_subject_key_returns_stable_deduped_key() {
+        assert_eq!(
+            normalized_subject_key("Fix deploy-config in prod!"),
+            "config deploy fix prod"
+        );
+        assert_eq!(
+            normalized_subject_key("prod deploy fix config fix"),
+            "config deploy fix prod"
+        );
+    }
+
+    #[test]
+    fn constraints_match_for_merge_requires_same_normalized_subject_and_solution_class() {
+        let a = make_constraint_with_class("Fix deploy-config in prod!", Some("deploy-fix"));
+        let b = make_constraint_with_class("prod deploy fix config", Some("deploy-fix"));
+
+        assert!(constraints_match_for_merge(&a, &b));
+    }
+
+    #[test]
+    fn constraints_match_for_merge_rejects_different_solution_class() {
+        let a = make_constraint_with_class("Fix deploy-config in prod!", Some("deploy-fix"));
+        let b = make_constraint_with_class("prod deploy fix config", Some("ops-fix"));
+
+        assert!(!constraints_match_for_merge(&a, &b));
+    }
+
+    #[test]
+    fn constraints_match_for_merge_rejects_missing_solution_class_on_one_side() {
+        let a = make_constraint_with_class("Fix deploy-config in prod!", Some("deploy-fix"));
+        let b = make_constraint_with_class("prod deploy fix config", None);
+
+        assert!(!constraints_match_for_merge(&a, &b));
+    }
+
+    #[test]
+    fn constraints_match_for_merge_allows_matching_none_solution_class() {
+        let a = make_constraint_with_class("Fix deploy-config in prod!", None);
+        let b = make_constraint_with_class("prod deploy fix config", None);
+
+        assert!(constraints_match_for_merge(&a, &b));
+    }
+
+    #[test]
+    fn related_for_propagation_requires_two_shared_tokens_with_same_solution_class() {
+        let source = make_constraint_with_class("fix deploy config prod", Some("deploy-fix"));
+        let target = make_constraint_with_class("deploy config rollback", Some("deploy-fix"));
+
+        assert!(related_for_propagation(&source, &target));
+    }
+
+    #[test]
+    fn related_for_propagation_rejects_same_class_with_only_one_shared_token() {
+        let source = make_constraint_with_class("fix deploy config prod", Some("deploy-fix"));
+        let target = make_constraint_with_class("deploy cache rebuild", Some("deploy-fix"));
+
+        assert!(!related_for_propagation(&source, &target));
+    }
+
+    #[test]
+    fn related_for_propagation_requires_three_shared_tokens_without_solution_class() {
+        let source = make_constraint_with_class("deploy config prod fix", None);
+        let target = make_constraint_with_class("prod deploy config rollback", None);
+
+        assert!(related_for_propagation(&source, &target));
+    }
+
+    #[test]
+    fn related_for_propagation_rejects_mixed_solution_class_even_with_shared_tokens() {
+        let source = make_constraint_with_class("deploy config prod fix", Some("deploy-fix"));
+        let target = make_constraint_with_class("prod deploy config rollback", None);
+
+        assert!(!related_for_propagation(&source, &target));
+    }
+
+    #[test]
+    fn next_constraint_state_keeps_dead_dead() {
+        assert_eq!(
+            next_constraint_state(ConstraintState::Dead, 1, false, 0.2),
+            ConstraintState::Dead
+        );
+    }
+
+    #[test]
+    fn next_constraint_state_promotes_to_dead_for_direct_high_confidence_observation() {
+        assert_eq!(
+            next_constraint_state(ConstraintState::Suspicious, 1, true, 0.85),
+            ConstraintState::Dead
+        );
+    }
+
+    #[test]
+    fn next_constraint_state_promotes_to_dead_at_three_evidence() {
+        assert_eq!(
+            next_constraint_state(ConstraintState::Dying, 3, false, 0.4),
+            ConstraintState::Dead
+        );
+    }
+
+    #[test]
+    fn next_constraint_state_promotes_to_dying_at_two_evidence() {
+        assert_eq!(
+            next_constraint_state(ConstraintState::Suspicious, 2, false, 0.4),
+            ConstraintState::Dying
+        );
+    }
+
+    #[test]
+    fn next_constraint_state_does_not_promote_for_direct_observation_alone() {
+        assert_eq!(
+            next_constraint_state(ConstraintState::Suspicious, 1, true, 0.84),
+            ConstraintState::Suspicious
+        );
+    }
+
+    #[test]
+    fn next_constraint_state_keeps_existing_non_terminal_state_when_thresholds_not_met() {
+        assert_eq!(
+            next_constraint_state(ConstraintState::Dying, 1, false, 0.4),
+            ConstraintState::Dying
+        );
+        assert_eq!(
+            next_constraint_state(ConstraintState::Suspicious, 1, false, 0.4),
+            ConstraintState::Suspicious
+        );
     }
 }
