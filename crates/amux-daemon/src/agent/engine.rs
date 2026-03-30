@@ -298,8 +298,6 @@ impl AgentEngine {
     /// breaker is open (provider is unhealthy). Callers must invoke
     /// [`record_llm_outcome`] after the call completes.
     pub async fn check_circuit_breaker(&self, provider: &str) -> Result<()> {
-        use super::circuit_breaker::CircuitState;
-
         let breaker_arc = self.circuit_breakers.get(provider).await;
         let mut breaker = breaker_arc.lock().await;
         let now = now_millis();
@@ -358,23 +356,59 @@ impl AgentEngine {
         }
     }
 
+    async fn provider_is_eligible_for_alternative(
+        &self,
+        failed_provider: &str,
+        provider_id: &str,
+    ) -> bool {
+        if provider_id == failed_provider {
+            return false;
+        }
+
+        let config = self.config.read().await;
+        let Ok(resolved) = resolve_provider_config_for(&config, provider_id, None) else {
+            return false;
+        };
+        drop(config);
+
+        if resolved.model.trim().is_empty() || resolved.base_url.trim().is_empty() {
+            return false;
+        }
+
+        match resolved.auth_source {
+            AuthSource::ApiKey => {
+                if resolved.api_key.trim().is_empty() {
+                    return false;
+                }
+            }
+            AuthSource::ChatgptSubscription => {
+                if provider_id != "openai" {
+                    return false;
+                }
+            }
+        }
+
+        let breaker_arc = self.circuit_breakers.get(provider_id).await;
+        let mut breaker = breaker_arc.lock().await;
+        breaker.can_execute(now_millis())
+    }
+
     /// Suggest an alternative healthy provider when the requested one is unavailable.
     pub(super) async fn suggest_alternative_provider(
         &self,
         failed_provider: &str,
     ) -> Option<String> {
-        let config = self.config.read().await;
-        for (name, _pconfig) in &config.providers {
-            if name != failed_provider {
-                let breaker_arc = self.circuit_breakers.get(name).await;
-                let mut breaker = breaker_arc.lock().await;
-                let now = now_millis();
-                if breaker.can_execute(now) {
-                    return Some(format!(
-                        "Consider switching to provider '{}' which is currently healthy.",
-                        name
-                    ));
-                }
+        let provider_ids: Vec<String> =
+            self.config.read().await.providers.keys().cloned().collect();
+        for name in provider_ids {
+            if self
+                .provider_is_eligible_for_alternative(failed_provider, name.as_str())
+                .await
+            {
+                return Some(format!(
+                    "Consider switching to provider '{}' which is currently healthy.",
+                    name
+                ));
             }
         }
         None
@@ -411,6 +445,139 @@ mod tests {
     use tempfile::TempDir;
     use tokio::io::AsyncReadExt;
     use tokio::net::TcpListener;
+
+    async fn make_test_engine(config: AgentConfig) -> (Arc<AgentEngine>, TempDir) {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let session_manager = SessionManager::new_test(temp_dir.path()).await;
+        let history = HistoryStore::new_test_store(temp_dir.path())
+            .await
+            .expect("history store");
+        let data_dir = temp_dir.path().join("agent");
+        std::fs::create_dir_all(&data_dir).expect("create agent data dir");
+        let engine = AgentEngine::new_with_storage_and_http_client(
+            session_manager,
+            config,
+            history,
+            data_dir,
+            build_agent_http_client(Duration::from_millis(75)),
+        );
+        (engine, temp_dir)
+    }
+
+    fn provider_config(
+        base_url: &str,
+        model: &str,
+        api_key: &str,
+        auth_source: AuthSource,
+    ) -> ProviderConfig {
+        ProviderConfig {
+            base_url: base_url.to_string(),
+            model: model.to_string(),
+            api_key: api_key.to_string(),
+            assistant_id: String::new(),
+            auth_source,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_alternative_excludes_placeholder_provider_row() {
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.providers.insert(
+            "custom".to_string(),
+            provider_config("", "", "", AuthSource::ApiKey),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+
+        let suggestion = engine.suggest_alternative_provider("openai").await;
+
+        assert!(
+            suggestion.is_none(),
+            "placeholder provider rows must not be suggested"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_alternative_excludes_failed_provider_itself() {
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.providers.insert(
+            "openai".to_string(),
+            provider_config(
+                "https://api.openai.com/v1",
+                "gpt-4o",
+                "valid-key",
+                AuthSource::ApiKey,
+            ),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+
+        let suggestion = engine.suggest_alternative_provider("openai").await;
+
+        assert!(
+            suggestion.is_none(),
+            "the failed provider itself must not be suggested as an alternative"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_alternative_excludes_open_breaker_provider() {
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.providers.insert(
+            "custom".to_string(),
+            provider_config(
+                "https://example.invalid/v1",
+                "model-a",
+                "valid-key",
+                AuthSource::ApiKey,
+            ),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+        {
+            let breaker = engine.circuit_breakers.get("custom").await;
+            let mut breaker = breaker.lock().await;
+            let now = now_millis();
+            for offset in 0..5 {
+                breaker.record_failure(now + offset);
+            }
+        }
+
+        let suggestion = engine.suggest_alternative_provider("openai").await;
+
+        assert!(
+            suggestion.is_none(),
+            "providers with open circuit breakers must not be suggested"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_alternative_includes_configured_healthy_provider() {
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.providers.insert(
+            "custom".to_string(),
+            provider_config(
+                "https://example.invalid/v1",
+                "model-a",
+                "valid-key",
+                AuthSource::ApiKey,
+            ),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+
+        let suggestion = engine.suggest_alternative_provider("openai").await;
+
+        let suggestion = suggestion.expect("healthy provider should be suggested");
+        assert!(
+            suggestion.contains("custom"),
+            "expected healthy configured provider to be suggested, got: {suggestion}"
+        );
+    }
 
     async fn spawn_hung_http_server() -> String {
         let listener = TcpListener::bind("127.0.0.1:0")
