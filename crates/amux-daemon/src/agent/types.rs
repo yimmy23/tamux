@@ -1924,6 +1924,10 @@ pub struct ProviderHealthSnapshot {
     pub suggested_alternatives: Vec<ProviderAlternativeSuggestion>,
 }
 
+fn default_provider_circuit_reason() -> String {
+    "circuit breaker open".to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Concierge
 // ---------------------------------------------------------------------------
@@ -2304,6 +2308,7 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         failed_model: Option<String>,
         trip_count: u32,
+        #[serde(default = "default_provider_circuit_reason")]
         reason: String,
         #[serde(default)]
         suggested_alternatives: Vec<ProviderAlternativeSuggestion>,
@@ -3704,6 +3709,33 @@ mod tests {
                     suggested_alternatives[0].model.as_deref(),
                     Some("llama-3.3-70b-versatile")
                 );
+            }
+            _ => panic!("wrong variant after deserialize"),
+        }
+    }
+
+    #[test]
+    fn circuit_breaker_event_deserializes_legacy_shape_without_reason() {
+        let json = serde_json::json!({
+            "type": "provider_circuit_open",
+            "provider": "openai",
+            "trip_count": 2
+        });
+
+        let parsed: AgentEvent = serde_json::from_value(json).unwrap();
+        match parsed {
+            AgentEvent::ProviderCircuitOpen {
+                provider,
+                failed_model,
+                trip_count,
+                reason,
+                suggested_alternatives,
+            } => {
+                assert_eq!(provider, "openai");
+                assert!(failed_model.is_none());
+                assert_eq!(trip_count, 2);
+                assert_eq!(reason, "circuit breaker open");
+                assert!(suggested_alternatives.is_empty());
             }
             _ => panic!("wrong variant after deserialize"),
         }
