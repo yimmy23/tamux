@@ -215,10 +215,7 @@ fn is_transient_transport_error(err: &anyhow::Error) -> bool {
 }
 
 fn summarize_transport_error(err: &anyhow::Error) -> String {
-    let chain = err
-        .chain()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
+    let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
     if chain.is_empty() {
         "unknown transport error".to_string()
     } else {
@@ -254,10 +251,16 @@ impl Stream for CompletionStream {
 }
 
 fn openai_codex_auth_path() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("TAMUX_OPENAI_CODEX_AUTH_PATH") {
+        return Some(std::path::PathBuf::from(path));
+    }
     dirs::home_dir().map(|home| home.join(".tamux").join("openai-codex-auth.json"))
 }
 
 fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("TAMUX_CODEX_CLI_AUTH_PATH") {
+        return Some(std::path::PathBuf::from(path));
+    }
     dirs::home_dir().map(|home| home.join(".codex").join("auth.json"))
 }
 
@@ -330,6 +333,12 @@ fn import_codex_cli_auth_if_present() -> Option<StoredOpenAICodexAuth> {
     };
     let _ = write_stored_openai_codex_auth(&imported);
     read_stored_openai_codex_auth().or(Some(imported))
+}
+
+pub(crate) fn has_openai_chatgpt_subscription_auth() -> bool {
+    read_stored_openai_codex_auth()
+        .or_else(import_codex_cli_auth_if_present)
+        .is_some()
 }
 
 async fn refresh_openai_codex_auth(
@@ -607,9 +616,15 @@ pub fn send_completion_request(
                     let message = if let Some(rate_limit) = e.downcast_ref::<RateLimitError>() {
                         rate_limit.to_string()
                     } else if is_timeout_error(&e) {
-                        format!("{provider} request timed out: {}", summarize_transport_error(&e))
+                        format!(
+                            "{provider} request timed out: {}",
+                            summarize_transport_error(&e)
+                        )
                     } else if is_transient_transport_error(&e) {
-                        format!("{provider} transport error: {}", summarize_transport_error(&e))
+                        format!(
+                            "{provider} transport error: {}",
+                            summarize_transport_error(&e)
+                        )
                     } else {
                         format!("API error: {}", summarize_transport_error(&e))
                     };

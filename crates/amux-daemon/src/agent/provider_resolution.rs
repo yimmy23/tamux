@@ -99,6 +99,20 @@ pub(super) fn resolve_provider_config_for(
     ))
 }
 
+pub(super) fn resolve_candidate_provider_config(
+    config: &AgentConfig,
+    provider_id: &str,
+) -> Result<ProviderConfig> {
+    let model_override = config
+        .providers
+        .get(provider_id)
+        .filter(|provider| provider.model.trim().is_empty())
+        .and_then(|_| {
+            get_provider_definition(provider_id).map(|definition| definition.default_model)
+        });
+    resolve_provider_config_for(config, provider_id, model_override)
+}
+
 pub(super) fn resolve_active_provider_config(config: &AgentConfig) -> Result<ProviderConfig> {
     resolve_provider_config_for(config, &config.provider, None)
 }
@@ -155,5 +169,32 @@ mod tests {
         assert!(err
             .to_string()
             .contains("No credentials configured for provider 'groq'"));
+    }
+
+    #[test]
+    fn candidate_provider_with_empty_model_uses_its_own_default_model() {
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.providers.insert(
+            "groq".to_string(),
+            ProviderConfig {
+                base_url: String::new(),
+                model: String::new(),
+                api_key: "groq-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                context_window_tokens: 0,
+                reasoning_effort: String::new(),
+                response_schema: None,
+            },
+        );
+
+        let resolved =
+            resolve_candidate_provider_config(&config, "groq").expect("candidate should resolve");
+
+        assert_eq!(resolved.model, "llama-3.3-70b-versatile");
+        assert_eq!(resolved.base_url, "https://api.groq.com/openai/v1");
     }
 }

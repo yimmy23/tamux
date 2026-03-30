@@ -366,7 +366,7 @@ impl AgentEngine {
         }
 
         let config = self.config.read().await;
-        let Ok(resolved) = resolve_provider_config_for(&config, provider_id, None) else {
+        let Ok(resolved) = resolve_candidate_provider_config(&config, provider_id) else {
             return false;
         };
         drop(config);
@@ -382,7 +382,9 @@ impl AgentEngine {
                 }
             }
             AuthSource::ChatgptSubscription => {
-                if provider_id != "openai" {
+                if provider_id != "openai"
+                    || !super::llm_client::has_openai_chatgpt_subscription_auth()
+                {
                     return false;
                 }
             }
@@ -442,6 +444,8 @@ impl AgentEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
     use tokio::io::AsyncReadExt;
     use tokio::net::TcpListener;
@@ -481,6 +485,30 @@ mod tests {
             context_window_tokens: 0,
             response_schema: None,
         }
+    }
+
+    fn openai_auth_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn write_openai_subscription_auth(path: &Path) {
+        let auth = serde_json::json!({
+            "provider": "openai-codex",
+            "auth_mode": "chatgpt_subscription",
+            "access_token": "header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiacctMSJ9LCJleHAiOjQxMDI0NDQ4MDB9.signature",
+            "refresh_token": "refresh-token",
+            "account_id": "acct-1",
+            "expires_at": 4_102_444_800_000i64,
+            "source": "test",
+            "updated_at": 4_102_444_800_000i64,
+            "created_at": 4_102_444_800_000i64
+        });
+        std::fs::write(
+            path,
+            serde_json::to_vec(&auth).expect("serialize auth fixture"),
+        )
+        .expect("write auth fixture");
     }
 
     #[tokio::test]
@@ -576,6 +604,74 @@ mod tests {
         assert!(
             suggestion.contains("custom"),
             "expected healthy configured provider to be suggested, got: {suggestion}"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_alternative_excludes_openai_subscription_without_auth() {
+        let _env_guard = openai_auth_env_lock().lock().expect("lock auth env");
+        let temp_dir = TempDir::new().expect("temp dir");
+        let missing_auth_path = temp_dir.path().join("missing-openai-auth.json");
+        std::env::set_var("TAMUX_OPENAI_CODEX_AUTH_PATH", &missing_auth_path);
+        std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &missing_auth_path);
+
+        let mut config = AgentConfig::default();
+        config.provider = "groq".to_string();
+        config.providers.insert(
+            "openai".to_string(),
+            provider_config(
+                "https://api.openai.com/v1",
+                "gpt-5.4",
+                "",
+                AuthSource::ChatgptSubscription,
+            ),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+
+        let suggestion = engine.suggest_alternative_provider("groq").await;
+
+        std::env::remove_var("TAMUX_OPENAI_CODEX_AUTH_PATH");
+        std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
+        assert!(
+            suggestion.is_none(),
+            "OpenAI subscription auth must be present before suggesting it as an alternative"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_alternative_uses_candidate_default_model_for_empty_named_model() {
+        let _env_guard = openai_auth_env_lock().lock().expect("lock auth env");
+        let temp_dir = TempDir::new().expect("temp dir");
+        let auth_path = temp_dir.path().join("openai-auth.json");
+        write_openai_subscription_auth(&auth_path);
+        std::env::set_var("TAMUX_OPENAI_CODEX_AUTH_PATH", &auth_path);
+        std::env::set_var(
+            "TAMUX_CODEX_CLI_AUTH_PATH",
+            temp_dir.path().join("missing-codex-auth.json"),
+        );
+
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.providers.insert(
+            "groq".to_string(),
+            provider_config("", "", "groq-key", AuthSource::ApiKey),
+        );
+        let (engine, _temp_dir) = make_test_engine(config).await;
+
+        let resolved = {
+            let config = engine.config.read().await;
+            resolve_candidate_provider_config(&config, "groq")
+                .expect("candidate provider should resolve with its default model")
+        };
+        let suggestion = engine.suggest_alternative_provider("openai").await;
+
+        std::env::remove_var("TAMUX_OPENAI_CODEX_AUTH_PATH");
+        std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
+        assert_eq!(resolved.model, "llama-3.3-70b-versatile");
+        assert!(
+            suggestion.as_deref().unwrap_or_default().contains("groq"),
+            "expected groq to remain eligible using its own default model"
         );
     }
 
