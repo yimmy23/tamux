@@ -1072,8 +1072,7 @@ impl TuiModel {
                     let provider_name = providers::find_by_id(&self.config.provider)
                         .map(|def| def.name)
                         .unwrap_or("This provider");
-                    self.status_line =
-                        format!("{provider_name} supports {transport_label} only.");
+                    self.status_line = format!("{provider_name} supports {transport_label} only.");
                     return;
                 }
                 let current_idx = supported
@@ -2285,5 +2284,26 @@ mod tests {
             model.status_line,
             "GitHub Copilot supports chat completions only."
         );
+    }
+
+    #[test]
+    fn github_copilot_preserves_responses_transport_when_loaded_from_saved_config() {
+        let (mut model, _daemon_rx) = make_model();
+        model.apply_config_json(&serde_json::json!({
+            "provider": "github-copilot",
+            "providers": {
+                "github-copilot": {
+                    "base_url": "https://api.githubcopilot.com",
+                    "model": "gpt-5.4",
+                    "api_transport": "responses",
+                    "auth_source": "github_copilot"
+                }
+            }
+        }));
+
+        model.apply_provider_selection("github-copilot");
+
+        assert_eq!(model.config.provider, "github-copilot");
+        assert_eq!(model.config.api_transport, "responses");
     }
 }

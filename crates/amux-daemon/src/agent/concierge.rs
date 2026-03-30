@@ -260,6 +260,7 @@ impl ConciergeEngine {
 
         let has_user_message_after_welcome = threads_guard
             .values()
+            .filter(|thread| !is_heartbeat_thread(thread))
             .flat_map(|thread| thread.messages.iter())
             .any(|msg| msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp);
         if has_user_message_after_welcome {
@@ -1346,10 +1347,21 @@ struct ThreadSummary {
 
 fn include_thread_in_concierge_context(thread: &AgentThread) -> bool {
     thread.id != CONCIERGE_THREAD_ID
+        && !is_heartbeat_thread(thread)
         && thread
             .messages
             .iter()
             .any(|message| message.role == MessageRole::User && !message.content.is_empty())
+}
+
+fn is_heartbeat_thread(thread: &AgentThread) -> bool {
+    thread.title.starts_with("HEARTBEAT SYNTHESIS")
+        || thread.title.starts_with("Heartbeat check:")
+        || thread.messages.iter().any(|message| {
+            message.role == MessageRole::User
+                && (message.content.starts_with("HEARTBEAT SYNTHESIS")
+                    || message.content.starts_with("Heartbeat check:"))
+        })
 }
 
 fn format_message_snippet(message: &AgentMessage) -> String {
@@ -1731,6 +1743,33 @@ mod tests {
             response_id: None,
             reasoning: None,
             timestamp,
+        }
+    }
+
+    fn user_message(content: &str, timestamp: u64) -> AgentMessage {
+        AgentMessage::user(content, timestamp)
+    }
+
+    fn thread_with_messages(
+        id: &str,
+        title: &str,
+        updated_at: u64,
+        messages: Vec<AgentMessage>,
+    ) -> AgentThread {
+        AgentThread {
+            id: id.to_string(),
+            title: title.to_string(),
+            created_at: 1,
+            updated_at,
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            messages,
         }
     }
 
@@ -2276,6 +2315,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn context_summary_excludes_structured_heartbeat_threads() {
+        let config = Arc::new(RwLock::new(AgentConfig::default()));
+        let (event_tx, _) = broadcast::channel(8);
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+            std::iter::empty(),
+        ));
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let now = test_now_millis();
+        let threads = RwLock::new(HashMap::from([
+            (
+                "thread-real".to_string(),
+                thread_with_messages(
+                    "thread-real",
+                    "Actual work",
+                    now - 100,
+                    vec![
+                        user_message("fix concierge context", now - 120),
+                        assistant_message("working on it", now - 110),
+                    ],
+                ),
+            ),
+            (
+                "thread-heartbeat".to_string(),
+                thread_with_messages(
+                    "thread-heartbeat",
+                    "HEARTBEAT SYNTHESIS",
+                    now,
+                    vec![
+                        user_message(
+                            "HEARTBEAT SYNTHESIS\nYou are performing a scheduled heartbeat check for the operator.",
+                            now - 20,
+                        ),
+                        assistant_message(
+                            "ACTIONABLE: false\nDIGEST: All systems normal.\nITEMS:",
+                            now - 10,
+                        ),
+                    ],
+                ),
+            ),
+        ]));
+        let tasks = Mutex::new(std::collections::VecDeque::new());
+
+        let context = engine
+            .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+            .await;
+
+        assert_eq!(context.recent_threads.len(), 1);
+        assert_eq!(context.recent_threads[0].id, "thread-real");
+        assert_eq!(context.recent_threads[0].title, "Actual work");
+    }
+
+    #[tokio::test]
     async fn generate_welcome_reuses_recent_persisted_welcome_without_new_user_message() {
         let mut config_value = AgentConfig::default();
         config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
@@ -2422,6 +2514,77 @@ mod tests {
         let concierge = guard.get(CONCIERGE_THREAD_ID).unwrap();
         assert_eq!(concierge.messages.len(), 1);
         assert_eq!(concierge.messages[0].content, result.0);
+    }
+
+    #[tokio::test]
+    async fn generate_welcome_reuses_persisted_welcome_when_only_heartbeat_ran_after() {
+        let mut config_value = AgentConfig::default();
+        config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
+        let config = Arc::new(RwLock::new(config_value));
+        let (event_tx, _) = broadcast::channel(8);
+        let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+            std::iter::empty(),
+        ));
+        let engine =
+            ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+        let now = test_now_millis();
+        let threads = RwLock::new(HashMap::from([
+            (
+                CONCIERGE_THREAD_ID.to_string(),
+                concierge_thread(vec![AgentMessage {
+                    id: "welcome".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "persisted welcome".to_string(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    provider: Some("concierge".into()),
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    reasoning: None,
+                    timestamp: now - 60_000,
+                }]),
+            ),
+            (
+                "thread-heartbeat".to_string(),
+                thread_with_messages(
+                    "thread-heartbeat",
+                    "HEARTBEAT SYNTHESIS",
+                    now - 10_000,
+                    vec![
+                        user_message(
+                            "HEARTBEAT SYNTHESIS\nYou are performing a scheduled heartbeat check for the operator.",
+                            now - 10_000,
+                        ),
+                        assistant_message(
+                            "ACTIONABLE: false\nDIGEST: All systems normal.\nITEMS:",
+                            now - 9_000,
+                        ),
+                    ],
+                ),
+            ),
+            (
+                "thread-1".to_string(),
+                thread_with_messages(
+                    "thread-1",
+                    "Thread One",
+                    now - 120_000,
+                    vec![assistant_message("old reply", now - 120_000)],
+                ),
+            ),
+        ]));
+
+        let result = engine
+            .generate_welcome(&threads, &Mutex::new(std::collections::VecDeque::new()))
+            .await
+            .expect("welcome should be returned");
+
+        assert_eq!(result.0, "persisted welcome");
     }
 
     #[tokio::test]

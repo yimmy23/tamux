@@ -892,7 +892,7 @@ fn build_openai_responses_body(
     let mut body = serde_json::json!({
         "model": config.model,
         "instructions": system_prompt,
-        "input": messages_to_responses_input(messages),
+        "input": messages_to_responses_input(provider, messages, previous_response_id),
         "stream": true,
     });
 
@@ -1483,7 +1483,11 @@ async fn run_openai_chat_completions(
     parse_openai_sse(response, tx).await
 }
 
-fn messages_to_responses_input(messages: &[ApiMessage]) -> Vec<serde_json::Value> {
+fn messages_to_responses_input(
+    provider: &str,
+    messages: &[ApiMessage],
+    previous_response_id: Option<&str>,
+) -> Vec<serde_json::Value> {
     messages
         .iter()
         .filter_map(|message| match message.role.as_str() {
@@ -1494,16 +1498,21 @@ fn messages_to_responses_input(messages: &[ApiMessage]) -> Vec<serde_json::Value
                     ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
                 }
             })),
-            "tool" => message.tool_call_id.as_ref().map(|call_id| {
-                serde_json::json!({
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": match &message.content {
-                        ApiContent::Text(text) => serde_json::Value::String(text.clone()),
-                        ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
-                    }
+            "tool" => {
+                if provider == "github-copilot" && previous_response_id.is_some() {
+                    return None;
+                }
+                message.tool_call_id.as_ref().map(|call_id| {
+                    serde_json::json!({
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": match &message.content {
+                            ApiContent::Text(text) => serde_json::Value::String(text.clone()),
+                            ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
+                        }
+                    })
                 })
-            }),
+            }
             _ => None,
         })
         .collect()
@@ -3304,6 +3313,51 @@ mod tests {
     fn github_copilot_does_not_fallback_responses_to_chat() {
         assert!(!should_fallback_responses_to_chat("github-copilot"));
         assert!(should_fallback_responses_to_chat("openai"));
+    }
+
+    #[test]
+    fn github_copilot_continued_responses_request_omits_orphaned_tool_outputs() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+        };
+
+        let body = build_openai_responses_body(
+            "github-copilot",
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("file list".to_string()),
+                    tool_call_id: Some("call_orphaned".to_string()),
+                    name: Some("list_files".to_string()),
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("continue".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+            Some("resp_123"),
+            false,
+        );
+
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(body["previous_response_id"], "resp_123");
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
     }
 
     #[tokio::test]

@@ -71,31 +71,42 @@ pub(super) fn prepare_llm_request(
     }
 
     if selected_transport == ApiTransport::Responses {
-        let previous_response_id = if !compaction_active
-            && supports_response_continuity(&config.provider)
-        {
-            messages
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, message)| {
-                    message.role == MessageRole::Assistant
-                        && message.response_id.is_some()
-                        && message.provider.as_deref() == Some(config.provider.as_str())
-                        && message.model.as_deref() == Some(provider_config.model.as_str())
-                        && message.api_transport == Some(ApiTransport::Responses)
-                })
-                .and_then(|(anchor_index, anchor_message)| {
-                    let trailing_messages = messages_to_api_format(&messages[anchor_index + 1..]);
-                    if trailing_messages.is_empty() {
-                        None
-                    } else {
-                        Some((trailing_messages, anchor_message.response_id.clone()))
-                    }
-                })
-        } else {
-            None
-        };
+        let previous_response_id =
+            if !compaction_active && supports_response_continuity(&config.provider) {
+                messages
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, message)| {
+                        message.role == MessageRole::Assistant
+                            && message.response_id.is_some()
+                            && message.provider.as_deref() == Some(config.provider.as_str())
+                            && message.model.as_deref() == Some(provider_config.model.as_str())
+                            && message.api_transport == Some(ApiTransport::Responses)
+                    })
+                    .and_then(|(anchor_index, anchor_message)| {
+                        let trailing = &messages[anchor_index + 1..];
+                        if config.provider == "github-copilot"
+                            && trailing.iter().any(|message| {
+                                message.role == MessageRole::Tool
+                                    || message
+                                        .tool_calls
+                                        .as_ref()
+                                        .is_some_and(|tool_calls| !tool_calls.is_empty())
+                            })
+                        {
+                            return None;
+                        }
+                        let trailing_messages = messages_to_api_format(trailing);
+                        if trailing_messages.is_empty() {
+                            None
+                        } else {
+                            Some((trailing_messages, anchor_message.response_id.clone()))
+                        }
+                    })
+            } else {
+                None
+            };
 
         if let Some((messages, previous_response_id)) = previous_response_id {
             return PreparedLlmRequest {
@@ -412,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn github_copilot_responses_request_uses_previous_response_id_for_follow_up_turns() {
+    fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
         let mut config = AgentConfig::default();
         config.provider = "github-copilot".to_string();
 
@@ -478,10 +489,60 @@ mod tests {
         let prepared = prepare_llm_request(&thread, &config, &provider);
 
         assert_eq!(prepared.transport, ApiTransport::Responses);
+        assert_eq!(prepared.previous_response_id, None);
+        assert_eq!(prepared.messages.len(), 4);
+        assert_eq!(prepared.messages[0].role, "user");
+        assert_eq!(prepared.messages[1].role, "assistant");
+        assert_eq!(prepared.messages[2].role, "tool");
+        assert_eq!(prepared.messages[3].role, "user");
+    }
+
+    #[test]
+    fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_up_turns() {
+        let mut config = AgentConfig::default();
+        config.provider = "github-copilot".to_string();
+
+        let provider = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 128_000,
+            response_schema: None,
+        };
+
+        let thread = sample_thread(vec![
+            AgentMessage::user("first question", 1),
+            AgentMessage {
+                id: "assistant-1".to_string(),
+                role: MessageRole::Assistant,
+                content: "Initial answer".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                input_tokens: 11,
+                output_tokens: 7,
+                provider: Some("github-copilot".to_string()),
+                model: Some("gpt-5.4".to_string()),
+                api_transport: Some(ApiTransport::Responses),
+                response_id: Some("resp_123".to_string()),
+                reasoning: Some("reasoned".to_string()),
+                timestamp: 2,
+            },
+            AgentMessage::user("continue", 3),
+        ]);
+
+        let prepared = prepare_llm_request(&thread, &config, &provider);
+
+        assert_eq!(prepared.transport, ApiTransport::Responses);
         assert_eq!(prepared.previous_response_id.as_deref(), Some("resp_123"));
-        assert_eq!(prepared.messages.len(), 2);
-        assert_eq!(prepared.messages[0].role, "tool");
-        assert_eq!(prepared.messages[1].role, "user");
+        assert_eq!(prepared.messages.len(), 1);
+        assert_eq!(prepared.messages[0].role, "user");
     }
 }
 
