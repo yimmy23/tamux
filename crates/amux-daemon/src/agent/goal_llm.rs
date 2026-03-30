@@ -3,6 +3,17 @@
 use super::*;
 
 impl AgentEngine {
+    pub(super) async fn request_orchestrator_policy_decision(
+        &self,
+        prompt: &str,
+    ) -> Result<Option<super::orchestrator_policy::PolicyDecision>> {
+        let raw = self
+            .run_goal_llm_json_with_schema(prompt, orchestrator_policy_json_schema())
+            .await?;
+
+        Ok(parse_json_block::<super::orchestrator_policy::PolicyDecision>(&raw).ok())
+    }
+
     pub(super) async fn request_goal_plan(&self, goal_run: &GoalRun) -> Result<GoalPlanResponse> {
         // Surface relevant past episodes before planning (Phase 1: Memory Foundation - EPIS-03)
         let episodic_context = match self.retrieve_relevant_episodes(&goal_run.goal, 5).await {
@@ -566,12 +577,21 @@ impl AgentEngine {
     }
 
     pub(super) async fn run_goal_llm_json(&self, prompt: &str) -> Result<String> {
+        self.run_goal_llm_json_with_schema(prompt, goal_plan_json_schema())
+            .await
+    }
+
+    pub(super) async fn run_goal_llm_json_with_schema(
+        &self,
+        prompt: &str,
+        schema: serde_json::Value,
+    ) -> Result<String> {
         let config = self.config.read().await.clone();
         if config.agent_backend != AgentBackend::Daemon {
             anyhow::bail!("goal runs currently require the built-in daemon agent backend");
         }
         let mut provider_config = self.resolve_provider_config(&config)?;
-        provider_config.response_schema = Some(goal_plan_json_schema());
+        provider_config.response_schema = Some(schema);
         tracing::info!(
             provider = %config.provider,
             model = %provider_config.model,
@@ -693,4 +713,30 @@ impl AgentEngine {
                 .map(|message| summarize_text(&message.content, 320))
         })
     }
+}
+
+fn orchestrator_policy_json_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["continue", "pivot", "escalate", "halt_retries"]
+            },
+            "reason": {
+                "type": "string",
+                "maxLength": 240
+            },
+            "strategy_hint": {
+                "type": ["string", "null"],
+                "maxLength": 160
+            },
+            "retry_guard": {
+                "type": ["string", "null"],
+                "maxLength": 160
+            }
+        },
+        "required": ["action", "reason", "strategy_hint", "retry_guard"],
+        "additionalProperties": false
+    })
 }

@@ -42,6 +42,49 @@ fn scope(thread_id: &str, goal_run_id: Option<&str>) -> PolicyDecisionScope {
     }
 }
 
+fn policy_eval_context() -> PolicyEvaluationContext {
+    PolicyEvaluationContext {
+        trigger: PolicyTriggerContext {
+            thread_id: "thread-9".to_string(),
+            goal_run_id: Some("goal-9".to_string()),
+            repeated_approach: true,
+            awareness_stuck: true,
+            self_assessment: PolicySelfAssessmentSummary {
+                should_pivot: true,
+                should_escalate: false,
+            },
+        },
+        recent_tool_outcomes: vec![
+            PolicyToolOutcomeSummary {
+                tool_name: "read_file".to_string(),
+                outcome: "success".to_string(),
+                summary: "Read the config but found no obvious mismatch.".to_string(),
+            },
+            PolicyToolOutcomeSummary {
+                tool_name: "bash".to_string(),
+                outcome: "failure".to_string(),
+                summary: "Retrying the same test command still exits with code 1.".to_string(),
+            },
+        ],
+        awareness_summary: Some(
+            "Short-term tool success rate dropped and repeated failures cluster on the same path."
+                .to_string(),
+        ),
+        counter_who_context: Some(
+            "Counter-who detected the same failing bash approach three times.".to_string(),
+        ),
+        self_assessment_summary: Some(
+            "Negative momentum suggests the current strategy is no longer productive.".to_string(),
+        ),
+        thread_context: Some(
+            "Operator asked for a narrow fix without broad refactoring.".to_string(),
+        ),
+        recent_decision_summary: Some(
+            "Recent policy decision: pivot because the previous retry loop was stuck.".to_string(),
+        ),
+    }
+}
+
 #[test]
 fn trigger_no_intervention_when_all_inputs_are_nominal() {
     let mut input = trigger_input("thread-1");
@@ -556,4 +599,56 @@ fn short_lived_retry_guard_does_not_leak_across_goal_runs_in_same_thread() {
         1_030,
         60,
     ));
+}
+
+#[test]
+fn policy_eval_prompt_builder_includes_recent_context_sections() {
+    let prompt = build_policy_eval_prompt(&policy_eval_context());
+
+    assert!(prompt.contains("Recent tool outcomes"));
+    assert!(prompt.contains("read_file => success: Read the config but found no obvious mismatch."));
+    assert!(
+        prompt.contains("bash => failure: Retrying the same test command still exits with code 1.")
+    );
+    assert!(prompt.contains("Awareness summary"));
+    assert!(prompt.contains("Counter-who context"));
+    assert!(prompt.contains("Self-assessment summary"));
+    assert!(prompt.contains("Thread context"));
+    assert!(prompt.contains("Recent policy decision summary"));
+    assert!(prompt.contains("thread-9"));
+    assert!(prompt.contains("goal-9"));
+}
+
+#[test]
+fn policy_eval_invalid_structured_output_falls_back_safely() {
+    let invalid = PolicyDecision {
+        action: PolicyAction::HaltRetries,
+        reason: "Stop repeating the same failing path.".to_string(),
+        strategy_hint: Some("Try a different recovery path.".to_string()),
+        retry_guard: None,
+    };
+
+    assert_eq!(
+        normalize_policy_eval_decision(Some(invalid)),
+        PolicyDecision {
+            action: PolicyAction::Continue,
+            reason: "Policy evaluation returned an invalid decision; continuing current execution."
+                .to_string(),
+            strategy_hint: None,
+            retry_guard: None,
+        }
+    );
+}
+
+#[test]
+fn policy_eval_missing_result_degrades_to_continue() {
+    assert_eq!(
+        normalize_policy_eval_decision(None),
+        PolicyDecision {
+            action: PolicyAction::Continue,
+            reason: "Policy evaluation unavailable; continuing current execution.".to_string(),
+            strategy_hint: None,
+            retry_guard: None,
+        }
+    );
 }
