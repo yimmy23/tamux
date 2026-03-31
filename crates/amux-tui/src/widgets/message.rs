@@ -380,47 +380,41 @@ fn render_compact(
                 // Show arguments
                 if let Some(args) = &msg.tool_arguments {
                     if !args.is_empty() {
-                        let args_preview = if args.len() > detail_width.saturating_sub(6) {
-                            format!(
-                                "{}...",
-                                &args[..detail_width.saturating_sub(9).min(args.len())]
-                            )
-                        } else {
-                            args.clone()
-                        };
-                        lines.push(Line::from(vec![
-                            Span::styled("args: ", theme.fg_dim),
-                            Span::styled(args_preview, theme.fg_active),
-                        ]));
+                        let mut rendered_arg_lines =
+                            wrap_text(args, detail_width.max(1)).into_iter();
+                        if let Some(first_line) = rendered_arg_lines.next() {
+                            lines.push(Line::from(vec![
+                                Span::styled("args: ", theme.fg_dim),
+                                Span::styled(first_line, theme.fg_active),
+                            ]));
+                            for line in rendered_arg_lines {
+                                lines.push(Line::from(vec![
+                                    Span::styled("      ", theme.fg_dim),
+                                    Span::styled(line, theme.fg_active),
+                                ]));
+                            }
+                        }
                     }
                 }
 
-                // Show result (truncated to 5 lines)
+                // Show full result
                 let result_text = &msg.content;
                 if !result_text.is_empty() {
-                    let result_lines: Vec<&str> = result_text.lines().collect();
-                    let show_lines = result_lines.len().min(5);
-                    let has_more = result_lines.len() > 5;
-
-                    for (i, rline) in result_lines[..show_lines].iter().enumerate() {
-                        let prefix = if i == 0 { "result: " } else { "        " };
-                        let truncated = if rline.len() > detail_width.saturating_sub(prefix.len()) {
-                            format!(
-                                "{}...",
-                                &rline[..detail_width
-                                    .saturating_sub(prefix.len() + 3)
-                                    .min(rline.len())]
-                            )
-                        } else {
-                            rline.to_string()
-                        };
-                        lines.push(Line::from(vec![
-                            Span::styled(prefix.to_string(), theme.fg_dim),
-                            Span::styled(truncated, theme.fg_active),
-                        ]));
-                    }
-                    if has_more {
-                        lines.push(Line::from(vec![Span::styled("        ...", theme.fg_dim)]));
+                    let mut result_line_index = 0usize;
+                    for result_line in result_text.lines() {
+                        let wrapped_result = wrap_text(result_line, detail_width.max(1));
+                        for wrapped_line in wrapped_result {
+                            let prefix = if result_line_index == 0 {
+                                "result: "
+                            } else {
+                                "        "
+                            };
+                            lines.push(Line::from(vec![
+                                Span::styled(prefix.to_string(), theme.fg_dim),
+                                Span::styled(wrapped_line, theme.fg_active),
+                            ]));
+                            result_line_index += 1;
+                        }
                     }
                 }
             }
@@ -925,6 +919,71 @@ mod tests {
             lines.len() > 1,
             "Expanded tool should have more than 1 line, got {}",
             lines.len()
+        );
+    }
+
+    #[test]
+    fn tool_message_expanded_preserves_full_arguments_and_result() {
+        let long_args = serde_json::json!({
+            "command": "python - <<'PY'\n".to_string() + &"x".repeat(120) + "\nPY",
+        })
+        .to_string();
+        let long_result = (0..8)
+            .map(|index| format!("line-{index}: {}", "y".repeat(40)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let msg = AgentMessage {
+            role: MessageRole::Tool,
+            tool_name: Some("bash_command".into()),
+            tool_status: Some("done".into()),
+            tool_arguments: Some(long_args.clone()),
+            content: long_result.clone(),
+            ..Default::default()
+        };
+
+        let mut exp_tools = empty_tools();
+        exp_tools.insert(0);
+        let lines = message_to_lines(
+            &msg,
+            0,
+            TranscriptMode::Compact,
+            &ThemeTokens::default(),
+            50,
+            &empty_expanded(),
+            &exp_tools,
+        );
+
+        let plain = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            plain.contains("python -"),
+            "missing argument prefix: {plain}"
+        );
+        assert!(plain.contains("<<'PY'"), "missing heredoc marker: {plain}");
+        assert!(
+            plain.contains(&"x".repeat(80)),
+            "missing long argument body: {plain}"
+        );
+        assert!(
+            plain.contains("line-7:"),
+            "missing later result lines: {plain}"
+        );
+        assert!(
+            plain.contains(&"y".repeat(30)),
+            "missing long result body: {plain}"
+        );
+        assert!(
+            !plain.contains("..."),
+            "expanded tool output should not be truncated: {plain}"
         );
     }
 
