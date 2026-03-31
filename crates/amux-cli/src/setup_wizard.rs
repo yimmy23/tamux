@@ -7,9 +7,7 @@
 //! Navigation uses crossterm arrow-key selection (not number input).
 //! Provider list is queried from the daemon at runtime (no hardcoded list).
 
-use amux_protocol::{
-    AmuxCodec, ClientMessage, DaemonMessage, parse_whatsapp_allowed_contacts,
-};
+use amux_protocol::{parse_whatsapp_allowed_contacts, AmuxCodec, ClientMessage, DaemonMessage};
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::{self, Stylize};
@@ -421,11 +419,9 @@ fn resolve_whatsapp_allowlist_prompt(
         {
             WhatsAppAllowlistPromptResolution::Accept(raw)
         }
-        WhatsAppAllowlistPromptOutcome::Submitted(_) => {
-            WhatsAppAllowlistPromptResolution::Retry(
-                "Enter at least one valid WhatsApp phone number before linking.",
-            )
-        }
+        WhatsAppAllowlistPromptOutcome::Submitted(_) => WhatsAppAllowlistPromptResolution::Retry(
+            "Enter at least one valid WhatsApp phone number before linking.",
+        ),
         WhatsAppAllowlistPromptOutcome::Cancelled | WhatsAppAllowlistPromptOutcome::EndOfInput => {
             WhatsAppAllowlistPromptResolution::Cancel
         }
@@ -433,8 +429,9 @@ fn resolve_whatsapp_allowlist_prompt(
 }
 
 fn whatsapp_gateway_config_writes(raw_allowlist: &str) -> Result<Vec<ConfigWrite>> {
-    parse_whatsapp_setup_allowlist(raw_allowlist)
-        .ok_or_else(|| anyhow::anyhow!("Enter at least one valid WhatsApp phone number before linking."))?;
+    parse_whatsapp_setup_allowlist(raw_allowlist).ok_or_else(|| {
+        anyhow::anyhow!("Enter at least one valid WhatsApp phone number before linking.")
+    })?;
 
     Ok(vec![
         ConfigWrite {
@@ -1617,7 +1614,8 @@ mod tests {
 
     #[test]
     fn whatsapp_setup_accepts_multiline_or_csv_contacts() {
-        let parsed = parse_whatsapp_setup_allowlist("+48 123 456 789, 15551230000\n+44 20 7946 0958");
+        let parsed =
+            parse_whatsapp_setup_allowlist("+48 123 456 789, 15551230000\n+44 20 7946 0958");
 
         assert_eq!(
             parsed,
@@ -1631,7 +1629,10 @@ mod tests {
 
     #[test]
     fn whatsapp_setup_rejects_empty_allowlist() {
-        assert_eq!(parse_whatsapp_setup_allowlist("\n , invalid , device "), None);
+        assert_eq!(
+            parse_whatsapp_setup_allowlist("\n , invalid , device "),
+            None
+        );
         assert_eq!(parse_whatsapp_setup_allowlist("   \n  "), None);
     }
 

@@ -219,7 +219,9 @@ mod tests {
         let chunks = chunk_message(message, 5);
         assert!(!chunks.is_empty());
         assert_eq!(chunks.concat(), message);
-        assert!(chunks.iter().all(|chunk| std::str::from_utf8(chunk.as_bytes()).is_ok()));
+        assert!(chunks
+            .iter()
+            .all(|chunk| std::str::from_utf8(chunk.as_bytes()).is_ok()));
         assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 5));
     }
 }

@@ -1,0 +1,446 @@
+if matches!(
+        &msg,
+        ClientMessage::AgentSetOperatorProfileConsent{ .. } |
+        ClientMessage::AgentGetOperatorModel |
+        ClientMessage::AgentResetOperatorModel |
+        ClientMessage::AgentGetCausalTraceReport{ .. } |
+        ClientMessage::AgentGetCounterfactualReport{ .. } |
+        ClientMessage::AgentGetMemoryProvenanceReport{ .. } |
+        ClientMessage::AgentGetProvenanceReport{ .. } |
+        ClientMessage::AgentGenerateSoc2Artifact{ .. } |
+        ClientMessage::AgentGetCollaborationSessions{ .. } |
+        ClientMessage::AgentGetDivergentSession{ .. } |
+        ClientMessage::AgentListGeneratedTools |
+        ClientMessage::AgentSynthesizeTool{ .. } |
+        ClientMessage::AgentRunGeneratedTool{ .. } |
+        ClientMessage::AgentPromoteGeneratedTool{ .. } |
+        ClientMessage::AgentActivateGeneratedTool{ .. } |
+        ClientMessage::AgentGetProviderAuthStates |
+        ClientMessage::AgentLoginProvider{ .. } |
+        ClientMessage::AgentLogoutProvider{ .. }
+    ) {
+        match msg {
+                ClientMessage::AgentSetOperatorProfileConsent {
+                    consent_key,
+                    granted,
+                } => {
+                    match agent
+                        .set_operator_profile_consent(&consent_key, granted)
+                        .await
+                    {
+                        Ok(updated_fields) => {
+                            framed
+                                .send(DaemonMessage::AgentOperatorProfileSessionCompleted {
+                                    session_id: "consent-update".to_string(),
+                                    updated_fields,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to set operator profile consent: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetOperatorModel => match agent.operator_model_json().await {
+                    Ok(model_json) => {
+                        framed
+                            .send(DaemonMessage::AgentOperatorModel { model_json })
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to load operator model: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentResetOperatorModel => {
+                    match agent.reset_operator_model().await {
+                        Ok(()) => {
+                            framed
+                                .send(DaemonMessage::AgentOperatorModelReset { ok: true })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to reset operator model: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetCausalTraceReport { option_type, limit } => {
+                    match agent
+                        .causal_trace_report(&option_type, limit.unwrap_or(20))
+                        .await
+                    {
+                        Ok(report) => {
+                            let report_json =
+                                serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+                            framed
+                                .send(DaemonMessage::AgentCausalTraceReport { report_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to build causal trace report: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetCounterfactualReport {
+                    option_type,
+                    command_family,
+                    limit,
+                } => match agent
+                    .counterfactual_report(&option_type, &command_family, limit.unwrap_or(20))
+                    .await
+                {
+                    Ok(report) => {
+                        let report_json =
+                            serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+                        framed
+                            .send(DaemonMessage::AgentCounterfactualReport { report_json })
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to build counterfactual report: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentGetMemoryProvenanceReport { target, limit } => {
+                    match agent
+                        .history
+                        .memory_provenance_report(target.as_deref(), limit.unwrap_or(25) as usize)
+                        .await
+                    {
+                        Ok(report) => {
+                            let report_json =
+                                serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+                            framed
+                                .send(DaemonMessage::AgentMemoryProvenanceReport { report_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to build memory provenance report: {e}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetProvenanceReport { limit } => {
+                    match agent
+                        .provenance_report_json(limit.unwrap_or(50) as usize)
+                        .await
+                    {
+                        Ok(report_json) => {
+                            framed
+                                .send(DaemonMessage::AgentProvenanceReport { report_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to build provenance report: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGenerateSoc2Artifact { period_days } => {
+                    match agent
+                        .generate_soc2_artifact(period_days.unwrap_or(30))
+                        .await
+                    {
+                        Ok(artifact_path) => {
+                            framed
+                                .send(DaemonMessage::AgentSoc2Artifact { artifact_path })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to generate SOC2 artifact: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetCollaborationSessions { parent_task_id } => {
+                    match agent
+                        .collaboration_sessions_json(parent_task_id.as_deref())
+                        .await
+                    {
+                        Ok(sessions) => {
+                            framed
+                                .send(DaemonMessage::AgentCollaborationSessions {
+                                    sessions_json: sessions.to_string(),
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to read collaboration sessions: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetDivergentSession { session_id } => {
+                    match agent.get_divergent_session(&session_id).await {
+                        Ok(session_payload) => {
+                            framed
+                                .send(DaemonMessage::AgentDivergentSession {
+                                    session_json: session_payload.to_string(),
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to read divergent session {session_id}: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentListGeneratedTools => {
+                    match agent.list_generated_tools_json().await {
+                        Ok(tools_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedTools { tools_json })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to list generated tools: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSynthesizeTool { request_json } => {
+                    match agent.synthesize_tool_json(&request_json).await {
+                        Ok(result_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedToolResult {
+                                    tool_name: None,
+                                    result_json,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to synthesize generated tool: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentRunGeneratedTool {
+                    tool_name,
+                    args_json,
+                } => match agent
+                    .run_generated_tool_json(&tool_name, &args_json, None)
+                    .await
+                {
+                    Ok(result_json) => {
+                        framed
+                            .send(DaemonMessage::AgentGeneratedToolResult {
+                                tool_name: Some(tool_name),
+                                result_json,
+                            })
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to run generated tool: {e}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentPromoteGeneratedTool { tool_name } => {
+                    match agent.promote_generated_tool_json(&tool_name).await {
+                        Ok(result_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedToolResult {
+                                    tool_name: Some(tool_name),
+                                    result_json,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to promote generated tool: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentActivateGeneratedTool { tool_name } => {
+                    match agent.activate_generated_tool_json(&tool_name).await {
+                        Ok(result_json) => {
+                            framed
+                                .send(DaemonMessage::AgentGeneratedToolResult {
+                                    tool_name: Some(tool_name),
+                                    result_json,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to activate generated tool: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentGetProviderAuthStates => {
+                    let states = agent.get_provider_auth_states().await;
+                    let json = serde_json::to_string(&states).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentProviderAuthStates { states_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentLoginProvider {
+                    provider_id,
+                    api_key,
+                    base_url,
+                } => {
+                    // Surgical update: modify only the target provider's key.
+                    let mut config = agent.get_config().await;
+                    let entry = config
+                        .providers
+                        .entry(provider_id.clone())
+                        .or_insert_with(|| {
+                            let def = crate::agent::types::get_provider_definition(&provider_id);
+                            crate::agent::types::ProviderConfig {
+                                base_url: if base_url.is_empty() {
+                                    def.map(|d| d.default_base_url.to_string())
+                                        .unwrap_or_default()
+                                } else {
+                                    base_url.clone()
+                                },
+                                model: def.map(|d| d.default_model.to_string()).unwrap_or_default(),
+                                api_key: String::new(),
+                                assistant_id: String::new(),
+                                auth_source: crate::agent::types::AuthSource::ApiKey,
+                                api_transport:
+                                    crate::agent::types::default_api_transport_for_provider(
+                                        &provider_id,
+                                    ),
+                                reasoning_effort: "high".into(),
+                                context_window_tokens: 128_000,
+                                response_schema: None,
+                            }
+                        });
+                    entry.api_key = api_key;
+                    if !base_url.is_empty() {
+                        entry.base_url = base_url;
+                    }
+                    agent.set_config(config).await;
+
+                    let states = agent.get_provider_auth_states().await;
+                    let json = serde_json::to_string(&states).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentProviderAuthStates { states_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentLogoutProvider { provider_id } => {
+                    if provider_id == "github-copilot" {
+                        let _ = crate::agent::copilot_auth::clear_stored_github_copilot_auth();
+                    }
+                    let mut config = agent.get_config().await;
+                    if let Some(entry) = config.providers.get_mut(&provider_id) {
+                        entry.api_key.clear();
+                    }
+                    if config.provider == provider_id {
+                        config.api_key.clear();
+                    }
+                    agent.set_config(config).await;
+
+                    let states = agent.get_provider_auth_states().await;
+                    let json = serde_json::to_string(&states).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentProviderAuthStates { states_json: json })
+                        .await?;
+                }
+
+            _ => unreachable!("message chunk should be exhaustive"),
+        }
+        continue;
+    }

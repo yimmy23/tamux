@@ -64,9 +64,14 @@ impl TelegramProvider {
                 .unwrap_or("https://api.telegram.org")
                 .trim_end_matches('/')
                 .to_string(),
-            allowed_chats: csv_values(config.get("allowed_chats").and_then(Value::as_str).unwrap_or(""))
-                .into_iter()
-                .collect(),
+            allowed_chats: csv_values(
+                config
+                    .get("allowed_chats")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            )
+            .into_iter()
+            .collect(),
             connected: false,
             update_offset,
             pending_events: VecDeque::new(),
@@ -238,9 +243,7 @@ impl GatewayProvider for TelegramProvider {
                             latest_cursor = Some(update_id.to_string());
                         }
 
-                        let message = update
-                            .get("message")
-                            .or_else(|| update.get("channel_post"));
+                        let message = update.get("message").or_else(|| update.get("channel_post"));
                         let Some(message) = message else {
                             continue;
                         };
@@ -256,7 +259,8 @@ impl GatewayProvider for TelegramProvider {
                             .and_then(Value::as_i64)
                             .map(|value| value.to_string())
                             .unwrap_or_default();
-                        if !self.allowed_chats.is_empty() && !self.allowed_chats.contains(&chat_id) {
+                        if !self.allowed_chats.is_empty() && !self.allowed_chats.contains(&chat_id)
+                        {
                             continue;
                         }
 
@@ -295,15 +299,14 @@ impl GatewayProvider for TelegramProvider {
                     }
 
                     if let Some(cursor_value) = latest_cursor {
-                        self.pending_events.push_back(GatewayProviderEvent::CursorUpdate(
-                            GatewayCursorState {
+                        self.pending_events
+                            .push_back(GatewayProviderEvent::CursorUpdate(GatewayCursorState {
                                 platform: "telegram".to_string(),
                                 channel_id: "global".to_string(),
                                 cursor_value,
                                 cursor_type: "update_id".to_string(),
                                 updated_at_ms: now_ms(),
-                            },
-                        ));
+                            }));
                     }
                 }
 
@@ -338,7 +341,8 @@ impl GatewayProvider for TelegramProvider {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>>
+    {
         Box::pin(async move {
             if !self.connected {
                 bail!("Telegram provider not connected");
@@ -367,8 +371,13 @@ impl GatewayProvider for TelegramProvider {
                 Err(error) if error.to_string().contains("can't parse entities") => {
                     let plain = markdown_to_plain(&request.content);
                     let plain_chunks = chunk_message(&plain, TELEGRAM_MAX_CHARS);
-                    self.send_chunks(&plain_chunks, &request.channel_id, reply_to_message_id, None)
-                        .await
+                    self.send_chunks(
+                        &plain_chunks,
+                        &request.channel_id,
+                        reply_to_message_id,
+                        None,
+                    )
+                    .await
                 }
                 Err(error) => Err(error),
             }?;

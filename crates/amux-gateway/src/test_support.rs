@@ -64,11 +64,10 @@ impl TestHttpServer {
                     .unwrap_or_default()
                     .to_string();
 
-                requests_task.lock().unwrap().push(RecordedRequest {
-                    method,
-                    path,
-                    body,
-                });
+                requests_task
+                    .lock()
+                    .unwrap()
+                    .push(RecordedRequest { method, path, body });
 
                 let response = responses_task
                     .lock()

@@ -569,8 +569,10 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_checks_ignore_channels_with_newer_response_timestamps() {
         let engine = make_test_engine(HashMap::new(), VecDeque::new(), HashMap::new()).await;
-        let mut gateway_state =
-            crate::agent::gateway::GatewayState::new(AgentConfig::default().gateway, reqwest::Client::new());
+        let mut gateway_state = crate::agent::gateway::GatewayState::new(
+            AgentConfig::default().gateway,
+            reqwest::Client::new(),
+        );
         let now = now_millis();
         gateway_state
             .last_incoming_at

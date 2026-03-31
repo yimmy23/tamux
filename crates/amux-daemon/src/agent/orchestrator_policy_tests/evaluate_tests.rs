@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex as StdMutex};
 
-use super::common::*;
 use super::super::*;
+use super::common::*;
 
 #[tokio::test]
 async fn apply_recent_policy_decision_is_persisted_and_reused_on_next_relevant_turn() {
@@ -27,7 +27,9 @@ async fn apply_recent_policy_decision_is_persisted_and_reused_on_next_relevant_t
         retry_guard: Some("approach-hash-1".to_string()),
     };
 
-    engine.record_policy_decision(&scope, pivot_decision.clone(), 1_000).await;
+    engine
+        .record_policy_decision(&scope, pivot_decision.clone(), 1_000)
+        .await;
     let recent = engine
         .latest_policy_decision(&scope, 1_010)
         .await
@@ -111,7 +113,10 @@ async fn evaluate_policy_turn_does_not_reuse_recent_decision_for_different_runti
 
     assert_eq!(selection.source, PolicyDecisionSource::FreshEvaluation);
     assert_eq!(selection.decision.action, PolicyAction::HaltRetries);
-    assert_eq!(selection.decision.retry_guard.as_deref(), Some("approach-hash-2"));
+    assert_eq!(
+        selection.decision.retry_guard.as_deref(),
+        Some("approach-hash-2")
+    );
     let recorded = recorded_bodies.lock().expect("lock request log");
     assert!(
         recorded.iter().any(|body| {
@@ -140,13 +145,19 @@ async fn evaluate_policy_turn_records_runtime_owned_guard_for_fresh_halt_retries
 
     assert_eq!(selection.source, PolicyDecisionSource::FreshEvaluation);
     assert_eq!(selection.decision.action, PolicyAction::HaltRetries);
-    assert_eq!(selection.decision.retry_guard.as_deref(), Some("approach-hash-1"));
+    assert_eq!(
+        selection.decision.retry_guard.as_deref(),
+        Some("approach-hash-1")
+    );
 
     let recent = engine
         .latest_policy_decision(&scope, 1_020)
         .await
         .expect("recent policy decision");
-    assert_eq!(recent.decision.retry_guard.as_deref(), Some("approach-hash-1"));
+    assert_eq!(
+        recent.decision.retry_guard.as_deref(),
+        Some("approach-hash-1")
+    );
 }
 
 #[tokio::test]
@@ -210,7 +221,8 @@ async fn evaluate_policy_turn_reuses_recent_non_guarded_decision_for_matching_ru
 }
 
 #[tokio::test]
-async fn evaluate_policy_turn_does_not_reuse_recent_non_guarded_decision_for_materially_different_candidate() {
+async fn evaluate_policy_turn_does_not_reuse_recent_non_guarded_decision_for_materially_different_candidate(
+) {
     let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
     let engine = policy_runtime_engine(
         r#"{"action":"pivot","reason":"A different bounded strategy is more appropriate.","strategy_hint":"Inspect the workspace before running commands again."}"#,

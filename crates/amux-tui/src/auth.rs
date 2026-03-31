@@ -249,7 +249,11 @@ fn gh_cli_token_quiet() -> Option<String> {
         return None;
     }
     let token = String::from_utf8(output.stdout).ok()?.trim().to_string();
-    if token.is_empty() { None } else { Some(token) }
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
 }
 
 fn store_github_copilot_token(token: String, source: &str) -> Result<()> {

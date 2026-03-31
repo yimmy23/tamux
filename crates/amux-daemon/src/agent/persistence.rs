@@ -950,16 +950,24 @@ mod tests {
             .record_retry_guard(&scope, "approach-hash-1", 1_000)
             .await;
 
-        assert!(engine
-            .is_retry_guard_active(&scope, "approach-hash-1", 1_000 + SHORT_LIVED_POLICY_WINDOW_SECS)
-            .await);
-        assert!(!engine
-            .is_retry_guard_active(
-                &scope,
-                "approach-hash-1",
-                1_001 + SHORT_LIVED_POLICY_WINDOW_SECS,
-            )
-            .await);
+        assert!(
+            engine
+                .is_retry_guard_active(
+                    &scope,
+                    "approach-hash-1",
+                    1_000 + SHORT_LIVED_POLICY_WINDOW_SECS
+                )
+                .await
+        );
+        assert!(
+            !engine
+                .is_retry_guard_active(
+                    &scope,
+                    "approach-hash-1",
+                    1_001 + SHORT_LIVED_POLICY_WINDOW_SECS,
+                )
+                .await
+        );
     }
 
     #[tokio::test]
@@ -990,8 +998,10 @@ mod tests {
             .await;
 
         assert_eq!(engine.latest_policy_decision(&goal_two, 1_030).await, None);
-        assert!(!engine
-            .is_retry_guard_active(&goal_two, "approach-hash-1", 1_030)
-            .await);
+        assert!(
+            !engine
+                .is_retry_guard_active(&goal_two, "approach-hash-1", 1_030)
+                .await
+        );
     }
 }

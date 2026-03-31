@@ -58,11 +58,9 @@ fn env_flag_is_enabled(name: &str) -> bool {
 }
 
 pub fn read_stored_github_copilot_auth() -> Option<StoredGithubCopilotAuth> {
-    let value = super::provider_auth_store::load_provider_auth_state(
-        "github-copilot",
-        "github_copilot",
-    )
-    .ok()??;
+    let value =
+        super::provider_auth_store::load_provider_auth_state("github-copilot", "github_copilot")
+            .ok()??;
     serde_json::from_value(value).ok()
 }
 

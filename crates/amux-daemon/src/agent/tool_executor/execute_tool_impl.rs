@@ -1,0 +1,405 @@
+pub async fn execute_tool(
+    tool_call: &ToolCall,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+    session_manager: &Arc<SessionManager>,
+    session_id: Option<SessionId>,
+    event_tx: &broadcast::Sender<AgentEvent>,
+    agent_data_dir: &std::path::Path,
+    http_client: &reqwest::Client,
+    cancel_token: Option<CancellationToken>,
+) -> ToolResult {
+    let redacted_arguments = scrub_sensitive(&tool_call.function.arguments);
+    tracing::info!(
+        tool = %tool_call.function.name,
+        args = %redacted_arguments,
+        "agent tool call"
+    );
+
+    let args = match parse_tool_args(
+        tool_call.function.name.as_str(),
+        &tool_call.function.arguments,
+    ) {
+        Ok(args) => args,
+        Err(error) => {
+            tracing::warn!(
+                tool = %tool_call.function.name,
+                error = %error,
+                "agent tool argument parse failed"
+            );
+            return ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content: error,
+                is_error: true,
+                pending_approval: None,
+            };
+        }
+    };
+    let (dispatch_tool_name, dispatch_args) =
+        normalize_tool_dispatch(tool_call.function.name.as_str(), &args);
+
+    if !thread_id.trim().is_empty()
+        && matches!(
+            tool_call.function.name.as_str(),
+            "bash_command" | "execute_managed_command" | "enqueue_task" | "spawn_subagent"
+        )
+        && agent.get_todos(thread_id).await.is_empty()
+        && (task_id.is_some() || agent.planner_required_for_thread(thread_id).await)
+    {
+        return ToolResult {
+            tool_call_id: tool_call.id.clone(),
+            name: tool_call.function.name.clone(),
+            content: "Plan required: call update_todo first so tamux can track the live execution plan before running commands or spawning tasks.".to_string(),
+            is_error: true,
+            pending_approval: None,
+        };
+    }
+
+    // UNCR-02: Pre-execution confidence warning for Safety-domain tools.
+    // Emits a ConfidenceWarning event so clients can display blast-radius
+    // uncertainty before the tool runs. Does NOT block -- existing policy.rs
+    // approval flow handles blocking for dangerous commands.
+    {
+        let tool_domain =
+            crate::agent::uncertainty::domains::classify_domain(tool_call.function.name.as_str());
+        if tool_domain == crate::agent::uncertainty::domains::DomainClassification::Safety {
+            let evidence = format!(
+                "Safety-domain tool '{}' with blast-radius uncertainty. Args: {}",
+                tool_call.function.name,
+                tool_call
+                    .function
+                    .arguments
+                    .chars()
+                    .take(200)
+                    .collect::<String>()
+            );
+            let _ = event_tx.send(AgentEvent::ConfidenceWarning {
+                thread_id: thread_id.to_string(),
+                action_type: "tool_call".to_string(),
+                band: "medium".to_string(),
+                evidence,
+                domain: "safety".to_string(),
+                blocked: false,
+            });
+        }
+    }
+
+    let mut pending_approval = None;
+
+    let result = match dispatch_tool_name.as_str() {
+        // Terminal/session tools (daemon owns sessions directly)
+        "list_terminals" | "list_sessions" => execute_list_sessions(session_manager).await,
+        "read_active_terminal_content" => execute_read_terminal(&args, session_manager).await,
+        "run_terminal_command" => {
+            match execute_run_terminal_command(
+                &args,
+                agent,
+                session_manager,
+                session_id,
+                event_tx,
+                thread_id,
+                cancel_token.clone(),
+            )
+            .await
+            {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
+        }
+        "execute_managed_command" => {
+            match execute_managed_command(
+                &args,
+                agent,
+                session_manager,
+                session_id,
+                event_tx,
+                thread_id,
+                cancel_token.clone(),
+            )
+            .await
+            {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
+        }
+        "allocate_terminal" => {
+            execute_allocate_terminal(&args, session_manager, session_id, event_tx).await
+        }
+        "spawn_subagent" => {
+            execute_spawn_subagent(
+                &args,
+                agent,
+                thread_id,
+                task_id,
+                session_manager,
+                session_id,
+                event_tx,
+            )
+            .await
+        }
+        "list_subagents" => execute_list_subagents(&args, agent, thread_id, task_id).await,
+        "message_agent" => Box::pin(execute_message_agent(&args, agent, task_id, session_id)).await,
+        "route_to_specialist" => {
+            execute_route_to_specialist(&args, agent, thread_id, task_id).await
+        }
+        "run_divergent" => execute_run_divergent(&args, agent, thread_id, task_id).await,
+        "get_divergent_session" => execute_get_divergent_session(&args, agent).await,
+        "broadcast_contribution" => {
+            execute_broadcast_contribution(&args, agent, thread_id, task_id).await
+        }
+        "read_peer_memory" => execute_read_peer_memory(&args, agent, task_id).await,
+        "vote_on_disagreement" => {
+            execute_vote_on_disagreement(&args, agent, thread_id, task_id).await
+        }
+        "list_collaboration_sessions" => {
+            execute_list_collaboration_sessions(&args, agent, task_id).await
+        }
+        "enqueue_task" => execute_enqueue_task(&args, agent).await,
+        "list_tasks" => execute_list_tasks(&args, agent).await,
+        "cancel_task" => execute_cancel_task(&args, agent).await,
+        "type_in_terminal" => execute_type_in_terminal(&args, session_manager).await,
+        // Gateway messaging (execute via CLI)
+        "send_slack_message"
+        | "send_discord_message"
+        | "send_telegram_message"
+        | "send_whatsapp_message" => {
+            execute_gateway_message(tool_call.function.name.as_str(), &args, agent, http_client)
+                .await
+        }
+        // Workspace/snippet tools (read/write persistence files directly)
+        "list_workspaces"
+        | "create_workspace"
+        | "set_active_workspace"
+        | "create_surface"
+        | "set_active_surface"
+        | "split_pane"
+        | "rename_pane"
+        | "set_layout_preset"
+        | "equalize_layout"
+        | "list_snippets"
+        | "create_snippet"
+        | "run_snippet" => {
+            execute_workspace_tool(tool_call.function.name.as_str(), &args, event_tx).await
+        }
+        // Daemon-native tools
+        "bash_command" => {
+            match execute_bash_command(
+                &args,
+                agent,
+                session_manager,
+                session_id,
+                event_tx,
+                thread_id,
+                cancel_token.clone(),
+            )
+            .await
+            {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
+        }
+        "list_files" => execute_list_files(&args, session_manager, session_id).await,
+        "read_file" => execute_read_file(&args).await,
+        "write_file" => execute_write_file(&args, session_manager, session_id).await,
+        "create_file" => execute_create_file(&args).await,
+        "append_to_file" => execute_append_to_file(&args).await,
+        "replace_in_file" => execute_replace_in_file(&args).await,
+        "apply_file_patch" => execute_apply_file_patch(&args).await,
+        "search_files" => execute_search_files(&args).await,
+        "get_system_info" => execute_system_info().await,
+        "list_processes" => execute_list_processes(&args).await,
+        "search_history" => execute_search_history(&args, session_manager).await,
+        "fetch_gateway_history" => execute_fetch_gateway_history(&args, agent, thread_id).await,
+        "session_search" => execute_session_search(&args, session_manager).await,
+        "agent_query_memory" => execute_agent_query_memory(&args, agent).await,
+        "onecontext_search" => execute_onecontext_search(&args).await,
+        "notify_user" => execute_notify(&args, event_tx).await,
+        "update_todo" => execute_update_todo(&args, agent, thread_id, task_id).await,
+        "update_memory" => {
+            execute_update_memory(&args, agent, thread_id, task_id, agent_data_dir).await
+        }
+        "list_skills" => execute_list_skills(&args, agent_data_dir, &agent.history).await,
+        "semantic_query" => {
+            execute_semantic_query(
+                &dispatch_args,
+                session_manager,
+                session_id,
+                &agent.history,
+                agent_data_dir,
+            )
+            .await
+        }
+        "read_skill" => {
+            execute_read_skill(
+                &args,
+                agent,
+                agent_data_dir,
+                &agent.history,
+                session_manager,
+                session_id,
+                thread_id,
+                task_id,
+            )
+            .await
+        }
+        "synthesize_tool" => synthesize_tool(&args, agent, agent_data_dir, http_client).await,
+        "list_generated_tools" => list_generated_tools(agent_data_dir),
+        "promote_generated_tool" => {
+            let tool = args
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
+                .and_then(|tool| promote_generated_tool(agent_data_dir, tool));
+            tool
+        }
+        "activate_generated_tool" => {
+            let tool = args
+                .get("tool")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
+                .and_then(|tool| activate_generated_tool(agent_data_dir, tool));
+            tool
+        }
+        "web_search" => {
+            let config = agent.config.read().await;
+            let search_provider = config
+                .extra
+                .get("search_provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("none")
+                .to_string();
+            let exa_api_key = config
+                .extra
+                .get("exa_api_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let tavily_api_key = config
+                .extra
+                .get("tavily_api_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            drop(config);
+            execute_web_search(
+                &args,
+                http_client,
+                &search_provider,
+                &exa_api_key,
+                &tavily_api_key,
+            )
+            .await
+        }
+        "fetch_url" => {
+            let config = agent.config.read().await;
+            let browse_provider = config
+                .extra
+                .get("browse_provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("auto")
+                .to_string();
+            drop(config);
+            execute_fetch_url(&args, http_client, &browse_provider).await
+        }
+        "setup_web_browsing" => execute_setup_web_browsing(&args, agent).await,
+        "plugin_api_call" => {
+            let plugin_name = match get_string_arg(&args, &["plugin_name"]) {
+                Some(name) => name.to_string(),
+                None => {
+                    return ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        name: tool_call.function.name.clone(),
+                        content: "Error: missing 'plugin_name' argument".to_string(),
+                        is_error: true,
+                        pending_approval: None,
+                    }
+                }
+            };
+            let endpoint_name = match get_string_arg(&args, &["endpoint_name"]) {
+                Some(name) => name.to_string(),
+                None => {
+                    return ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        name: tool_call.function.name.clone(),
+                        content: "Error: missing 'endpoint_name' argument".to_string(),
+                        is_error: true,
+                        pending_approval: None,
+                    }
+                }
+            };
+            let params = args
+                .get("params")
+                .cloned()
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+
+            match agent.plugin_manager.get() {
+                Some(pm) => match pm.api_call(&plugin_name, &endpoint_name, params).await {
+                    Ok(text) => Ok(text),
+                    Err(e) => Err(anyhow::anyhow!("{}", e)),
+                },
+                None => Err(anyhow::anyhow!("Plugin system not available")),
+            }
+        }
+        other => match execute_generated_tool(
+            other,
+            &args,
+            agent,
+            agent_data_dir,
+            http_client,
+            Some(thread_id),
+        )
+        .await
+        {
+            Ok(Some(content)) => Ok(content),
+            Ok(None) => Err(anyhow::anyhow!("Unknown tool: {other}")),
+            Err(error) => Err(error),
+        },
+    };
+
+    match result {
+        Ok(content) => {
+            let content = scrub_sensitive(&content);
+            emit_workflow_notice_for_tool(
+                event_tx,
+                thread_id,
+                dispatch_tool_name.as_str(),
+                &dispatch_args,
+            );
+            tracing::info!(tool = %tool_call.function.name, result_len = content.len(), "agent tool result: ok");
+            ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content,
+                is_error: false,
+                pending_approval,
+            }
+        }
+        Err(e) => {
+            let content = scrub_sensitive(&format!("Error: {e}"));
+            tracing::warn!(tool = %tool_call.function.name, error = %content, "agent tool result: error");
+            ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content,
+                is_error: true,
+                pending_approval: None,
+            }
+        }
+    }
+}
+

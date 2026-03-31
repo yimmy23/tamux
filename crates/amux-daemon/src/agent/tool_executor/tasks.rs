@@ -1,0 +1,376 @@
+async fn execute_list_subagents(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    let status_filter = args
+        .get("status")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_ascii_lowercase());
+    let parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| task_id.map(ToOwned::to_owned));
+    let parent_thread_id = args
+        .get("parent_thread_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| Some(thread_id.to_string()));
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(20);
+
+    let mut subagents = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .filter(|task| {
+            if task.source != "subagent" {
+                return false;
+            }
+            parent_task_id
+                .as_deref()
+                .map(|value| task.parent_task_id.as_deref() == Some(value))
+                .unwrap_or(false)
+                || parent_thread_id
+                    .as_deref()
+                    .map(|value| task.parent_thread_id.as_deref() == Some(value))
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(status_filter) = status_filter {
+        subagents.retain(|task| {
+            serde_json::to_value(task.status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .map(|value| value == status_filter)
+                .unwrap_or(false)
+        });
+    }
+
+    subagents.truncate(limit);
+    Ok(serde_json::to_string_pretty(&subagents).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_broadcast_contribution(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration capability is disabled in agent config");
+    }
+    let task_id =
+        task_id.ok_or_else(|| anyhow::anyhow!("broadcast_contribution requires a current task"))?;
+    let task = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
+        anyhow::anyhow!("broadcast_contribution is only available inside subagents")
+    })?;
+    let topic = args
+        .get("topic")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'topic' argument"))?;
+    let position = args
+        .get("position")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'position' argument"))?;
+    let evidence = args
+        .get("evidence")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let confidence = args
+        .get("confidence")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.6);
+    let report = agent
+        .record_collaboration_contribution(
+            &parent_task_id,
+            task_id,
+            topic,
+            position,
+            evidence,
+            confidence,
+        )
+        .await?;
+    agent
+        .record_provenance_event(
+            "collaboration_contribution",
+            "subagent broadcast a collaboration contribution",
+            serde_json::json!({
+                "parent_task_id": parent_task_id,
+                "task_id": task_id,
+                "topic": topic,
+                "position": position,
+                "thread_id": thread_id,
+            }),
+            task.goal_run_id.as_deref(),
+            Some(task_id),
+            Some(thread_id),
+            None,
+            None,
+        )
+        .await;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_read_peer_memory(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration capability is disabled in agent config");
+    }
+    let task_id =
+        task_id.ok_or_else(|| anyhow::anyhow!("read_peer_memory requires a current task"))?;
+    let task = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(task.parent_task_id.clone())
+        .ok_or_else(|| anyhow::anyhow!("read_peer_memory is only available inside subagents"))?;
+    let report = agent
+        .collaboration_peer_memory_json(&parent_task_id, task_id)
+        .await?;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_vote_on_disagreement(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration capability is disabled in agent config");
+    }
+    let task_id =
+        task_id.ok_or_else(|| anyhow::anyhow!("vote_on_disagreement requires a current task"))?;
+    let task = agent
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
+        anyhow::anyhow!("vote_on_disagreement is only available inside subagents")
+    })?;
+    let disagreement_id = args
+        .get("disagreement_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'disagreement_id' argument"))?;
+    let position = args
+        .get("position")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'position' argument"))?;
+    let confidence = args.get("confidence").and_then(|value| value.as_f64());
+    let report = agent
+        .vote_on_collaboration_disagreement(
+            &parent_task_id,
+            disagreement_id,
+            task_id,
+            position,
+            confidence,
+        )
+        .await?;
+    agent
+        .record_provenance_event(
+            "collaboration_vote",
+            "subagent voted on a disagreement",
+            serde_json::json!({
+                "parent_task_id": parent_task_id,
+                "task_id": task_id,
+                "disagreement_id": disagreement_id,
+                "position": position,
+                "thread_id": thread_id,
+            }),
+            task.goal_run_id.as_deref(),
+            Some(task_id),
+            Some(thread_id),
+            None,
+            None,
+        )
+        .await;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
+}
+
+async fn execute_list_collaboration_sessions(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    task_id: Option<&str>,
+) -> Result<String> {
+    if !agent.config.read().await.collaboration.enabled {
+        anyhow::bail!("collaboration capability is disabled in agent config");
+    }
+    let fallback_parent = if let Some(task_id) = task_id {
+        agent
+            .list_tasks()
+            .await
+            .into_iter()
+            .find(|task| task.id == task_id)
+            .and_then(|task| task.parent_task_id.or_else(|| Some(task.id)))
+    } else {
+        None
+    };
+    let parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(fallback_parent);
+    let report = agent
+        .collaboration_sessions_json(parent_task_id.as_deref())
+        .await?;
+    Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let description = args
+        .get("description")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'description' argument"))?
+        .trim()
+        .to_string();
+    if description.is_empty() {
+        anyhow::bail!("'description' must not be empty");
+    }
+
+    let command = args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let title = args
+        .get("title")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| default_task_title(&description, command.as_deref()));
+    let priority = args
+        .get("priority")
+        .and_then(|value| value.as_str())
+        .unwrap_or("normal");
+    let session = args
+        .get("session")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let dependencies = args
+        .get("dependencies")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let scheduled_at = parse_scheduled_at(args)?;
+
+    let task = agent
+        .enqueue_task(
+            title,
+            description,
+            priority,
+            command,
+            session,
+            dependencies,
+            scheduled_at,
+            "agent",
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+
+    Ok(serde_json::to_string_pretty(&task).unwrap_or_else(|_| format!("queued task {}", task.id)))
+}
+
+async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let status_filter = args
+        .get("status")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_ascii_lowercase());
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize);
+
+    let mut tasks = agent.list_tasks().await;
+    if let Some(status_filter) = status_filter {
+        tasks.retain(|task| {
+            serde_json::to_value(task.status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .map(|value| value == status_filter)
+                .unwrap_or(false)
+        });
+    }
+    if let Some(limit) = limit {
+        tasks.truncate(limit);
+    }
+
+    Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
+}
+
+async fn execute_cancel_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let task_id = args
+        .get("task_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'task_id' argument"))?;
+    let cancelled = agent.cancel_task(task_id).await;
+    Ok(serde_json::json!({
+        "task_id": task_id,
+        "cancelled": cancelled,
+    })
+    .to_string())
+}
+

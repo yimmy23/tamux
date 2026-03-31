@@ -2,8 +2,7 @@
 
 use super::*;
 use crate::agent::llm_client::{
-    parse_structured_upstream_failure, sanitize_upstream_failure_message,
-    StructuredUpstreamFailure,
+    parse_structured_upstream_failure, sanitize_upstream_failure_message, StructuredUpstreamFailure,
 };
 
 const POLICY_TOOL_OUTCOME_HISTORY_LIMIT: usize = 6;
@@ -111,7 +110,11 @@ fn build_runtime_self_assessment(
                 momentum,
             },
             efficiency: super::metacognitive::self_assessment::EfficiencyMetrics {
-                token_efficiency: if short_term_success_rate > 0.0 { 0.6 } else { 0.0 },
+                token_efficiency: if short_term_success_rate > 0.0 {
+                    0.6
+                } else {
+                    0.0
+                },
                 tool_success_rate: short_term_success_rate,
                 time_efficiency: 0.0,
                 tokens_consumed: 0,
@@ -156,7 +159,9 @@ async fn build_policy_context_for_tool_result(
                     .iter()
                     .rev()
                     .take(3)
-                    .filter(|approach| !matches!(approach.outcome, super::episodic::EpisodeOutcome::Success))
+                    .filter(|approach| {
+                        !matches!(approach.outcome, super::episodic::EpisodeOutcome::Success)
+                    })
                     .all(|approach| approach.approach_hash == current_approach_hash)
         })
     };
@@ -207,7 +212,8 @@ async fn build_policy_context_for_tool_result(
         let scope_id = crate::agent::agent_identity::current_agent_scope_id();
         let stores = engine.episodic_store.read().await;
         stores.get(&scope_id).and_then(|store| {
-            let formatted = super::episodic::counter_who::format_counter_who_context(&store.counter_who);
+            let formatted =
+                super::episodic::counter_who::format_counter_who_context(&store.counter_who);
             (!formatted.trim().is_empty()).then_some(formatted)
         })
     };
@@ -215,7 +221,10 @@ async fn build_policy_context_for_tool_result(
         format!(
             "Goal: {}\nCurrent step: {}\nTask: {}",
             goal_run.goal,
-            goal_run.current_step_title.as_deref().unwrap_or("current step"),
+            goal_run
+                .current_step_title
+                .as_deref()
+                .unwrap_or("current step"),
             task.title,
         )
     });
@@ -2362,7 +2371,9 @@ fn classify_fixable_upstream_recovery(
                 action: FixableUpstreamRecoveryAction::RepairThreadStateAndRetry,
             })
         }
-        "transport_incompatible" if combined.contains("empty string") && combined.contains("tool") => {
+        "transport_incompatible"
+            if combined.contains("empty string") && combined.contains("tool") =>
+        {
             Some(FixableUpstreamRecovery {
                 signature: "transport-incompatible-empty-tool-name".to_string(),
                 action: FixableUpstreamRecoveryAction::InvestigateOnly,
@@ -2405,8 +2416,8 @@ mod tests {
     use super::*;
     use crate::agent::llm_client::UPSTREAM_DIAGNOSTICS_MARKER;
     use crate::agent::types::{AgentEvent, TaskStatus};
-    use rusqlite::OptionalExtension;
     use crate::session_manager::SessionManager;
+    use rusqlite::OptionalExtension;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
@@ -2715,7 +2726,10 @@ mod tests {
                 tokio::spawn(async move {
                     request_counter.fetch_add(1, Ordering::SeqCst);
                     let mut buffer = vec![0u8; 65536];
-                    let _ = socket.read(&mut buffer).await.expect("read incompatibility request");
+                    let _ = socket
+                        .read(&mut buffer)
+                        .await
+                        .expect("read incompatibility request");
                     let body = r#"{"error":{"message":"Responses API not supported for this provider endpoint"}}"#;
                     let response = format!(
                         "HTTP/1.1 405 Method Not Allowed\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -2733,7 +2747,10 @@ mod tests {
         format!("http://{addr}/v1")
     }
 
-    async fn latest_trace_outcome_for_task(root: &std::path::Path, task_id: &str) -> Option<String> {
+    async fn latest_trace_outcome_for_task(
+        root: &std::path::Path,
+        task_id: &str,
+    ) -> Option<String> {
         let store = crate::history::HistoryStore::new_test_store(root)
             .await
             .expect("open history store");
@@ -2886,10 +2903,14 @@ mod tests {
             thread_id: thread_id.to_string(),
             goal_run_id: Some("goal-1".to_string()),
         };
-        engine.record_retry_guard(&scope, &args_hash, now_epoch_secs).await;
+        engine
+            .record_retry_guard(&scope, &args_hash, now_epoch_secs)
+            .await;
         {
             let mut stores = engine.episodic_store.write().await;
-            let store = stores.entry(crate::agent::agent_identity::MAIN_AGENT_ID.to_string()).or_default();
+            let store = stores
+                .entry(crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
+                .or_default();
             store.counter_who.tried_approaches = VecDeque::from(vec![
                 crate::agent::episodic::TriedApproach {
                     approach_hash: args_hash.clone(),
@@ -2992,7 +3013,8 @@ mod tests {
         assert_eq!(task.status, TaskStatus::Failed);
         drop(tasks);
 
-        let trace_outcome = latest_trace_outcome_for_task(root.path(), "task-policy-loop-proof").await;
+        let trace_outcome =
+            latest_trace_outcome_for_task(root.path(), "task-policy-loop-proof").await;
         assert_eq!(trace_outcome.as_deref(), Some("failure"));
     }
 
@@ -3081,7 +3103,12 @@ mod tests {
                     seen_notice_kinds.push(kind.clone());
                     if kind == "transport-incompatible" || kind == "upstream-error" {
                         saw_notice = true;
-                        assert!(message.contains("incompatible") || details.as_deref().is_some_and(|d| d.contains("transport_incompatible")));
+                        assert!(
+                            message.contains("incompatible")
+                                || details
+                                    .as_deref()
+                                    .is_some_and(|d| d.contains("transport_incompatible"))
+                        );
                         let details = details.expect("notice should include diagnostics");
                         assert!(details.contains("transport_incompatible"));
                         assert!(details.contains("Responses API not supported"));
@@ -3097,7 +3124,10 @@ mod tests {
             "expected operator-visible transport incompatibility notice, saw {:?}",
             seen_notice_kinds
         );
-        assert!(saw_done, "expected turn completion event for surfaced error");
+        assert!(
+            saw_done,
+            "expected turn completion event for surfaced error"
+        );
         assert_eq!(request_counter.load(Ordering::SeqCst), 1);
     }
 
@@ -3152,10 +3182,14 @@ mod tests {
         let assistant_error = thread
             .messages
             .iter()
-            .find(|message| message.role == MessageRole::Assistant && message.content.starts_with("Error: "))
+            .find(|message| {
+                message.role == MessageRole::Assistant && message.content.starts_with("Error: ")
+            })
             .expect("assistant error should be persisted");
         assert!(
-            !assistant_error.content.contains(UPSTREAM_DIAGNOSTICS_MARKER),
+            !assistant_error
+                .content
+                .contains(UPSTREAM_DIAGNOSTICS_MARKER),
             "persisted assistant error should not include structured diagnostics"
         );
     }
@@ -3480,7 +3514,10 @@ mod tests {
         .expect("policy checkpoint should succeed")
         .expect("policy checkpoint should apply an action");
 
-        assert_eq!(action, crate::agent::orchestrator_policy::PolicyLoopAction::RestartLoop);
+        assert_eq!(
+            action,
+            crate::agent::orchestrator_policy::PolicyLoopAction::RestartLoop
+        );
 
         let scope = crate::agent::orchestrator_policy::PolicyDecisionScope {
             thread_id: thread_id.to_string(),
@@ -3490,13 +3527,21 @@ mod tests {
             .latest_policy_decision(&scope, 10)
             .await
             .expect("expected checkpoint to persist a policy decision");
-        assert_eq!(recent_decision.decision.action, crate::agent::orchestrator_policy::PolicyAction::Pivot);
-        assert_eq!(recent_decision.decision.strategy_hint.as_deref(), Some("Inspect the workspace state before more reads."));
+        assert_eq!(
+            recent_decision.decision.action,
+            crate::agent::orchestrator_policy::PolicyAction::Pivot
+        );
+        assert_eq!(
+            recent_decision.decision.strategy_hint.as_deref(),
+            Some("Inspect the workspace state before more reads.")
+        );
 
         let recorded = recorded_bodies.lock().expect("lock recorded bodies");
         assert!(
             recorded.iter().any(|body| {
-                body.contains("tamux orchestrator should continue, pivot, escalate, or halt_retries")
+                body.contains(
+                    "tamux orchestrator should continue, pivot, escalate, or halt_retries",
+                )
             }),
             "expected the policy checkpoint to issue the orchestrator policy evaluation prompt",
         );
@@ -3505,13 +3550,12 @@ mod tests {
         let threads = engine.threads.read().await;
         let thread = threads.get(thread_id).expect("thread");
         assert!(
-            thread
-                .messages
-                .iter()
-                .any(|message| {
-                    message.role == MessageRole::System
-                        && message.content.contains("Inspect the workspace state before more reads.")
-                }),
+            thread.messages.iter().any(|message| {
+                message.role == MessageRole::System
+                    && message
+                        .content
+                        .contains("Inspect the workspace state before more reads.")
+            }),
             "expected pivot application to inject a strategy refresh system message",
         );
     }

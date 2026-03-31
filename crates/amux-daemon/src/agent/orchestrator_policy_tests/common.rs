@@ -2,13 +2,13 @@ use std::collections::VecDeque;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex as StdMutex};
 
-use crate::agent::{AgentConfig, AgentEngine};
 use crate::agent::types::{
     AgentMessage, AgentTask, AgentTaskLogEntry, ApiTransport, GoalRun, GoalRunStatus, GoalRunStep,
     GoalRunStepKind, GoalRunStepStatus, TaskLogLevel, TaskPriority, TaskStatus,
 };
+use crate::agent::{AgentConfig, AgentEngine};
 use crate::session_manager::SessionManager;
-use tempfile::{TempDir, tempdir};
+use tempfile::{tempdir, TempDir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 

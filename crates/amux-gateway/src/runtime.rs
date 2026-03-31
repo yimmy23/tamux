@@ -43,9 +43,7 @@ pub trait GatewayProvider: Send + 'static {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>>;
 }
 
 pub trait DaemonConnection: Send + 'static {

@@ -58,10 +58,16 @@ impl AgentEngine {
                         .messages
                         .retain(|message| !id_set.contains(message.id.as_str()));
                     thread.updated_at = now_millis();
-                    thread.total_input_tokens =
-                        thread.messages.iter().map(|message| message.input_tokens).sum();
-                    thread.total_output_tokens =
-                        thread.messages.iter().map(|message| message.output_tokens).sum();
+                    thread.total_input_tokens = thread
+                        .messages
+                        .iter()
+                        .map(|message| message.input_tokens)
+                        .sum();
+                    thread.total_output_tokens = thread
+                        .messages
+                        .iter()
+                        .map(|message| message.output_tokens)
+                        .sum();
                 }
             }
 
@@ -292,13 +298,11 @@ impl AgentEngine {
 
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
-        Ok(
-            Box::pin(self.send_message_inner(
-                thread_id, content, None, None, None, None, None, true,
-            ))
-                .await?
-                .thread_id,
+        Ok(Box::pin(
+            self.send_message_inner(thread_id, content, None, None, None, None, None, true),
         )
+        .await?
+        .thread_id)
     }
 
     pub async fn send_message_with_ephemeral_user_override(
@@ -308,20 +312,18 @@ impl AgentEngine {
         llm_user_override: &str,
         stream_chunk_timeout: std::time::Duration,
     ) -> Result<String> {
-        Ok(
-            Box::pin(self.send_message_inner(
-                thread_id,
-                stored_content,
-                None,
-                None,
-                None,
-                Some(llm_user_override),
-                Some(stream_chunk_timeout),
-                true,
-            ))
-            .await?
-            .thread_id,
-        )
+        Ok(Box::pin(self.send_message_inner(
+            thread_id,
+            stored_content,
+            None,
+            None,
+            None,
+            Some(llm_user_override),
+            Some(stream_chunk_timeout),
+            true,
+        ))
+        .await?
+        .thread_id)
     }
 
     pub async fn send_message_with_session(
@@ -330,20 +332,18 @@ impl AgentEngine {
         preferred_session_hint: Option<&str>,
         content: &str,
     ) -> Result<String> {
-        Ok(
-            Box::pin(self.send_message_inner(
-                thread_id,
-                content,
-                None,
-                preferred_session_hint,
-                None,
-                None,
-                None,
-                true,
-            ))
-            .await?
-            .thread_id,
-        )
+        Ok(Box::pin(self.send_message_inner(
+            thread_id,
+            content,
+            None,
+            preferred_session_hint,
+            None,
+            None,
+            None,
+            true,
+        ))
+        .await?
+        .thread_id)
     }
 
     pub(super) async fn send_task_message(
@@ -700,7 +700,10 @@ mod tests {
                         .nth(1)
                         .unwrap_or_default()
                         .to_string();
-                    recorded_bodies.lock().expect("lock request log").push_back(body);
+                    recorded_bodies
+                        .lock()
+                        .expect("lock request log")
+                        .push_back(body);
 
                     let response = concat!(
                         "HTTP/1.1 200 OK\r\n",
@@ -741,7 +744,6 @@ mod tests {
             .unwrap_or(agent_loop_source.as_str());
 
         for required in [
-            "Box::pin(self.send_message_inner(\n                thread_id, content, None, None, None, None, None, true,\n            ))",
             "Box::pin(self.send_message_inner(",
             "let target_thread_id = Box::pin(self.send_message_inner(",
         ] {
@@ -879,14 +881,21 @@ mod tests {
         let threads = engine.threads.read().await;
         let thread = threads.get(thread_id).expect("thread should exist");
         assert_eq!(thread.messages.len(), 2);
-        assert!(thread.messages.iter().all(|message| message.response_id.is_none()));
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.response_id.is_none()));
         assert!(thread.upstream_thread_id.is_none());
         assert!(thread.upstream_transport.is_none());
         assert!(thread.upstream_provider.is_none());
         assert!(thread.upstream_model.is_none());
         drop(threads);
 
-        let persisted = engine.history.list_messages(thread_id, Some(10)).await.unwrap();
+        let persisted = engine
+            .history
+            .list_messages(thread_id, Some(10))
+            .await
+            .unwrap();
         assert_eq!(persisted.len(), 2);
         assert!(persisted.iter().all(|message| {
             !message
@@ -1029,10 +1038,17 @@ mod tests {
         assert_eq!(thread.messages.len(), 2);
         assert_eq!(thread.messages[0].content, "start");
         assert_eq!(thread.messages[1].content, "final answer");
-        assert!(thread.messages.iter().all(|message| message.role != MessageRole::Tool));
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.role != MessageRole::Tool));
         drop(threads);
 
-        let persisted = engine.history.list_messages(thread_id, Some(10)).await.unwrap();
+        let persisted = engine
+            .history
+            .list_messages(thread_id, Some(10))
+            .await
+            .unwrap();
         assert_eq!(persisted.len(), 2);
         assert!(persisted.iter().all(|message| message.role != "tool"));
     }
@@ -1151,8 +1167,14 @@ mod tests {
         assert_eq!(thread.messages.len(), 2);
         assert_eq!(thread.messages[0].content, "start");
         assert_eq!(thread.messages[1].content, "continue");
-        assert!(thread.messages.iter().all(|message| message.tool_calls.is_none()));
-        assert!(thread.messages.iter().all(|message| message.role != MessageRole::Tool));
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.tool_calls.is_none()));
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.role != MessageRole::Tool));
     }
 
     #[tokio::test]
@@ -1217,7 +1239,10 @@ mod tests {
 
         let mut saw_reload = false;
         while let Ok(event) = events.try_recv() {
-            if let AgentEvent::ThreadReloadRequired { thread_id: event_thread_id } = event {
+            if let AgentEvent::ThreadReloadRequired {
+                thread_id: event_thread_id,
+            } = event
+            {
                 assert_eq!(event_thread_id, thread_id);
                 saw_reload = true;
                 break;
@@ -1269,7 +1294,9 @@ mod tests {
             .pop_front()
             .expect("captured llm request");
         assert!(
-            request_body.contains("Your final assistant response will be delivered back to the user automatically."),
+            request_body.contains(
+                "Your final assistant response will be delivered back to the user automatically."
+            ),
             "LLM request should include the ephemeral gateway wrapper"
         );
         assert!(
@@ -1277,5 +1304,4 @@ mod tests {
             "LLM request should replace the raw stored user text with the ephemeral override"
         );
     }
-
 }

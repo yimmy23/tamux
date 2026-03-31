@@ -49,7 +49,12 @@ impl SlackProvider {
             return Ok(None);
         }
 
-        let channels = csv_values(config.get("channel_filter").and_then(Value::as_str).unwrap_or(""));
+        let channels = csv_values(
+            config
+                .get("channel_filter")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+        );
         let api_base = config
             .get("api_base")
             .and_then(Value::as_str)
@@ -291,7 +296,8 @@ impl GatewayProvider for SlackProvider {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>>
+    {
         Box::pin(async move {
             if !self.connected {
                 bail!("Slack provider not connected");
@@ -310,7 +316,11 @@ impl GatewayProvider for SlackProvider {
                     "channel": request.channel_id,
                     "text": chunk,
                 });
-                if let Some(thread_ts) = request.thread_id.as_deref().filter(|value| !value.is_empty()) {
+                if let Some(thread_ts) = request
+                    .thread_id
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
                     payload["thread_ts"] = json!(thread_ts);
                 }
                 let body = reqwest::Client::new()
@@ -458,7 +468,9 @@ mod tests {
         assert_eq!(requests[1].method, "POST");
         assert!(requests[1].path.contains("/chat.postMessage"));
         assert!(requests[1].body.contains("\"channel\":\"C123\""));
-        assert!(requests[1].body.contains("\"thread_ts\":\"1712345600.000100\""));
+        assert!(requests[1]
+            .body
+            .contains("\"thread_ts\":\"1712345600.000100\""));
         assert!(requests[1].body.contains("\"text\":\"*deploy* complete\""));
         assert_eq!(outcome.channel_id, "C123");
         assert_eq!(outcome.delivery_id.as_deref(), Some("1712345678.000100"));

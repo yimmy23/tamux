@@ -436,8 +436,10 @@ impl AgentEngine {
                 config.providers.get(def.id)
             {
                 if def.id == "github-copilot" {
-                    let resolved =
-                        super::copilot_auth::resolve_github_copilot_auth(&pc.api_key, pc.auth_source);
+                    let resolved = super::copilot_auth::resolve_github_copilot_auth(
+                        &pc.api_key,
+                        pc.auth_source,
+                    );
                     (
                         resolved.is_some(),
                         resolved

@@ -64,10 +64,20 @@ impl DiscordProvider {
                 .unwrap_or("https://discord.com/api/v10")
                 .trim_end_matches('/')
                 .to_string(),
-            channels: csv_values(config.get("channel_filter").and_then(Value::as_str).unwrap_or("")),
-            allowed_users: csv_values(config.get("allowed_users").and_then(Value::as_str).unwrap_or(""))
-                .into_iter()
-                .collect(),
+            channels: csv_values(
+                config
+                    .get("channel_filter")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            ),
+            allowed_users: csv_values(
+                config
+                    .get("allowed_users")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            )
+            .into_iter()
+            .collect(),
             connected: false,
             cursors: replay_cursors,
             pending_events: VecDeque::new(),
@@ -114,13 +124,11 @@ impl DiscordProvider {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let treat_as_user = explicit_user
-            .clone()
-            .or_else(|| {
-                self.allowed_users
-                    .contains(channel_or_user)
-                    .then(|| channel_or_user.to_string())
-            });
+        let treat_as_user = explicit_user.clone().or_else(|| {
+            self.allowed_users
+                .contains(channel_or_user)
+                .then(|| channel_or_user.to_string())
+        });
 
         let Some(user_id) = treat_as_user else {
             return Ok(channel_or_user.to_string());
@@ -300,7 +308,8 @@ impl GatewayProvider for DiscordProvider {
     fn send(
         &mut self,
         request: GatewaySendRequest,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<GatewaySendOutcome>> + Send + '_>>
+    {
         Box::pin(async move {
             if !self.connected {
                 bail!("Discord provider not connected");
@@ -317,7 +326,11 @@ impl GatewayProvider for DiscordProvider {
             for (index, chunk) in chunks.iter().enumerate() {
                 let mut payload = json!({ "content": chunk });
                 if index == 0 {
-                    if let Some(message_id) = request.thread_id.as_deref().filter(|value| !value.is_empty()) {
+                    if let Some(message_id) = request
+                        .thread_id
+                        .as_deref()
+                        .filter(|value| !value.is_empty())
+                    {
                         payload["message_reference"] = json!({
                             "message_id": message_id,
                             "fail_if_not_exists": false
@@ -356,7 +369,10 @@ impl GatewayProvider for DiscordProvider {
     }
 }
 
-fn parse_discord_message(channel_id: &str, message: &Value) -> Option<crate::router::GatewayMessage> {
+fn parse_discord_message(
+    channel_id: &str,
+    message: &Value,
+) -> Option<crate::router::GatewayMessage> {
     let id = message.get("id").and_then(Value::as_str).unwrap_or("");
     let content = message.get("content").and_then(Value::as_str).unwrap_or("");
     let author = message.get("author");

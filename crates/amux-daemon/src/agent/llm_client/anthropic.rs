@@ -1,0 +1,330 @@
+async fn run_anthropic(
+    client: &reqwest::Client,
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    tx: &mpsc::Sender<Result<CompletionChunk>>,
+) -> Result<()> {
+    let base = config.base_url.trim_end_matches('/');
+    let url = if base.ends_with("/v1") {
+        format!("{}/messages", base)
+    } else {
+        format!("{}/v1/messages", base)
+    };
+
+    // Convert messages to Anthropic format
+    let anthropic_messages = build_anthropic_messages(messages);
+
+    let mut body = serde_json::json!({
+        "model": config.model,
+        "max_tokens": 4096,
+        "system": system_prompt,
+        "messages": anthropic_messages,
+        "stream": true,
+    });
+
+    if !tools.is_empty() {
+        let anthropic_tools: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.function.name,
+                    "description": t.function.description,
+                    "input_schema": t.function.parameters,
+                })
+            })
+            .collect();
+        body["tools"] = serde_json::json!(anthropic_tools);
+    }
+
+    if let Some(budget_tokens) = anthropic_thinking_budget(&config.reasoning_effort) {
+        if config.model.starts_with("claude")
+            || (provider == "alibaba-coding-plan"
+                && dashscope_openai_uses_enable_thinking(provider, &config.model))
+        {
+            body["thinking"] = serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget_tokens,
+            });
+        }
+    }
+
+    let auth_method = get_provider_definition(provider)
+        .map(|d| d.auth_method)
+        .unwrap_or(AuthMethod::XApiKey);
+    let mut request = auth_method.apply(
+        client.post(&url).header("Content-Type", "application/json"),
+        &config.api_key,
+    );
+    if !is_dashscope_coding_plan_anthropic_base_url(&config.base_url) {
+        request = request.header("anthropic-version", "2023-06-01");
+    }
+    if needs_coding_plan_sdk_headers(provider) {
+        request = request.header(
+            "anthropic-beta",
+            "fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
+        );
+    }
+    let response = apply_dashscope_coding_plan_sdk_headers(
+        request,
+        provider,
+        &config.base_url,
+        ApiType::Anthropic,
+    )
+    .body(body.to_string())
+    .send()
+    .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(200)
+            .collect::<String>();
+        return Err(classify_http_failure(status, "Anthropic", &text));
+    }
+
+    parse_anthropic_sse(response, tx).await
+}
+
+async fn parse_anthropic_sse(
+    response: reqwest::Response,
+    tx: &mpsc::Sender<Result<CompletionChunk>>,
+) -> Result<()> {
+    use futures::StreamExt;
+
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut total_content = String::new();
+    let mut total_reasoning = String::new();
+    let mut input_tokens: u64 = 0;
+    let mut output_tokens: u64 = 0;
+
+    // Anthropic tool use tracking
+    let mut pending_tool_calls: Vec<PendingToolCall> = Vec::new();
+    let mut current_tool_input = String::new();
+    // Track whether the current content block is a thinking block
+    let mut in_thinking_block = false;
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.context("failed to read Anthropic SSE chunk")?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        let mut remaining = String::new();
+        for line in buffer.split('\n') {
+            if !line.starts_with("data: ") {
+                if !line.is_empty() && !line.starts_with(':') && !line.starts_with("event:") {
+                    remaining.push_str(line);
+                    remaining.push('\n');
+                }
+                continue;
+            }
+
+            let data = line[6..].trim();
+            let parsed: serde_json::Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let event_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+            match event_type {
+                "message_start" => {
+                    input_tokens = parsed
+                        .pointer("/message/usage/input_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                }
+                "content_block_start" => {
+                    if let Some(cb) = parsed.get("content_block") {
+                        let block_type = cb.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                        match block_type {
+                            "tool_use" => {
+                                in_thinking_block = false;
+                                let id = cb
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let name = cb
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                pending_tool_calls.push(PendingToolCall {
+                                    id,
+                                    name,
+                                    arguments: String::new(),
+                                });
+                                current_tool_input.clear();
+                            }
+                            "thinking" => {
+                                in_thinking_block = true;
+                            }
+                            _ => {
+                                in_thinking_block = false;
+                            }
+                        }
+                    }
+                }
+                "content_block_delta" => {
+                    let delta_type = parsed
+                        .pointer("/delta/type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if delta_type == "text_delta" {
+                        if in_thinking_block {
+                            // Thinking block text delivered as text_delta
+                            let text = parsed
+                                .pointer("/delta/text")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if !text.is_empty() {
+                                total_reasoning.push_str(text);
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Delta {
+                                        content: String::new(),
+                                        reasoning: Some(text.into()),
+                                    }))
+                                    .await;
+                            }
+                        } else {
+                            let text = parsed
+                                .pointer("/delta/text")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if !text.is_empty() {
+                                total_content.push_str(text);
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Delta {
+                                        content: text.into(),
+                                        reasoning: None,
+                                    }))
+                                    .await;
+                            }
+                        }
+                    } else if delta_type == "thinking_delta" {
+                        // Anthropic extended thinking delta
+                        let thinking = parsed
+                            .pointer("/delta/thinking")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if !thinking.is_empty() {
+                            total_reasoning.push_str(thinking);
+                            let _ = tx
+                                .send(Ok(CompletionChunk::Delta {
+                                    content: String::new(),
+                                    reasoning: Some(thinking.into()),
+                                }))
+                                .await;
+                        }
+                    } else if delta_type == "input_json_delta" {
+                        let partial = parsed
+                            .pointer("/delta/partial_json")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        current_tool_input.push_str(partial);
+                    }
+                }
+                "content_block_stop" => {
+                    // Finalize tool call arguments if we're in a tool block
+                    if let Some(tc) = pending_tool_calls.last_mut() {
+                        if tc.arguments.is_empty() && !current_tool_input.is_empty() {
+                            tc.arguments = current_tool_input.clone();
+                            current_tool_input.clear();
+                        }
+                    }
+                    in_thinking_block = false;
+                }
+                "message_delta" => {
+                    output_tokens = parsed
+                        .pointer("/usage/output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(output_tokens);
+                }
+                "message_stop" => {
+                    let final_reasoning = if total_reasoning.is_empty() {
+                        None
+                    } else {
+                        Some(total_reasoning.clone())
+                    };
+                    if !pending_tool_calls.is_empty() {
+                        let tool_calls: Vec<ToolCall> = pending_tool_calls
+                            .drain(..)
+                            .enumerate()
+                            .map(|(index, tc)| ToolCall {
+                                id: if tc.id.trim().is_empty() {
+                                    synthesize_tool_call_id("anthropic", index, &tc.name)
+                                } else {
+                                    tc.id
+                                },
+                                function: ToolFunction {
+                                    name: tc.name,
+                                    arguments: tc.arguments,
+                                },
+                            })
+                            .collect();
+                        let _ = tx
+                            .send(Ok(CompletionChunk::ToolCalls {
+                                tool_calls,
+                                content: if total_content.is_empty() {
+                                    None
+                                } else {
+                                    Some(total_content.clone())
+                                },
+                                reasoning: final_reasoning,
+                                input_tokens: Some(input_tokens),
+                                output_tokens: Some(output_tokens),
+                                response_id: None,
+                                upstream_thread_id: None,
+                            }))
+                            .await;
+                    } else {
+                        let _ = tx
+                            .send(Ok(CompletionChunk::Done {
+                                content: total_content.clone(),
+                                reasoning: final_reasoning,
+                                input_tokens,
+                                output_tokens,
+                                response_id: None,
+                                upstream_thread_id: None,
+                            }))
+                            .await;
+                    }
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        buffer = remaining;
+    }
+
+    // Stream ended without message_stop
+    let _ = tx
+        .send(Ok(CompletionChunk::Done {
+            content: total_content,
+            reasoning: if total_reasoning.is_empty() {
+                None
+            } else {
+                Some(total_reasoning)
+            },
+            input_tokens,
+            output_tokens,
+            response_id: None,
+            upstream_thread_id: None,
+        }))
+        .await;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+

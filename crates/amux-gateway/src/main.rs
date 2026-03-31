@@ -45,38 +45,34 @@ fn init_logging() {
         .init();
 }
 
-fn providers_from_bootstrap(bootstrap: &GatewayBootstrapPayload) -> Result<Vec<Box<dyn GatewayProvider>>> {
+fn providers_from_bootstrap(
+    bootstrap: &GatewayBootstrapPayload,
+) -> Result<Vec<Box<dyn GatewayProvider>>> {
     let mut active: Vec<Box<dyn GatewayProvider>> = Vec::new();
 
     for provider in &bootstrap.providers {
         match provider.platform.to_ascii_lowercase().as_str() {
             "slack" => {
-                if let Some(slack) =
-                    slack::SlackProvider::from_bootstrap_with_cursors(
-                        provider,
-                        &bootstrap.continuity.cursors,
-                    )?
-                {
+                if let Some(slack) = slack::SlackProvider::from_bootstrap_with_cursors(
+                    provider,
+                    &bootstrap.continuity.cursors,
+                )? {
                     active.push(Box::new(slack));
                 }
             }
             "discord" => {
-                if let Some(discord) =
-                    discord::DiscordProvider::from_bootstrap_with_cursors(
-                        provider,
-                        &bootstrap.continuity.cursors,
-                    )?
-                {
+                if let Some(discord) = discord::DiscordProvider::from_bootstrap_with_cursors(
+                    provider,
+                    &bootstrap.continuity.cursors,
+                )? {
                     active.push(Box::new(discord));
                 }
             }
             "telegram" => {
-                if let Some(telegram) =
-                    telegram::TelegramProvider::from_bootstrap_with_cursors(
-                        provider,
-                        &bootstrap.continuity.cursors,
-                    )?
-                {
+                if let Some(telegram) = telegram::TelegramProvider::from_bootstrap_with_cursors(
+                    provider,
+                    &bootstrap.continuity.cursors,
+                )? {
                     active.push(Box::new(telegram));
                 }
             }

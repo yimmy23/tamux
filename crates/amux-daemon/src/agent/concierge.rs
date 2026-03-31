@@ -80,7 +80,9 @@ impl ConciergeEngine {
                 let still_running = tasks
                     .iter()
                     .find(|task| task.id == existing_task_id)
-                    .is_some_and(|task| !super::task_scheduler::is_task_terminal_status(task.status));
+                    .is_some_and(|task| {
+                        !super::task_scheduler::is_task_terminal_status(task.status)
+                    });
                 drop(tasks);
                 if still_running {
                     return None;
@@ -1774,8 +1776,8 @@ mod tests {
     use crate::agent::engine::AgentEngine;
     use crate::session_manager::SessionManager;
     use std::collections::HashMap;
-    use tokio::sync::Mutex;
     use tempfile::tempdir;
+    use tokio::sync::Mutex;
 
     fn test_now_millis() -> u64 {
         std::time::SystemTime::now()
@@ -1947,7 +1949,10 @@ mod tests {
         let tasks = engine.tasks.lock().await;
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].source, "concierge_recovery");
-        assert_eq!(tasks[0].parent_thread_id.as_deref(), Some("thread-recovery"));
+        assert_eq!(
+            tasks[0].parent_thread_id.as_deref(),
+            Some("thread-recovery")
+        );
     }
 
     #[tokio::test]

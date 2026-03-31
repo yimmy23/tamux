@@ -1,0 +1,420 @@
+pub const CHAT_ONLY_TRANSPORTS: &[ApiTransport] = &[ApiTransport::ChatCompletions];
+pub const RESPONSES_AND_CHAT_TRANSPORTS: &[ApiTransport] =
+    &[ApiTransport::Responses, ApiTransport::ChatCompletions];
+pub const NATIVE_AND_CHAT_TRANSPORTS: &[ApiTransport] =
+    &[ApiTransport::NativeAssistant, ApiTransport::ChatCompletions];
+
+pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
+    ProviderDefinition {
+        id: "featherless",
+        name: "Featherless",
+        default_base_url: "https://api.featherless.ai/v1",
+        default_model: "meta-llama/Llama-3.3-70B-Instruct",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: FEATHERLESS_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "openai",
+        name: "OpenAI",
+        default_base_url: "https://api.openai.com/v1",
+        default_model: "gpt-4o",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: OPENAI_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: ApiTransport::Responses,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: true,
+    },
+    ProviderDefinition {
+        id: "github-copilot",
+        name: "GitHub Copilot",
+        default_base_url: "https://api.githubcopilot.com",
+        default_model: "gpt-4.1",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: GITHUB_COPILOT_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: ApiTransport::Responses,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: true,
+    },
+    ProviderDefinition {
+        id: "qwen",
+        name: "Qwen",
+        default_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        default_model: "qwen-max",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: QWEN_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: NATIVE_AND_CHAT_TRANSPORTS,
+        default_transport: ApiTransport::NativeAssistant,
+        native_transport_kind: Some(NativeTransportKind::AlibabaAssistantApi),
+        native_base_url: Some("https://dashscope-intl.aliyuncs.com/api/v1"),
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "qwen-deepinfra",
+        name: "Qwen (DeepInfra)",
+        default_base_url: "https://api.deepinfra.com/v1/openai",
+        default_model: "Qwen/Qwen2.5-72B-Instruct",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: QWEN_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "kimi",
+        name: "Kimi (Moonshot)",
+        default_base_url: "https://api.moonshot.ai/v1",
+        default_model: "moonshot-v1-32k",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: KIMI_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "kimi-coding-plan",
+        name: "Kimi Coding Plan",
+        default_base_url: "https://api.kimi.com/coding/v1",
+        default_model: "kimi-for-coding",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: KIMI_CODING_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "z.ai",
+        name: "Z.AI (GLM)",
+        default_base_url: "https://api.z.ai/api/paas/v4",
+        default_model: "glm-4-plus",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: ZAI_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "z.ai-coding-plan",
+        name: "Z.AI Coding Plan",
+        default_base_url: "https://api.z.ai/api/coding/paas/v4",
+        default_model: "glm-5",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: ZAI_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "openrouter",
+        name: "OpenRouter",
+        default_base_url: "https://openrouter.ai/api/v1",
+        default_model: "anthropic/claude-sonnet-4",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: OPENROUTER_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "cerebras",
+        name: "Cerebras",
+        default_base_url: "https://api.cerebras.ai/v1",
+        default_model: "llama-3.3-70b",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: CEREBRAS_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "together",
+        name: "Together",
+        default_base_url: "https://api.together.xyz/v1",
+        default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: TOGETHER_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "groq",
+        name: "Groq",
+        default_base_url: "https://api.groq.com/openai/v1",
+        default_model: "llama-3.3-70b-versatile",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: GROQ_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: ApiTransport::Responses,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "ollama",
+        name: "Ollama",
+        default_base_url: "http://localhost:11434/v1",
+        default_model: "llama3.1",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: OLLAMA_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "chutes",
+        name: "Chutes",
+        default_base_url: "https://llm.chutes.ai/v1",
+        default_model: "deepseek-ai/DeepSeek-V3",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: CHUTES_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "huggingface",
+        name: "Hugging Face",
+        default_base_url: "https://api-inference.huggingface.co/v1",
+        default_model: "meta-llama/Llama-3.3-70B-Instruct",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: HUGGINGFACE_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "minimax",
+        name: "MiniMax",
+        default_base_url: "https://api.minimax.io/anthropic",
+        default_model: "MiniMax-M1-80k",
+        api_type: ApiType::Anthropic,
+        auth_method: AuthMethod::XApiKey,
+        models: MINIMAX_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "minimax-coding-plan",
+        name: "MiniMax Coding Plan",
+        default_base_url: "https://api.minimax.io/anthropic",
+        default_model: "MiniMax-M2.7",
+        api_type: ApiType::Anthropic,
+        auth_method: AuthMethod::XApiKey,
+        models: MINIMAX_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "alibaba-coding-plan",
+        name: "Alibaba Coding Plan",
+        default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
+        default_model: "qwen3.5-plus",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: ALIBABA_CODING_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "opencode-zen",
+        name: "OpenCode Zen",
+        default_base_url: "https://opencode.ai/zen/v1",
+        default_model: "claude-sonnet-4-5",
+        api_type: ApiType::Anthropic,
+        auth_method: AuthMethod::Bearer,
+        models: OPENCODE_ZEN_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: "custom",
+        name: "Custom",
+        default_base_url: "",
+        default_model: "",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: EMPTY_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
+        default_transport: ApiTransport::Responses,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: true,
+    },
+];
+
+pub fn get_provider_definition(id: &str) -> Option<&'static ProviderDefinition> {
+    PROVIDER_DEFINITIONS.iter().find(|p| p.id == id)
+}
+
+pub fn provider_supports_transport(provider_id: &str, transport: ApiTransport) -> bool {
+    get_provider_definition(provider_id)
+        .map(|definition| definition.supported_transports.contains(&transport))
+        .unwrap_or(matches!(
+            transport,
+            ApiTransport::Responses | ApiTransport::ChatCompletions
+        ))
+}
+
+pub fn default_api_transport_for_provider(provider_id: &str) -> ApiTransport {
+    get_provider_definition(provider_id)
+        .map(|definition| definition.default_transport)
+        .unwrap_or(ApiTransport::ChatCompletions)
+}
+
+pub fn supports_response_continuity(provider_id: &str) -> bool {
+    get_provider_definition(provider_id)
+        .map(|definition| definition.supports_response_continuity)
+        .unwrap_or(false)
+}
+
+fn is_alibaba_coding_plan_anthropic_url(base_url: &str) -> bool {
+    let lower = base_url.trim().to_ascii_lowercase();
+    lower.contains("dashscope.aliyuncs.com") && lower.contains("/apps/anthropic")
+}
+
+pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &str) -> ApiType {
+    if provider_id == "alibaba-coding-plan" && is_alibaba_coding_plan_anthropic_url(configured_url)
+    {
+        return ApiType::Anthropic;
+    }
+
+    let def = get_provider_definition(provider_id);
+
+    match def {
+        Some(d) => {
+            if d.anthropic_base_url.is_some() {
+                if model.starts_with("claude") {
+                    ApiType::Anthropic
+                } else {
+                    ApiType::OpenAI
+                }
+            } else if provider_id == "opencode-zen" && !model.starts_with("claude") {
+                ApiType::OpenAI
+            } else {
+                d.api_type
+            }
+        }
+        None => ApiType::OpenAI,
+    }
+}
+
+pub fn get_provider_base_url(provider_id: &str, model: &str, configured_url: &str) -> String {
+    if !configured_url.is_empty() {
+        return configured_url.to_string();
+    }
+
+    let def = get_provider_definition(provider_id);
+
+    match def {
+        Some(d) => {
+            if d.anthropic_base_url.is_some() && model.starts_with("claude") {
+                d.anthropic_base_url.unwrap().to_string()
+            } else {
+                d.default_base_url.to_string()
+            }
+        }
+        None => configured_url.to_string(),
+    }
+}
+
