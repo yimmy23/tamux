@@ -28,6 +28,8 @@ use super::tool_synthesis::{
     activate_generated_tool, execute_generated_tool, generated_tool_definitions,
     list_generated_tools, promote_generated_tool, synthesize_tool,
 };
+pub(super) use super::aline_available;
+
 use super::types::{
     AgentConfig, AgentEvent, NotificationSeverity, TodoItem, TodoStatus, ToolCall, ToolDefinition,
     ToolFunctionDef, ToolPendingApproval, ToolResult,

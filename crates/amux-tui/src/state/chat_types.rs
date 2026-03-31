@@ -1,0 +1,191 @@
+#[derive(Debug, Clone, Default)]
+pub struct AgentThread {
+    pub id: String,
+    pub title: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub messages: Vec<AgentMessage>,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AgentMessage {
+    pub id: Option<String>,
+    pub role: MessageRole,
+    pub content: String,
+    pub reasoning: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_arguments: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub tool_status: Option<String>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub tps: Option<f64>,
+    pub generation_ms: Option<u64>,
+    pub cost: Option<f64>,
+    pub is_streaming: bool,
+    pub timestamp: u64,
+    pub actions: Vec<MessageAction>,
+    pub is_concierge_welcome: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MessageAction {
+    pub label: String,
+    pub action_type: String,
+    pub thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MessageRole {
+    System,
+    User,
+    Assistant,
+    Tool,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayStatusVm {
+    pub platform: String,
+    pub status: String,
+    pub last_error: Option<String>,
+    pub consecutive_failures: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranscriptMode {
+    Compact,
+    Tools,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatHitTarget {
+    Message(usize),
+    ReasoningToggle(usize),
+    ToolToggle(usize),
+    RetryStop,
+    MessageAction {
+        message_index: usize,
+        action_index: usize,
+    },
+    CopyMessage(usize),
+    ResendMessage(usize),
+    RegenerateMessage(usize),
+    DeleteMessage(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolCallStatus {
+    Running,
+    Done,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolCallVm {
+    pub call_id: String,
+    pub name: String,
+    pub arguments: String,
+    pub status: ToolCallStatus,
+    pub result: Option<String>,
+    pub is_error: bool,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryPhase {
+    Retrying,
+    Waiting,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetryStatusVm {
+    pub phase: RetryPhase,
+    pub attempt: u32,
+    pub max_retries: u32,
+    pub delay_ms: u64,
+    pub failure_class: String,
+    pub message: String,
+    pub received_at_tick: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CopiedMessageFeedback {
+    pub(super) thread_id: String,
+    pub(super) message_index: usize,
+    pub(super) expires_at_tick: u64,
+}
+
+#[derive(Debug, Clone)]
+pub enum ChatAction {
+    Delta {
+        thread_id: String,
+        content: String,
+    },
+    Reasoning {
+        thread_id: String,
+        content: String,
+    },
+    ToolCall {
+        thread_id: String,
+        call_id: String,
+        name: String,
+        args: String,
+    },
+    ToolResult {
+        thread_id: String,
+        call_id: String,
+        name: String,
+        content: String,
+        is_error: bool,
+    },
+    TurnDone {
+        thread_id: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cost: Option<f64>,
+        provider: Option<String>,
+        model: Option<String>,
+        tps: Option<f64>,
+        generation_ms: Option<u64>,
+        reasoning: Option<String>,
+    },
+    SetRetryStatus {
+        thread_id: String,
+        phase: RetryPhase,
+        attempt: u32,
+        max_retries: u32,
+        delay_ms: u64,
+        failure_class: String,
+        message: String,
+        received_at_tick: u64,
+    },
+    ClearRetryStatus {
+        thread_id: String,
+    },
+    ThreadListReceived(Vec<AgentThread>),
+    ThreadDetailReceived(AgentThread),
+    ThreadCreated {
+        thread_id: String,
+        title: String,
+    },
+    AppendMessage {
+        thread_id: String,
+        message: AgentMessage,
+    },
+    ClearThread {
+        thread_id: String,
+    },
+    DismissConciergeWelcome,
+    SelectThread(String),
+    ScrollChat(i32),
+    PinMessageTop(usize),
+    NewThread,
+    SetTranscriptMode(TranscriptMode),
+    ResetStreaming,
+    ForceStopStreaming,
+}

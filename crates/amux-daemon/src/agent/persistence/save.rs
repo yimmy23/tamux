@@ -1,0 +1,287 @@
+use super::*;
+
+impl AgentEngine {
+    async fn persist_thread_snapshot(&self, thread: &AgentThread) {
+        let thread_row = amux_protocol::AgentDbThread {
+            id: thread.id.clone(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(persisted_agent_name_for_thread(thread)),
+            title: thread.title.clone(),
+            created_at: thread.created_at as i64,
+            updated_at: thread.updated_at as i64,
+            message_count: thread.messages.len() as i64,
+            total_tokens: (thread.total_input_tokens + thread.total_output_tokens) as i64,
+            last_preview: thread
+                .messages
+                .last()
+                .map(|message| message.content.chars().take(100).collect())
+                .unwrap_or_default(),
+            metadata_json: build_thread_metadata_json(thread),
+        };
+
+        if let Err(e) = self.history.delete_thread(&thread.id).await {
+            tracing::warn!(thread_id = %thread.id, "failed to reset sqlite thread state: {e}");
+            return;
+        }
+        if let Err(e) = self.history.create_thread(&thread_row).await {
+            tracing::warn!(thread_id = %thread.id, "failed to persist sqlite thread row: {e}");
+            return;
+        }
+
+        for (index, message) in thread.messages.iter().enumerate() {
+            let metadata_json = build_message_metadata_json(message);
+            let row = amux_protocol::AgentDbMessage {
+                id: message.id.clone(),
+                thread_id: thread.id.clone(),
+                created_at: message.timestamp as i64,
+                role: match message.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::Tool => "tool",
+                }
+                .to_string(),
+                content: message.content.clone(),
+                provider: message.provider.clone(),
+                model: message.model.clone(),
+                input_tokens: Some(message.input_tokens as i64),
+                output_tokens: Some(message.output_tokens as i64),
+                total_tokens: Some((message.input_tokens + message.output_tokens) as i64),
+                reasoning: message.reasoning.clone(),
+                tool_calls_json: message
+                    .tool_calls
+                    .as_ref()
+                    .and_then(|calls| serde_json::to_string(calls).ok()),
+                metadata_json,
+            };
+            if let Err(e) = self.history.add_message(&row).await {
+                tracing::warn!(thread_id = %thread.id, message_index = index, "failed to persist sqlite message row: {e}");
+            }
+        }
+    }
+
+    pub(crate) async fn persist_thread_by_id(&self, thread_id: &str) {
+        let thread = {
+            let threads = self.threads.read().await;
+            threads.get(thread_id).cloned()
+        };
+        if let Some(thread) = thread {
+            self.persist_thread_snapshot(&thread).await;
+        }
+    }
+
+    pub(in crate::agent) async fn persist_threads(&self) {
+        let threads = self.threads.read().await;
+        for thread in threads.values() {
+            self.persist_thread_snapshot(thread).await;
+        }
+    }
+
+    pub(in crate::agent) async fn persist_todos(&self) {
+        let todos = self.thread_todos.read().await;
+        if let Err(e) = persist_json(&self.data_dir.join("todos.json"), &*todos).await {
+            tracing::warn!("failed to persist todos: {e}");
+        }
+    }
+
+    pub(in crate::agent) async fn persist_work_context(&self) {
+        let items = self.thread_work_contexts.read().await;
+        if let Err(e) = persist_json(&self.data_dir.join("work-context.json"), &*items).await {
+            tracing::warn!("failed to persist work context: {e}");
+        }
+    }
+
+    pub(in crate::agent) async fn persist_tasks(&self) {
+        const MAX_TASK_LOGS: usize = 200;
+        let mut tasks = self.tasks.lock().await;
+        for task in tasks.iter_mut() {
+            task.logs.truncate(MAX_TASK_LOGS);
+            if let Err(e) = self.history.upsert_agent_task(task).await {
+                tracing::warn!(task_id = %task.id, "failed to persist task to sqlite: {e}");
+            }
+        }
+        if let Err(e) = persist_json(&self.data_dir.join("tasks.json"), &*tasks).await {
+            tracing::warn!("failed to persist tasks: {e}");
+        }
+    }
+
+    pub(in crate::agent) async fn persist_goal_runs(&self) {
+        const MAX_GOAL_RUN_EVENTS: usize = 200;
+        let mut goal_runs = self.goal_runs.lock().await;
+        for goal_run in goal_runs.iter_mut() {
+            goal_run.events.truncate(MAX_GOAL_RUN_EVENTS);
+            if let Err(e) = self.history.upsert_goal_run(goal_run).await {
+                tracing::warn!(goal_run_id = %goal_run.id, "failed to persist goal run to sqlite: {e}");
+            }
+        }
+        if let Err(e) = persist_json(&self.data_dir.join("goal-runs.json"), &*goal_runs).await {
+            tracing::warn!("failed to persist goal runs: {e}");
+        }
+    }
+
+    pub(in crate::agent) async fn persist_heartbeat(&self) {
+        let items = self.heartbeat_items.read().await;
+        if let Err(e) = persist_json(&self.data_dir.join("heartbeat.json"), &*items).await {
+            tracing::warn!("failed to persist heartbeat: {e}");
+        }
+    }
+
+    pub(in crate::agent) async fn persist_config(&self) {
+        let config = self.config.read().await.clone();
+        let mut value = serde_json::to_value(&config)
+            .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
+        super::config::normalize_config_keys_to_snake_case(&mut value);
+        super::config::sanitize_config_value(&mut value);
+        let mut items = Vec::new();
+        super::config::flatten_config_value_to_items(&value, "", &mut items);
+        if let Err(error) = self.history.replace_agent_config_items(&items).await {
+            tracing::warn!("failed to persist config to sqlite: {error}");
+        }
+    }
+
+    pub(in crate::agent) async fn persist_heuristic_store(&self) {
+        let store = self.heuristic_store.read().await.clone();
+        let path = self.data_dir.join("heuristics.json");
+        match serde_json::to_string_pretty(&store) {
+            Ok(json) => {
+                if let Err(e) = tokio::fs::write(&path, json).await {
+                    tracing::warn!(error = %e, "failed to persist heuristic store");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to serialize heuristic store"),
+        }
+    }
+
+    pub(in crate::agent) async fn persist_pattern_store(&self) {
+        let store = self.pattern_store.read().await.clone();
+        let path = self.data_dir.join("patterns.json");
+        match serde_json::to_string_pretty(&store) {
+            Ok(json) => {
+                if let Err(e) = tokio::fs::write(&path, json).await {
+                    tracing::warn!(error = %e, "failed to persist pattern store");
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to serialize pattern store"),
+        }
+    }
+
+    pub(in crate::agent) async fn persist_learning_stores(&self) {
+        self.persist_heuristic_store().await;
+        self.persist_pattern_store().await;
+    }
+
+    pub(in crate::agent) async fn take_continuity_acknowledgment(
+        &self,
+        thread_id: &str,
+    ) -> Option<String> {
+        let stored_id = self
+            .history
+            .get_consolidation_state("continuity_thread_id")
+            .await
+            .ok()
+            .flatten()?;
+        if stored_id.is_empty() || stored_id != thread_id {
+            return None;
+        }
+        let topic = self
+            .history
+            .get_consolidation_state("continuity_topic")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "the previous session".to_string());
+
+        self.history
+            .set_consolidation_state("continuity_thread_id", "", now_millis())
+            .await
+            .ok();
+        self.history
+            .set_consolidation_state("continuity_topic", "", now_millis())
+            .await
+            .ok();
+
+        Some(format!(
+            "Resuming from where we left off \u{2014} last working on {}.",
+            topic
+        ))
+    }
+
+    pub(in crate::agent) async fn record_policy_decision(
+        &self,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
+        decision: super::orchestrator_policy::PolicyDecision,
+        now_epoch_secs: u64,
+    ) {
+        {
+            let mut recent_decisions = self.recent_policy_decisions.write().await;
+            super::orchestrator_policy::record_policy_decision(
+                &mut recent_decisions,
+                scope,
+                decision.clone(),
+                now_epoch_secs,
+            );
+        }
+
+        if let Some(retry_guard) = decision.retry_guard.as_deref() {
+            self.record_retry_guard(scope, retry_guard, now_epoch_secs)
+                .await;
+        }
+    }
+
+    pub(in crate::agent) async fn latest_policy_decision(
+        &self,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
+        now_epoch_secs: u64,
+    ) -> Option<super::orchestrator_policy::RecentPolicyDecision> {
+        let mut recent_decisions = self.recent_policy_decisions.write().await;
+        super::orchestrator_policy::latest_policy_decision(
+            &mut recent_decisions,
+            scope,
+            now_epoch_secs,
+            super::orchestrator_policy::SHORT_LIVED_POLICY_WINDOW_SECS,
+        )
+    }
+
+    pub(in crate::agent) async fn record_retry_guard(
+        &self,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
+        approach_hash: &str,
+        now_epoch_secs: u64,
+    ) {
+        let mut retry_guards = self.retry_guards.write().await;
+        super::orchestrator_policy::record_retry_guard(
+            &mut retry_guards,
+            scope,
+            approach_hash,
+            now_epoch_secs,
+        );
+    }
+
+    pub(in crate::agent) async fn is_retry_guard_active(
+        &self,
+        scope: &super::orchestrator_policy::PolicyDecisionScope,
+        approach_hash: &str,
+        now_epoch_secs: u64,
+    ) -> bool {
+        let mut retry_guards = self.retry_guards.write().await;
+        super::orchestrator_policy::is_retry_guard_active(
+            &mut retry_guards,
+            scope,
+            approach_hash,
+            now_epoch_secs,
+            super::orchestrator_policy::SHORT_LIVED_POLICY_WINDOW_SECS,
+        )
+    }
+}
+
+fn persisted_agent_name_for_thread(thread: &AgentThread) -> String {
+    if thread.id == crate::agent::concierge::CONCIERGE_THREAD_ID {
+        return CONCIERGE_AGENT_NAME.to_string();
+    }
+    if is_internal_dm_thread(&thread.id) {
+        return "Internal DM".to_string();
+    }
+    MAIN_AGENT_NAME.to_string()
+}

@@ -1,14 +1,17 @@
-use ratatui::prelude::*;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
-use unicode_width::UnicodeWidthChar;
-
 use crate::state::sidebar::SidebarTab;
 use crate::state::task::{TaskState, TodoStatus, WorkContextEntryKind};
 use crate::theme::ThemeTokens;
 use crate::widgets::chat::SelectionPoint;
 use crate::widgets::message::{render_markdown_pub, wrap_text};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+
+#[path = "work_context_view_selection.rs"]
+mod selection;
+
+use selection::{display_slice, highlight_line_range, line_display_width, line_plain_text};
 
 #[derive(Clone)]
 struct RenderedWorkLine {
@@ -308,99 +311,6 @@ fn selection_snapshot(
     })
 }
 
-fn line_plain_text(line: &Line<'static>) -> String {
-    line.spans
-        .iter()
-        .map(|span| span.content.as_ref())
-        .collect()
-}
-
-fn line_display_width(line: &Line<'static>) -> usize {
-    line_plain_text(line)
-        .chars()
-        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
-        .sum()
-}
-
-fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
-    if start_col >= end_col {
-        return String::new();
-    }
-
-    let mut result = String::new();
-    let mut col = 0usize;
-    for ch in text.chars() {
-        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
-        let next = col + width;
-        let overlaps = if width == 0 {
-            col >= start_col && col < end_col
-        } else {
-            next > start_col && col < end_col
-        };
-        if overlaps {
-            result.push(ch);
-        }
-        col = next;
-        if col >= end_col {
-            break;
-        }
-    }
-    result
-}
-
-fn highlight_line_range(
-    line: &mut Line<'static>,
-    start_col: usize,
-    end_col: usize,
-    highlight: Style,
-) {
-    if start_col >= end_col {
-        return;
-    }
-
-    let original_spans = std::mem::take(&mut line.spans);
-    let mut spans = Vec::new();
-    let mut col = 0usize;
-
-    for span in original_spans {
-        let mut before = String::new();
-        let mut selected = String::new();
-        let mut after = String::new();
-
-        for ch in span.content.chars() {
-            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
-            let next = col + width;
-            let overlaps = if width == 0 {
-                col >= start_col && col < end_col
-            } else {
-                next > start_col && col < end_col
-            };
-
-            if overlaps {
-                selected.push(ch);
-            } else if col < start_col {
-                before.push(ch);
-            } else {
-                after.push(ch);
-            }
-
-            col = next;
-        }
-
-        if !before.is_empty() {
-            spans.push(Span::styled(before, span.style));
-        }
-        if !selected.is_empty() {
-            spans.push(Span::styled(selected, span.style.patch(highlight)));
-        }
-        if !after.is_empty() {
-            spans.push(Span::styled(after, span.style));
-        }
-    }
-
-    line.spans = spans;
-}
-
 fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
@@ -607,121 +517,5 @@ pub fn render(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::task::{FilePreview, TaskAction, ThreadWorkContext, WorkContextEntry};
-
-    #[test]
-    fn selected_text_extracts_preview_range() {
-        let mut tasks = TaskState::new();
-        tasks.reduce(TaskAction::WorkContextReceived(ThreadWorkContext {
-            thread_id: "t1".into(),
-            entries: vec![WorkContextEntry {
-                path: "/tmp/a.txt".into(),
-                is_text: true,
-                ..Default::default()
-            }],
-        }));
-        tasks.reduce(TaskAction::FilePreviewReceived(FilePreview {
-            path: "/tmp/a.txt".into(),
-            content: "hello world".into(),
-            truncated: false,
-            is_text: true,
-        }));
-
-        let text = selected_text(
-            Rect::new(0, 0, 40, 10),
-            &tasks,
-            Some("t1"),
-            SidebarTab::Files,
-            0,
-            &ThemeTokens::default(),
-            0,
-            SelectionPoint { row: 6, col: 0 },
-            SelectionPoint { row: 6, col: 5 },
-        );
-        assert_eq!(text.as_deref(), Some("hello"));
-    }
-
-    #[test]
-    fn hit_test_detects_close_preview_row() {
-        let mut tasks = TaskState::new();
-        tasks.reduce(TaskAction::WorkContextReceived(ThreadWorkContext {
-            thread_id: "t1".into(),
-            entries: vec![WorkContextEntry {
-                path: "/tmp/a.txt".into(),
-                is_text: true,
-                ..Default::default()
-            }],
-        }));
-        tasks.reduce(TaskAction::FilePreviewReceived(FilePreview {
-            path: "/tmp/a.txt".into(),
-            content: "hello world".into(),
-            truncated: false,
-            is_text: true,
-        }));
-
-        let hit = hit_test(
-            Rect::new(0, 0, 40, 10),
-            &tasks,
-            Some("t1"),
-            SidebarTab::Files,
-            0,
-            Position::new(2, 1),
-            &ThemeTokens::default(),
-        );
-
-        assert_eq!(hit, Some(WorkContextHitTarget::ClosePreview));
-    }
-
-    #[test]
-    fn selection_point_tracks_document_row_after_scroll() {
-        let mut tasks = TaskState::new();
-        tasks.reduce(TaskAction::WorkContextReceived(ThreadWorkContext {
-            thread_id: "t1".into(),
-            entries: vec![WorkContextEntry {
-                path: "/tmp/a.txt".into(),
-                is_text: true,
-                ..Default::default()
-            }],
-        }));
-        tasks.reduce(TaskAction::FilePreviewReceived(FilePreview {
-            path: "/tmp/a.txt".into(),
-            content: (1..=40)
-                .map(|idx| format!("line {idx}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            truncated: false,
-            is_text: true,
-        }));
-
-        let area = Rect::new(0, 0, 40, 8);
-        let start = selection_point_from_mouse(
-            area,
-            &tasks,
-            Some("t1"),
-            SidebarTab::Files,
-            0,
-            &ThemeTokens::default(),
-            0,
-            Position::new(0, 7),
-        )
-        .expect("initial visible row should be selectable");
-        let end = selection_point_from_mouse(
-            area,
-            &tasks,
-            Some("t1"),
-            SidebarTab::Files,
-            0,
-            &ThemeTokens::default(),
-            6,
-            Position::new(0, 7),
-        )
-        .expect("later scrolled row should be selectable");
-
-        assert!(
-            end.row > start.row,
-            "same visible coordinate should resolve to a later document row after scrolling"
-        );
-    }
-}
+#[path = "tests/work_context_view.rs"]
+mod tests;

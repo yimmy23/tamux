@@ -5,6 +5,14 @@
 
 use crate::state::config::FetchedModel;
 
+#[path = "providers/model_catalog.rs"]
+mod model_catalog;
+
+mod context;
+
+pub use context::is_known_default_url;
+pub use context::known_context_window_for;
+
 pub struct ProviderDef {
     pub id: &'static str,
     pub name: &'static str,
@@ -269,11 +277,6 @@ pub fn find_by_name(name: &str) -> Option<&'static ProviderDef> {
     PROVIDERS.iter().find(|p| p.name == name)
 }
 
-/// Check whether a base URL matches any known provider default.
-pub fn is_known_default_url(url: &str) -> bool {
-    PROVIDERS.iter().any(|p| p.default_base_url == url)
-}
-
 pub fn supported_transports_for(provider: &str) -> &'static [&'static str] {
     find_by_id(provider)
         .map(|def| def.supported_transports)
@@ -321,275 +324,9 @@ pub fn known_models_for_provider(provider: &str) -> Vec<FetchedModel> {
 }
 
 pub fn known_models_for_provider_auth(provider: &str, auth_source: &str) -> Vec<FetchedModel> {
-    let models: &[(&str, &str, u32)] = match provider {
-        "openai" if auth_source == "chatgpt_subscription" => &[
-            ("gpt-5.4", "GPT-5.4", 1_000_000),
-            ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
-            ("gpt-5.3-codex", "GPT-5.3 Codex", 400_000),
-            ("gpt-5.2-codex", "GPT-5.2 Codex", 400_000),
-            ("gpt-5.2", "GPT-5.2", 400_000),
-            ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", 400_000),
-            ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 400_000),
-        ],
-        "openai" => &[
-            ("gpt-5.4", "GPT-5.4", 1_000_000),
-            ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
-            ("gpt-5.4-nano", "GPT-5.4 Nano", 400_000),
-            ("gpt-5.3-codex", "GPT-5.3 Codex", 400_000),
-            ("gpt-5.2-codex", "GPT-5.2 Codex", 400_000),
-            ("gpt-5.2", "GPT-5.2", 400_000),
-            ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", 400_000),
-            ("gpt-5.1-codex", "GPT-5.1 Codex", 400_000),
-            ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 400_000),
-            ("gpt-5.1", "GPT-5.1", 400_000),
-            ("gpt-5-codex", "GPT-5 Codex", 400_000),
-            ("gpt-5-codex-mini", "GPT-5 Codex Mini", 200_000),
-            ("gpt-5", "GPT-5", 400_000),
-            ("codex-mini-latest", "Codex Mini Latest", 200_000),
-            ("o4-mini", "o4 Mini", 200_000),
-            ("o3", "o3", 200_000),
-            ("gpt-4.1", "GPT-4.1", 1_000_000),
-            ("gpt-4.1-mini", "GPT-4.1 Mini", 1_000_000),
-            ("gpt-4.1-nano", "GPT-4.1 Nano", 1_000_000),
-            ("gpt-4o", "GPT-4o", 128_000),
-            ("gpt-4o-mini", "GPT-4o Mini", 128_000),
-        ],
-        "github-copilot" => &[
-            ("claude-haiku-4.5", "Claude Haiku 4.5", 160_000),
-            ("claude-opus-4.5", "Claude Opus 4.5", 160_000),
-            ("claude-opus-4.6", "Claude Opus 4.6", 192_000),
-            (
-                "claude-opus-4.6-fast",
-                "Claude Opus 4.6 (fast mode) (Preview)",
-                192_000,
-            ),
-            ("claude-sonnet-4", "Claude Sonnet 4", 144_000),
-            ("claude-sonnet-4.5", "Claude Sonnet 4.5", 160_000),
-            ("claude-sonnet-4.6", "Claude Sonnet 4.6", 160_000),
-            ("gemini-2.5-pro", "Gemini 2.5 Pro", 173_000),
-            (
-                "gemini-3-flash-preview",
-                "Gemini 3 Flash (Preview)",
-                173_000,
-            ),
-            (
-                "gemini-3.1-pro-preview",
-                "Gemini 3.1 Pro (Preview)",
-                173_000,
-            ),
-            ("gpt-4.1", "GPT-4.1", 128_000),
-            ("gpt-4o", "GPT-4o", 128_000),
-            ("gpt-5-mini", "GPT-5 mini", 192_000),
-            ("gpt-5.1", "GPT-5.1", 192_000),
-            ("gpt-5.1-codex", "GPT-5.1-Codex", 256_000),
-            ("gpt-5.1-codex-max", "GPT-5.1-Codex-Max", 256_000),
-            (
-                "gpt-5.1-codex-mini",
-                "GPT-5.1-Codex-Mini (Preview)",
-                256_000,
-            ),
-            ("gpt-5.2", "GPT-5.2", 192_000),
-            ("gpt-5.2-codex", "GPT-5.2-Codex", 400_000),
-            ("gpt-5.3-codex", "GPT-5.3-Codex", 400_000),
-            ("gpt-5.4", "GPT-5.4", 400_000),
-            ("gpt-5.4-mini", "GPT-5.4 mini", 400_000),
-            ("grok-code-fast-1", "Grok Code Fast 1", 173_000),
-            ("raptor-mini", "Raptor mini (Preview)", 264_000),
-            ("goldeneye", "Goldeneye", 524_000),
-        ],
-        "groq" => &[
-            ("llama-3.3-70b-versatile", "Llama 3.3 70B", 128_000),
-            ("llama-3.1-8b-instant", "Llama 3.1 8B", 131_072),
-            ("gemma2-9b-it", "Gemma 2 9B", 8_192),
-        ],
-        "ollama" => &[
-            ("llama3.3", "Llama 3.3", 128_000),
-            ("qwen2.5-coder", "Qwen 2.5 Coder", 32_768),
-            ("deepseek-r1", "DeepSeek R1", 64_000),
-            ("mistral", "Mistral", 32_768),
-        ],
-        "together" => &[
-            (
-                "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-                "Llama 3.3 70B",
-                128_000,
-            ),
-            ("deepseek-ai/DeepSeek-R1", "DeepSeek R1", 64_000),
-            ("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen 2.5 72B", 32_768),
-        ],
-        "deepinfra" => &[
-            (
-                "meta-llama/Llama-3.3-70B-Instruct",
-                "Llama 3.3 70B",
-                128_000,
-            ),
-            (
-                "Qwen/Qwen2.5-Coder-32B-Instruct",
-                "Qwen 2.5 Coder 32B",
-                32_768,
-            ),
-        ],
-        "z.ai" | "z.ai-coding-plan" => &[
-            ("glm-5.1", "GLM-5.1", 204_800),
-            ("glm-4.7", "GLM-4.7", 128_000),
-            ("glm-4.7-air", "GLM-4.7 Air", 128_000),
-            ("glm-4.7-flash", "GLM-4.7 Flash", 128_000),
-            ("glm-5", "GLM-5", 128_000),
-        ],
-        "kimi" => &[
-            ("kimi-k2.5", "Kimi K2.5", 262_144),
-            ("kimi-for-coding", "Kimi for Coding", 128_000),
-        ],
-        "kimi-coding-plan" => &[
-            ("kimi-k2.5", "Kimi K2.5", 262_144),
-            ("kimi-for-coding", "Kimi for Coding", 128_000),
-        ],
-        "qwen" => &[
-            ("qwen-max", "Qwen Max", 32_768),
-            ("qwen-plus", "Qwen Plus", 131_072),
-            ("qwen-turbo", "Qwen Turbo", 131_072),
-        ],
-        "openrouter" => &[
-            ("anthropic/claude-opus-4-6", "Claude Opus 4.6", 1_000_000),
-            ("openai/gpt-4.1", "GPT-4.1", 1_000_000),
-            ("google/gemini-2.5-pro", "Gemini 2.5 Pro", 1_000_000),
-            (
-                "meta-llama/llama-3.3-70b-instruct",
-                "Llama 3.3 70B",
-                128_000,
-            ),
-        ],
-        "cerebras" => &[("llama-3.3-70b", "Llama 3.3 70B", 128_000)],
-        "minimax" => &[
-            ("MiniMax-M2.7", "MiniMax M2.7", 205_000),
-            ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
-        ],
-        "minimax-coding-plan" => &[
-            ("MiniMax-M2.7", "MiniMax M2.7", 205_000),
-            ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
-        ],
-        "alibaba-coding-plan" => &[
-            ("qwen3-coder-plus", "Qwen3 Coder Plus", 997_952),
-            ("qwen3-coder-next", "Qwen3 Coder Next", 204_800),
-            ("qwen3.5-plus", "Qwen3.5 Plus", 983_616),
-            ("glm-5", "GLM-5", 202_752),
-            ("kimi-k2.5", "Kimi K2.5", 262_144),
-            ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
-        ],
-        "huggingface" => &[(
-            "meta-llama/Llama-3.3-70B-Instruct",
-            "Llama 3.3 70B",
-            128_000,
-        )],
-        "chutes" => &[("deepseek-ai/DeepSeek-V3", "DeepSeek V3", 128_000)],
-        _ => &[],
-    };
-    models
-        .iter()
-        .map(|(id, name, ctx)| FetchedModel {
-            id: id.to_string(),
-            name: Some(name.to_string()),
-            context_window: Some(*ctx),
-        })
-        .collect()
-}
-
-pub fn known_context_window_for(provider: &str, model: &str) -> Option<u32> {
-    known_models_for_provider_auth(provider, "api_key")
-        .into_iter()
-        .find(|entry| entry.id == model)
-        .and_then(|entry| entry.context_window)
+    model_catalog::known_models_for_provider_auth(provider, auth_source)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn provider_count_is_21() {
-        assert_eq!(PROVIDERS.len(), 21);
-    }
-
-    #[test]
-    fn find_by_id_works() {
-        let p = find_by_id("qwen").unwrap();
-        assert_eq!(p.name, "Qwen");
-        assert_eq!(
-            p.default_base_url,
-            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-        );
-    }
-
-    #[test]
-    fn alibaba_coding_plan_uses_openai_compatible_base_url() {
-        let p = find_by_id("alibaba-coding-plan").unwrap();
-        assert_eq!(
-            p.default_base_url,
-            "https://coding-intl.dashscope.aliyuncs.com/v1"
-        );
-        assert_eq!(p.default_model, "qwen3.5-plus");
-    }
-
-    #[test]
-    fn anthropic_message_providers_are_detected() {
-        assert!(uses_fixed_anthropic_messages("minimax", "MiniMax-M2.7"));
-        assert!(!uses_fixed_anthropic_messages("qwen", "qwen-max"));
-        assert!(!uses_fixed_anthropic_messages(
-            "alibaba-coding-plan",
-            "qwen3.5-plus"
-        ));
-    }
-
-    #[test]
-    fn find_by_name_works() {
-        let p = find_by_name("OpenAI / ChatGPT").unwrap();
-        assert_eq!(p.id, "openai");
-    }
-
-    #[test]
-    fn is_known_default_url_returns_true() {
-        assert!(is_known_default_url("https://api.openai.com/v1"));
-        assert!(!is_known_default_url("https://custom.example.com/v1"));
-    }
-
-    #[test]
-    fn known_models_openai_non_empty() {
-        let models = known_models_for_provider("openai");
-        assert!(!models.is_empty());
-        assert!(models.iter().any(|m| m.id == "gpt-5.4"));
-    }
-
-    #[test]
-    fn known_models_openai_chatgpt_subscription_is_restricted() {
-        let models = known_models_for_provider_auth("openai", "chatgpt_subscription");
-        assert!(models.iter().any(|m| m.id == "gpt-5.4"));
-        assert!(!models.iter().any(|m| m.id == "gpt-4o"));
-        assert!(!models.iter().any(|m| m.id == "o3"));
-    }
-
-    #[test]
-    fn known_models_unknown_returns_empty() {
-        let models = known_models_for_provider("nonexistent");
-        assert!(models.is_empty());
-    }
-
-    #[test]
-    fn github_copilot_supports_browser_and_token_auth() {
-        let provider = find_by_id("github-copilot").unwrap();
-        assert_eq!(provider.default_auth_source, "github_copilot");
-        assert_eq!(provider.supported_auth_sources, GITHUB_COPILOT_AUTH_SOURCES);
-        assert_eq!(provider.default_transport, "responses");
-        assert_eq!(provider.supported_transports, RESPONSES_AND_CHAT_TRANSPORTS);
-    }
-
-    #[test]
-    fn known_models_github_copilot_matches_static_catalog() {
-        let models = known_models_for_provider_auth("github-copilot", "github_copilot");
-        assert!(models.len() > 10);
-        assert!(models.iter().any(|model| model.id == "gpt-4.1"));
-        assert!(models.iter().any(|model| model.id == "gpt-5.4-mini"));
-        assert!(models.iter().any(|model| model.id == "claude-sonnet-4.6"));
-        assert!(models.iter().any(|model| model.id == "raptor-mini"));
-        assert!(models.iter().any(|model| model.id == "goldeneye"));
-    }
-}
+#[path = "providers/tests.rs"]
+mod tests;

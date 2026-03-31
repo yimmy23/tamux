@@ -22,6 +22,9 @@ const GITHUB_CLI_PATH_ENV: &str = "TAMUX_GH_CLI_PATH";
 
 static AUTH_FLOW_ACTIVE: OnceLock<Mutex<bool>> = OnceLock::new();
 
+#[path = "auth/openai_codex_flow.rs"]
+mod openai_codex_flow;
+
 #[cfg(test)]
 pub(crate) fn auth_test_env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -378,83 +381,6 @@ fn import_codex_cli_auth_if_present() -> Result<bool> {
     Ok(true)
 }
 
-fn generate_pkce_pair() -> (String, String) {
-    let verifier = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(Sha256::digest(verifier.as_bytes()));
-    (verifier, challenge)
-}
-
-fn exchange_authorization_code(code: &str, verifier: &str) -> Result<StoredOpenAICodexAuth> {
-    let mut response = ureq::post(OPENAI_CODEX_AUTH_TOKEN_URL)
-        .content_type("application/x-www-form-urlencoded")
-        .send_form([
-            ("grant_type", "authorization_code"),
-            ("client_id", OPENAI_CODEX_AUTH_CLIENT_ID),
-            ("code", code),
-            ("code_verifier", verifier),
-            ("redirect_uri", OPENAI_CODEX_AUTH_REDIRECT_URI),
-        ])?;
-    let payload: TokenResponse = response.body_mut().read_json()?;
-    let account_id = extract_openai_codex_account_id(&payload.access_token)
-        .context("OpenAI OAuth exchange returned no ChatGPT account id")?;
-    let now = now_millis();
-    Ok(StoredOpenAICodexAuth {
-        provider: "openai-codex".to_string(),
-        auth_mode: "chatgpt_subscription".to_string(),
-        access_token: payload.access_token,
-        refresh_token: payload.refresh_token,
-        account_id,
-        expires_at: now.saturating_add(payload.expires_in.saturating_mul(1000)),
-        source: "tamux".to_string(),
-        updated_at: now,
-        created_at: now,
-    })
-}
-
-fn complete_browser_auth(state: String, verifier: String) -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:1455")
-        .context("failed to bind localhost callback listener on port 1455")?;
-    listener
-        .set_nonblocking(false)
-        .context("failed to configure callback listener")?;
-    let (mut stream, _) = listener.accept()?;
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut buffer = [0u8; 8192];
-    let read = stream.read(&mut buffer)?;
-    let request = String::from_utf8_lossy(&buffer[..read]);
-    let target = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .context("received malformed OAuth callback request")?;
-    let url = Url::parse(&format!("http://127.0.0.1{target}"))?;
-    let callback_state = url
-        .query_pairs()
-        .find(|(key, _)| key == "state")
-        .map(|(_, value)| value.to_string())
-        .unwrap_or_default();
-    let code = url
-        .query_pairs()
-        .find(|(key, _)| key == "code")
-        .map(|(_, value)| value.to_string())
-        .unwrap_or_default();
-
-    if callback_state != state || code.is_empty() {
-        let _ = stream.write_all(
-            b"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInvalid OpenAI OAuth callback.",
-        );
-        anyhow::bail!("invalid OpenAI OAuth callback");
-    }
-
-    let _ = stream.write_all(
-        b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!doctype html><html><body><p>Authentication successful. Return to tamux.</p></body></html>",
-    );
-    let auth = exchange_authorization_code(&code, &verifier)?;
-    write_stored_openai_codex_auth(&auth)?;
-    Ok(())
-}
-
 pub fn begin_openai_codex_auth_flow() -> Result<OpenAICodexAuthFlowResult> {
     if read_stored_openai_codex_auth().is_some() {
         return Ok(OpenAICodexAuthFlowResult::AlreadyAvailable);
@@ -472,7 +398,7 @@ pub fn begin_openai_codex_auth_flow() -> Result<OpenAICodexAuthFlowResult> {
     *guard = true;
     drop(guard);
 
-    let (verifier, challenge) = generate_pkce_pair();
+    let (verifier, challenge) = openai_codex_flow::generate_pkce_pair();
     let state = Uuid::new_v4().simple().to_string();
     let mut auth_url = Url::parse(OPENAI_CODEX_AUTH_AUTHORIZE_URL)?;
     auth_url
@@ -490,7 +416,7 @@ pub fn begin_openai_codex_auth_flow() -> Result<OpenAICodexAuthFlowResult> {
     let url = auth_url.to_string();
 
     std::thread::spawn(move || {
-        let result = complete_browser_auth(state, verifier);
+        let result = openai_codex_flow::complete_browser_auth(state, verifier);
         if let Err(error) = result {
             tracing::warn!("OpenAI auth flow failed: {error}");
         }
@@ -542,55 +468,5 @@ pub fn begin_github_copilot_auth_flow() -> Result<GithubCopilotAuthFlowResult> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn unique_test_db_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("tamux-auth-{name}-{}.sqlite", Uuid::new_v4()))
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn github_copilot_flow_imports_existing_gh_token() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let _lock = auth_test_env_lock().lock().expect("lock auth env");
-        let db_path = unique_test_db_path("gh-import");
-        let script_path = std::env::temp_dir().join(format!("tamux-gh-{}", Uuid::new_v4()));
-        let old_db_path = std::env::var(PROVIDER_AUTH_DB_PATH_ENV).ok();
-        let old_gh_cli_path = std::env::var(GITHUB_CLI_PATH_ENV).ok();
-        std::fs::write(
-            &script_path,
-            "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"token\" ]; then\n  printf 'ghu_test_token\\n'\n  exit 0\nfi\nexit 1\n",
-        )
-        .unwrap();
-        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&script_path, perms).unwrap();
-
-        std::env::set_var(PROVIDER_AUTH_DB_PATH_ENV, &db_path);
-        std::env::set_var(GITHUB_CLI_PATH_ENV, &script_path);
-
-        let result = begin_github_copilot_auth_flow().unwrap();
-        assert!(matches!(
-            result,
-            GithubCopilotAuthFlowResult::ImportedFromGhCli
-        ));
-        let stored = read_stored_github_copilot_auth().expect("stored copilot auth");
-        assert_eq!(stored.access_token, "ghu_test_token");
-        assert_eq!(stored.source, "gh_cli_import");
-
-        if let Some(value) = old_db_path {
-            std::env::set_var(PROVIDER_AUTH_DB_PATH_ENV, value);
-        } else {
-            std::env::remove_var(PROVIDER_AUTH_DB_PATH_ENV);
-        }
-        if let Some(value) = old_gh_cli_path {
-            std::env::set_var(GITHUB_CLI_PATH_ENV, value);
-        } else {
-            std::env::remove_var(GITHUB_CLI_PATH_ENV);
-        }
-        let _ = std::fs::remove_file(&db_path);
-        let _ = std::fs::remove_file(&script_path);
-    }
-}
+#[path = "auth/tests.rs"]
+mod tests;

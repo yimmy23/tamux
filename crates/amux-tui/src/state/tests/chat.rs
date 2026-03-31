@@ -1,0 +1,487 @@
+use super::*;
+
+#[test]
+fn delta_appends_to_streaming_content() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "Hello".into(),
+    });
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: " world".into(),
+    });
+    assert_eq!(state.streaming_content(), "Hello world");
+}
+
+#[test]
+fn turn_done_finalizes_streaming_into_message() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "Hi".into(),
+    });
+    state.reduce(ChatAction::TurnDone {
+        thread_id: "t1".into(),
+        input_tokens: 100,
+        output_tokens: 50,
+        cost: Some(0.01),
+        provider: Some("openai".into()),
+        model: Some("gpt-4o".into()),
+        tps: Some(45.0),
+        generation_ms: Some(1200),
+        reasoning: None,
+    });
+    assert_eq!(state.streaming_content(), "");
+    let thread = state.active_thread().unwrap();
+    let last = thread.messages.last().unwrap();
+    assert_eq!(last.content, "Hi");
+    assert_eq!(last.role, MessageRole::Assistant);
+}
+
+#[test]
+fn scroll_up_locks_scroll() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ScrollChat(5));
+    assert!(state.scroll_locked());
+    assert_eq!(state.scroll_offset(), 5);
+}
+
+#[test]
+fn scroll_to_zero_unlocks() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ScrollChat(5));
+    state.reduce(ChatAction::ScrollChat(-5));
+    assert!(!state.scroll_locked());
+    assert_eq!(state.scroll_offset(), 0);
+}
+
+#[test]
+fn locked_scroll_offset_grows_with_streamed_newlines() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::ScrollChat(4));
+
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "\nnext\nchunk".into(),
+    });
+
+    assert_eq!(state.scroll_offset(), 6);
+    assert!(state.scroll_locked());
+}
+
+#[test]
+fn retry_status_replaces_previous_status_for_active_thread() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::SetRetryStatus {
+        thread_id: "t1".into(),
+        phase: RetryPhase::Retrying,
+        attempt: 1,
+        max_retries: 3,
+        delay_ms: 2_000,
+        failure_class: "rate_limit".into(),
+        message: "429".into(),
+        received_at_tick: 10,
+    });
+    state.reduce(ChatAction::SetRetryStatus {
+        thread_id: "t1".into(),
+        phase: RetryPhase::Waiting,
+        attempt: 3,
+        max_retries: 3,
+        delay_ms: 30_000,
+        failure_class: "rate_limit".into(),
+        message: "retrying automatically".into(),
+        received_at_tick: 20,
+    });
+
+    let status = state.retry_status().expect("retry status should exist");
+    assert_eq!(status.phase, RetryPhase::Waiting);
+    assert_eq!(status.delay_ms, 30_000);
+    assert_eq!(status.received_at_tick, 20);
+}
+
+#[test]
+fn copied_message_feedback_expires_after_deadline() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.mark_message_copied(0, 25);
+
+    assert!(state.is_message_recently_copied(0, 24));
+
+    state.clear_expired_copy_feedback(25);
+
+    assert!(!state.is_message_recently_copied(0, 25));
+}
+
+#[test]
+fn thread_list_received_replaces_threads() {
+    let mut state = ChatState::new();
+    let threads = vec![
+        AgentThread {
+            id: "t1".into(),
+            title: "First".into(),
+            ..Default::default()
+        },
+        AgentThread {
+            id: "t2".into(),
+            title: "Second".into(),
+            ..Default::default()
+        },
+    ];
+    state.reduce(ChatAction::ThreadListReceived(threads));
+    assert_eq!(state.threads().len(), 2);
+}
+
+#[test]
+fn tool_call_tracks_running_tool() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "c1".into(),
+        name: "bash_command".into(),
+        args: "ls".into(),
+    });
+    assert_eq!(state.active_tool_calls().len(), 1);
+    assert_eq!(state.active_tool_calls()[0].status, ToolCallStatus::Running);
+}
+
+#[test]
+fn tool_result_updates_status() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "c1".into(),
+        name: "bash_command".into(),
+        args: "ls".into(),
+    });
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "c1".into(),
+        name: "bash_command".into(),
+        content: "file.txt".into(),
+        is_error: false,
+    });
+    assert_eq!(state.active_tool_calls()[0].status, ToolCallStatus::Done);
+}
+
+#[test]
+fn turn_done_uses_final_reasoning_when_no_reasoning_delta_was_streamed() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "Answer".into(),
+    });
+
+    state.reduce(ChatAction::TurnDone {
+        thread_id: "t1".into(),
+        input_tokens: 100,
+        output_tokens: 50,
+        cost: Some(0.01),
+        provider: Some("github-copilot".into()),
+        model: Some("gpt-5.4".into()),
+        tps: Some(45.0),
+        generation_ms: Some(1200),
+        reasoning: Some("Final reasoning summary".into()),
+    });
+
+    let thread = state.active_thread().unwrap();
+    let last = thread.messages.last().unwrap();
+    assert_eq!(last.reasoning.as_deref(), Some("Final reasoning summary"));
+}
+
+#[test]
+fn new_thread_clears_active() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    assert!(state.active_thread_id().is_some());
+    state.reduce(ChatAction::NewThread);
+    assert!(state.active_thread_id().is_none());
+}
+
+#[test]
+fn select_thread_changes_active() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![
+        AgentThread {
+            id: "t1".into(),
+            title: "First".into(),
+            ..Default::default()
+        },
+        AgentThread {
+            id: "t2".into(),
+            title: "Second".into(),
+            ..Default::default()
+        },
+    ]));
+    state.reduce(ChatAction::SelectThread("t2".into()));
+    assert_eq!(state.active_thread_id(), Some("t2"));
+}
+
+#[test]
+fn reselecting_thread_resets_scroll_lock_and_offset() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![AgentThread {
+        id: "t1".into(),
+        title: "First".into(),
+        ..Default::default()
+    }]));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::ScrollChat(5));
+
+    assert!(state.scroll_locked());
+    assert_eq!(state.scroll_offset(), 5);
+
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    assert!(!state.scroll_locked());
+    assert_eq!(state.scroll_offset(), 0);
+}
+
+#[test]
+fn thread_detail_keeps_local_messages_with_actions() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "concierge".into(),
+        title: "Concierge".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "concierge".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Welcome".into(),
+            actions: vec![MessageAction {
+                label: "Continue".into(),
+                action_type: "continue_session".into(),
+                thread_id: Some("t1".into()),
+            }],
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "concierge".into(),
+        title: "Concierge".into(),
+        messages: vec![AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Welcome".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    let thread = state
+        .active_thread()
+        .expect("concierge thread should exist");
+    assert_eq!(thread.messages.len(), 1);
+    assert_eq!(thread.messages[0].actions.len(), 1);
+}
+
+#[test]
+fn append_message_replaces_previous_concierge_welcome() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "concierge".into(),
+        title: "Concierge".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "concierge".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Welcome 1".into(),
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "concierge".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Welcome 2".into(),
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+
+    let thread = state
+        .active_thread()
+        .expect("concierge thread should exist");
+    assert_eq!(thread.messages.len(), 1);
+    assert_eq!(thread.messages[0].content, "Welcome 2");
+    assert!(thread.messages[0].is_concierge_welcome);
+}
+
+#[test]
+fn dismiss_concierge_welcome_removes_only_welcome_messages() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "concierge".into(),
+        title: "Concierge".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "concierge".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Welcome".into(),
+            is_concierge_welcome: true,
+            ..Default::default()
+        },
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "concierge".into(),
+        message: AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Follow-up".into(),
+            ..Default::default()
+        },
+    });
+
+    state.reduce(ChatAction::DismissConciergeWelcome);
+
+    let thread = state
+        .active_thread()
+        .expect("concierge thread should exist");
+    assert_eq!(thread.messages.len(), 1);
+    assert_eq!(thread.messages[0].content, "Follow-up");
+    assert!(!thread.messages[0].is_concierge_welcome);
+}
+
+fn state_with_messages(count: usize) -> ChatState {
+    let mut state = ChatState::new();
+    let messages: Vec<AgentMessage> = (0..count)
+        .map(|index| AgentMessage {
+            role: MessageRole::User,
+            content: format!("msg {}", index),
+            ..Default::default()
+        })
+        .collect();
+    let thread = AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        messages,
+        ..Default::default()
+    };
+    state.reduce(ChatAction::ThreadListReceived(vec![thread]));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state
+}
+
+#[test]
+fn select_next_message_from_none() {
+    let mut state = state_with_messages(3);
+    assert_eq!(state.selected_message(), None);
+    state.select_next_message();
+    assert_eq!(state.selected_message(), Some(0));
+}
+
+#[test]
+fn select_next_message_advances() {
+    let mut state = state_with_messages(3);
+    state.select_next_message();
+    state.select_next_message();
+    assert_eq!(state.selected_message(), Some(1));
+}
+
+#[test]
+fn select_next_message_clamps_at_end() {
+    let mut state = state_with_messages(2);
+    state.select_message(Some(1));
+    state.select_next_message();
+    assert_eq!(state.selected_message(), Some(1));
+}
+
+#[test]
+fn select_prev_message_from_none() {
+    let mut state = state_with_messages(3);
+    state.select_prev_message();
+    assert_eq!(state.selected_message(), Some(2));
+}
+
+#[test]
+fn select_prev_message_decreases() {
+    let mut state = state_with_messages(3);
+    state.select_message(Some(2));
+    state.select_prev_message();
+    assert_eq!(state.selected_message(), Some(1));
+}
+
+#[test]
+fn select_prev_message_clamps_at_zero() {
+    let mut state = state_with_messages(3);
+    state.select_message(Some(0));
+    state.select_prev_message();
+    assert_eq!(state.selected_message(), Some(0));
+}
+
+#[test]
+fn clear_selection() {
+    let mut state = state_with_messages(3);
+    state.select_message(Some(1));
+    state.select_message(None);
+    assert_eq!(state.selected_message(), None);
+}
+
+#[test]
+fn toggle_message_selection_clears_when_same_message_clicked() {
+    let mut state = state_with_messages(3);
+    state.toggle_message_selection(1);
+    assert_eq!(state.selected_message(), Some(1));
+    state.toggle_message_selection(1);
+    assert_eq!(state.selected_message(), None);
+}
+
+#[test]
+fn toggle_tool_expansion() {
+    let mut state = ChatState::new();
+    assert!(!state.expanded_tools().contains(&0));
+    state.toggle_tool_expansion(0);
+    assert!(state.expanded_tools().contains(&0));
+    state.toggle_tool_expansion(0);
+    assert!(!state.expanded_tools().contains(&0));
+}
+
+#[test]
+fn toggle_tool_expansion_independent() {
+    let mut state = ChatState::new();
+    state.toggle_tool_expansion(0);
+    state.toggle_tool_expansion(1);
+    assert!(state.expanded_tools().contains(&0));
+    assert!(state.expanded_tools().contains(&1));
+    state.toggle_tool_expansion(0);
+    assert!(!state.expanded_tools().contains(&0));
+    assert!(state.expanded_tools().contains(&1));
+}
