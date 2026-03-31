@@ -8,6 +8,15 @@ fn make_model() -> TuiModel {
     TuiModel::new(client_rx, daemon_tx)
 }
 
+fn make_model_with_daemon_rx() -> (
+    TuiModel,
+    tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) {
+    let (_client_tx, client_rx) = mpsc::channel();
+    let (daemon_tx, daemon_rx) = unbounded_channel();
+    (TuiModel::new(client_rx, daemon_tx), daemon_rx)
+}
+
 #[test]
 fn normalize_provider_auth_source_falls_back_for_invalid_values() {
     assert_eq!(
@@ -115,4 +124,62 @@ fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport
 
     assert_eq!(model.config.provider, "github-copilot");
     assert_eq!(model.config.api_transport, "responses");
+}
+
+#[test]
+fn sync_config_to_daemon_does_not_emit_null_api_key_for_advanced_edits() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = "openai".to_string();
+    model.config.base_url = "https://api.openai.com/v1".to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.config.api_key = "sk-live".to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.api_transport = "responses".to_string();
+    model.config.max_context_messages = 123;
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.4",
+        "api_key": "sk-live",
+        "auth_source": "api_key",
+        "api_transport": "responses",
+        "max_context_messages": 100,
+        "providers": {
+            "openai": {
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-5.4",
+                "api_key": "sk-live",
+                "auth_source": "api_key",
+                "api_transport": "responses",
+                "reasoning_effort": ""
+            }
+        }
+    }));
+
+    model.sync_config_to_daemon();
+
+    let mut emitted_max_context_messages = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        match command {
+            DaemonCommand::SetConfigItem {
+                key_path,
+                value_json,
+            } => {
+                assert_ne!(key_path, "/api_key", "advanced edits must not null out api_key");
+                if key_path == "/max_context_messages" {
+                    emitted_max_context_messages = true;
+                    assert_eq!(value_json, "123");
+                }
+            }
+            DaemonCommand::SetProviderModel { .. } => {}
+            other => panic!("unexpected daemon command: {other:?}"),
+        }
+    }
+
+    assert!(
+        emitted_max_context_messages,
+        "expected max_context_messages update to be emitted"
+    );
 }

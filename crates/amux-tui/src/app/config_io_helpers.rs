@@ -262,7 +262,6 @@ impl TuiModel {
         if let Some(map) = patch[&self.config.provider].as_object_mut() {
             map.remove("api_key");
         }
-        patch["api_key"] = serde_json::Value::Null;
         patch["base_url"] = serde_json::Value::String(self.config.base_url.clone());
         patch["model"] = serde_json::Value::String(self.config.model.clone());
         patch["reasoning_effort"] = serde_json::Value::String(self.config.reasoning_effort.clone());
