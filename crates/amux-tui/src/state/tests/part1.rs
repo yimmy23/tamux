@@ -11,6 +11,31 @@ fn insert_char_appends_to_buffer() {
 }
 
 #[test]
+fn active_at_token_detects_token_under_cursor() {
+    let buffer = "before @nested/path after";
+    let cursor = buffer.find("nested").expect("token should exist") + 2;
+
+    let token = crate::state::input_refs::active_at_token(buffer, cursor)
+        .expect("cursor should be inside the reference token");
+
+    assert_eq!(token.text, "@nested/path");
+    assert_eq!(token.path, "nested/path");
+    assert_eq!(
+        token.range.start,
+        buffer.find('@').expect("reference should exist")
+    );
+    assert_eq!(token.range.end, token.range.start + "@nested/path".len());
+}
+
+#[test]
+fn active_at_token_returns_none_when_cursor_is_outside_reference() {
+    let buffer = "before @nested/path after";
+    let cursor = buffer.find("after").expect("trailing text should exist");
+
+    assert!(crate::state::input_refs::active_at_token(buffer, cursor).is_none());
+}
+
+#[test]
 fn backspace_removes_char_before_cursor() {
     let mut state = InputState::new();
     state.reduce(InputAction::InsertChar('a'));

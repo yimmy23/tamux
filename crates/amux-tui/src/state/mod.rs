@@ -7,6 +7,7 @@ pub mod chat;
 pub mod concierge;
 pub mod config;
 pub mod input;
+pub mod input_refs;
 pub mod modal;
 pub mod settings;
 pub mod sidebar;

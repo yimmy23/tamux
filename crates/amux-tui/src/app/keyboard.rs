@@ -288,7 +288,19 @@ impl TuiModel {
                     }
                 }
             }
-            KeyCode::Tab => self.focus_next(),
+            KeyCode::Tab => {
+                if self.focus == FocusArea::Input {
+                    let completion = self.input.complete_active_at_token();
+                    if let Some(notice) = completion.notice {
+                        self.status_line = notice.clone();
+                        self.show_input_notice(notice, InputNoticeKind::Warning, 40, true);
+                    }
+                    if completion.consumed {
+                        return false;
+                    }
+                }
+                self.focus_next();
+            }
             KeyCode::BackTab => self.focus_prev(),
             KeyCode::Left if self.focus == FocusArea::Input => {
                 self.input.reduce(input::InputAction::MoveCursorLeft);

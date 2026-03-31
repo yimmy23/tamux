@@ -1,5 +1,13 @@
 #[cfg(test)]
 use super::*;
+use std::fs;
+use std::path::PathBuf;
+
+fn make_temp_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("tamux-tui-input-refs-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).expect("temporary directory should be creatable");
+    dir
+}
 
 #[test]
 fn undo_on_empty_is_noop() {
@@ -49,6 +57,38 @@ fn undo_clamps_cursor() {
     state.reduce(InputAction::Undo);
     // Cursor should be clamped to buffer length
     assert!(state.cursor_pos() <= state.buffer().len());
+}
+
+#[test]
+fn path_resolution_keeps_nonexistent_references_as_plain_text() {
+    let cwd = make_temp_dir();
+
+    assert!(
+        crate::state::input_refs::resolve_reference_path("missing-file.txt", &cwd).is_none(),
+        "nonexistent references should remain plain text"
+    );
+}
+
+#[test]
+fn completion_extends_single_match_and_keeps_directory_trailing_slash() {
+    let cwd = make_temp_dir();
+    let docs_dir = cwd.join("docs");
+    fs::create_dir_all(&docs_dir).expect("test directory should be creatable");
+    fs::write(docs_dir.join("notes.txt"), "hello").expect("file should be writable");
+
+    let buffer = "@do";
+    let outcome = crate::state::input_refs::complete_active_at_token(buffer, buffer.len(), &cwd);
+
+    assert!(
+        outcome.consumed,
+        "single-match completion should consume Tab"
+    );
+    let replacement = outcome
+        .replacement
+        .expect("single directory match should produce a replacement");
+    assert_eq!(replacement.text, "@docs/");
+    assert_eq!(replacement.range.start, 0);
+    assert_eq!(replacement.range.end, buffer.len());
 }
 
 // ── UTF-8 cursor tests ───────────────────────────────────────────────────

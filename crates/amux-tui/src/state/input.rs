@@ -3,6 +3,8 @@
 use ratatui_textarea::{CursorMove, TextArea};
 use unicode_width::UnicodeWidthChar;
 
+use crate::state::input_refs;
+
 mod display;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +182,26 @@ impl InputState {
             )
         })
     }
+
+    pub fn active_at_token(&self) -> Option<input_refs::ActiveToken> {
+        input_refs::active_at_token(self.buffer(), self.cursor_pos())
+    }
+
+    pub fn complete_active_at_token(&mut self) -> input_refs::TabCompletionOutcome {
+        let cursor = self.cursor_pos();
+        let buffer = self.buffer_cache.clone();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let outcome = input_refs::complete_active_at_token(&buffer, cursor, &cwd);
+
+        if let Some(replacement) = &outcome.replacement {
+            let mut updated = buffer;
+            updated.replace_range(replacement.range.clone(), &replacement.text);
+            self.set_buffer_and_cursor(&updated, replacement.range.start + replacement.text.len());
+        }
+
+        outcome
+    }
+
     /// Get (line_index, col_index) for current cursor position
     fn cursor_line_col(&self) -> (usize, usize) {
         self.textarea.cursor()
