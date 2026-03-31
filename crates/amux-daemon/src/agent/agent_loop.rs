@@ -2641,7 +2641,8 @@ mod tests {
                     } else if assistant_turns.fetch_add(1, Ordering::SeqCst) == 0 {
                         let tool_args = serde_json::json!({
                             "path": readable_path,
-                            "max_lines": 1,
+                            "offset": 0,
+                            "limit": 1,
                         })
                         .to_string();
                         let chunk_one = serde_json::json!({
@@ -3404,7 +3405,8 @@ mod tests {
 
         let tool_args = serde_json::json!({
             "path": readable_path.display().to_string(),
-            "max_lines": 1,
+            "offset": 0,
+            "limit": 1,
         })
         .to_string();
         let args_hash =

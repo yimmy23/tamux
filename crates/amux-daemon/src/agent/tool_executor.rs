@@ -861,12 +861,14 @@ pub fn get_available_tools(
 
         tools.push(tool_def(
             "read_file",
-            "Read the contents of a file.",
+            "Read the contents of a file. Always prefer bounded reads with offset/limit windows instead of dumping entire files.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path to read" },
-                    "max_lines": { "type": "integer", "description": "Max lines to read (default: 200)" }
+                    "offset": { "type": "integer", "description": "0-based starting line offset (default: 0)" },
+                    "limit": { "type": "integer", "description": "Maximum lines to read in this window (default: 250)" },
+                    "max_lines": { "type": "integer", "description": "Deprecated alias for limit" }
                 },
                 "required": ["path"]
             }),
@@ -2271,19 +2273,27 @@ async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
 
-    let max_lines = args
-        .get("max_lines")
+    let offset = args
+        .get("offset")
         .and_then(|v| v.as_u64())
-        .unwrap_or(200) as usize;
+        .unwrap_or(0) as usize;
+    let limit_was_explicit = args.get("limit").is_some() || args.get("max_lines").is_some();
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .or_else(|| args.get("max_lines").and_then(|v| v.as_u64()))
+        .unwrap_or(250) as usize;
 
     let content = tokio::fs::read_to_string(path).await?;
     let total_lines = content.lines().count();
-    let lines: Vec<&str> = content.lines().take(max_lines).collect();
+    let lines: Vec<&str> = content.lines().skip(offset).take(limit).collect();
 
     let mut result = lines.join("\n");
-    if total_lines > max_lines {
+    let shown = lines.len();
+    let remaining_after_window = total_lines.saturating_sub(offset + shown);
+    if !limit_was_explicit && remaining_after_window > 0 {
         result.push_str(&format!(
-            "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
+            "\n\n... (truncated, showing {shown} of {total_lines} lines starting at line {offset})"
         ));
     }
 
@@ -6567,7 +6577,7 @@ mod tests {
         build_list_files_script, build_write_file_command, build_write_file_script,
         command_looks_interactive, command_matches_policy_risk, command_requires_managed_state,
         daemon_tool_timeout_seconds, default_timeout_seconds_for_tool,
-        execute_tool,
+        execute_read_file, execute_tool,
         execute_fetch_url_with_runner, execute_gateway_message, execute_get_divergent_session,
         execute_headless_shell_command, execute_onecontext_search_with_runner,
         execute_search_files_with_runner, execute_web_search_with_runner,
@@ -6763,6 +6773,84 @@ mod tests {
         let tools = get_available_tools(&config, &temp_dir, false);
 
         assert!(tools.iter().any(|tool| tool.function.name == "summary"));
+    }
+
+    #[test]
+    fn read_file_tool_schema_exposes_offset_and_limit_defaults() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let read_file = tools
+            .iter()
+            .find(|tool| tool.function.name == "read_file")
+            .expect("read_file tool should be available");
+
+        let properties = read_file
+            .function
+            .parameters
+            .get("properties")
+            .expect("read_file schema should expose properties");
+
+        let offset_schema = properties
+            .get("offset")
+            .expect("read_file schema should expose offset");
+        assert_eq!(offset_schema.get("type").and_then(|value| value.as_str()), Some("integer"));
+        assert!(offset_schema
+            .get("description")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.contains("default: 0")));
+
+        let limit_schema = properties
+            .get("limit")
+            .expect("read_file schema should expose limit");
+        assert_eq!(limit_schema.get("type").and_then(|value| value.as_str()), Some("integer"));
+        assert!(limit_schema
+            .get("description")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| value.contains("default: 250")));
+    }
+
+    #[tokio::test]
+    async fn read_file_uses_default_offset_zero_and_limit_250() {
+        let root = tempdir().expect("tempdir");
+        let file_path = root.path().join("sample.txt");
+        let body = (0..300)
+            .map(|index| format!("line-{index:03}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        tokio::fs::write(&file_path, body).await.expect("write sample file");
+
+        let result = execute_read_file(&serde_json::json!({
+            "path": file_path,
+        }))
+        .await
+        .expect("read file should succeed");
+
+        assert!(result.starts_with("line-000\nline-001"));
+        assert!(result.contains("line-249"));
+        assert!(!result.contains("line-250\n"));
+        assert!(result.contains("truncated, showing 250 of 300 lines"));
+    }
+
+    #[tokio::test]
+    async fn read_file_honors_offset_and_limit_window() {
+        let root = tempdir().expect("tempdir");
+        let file_path = root.path().join("sample.txt");
+        let body = (0..20)
+            .map(|index| format!("line-{index:03}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        tokio::fs::write(&file_path, body).await.expect("write sample file");
+
+        let result = execute_read_file(&serde_json::json!({
+            "path": file_path,
+            "offset": 5,
+            "limit": 3,
+        }))
+        .await
+        .expect("read file should succeed");
+
+        assert_eq!(result, "line-005\nline-006\nline-007");
     }
 
     #[tokio::test]
