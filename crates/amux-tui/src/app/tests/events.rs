@@ -8,6 +8,70 @@ fn make_model() -> TuiModel {
     TuiModel::new(event_rx, daemon_tx)
 }
 
+fn make_model_with_daemon_rx() -> (
+    TuiModel,
+    tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) {
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (daemon_tx, daemon_rx) = unbounded_channel();
+    (TuiModel::new(event_rx, daemon_tx), daemon_rx)
+}
+
+#[test]
+fn connected_event_defers_concierge_welcome_until_config_loads() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_connected_event();
+
+    let mut saw_refresh = false;
+    let mut saw_refresh_services = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        match command {
+            DaemonCommand::Refresh => saw_refresh = true,
+            DaemonCommand::RefreshServices => saw_refresh_services = true,
+            DaemonCommand::RequestConciergeWelcome => {
+                panic!("concierge welcome should wait until config is loaded")
+            }
+            _ => {}
+        }
+    }
+
+    assert!(saw_refresh, "connect should still request thread refresh");
+    assert!(
+        saw_refresh_services,
+        "connect should still request service refresh including config"
+    );
+    assert!(
+        !model.concierge.loading,
+        "concierge loading should not start until welcome is actually requested"
+    );
+}
+
+#[test]
+fn first_raw_config_load_triggers_concierge_welcome_request() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = false;
+
+    model.handle_agent_config_raw_event(serde_json::json!({
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.4",
+        "managed_execution": {
+            "sandbox_enabled": false,
+            "security_level": "yolo"
+        }
+    }));
+
+    assert!(model.agent_config_loaded, "raw config should mark config as loaded");
+    assert_eq!(model.config.managed_security_level, "yolo");
+    assert!(model.concierge.loading, "first config load should start concierge welcome");
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected concierge welcome request"),
+        DaemonCommand::RequestConciergeWelcome
+    ));
+}
+
 #[test]
 fn whatsapp_qr_event_opens_modal_and_sets_ascii_payload() {
     let mut model = make_model();

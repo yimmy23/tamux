@@ -1,5 +1,6 @@
 use super::*;
 use crate::session_manager::SessionManager;
+use amux_protocol::SecurityLevel;
 use std::ffi::OsString;
 use tempfile::tempdir;
 
@@ -274,6 +275,30 @@ async fn set_provider_model_json_restores_canonical_base_url_for_predefined_prov
     assert_eq!(updated.provider, "groq");
     assert_eq!(updated.model, "llama-3.3-70b-versatile");
     assert_eq!(updated.base_url, "https://api.groq.com/openai/v1");
+}
+
+#[tokio::test]
+async fn set_config_item_json_persists_managed_execution_security_level() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine
+        .set_config_item_json("/managed_execution/security_level", r#""yolo""#)
+        .await
+        .expect("managed execution security level should update");
+
+    let updated = engine.get_config().await;
+    assert_eq!(updated.managed_execution.security_level, SecurityLevel::Yolo);
+
+    let persisted_items = engine
+        .history
+        .list_agent_config_items()
+        .await
+        .expect("persisted config should be readable");
+    let rehydrated =
+        load_config_from_items(persisted_items).expect("persisted config should deserialize");
+    assert_eq!(rehydrated.managed_execution.security_level, SecurityLevel::Yolo);
 }
 
 #[tokio::test]
