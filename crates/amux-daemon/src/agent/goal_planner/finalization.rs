@@ -134,7 +134,12 @@ impl AgentEngine {
         Ok(())
     }
 
-    pub(in crate::agent) async fn fail_goal_run(&self, goal_run_id: &str, error: &str, phase: &str) {
+    pub(in crate::agent) async fn fail_goal_run(
+        &self,
+        goal_run_id: &str,
+        error: &str,
+        phase: &str,
+    ) {
         let cost_summary = {
             let trackers = self.cost_trackers.lock().await;
             trackers.get(goal_run_id).map(|t| t.summary().clone())

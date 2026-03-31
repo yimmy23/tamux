@@ -228,8 +228,8 @@ pub use persistence_impl::{
     persisted_state_from_history_row, persisted_state_into_history_row,
     save_persisted_provider_state, spawn_transport_event_bridge, start_transport_bridge,
 };
-pub use sidecar_impl::{build_sidecar_launch_spec, normalize_sidecar_stderr, spawn_sidecar};
 pub(super) use sidecar_impl::now_millis;
+pub use sidecar_impl::{build_sidecar_launch_spec, normalize_sidecar_stderr, spawn_sidecar};
 
 #[allow(dead_code)]
 pub mod transport {

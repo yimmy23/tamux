@@ -1,8 +1,14 @@
 use super::*;
 
 impl TuiModel {
-    pub(in crate::app) fn handle_thread_list_event(&mut self, threads: Vec<crate::wire::AgentThread>) {
-        let threads = threads.into_iter().map(conversion::convert_thread).collect();
+    pub(in crate::app) fn handle_thread_list_event(
+        &mut self,
+        threads: Vec<crate::wire::AgentThread>,
+    ) {
+        let threads = threads
+            .into_iter()
+            .map(conversion::convert_thread)
+            .collect();
         self.chat
             .reduce(chat::ChatAction::ThreadListReceived(threads));
     }
@@ -38,7 +44,9 @@ impl TuiModel {
 
     pub(in crate::app) fn handle_task_update_event(&mut self, task_item: crate::wire::AgentTask) {
         self.tasks
-            .reduce(task::TaskAction::TaskUpdate(conversion::convert_task(task_item)));
+            .reduce(task::TaskAction::TaskUpdate(conversion::convert_task(
+                task_item,
+            )));
     }
 
     pub(in crate::app) fn handle_goal_run_list_event(&mut self, runs: Vec<crate::wire::GoalRun>) {
@@ -96,7 +104,10 @@ impl TuiModel {
         });
     }
 
-    pub(in crate::app) fn handle_work_context_event(&mut self, context: crate::wire::ThreadWorkContext) {
+    pub(in crate::app) fn handle_work_context_event(
+        &mut self,
+        context: crate::wire::ThreadWorkContext,
+    ) {
         self.tasks.reduce(task::TaskAction::WorkContextReceived(
             conversion::convert_work_context(context),
         ));

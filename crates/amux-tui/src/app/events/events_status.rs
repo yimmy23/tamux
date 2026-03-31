@@ -1,7 +1,10 @@
 use super::*;
 
 impl TuiModel {
-    pub(in crate::app) fn handle_agent_config_event(&mut self, cfg: crate::wire::AgentConfigSnapshot) {
+    pub(in crate::app) fn handle_agent_config_event(
+        &mut self,
+        cfg: crate::wire::AgentConfigSnapshot,
+    ) {
         self.config.reduce(config::ConfigAction::ConfigReceived(
             config::AgentConfigSnapshot {
                 provider: cfg.provider,

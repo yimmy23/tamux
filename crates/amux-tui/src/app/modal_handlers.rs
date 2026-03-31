@@ -337,7 +337,12 @@ impl TuiModel {
                             _ => {}
                         }
                         self.settings.reduce(SettingsAction::ConfirmEdit);
-                        self.sync_config_to_daemon();
+                        if !matches!(
+                            field.as_str(),
+                            "subagent_name" | "subagent_role" | "subagent_system_prompt"
+                        ) {
+                            self.sync_config_to_daemon();
+                        }
                     }
                     KeyCode::Esc => self.settings.reduce(SettingsAction::CancelEdit),
                     KeyCode::Backspace => self.settings.reduce(SettingsAction::Backspace),

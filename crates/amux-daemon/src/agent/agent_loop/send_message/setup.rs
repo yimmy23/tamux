@@ -139,74 +139,6 @@ impl<'a> SendMessageRunner<'a> {
                 Some(patterns)
             }
         };
-        let mut system_prompt = build_system_prompt(
-            &config,
-            &base_prompt,
-            &memory,
-            &memory_paths,
-            &agent_scope_id,
-            &config.sub_agents,
-            operator_model_summary.as_deref(),
-            operational_context.as_deref(),
-            causal_guidance.as_deref(),
-            learned_patterns.as_deref(),
-            None,
-            None,
-        );
-        let runtime_agent_name = task_provider_override
-            .as_ref()
-            .and_then(|(_, _, prompt)| extract_persona_name(prompt.as_deref()))
-            .unwrap_or_else(|| MAIN_AGENT_NAME.to_string());
-        system_prompt.push_str("\n\n");
-        system_prompt.push_str(&build_runtime_identity_prompt(
-            &runtime_agent_name,
-            &active_provider_id,
-            &provider_config.model,
-        ));
-        if let Some(recall) = onecontext_bootstrap.as_deref() {
-            system_prompt.push_str("\n\n## OneContext Recall\n");
-            system_prompt
-                .push_str("Use this as historical context from prior sessions when relevant:\n");
-            system_prompt.push_str(recall);
-        }
-        if let Some(skill_preflight) = skill_preflight.as_deref() {
-            system_prompt.push_str("\n\n## Preloaded Skills\n");
-            system_prompt.push_str(skill_preflight);
-        }
-        match engine
-            .maybe_build_honcho_context(&tid, stored_user_content)
-            .await
-        {
-            Ok(Some(honcho_context)) => {
-                system_prompt.push_str("\n\n## Cross-Session Memory\n");
-                system_prompt.push_str(&honcho_context);
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(thread_id = %tid, error = %error, "failed to build Honcho context");
-            }
-        }
-        engine.emit_workflow_notice(
-            &tid,
-            "memory-consulted",
-            "Loaded persistent memory, user profile, and local skill paths for this turn.",
-            Some(format!(
-                "memory_dir={}; skills_dir={}",
-                memory_paths.memory_dir.display(),
-                skills_dir(&engine.data_dir).display()
-            )),
-        );
-        if skill_preflight.is_some() {
-            engine.emit_workflow_notice(
-                &tid,
-                "skill-preflight",
-                "Preloaded relevant local skills for this turn before tool execution.",
-                None,
-            );
-        }
-
-        let has_workspace_topology = engine.session_manager.read_workspace_topology().is_some();
-        let mut tools = get_available_tools(&config, &engine.data_dir, has_workspace_topology);
         let (
             current_task_snapshot,
             is_durable_goal_task,
@@ -262,6 +194,105 @@ impl<'a> SendMessageRunner<'a> {
                 task_type,
             )
         };
+        let runtime_context_query = select_runtime_context_query(
+            current_task_snapshot.as_ref().and_then(|task| {
+                task.goal_step_title
+                    .as_deref()
+                    .or(Some(task.title.as_str()))
+            }),
+            current_task_snapshot.as_ref().and_then(|task| {
+                task.goal_run_title
+                    .as_deref()
+                    .or(Some(task.description.as_str()))
+            }),
+            Some(stored_user_content),
+        );
+        let runtime_work_scope = format_runtime_work_scope_label(
+            current_task_snapshot
+                .as_ref()
+                .and_then(|task| task.goal_run_title.as_deref()),
+            current_task_snapshot
+                .as_ref()
+                .and_then(|task| task.goal_step_title.as_deref()),
+            current_task_snapshot
+                .as_ref()
+                .map(|task| task.title.as_str()),
+        );
+        let runtime_continuity = build_runtime_continuity_context(
+            engine,
+            runtime_work_scope.as_deref(),
+            runtime_context_query.as_deref(),
+        )
+        .await;
+        let mut system_prompt = build_system_prompt(
+            &config,
+            &base_prompt,
+            &memory,
+            &memory_paths,
+            &agent_scope_id,
+            &config.sub_agents,
+            operator_model_summary.as_deref(),
+            operational_context.as_deref(),
+            causal_guidance.as_deref(),
+            learned_patterns.as_deref(),
+            None,
+            runtime_continuity.continuity_summary.as_deref(),
+            runtime_continuity.negative_constraints_context.as_deref(),
+        );
+        let runtime_agent_name = task_provider_override
+            .as_ref()
+            .and_then(|(_, _, prompt)| extract_persona_name(prompt.as_deref()))
+            .unwrap_or_else(|| MAIN_AGENT_NAME.to_string());
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(&build_runtime_identity_prompt(
+            &runtime_agent_name,
+            &active_provider_id,
+            &provider_config.model,
+        ));
+        if let Some(recall) = onecontext_bootstrap.as_deref() {
+            system_prompt.push_str("\n\n## OneContext Recall\n");
+            system_prompt
+                .push_str("Use this as historical context from prior sessions when relevant:\n");
+            system_prompt.push_str(recall);
+        }
+        if let Some(skill_preflight) = skill_preflight.as_deref() {
+            system_prompt.push_str("\n\n## Preloaded Skills\n");
+            system_prompt.push_str(skill_preflight);
+        }
+        match engine
+            .maybe_build_honcho_context(&tid, stored_user_content)
+            .await
+        {
+            Ok(Some(honcho_context)) => {
+                system_prompt.push_str("\n\n## Cross-Session Memory\n");
+                system_prompt.push_str(&honcho_context);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(thread_id = %tid, error = %error, "failed to build Honcho context");
+            }
+        }
+        engine.emit_workflow_notice(
+            &tid,
+            "memory-consulted",
+            "Loaded persistent memory, user profile, and local skill paths for this turn.",
+            Some(format!(
+                "memory_dir={}; skills_dir={}",
+                memory_paths.memory_dir.display(),
+                skills_dir(&engine.data_dir).display()
+            )),
+        );
+        if skill_preflight.is_some() {
+            engine.emit_workflow_notice(
+                &tid,
+                "skill-preflight",
+                "Preloaded relevant local skills for this turn before tool execution.",
+                None,
+            );
+        }
+
+        let has_workspace_topology = engine.session_manager.read_workspace_topology().is_some();
+        let mut tools = get_available_tools(&config, &engine.data_dir, has_workspace_topology);
         if let Some(filter) = &task_tool_filter {
             tools = filter.filtered_tools(tools);
         }
@@ -315,6 +346,8 @@ impl<'a> SendMessageRunner<'a> {
             operator_model_summary,
             operational_context,
             learned_patterns,
+            continuity_summary: runtime_continuity.continuity_summary,
+            negative_constraints_context: runtime_continuity.negative_constraints_context,
             system_prompt,
             current_task_snapshot,
             is_durable_goal_task,

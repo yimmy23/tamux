@@ -33,7 +33,8 @@ impl<'a> SendMessageRunner<'a> {
             causal_guidance.as_deref(),
             self.learned_patterns.as_deref(),
             None,
-            None,
+            self.continuity_summary.as_deref(),
+            self.negative_constraints_context.as_deref(),
         );
         if let Some(recall) = self.onecontext_bootstrap.as_deref() {
             self.system_prompt.push_str("\n\n## OneContext Recall\n");

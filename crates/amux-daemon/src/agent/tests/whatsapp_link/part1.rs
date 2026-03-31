@@ -61,7 +61,9 @@ async fn remembers_recent_outbound_message_ids() {
 async fn reset_clears_runtime_state() {
     let runtime = WhatsAppLinkRuntime::new();
     runtime.start().await.expect("start should succeed");
-    runtime.broadcast_qr("QR-RESET".to_string(), Some(111)).await;
+    runtime
+        .broadcast_qr("QR-RESET".to_string(), Some(111))
+        .await;
     runtime
         .broadcast_linked(Some("+15551234567".to_string()))
         .await;
@@ -130,10 +132,8 @@ fn resolve_send_target_candidates_prefers_self_exact_jids_and_cross_namespace_fa
         "13383252336718:6@lid",
         "+48663977535",
     ]);
-    let own_exact_jids = collect_exact_jid_candidates(&[
-        "13383252336718:6@lid",
-        "48663977535:6@s.whatsapp.net",
-    ]);
+    let own_exact_jids =
+        collect_exact_jid_candidates(&["13383252336718:6@lid", "48663977535:6@s.whatsapp.net"]);
 
     assert_eq!(
         resolve_send_target_candidates(

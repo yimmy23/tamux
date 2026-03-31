@@ -1,7 +1,7 @@
 use super::*;
 
-mod events_connection;
 mod events_activity;
+mod events_connection;
 mod events_integrations;
 mod events_status;
 mod events_tasks;
@@ -199,12 +199,7 @@ impl TuiModel {
                 audit_id,
             } => {
                 self.handle_escalation_update_event(
-                    thread_id,
-                    from_level,
-                    to_level,
-                    reason,
-                    attempts,
-                    audit_id,
+                    thread_id, from_level, to_level, reason, attempts, audit_id,
                 );
             }
             ClientEvent::AnticipatoryItems(items) => {

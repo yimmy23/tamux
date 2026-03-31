@@ -1,7 +1,11 @@
 use super::*;
 
 impl AgentEngine {
-    pub(in crate::agent) async fn sync_goal_run_with_task(&self, goal_run_id: &str, task: &AgentTask) {
+    pub(in crate::agent) async fn sync_goal_run_with_task(
+        &self,
+        goal_run_id: &str,
+        task: &AgentTask,
+    ) {
         let mut maybe_updated = None;
         {
             let mut goal_runs = self.goal_runs.lock().await;

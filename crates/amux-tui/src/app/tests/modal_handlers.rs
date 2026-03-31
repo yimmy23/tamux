@@ -222,3 +222,42 @@ fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
     assert_eq!(model.settings.current_field_name(), "model");
     assert_eq!(model.settings.field_cursor(), 3);
 }
+
+#[test]
+fn subagent_inline_edit_does_not_sync_main_config() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.agent_config_raw = Some(serde_json::json!({}));
+
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        1,
+        "openai".to_string(),
+        "gpt-5.4".to_string(),
+    );
+    editor.name = "Draft".to_string();
+    model.subagents.editor = Some(editor);
+    model.settings.start_editing("subagent_name", "Draft");
+    model.settings.reduce(SettingsAction::InsertChar('X'));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model
+            .subagents
+            .editor
+            .as_ref()
+            .map(|editor| editor.name.as_str()),
+        Some("DraftX")
+    );
+    assert!(
+        daemon_rx.try_recv().is_err(),
+        "sub-agent field edits should stay local until Save"
+    );
+}

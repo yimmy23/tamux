@@ -190,3 +190,49 @@
         assert!(text.contains("> Model           my-model█"));
         assert!(!text.contains("> Provider        custom█"));
     }
+
+    #[test]
+    fn subagent_editor_shows_live_name_edit_buffer() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::SubAgents,
+        ));
+        settings.start_editing("subagent_name", "Draft Name");
+        let config = ConfigState::new();
+        let modal = ModalState::new();
+        let auth = crate::state::auth::AuthState::new();
+        let mut subagents = SubAgentsState::new();
+        let mut editor = crate::state::subagents::SubAgentEditorState::new(
+            None,
+            0,
+            "openai".to_string(),
+            "gpt-5.4".to_string(),
+        );
+        editor.name = "Old Name".to_string();
+        editor.field = crate::state::subagents::SubAgentEditorField::Name;
+        subagents.editor = Some(editor);
+        let concierge = crate::state::concierge::ConciergeState::new();
+        let tier = crate::state::tier::TierState::from_tier("power_user");
+        let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+        let lines = render_tab_content(
+            80,
+            &settings,
+            &config,
+            &modal,
+            &auth,
+            &subagents,
+            &concierge,
+            &tier,
+            &plugin_settings,
+            &ThemeTokens::default(),
+        );
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Draft Name█"));
+        assert!(!text.contains("Old Name"));
+    }

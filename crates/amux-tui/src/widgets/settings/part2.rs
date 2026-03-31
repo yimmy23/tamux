@@ -375,11 +375,10 @@ fn render_tab_content<'a>(
         SettingsTab::Gateway => render_gateway_tab(settings, config, modal, theme),
         SettingsTab::Auth => render_auth_tab(content_width, auth, theme),
         SettingsTab::Agent => render_agent_tab(settings, config, theme),
-        SettingsTab::SubAgents => render_subagents_tab(content_width, subagents, theme),
+        SettingsTab::SubAgents => render_subagents_tab(content_width, settings, subagents, theme),
         SettingsTab::Concierge => render_concierge_tab(settings, concierge, theme),
         SettingsTab::Features => render_features_tab(settings, config, tier, theme),
         SettingsTab::Advanced => render_advanced_tab(settings, config, theme),
         SettingsTab::Plugins => render_plugins_tab(settings, plugin_settings, content_width, theme),
     }
 }
-

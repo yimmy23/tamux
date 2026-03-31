@@ -169,6 +169,12 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
         let store = stores
             .entry(crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
             .or_default();
+        store.counter_who.current_focus = Some("Tool: read_file".to_string());
+        store.counter_who.correction_patterns = vec![crate::agent::episodic::CorrectionPattern {
+            pattern: "Inspect workspace state before retrying".to_string(),
+            correction_count: 2,
+            last_correction_at: 3,
+        }];
         store.counter_who.tried_approaches = VecDeque::from(vec![
             crate::agent::episodic::TriedApproach {
                 approach_hash: args_hash.clone(),
@@ -186,6 +192,25 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
         .into_iter()
         .collect();
     }
+    engine
+        .add_negative_constraint(crate::agent::episodic::NegativeConstraint {
+            id: "nk-policy-test-1".to_string(),
+            episode_id: None,
+            constraint_type: crate::agent::episodic::ConstraintType::RuledOut,
+            subject: "Investigate failure".to_string(),
+            solution_class: Some("recovery".to_string()),
+            description: "The old recovery path already failed twice.".to_string(),
+            confidence: 0.95,
+            state: crate::agent::episodic::ConstraintState::Dead,
+            evidence_count: 2,
+            direct_observation: true,
+            derived_from_constraint_ids: Vec::new(),
+            related_subject_tokens: vec!["investigate".to_string(), "failure".to_string()],
+            valid_until: Some(crate::agent::now_millis() + 60_000),
+            created_at: crate::agent::now_millis(),
+        })
+        .await
+        .expect("seed negative knowledge for policy prompt");
     {
         let mut awareness = engine.awareness.write().await;
         for ts in 1..=4 {
@@ -260,6 +285,32 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
         recorded.iter().any(|body| body
             .contains("tamux orchestrator should continue, pivot, escalate, or halt_retries")),
         "expected the policy checkpoint to issue the orchestrator policy evaluation prompt",
+    );
+    assert!(
+        recorded
+            .iter()
+            .any(|body| body.contains("## Continuity summary")),
+        "expected the policy prompt to include continuity summary context",
+    );
+    assert!(
+        recorded
+            .iter()
+            .any(|body| body.contains("Continuity summary")
+                && body.contains("Test goal")
+                && body.contains("Investigate failure")),
+        "expected the policy continuity summary to include explicit goal and task titles",
+    );
+    assert!(
+        recorded
+            .iter()
+            .any(|body| body.contains("## Ruled-out approaches")),
+        "expected the policy prompt to include ruled-out approaches context",
+    );
+    assert!(
+        recorded
+            .iter()
+            .any(|body| body.contains("The old recovery path already failed twice.")),
+        "expected the policy prompt to surface matching negative knowledge",
     );
     drop(recorded);
 

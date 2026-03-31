@@ -19,6 +19,8 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) operator_model_summary: Option<String>,
     pub(super) operational_context: Option<String>,
     pub(super) learned_patterns: Option<String>,
+    pub(super) continuity_summary: Option<String>,
+    pub(super) negative_constraints_context: Option<String>,
     pub(super) system_prompt: String,
     pub(super) current_task_snapshot: Option<AgentTask>,
     pub(super) is_durable_goal_task: bool,

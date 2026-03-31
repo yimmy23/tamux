@@ -16,6 +16,7 @@ pub(super) fn build_system_prompt(
     causal_guidance: Option<&str>,
     learned_patterns: Option<&str>,
     episodic_context: Option<&str>,
+    continuity_summary: Option<&str>,
     negative_constraints: Option<&str>,
 ) -> String {
     let mut prompt = String::new();
@@ -162,6 +163,13 @@ pub(super) fn build_system_prompt(
         if !ec.is_empty() {
             prompt.push_str("\n\n");
             prompt.push_str(ec);
+        }
+    }
+
+    if let Some(continuity) = continuity_summary {
+        if !continuity.is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(continuity);
         }
     }
 

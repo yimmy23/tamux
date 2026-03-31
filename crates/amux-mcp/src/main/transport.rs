@@ -5,7 +5,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::rpc::JsonRpcResponse;
 
-pub(super) async fn read_message(reader: &mut BufReader<tokio::io::Stdin>) -> Result<Option<String>> {
+pub(super) async fn read_message(
+    reader: &mut BufReader<tokio::io::Stdin>,
+) -> Result<Option<String>> {
     loop {
         let mut line = String::new();
         let n = reader
@@ -27,7 +29,10 @@ pub(super) async fn read_message(reader: &mut BufReader<tokio::io::Stdin>) -> Re
         }
 
         if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-            let length: usize = value.trim().parse().context("invalid Content-Length value")?;
+            let length: usize = value
+                .trim()
+                .parse()
+                .context("invalid Content-Length value")?;
 
             loop {
                 let mut header_line = String::new();

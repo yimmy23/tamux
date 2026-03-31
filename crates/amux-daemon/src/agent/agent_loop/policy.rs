@@ -176,6 +176,27 @@ async fn build_policy_context_for_tool_result(
         super::orchestrator_policy::TriggerOutcome::EvaluatePolicy(trigger) => trigger,
     };
 
+    let runtime_context_query = select_runtime_context_query(
+        task.goal_step_title
+            .as_deref()
+            .or(Some(task.title.as_str())),
+        goal_run.as_ref().map(|goal_run| goal_run.goal.as_str()),
+        None,
+    );
+    let runtime_work_scope = format_runtime_work_scope_label(
+        goal_run.as_ref().map(|goal_run| goal_run.title.as_str()),
+        task.goal_step_title.as_deref().or(goal_run
+            .as_ref()
+            .and_then(|goal_run| goal_run.current_step_title.as_deref())),
+        Some(task.title.as_str()),
+    );
+    let runtime_continuity = build_runtime_continuity_context(
+        engine,
+        runtime_work_scope.as_deref(),
+        runtime_context_query.as_deref(),
+    )
+    .await;
+
     let counter_who_context = {
         let scope_id = crate::agent::agent_identity::current_agent_scope_id();
         let stores = engine.episodic_store.read().await;
@@ -204,7 +225,9 @@ async fn build_policy_context_for_tool_result(
             current_retry_guard: Some(current_approach_hash.to_string()),
             recent_tool_outcomes: recent_tool_outcomes.to_vec(),
             awareness_summary,
+            continuity_summary: runtime_continuity.continuity_summary,
             counter_who_context,
+            negative_constraints_context: runtime_continuity.negative_constraints_context,
             self_assessment_summary: summarize_policy_self_assessment(&assessment),
             thread_context,
             recent_decision_summary: None,

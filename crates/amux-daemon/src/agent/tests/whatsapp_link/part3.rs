@@ -186,8 +186,7 @@ fn sidecar_launcher_rejects_non_node_compatible_programs() {
 
 #[test]
 fn sidecar_launcher_rejects_non_cjs_entrypoints() {
-    let err =
-        build_sidecar_launch_spec("node", Path::new("frontend/electron/whatsapp-bridge.mjs"))
-            .expect_err("non-cjs bridge paths must be rejected");
+    let err = build_sidecar_launch_spec("node", Path::new("frontend/electron/whatsapp-bridge.mjs"))
+        .expect_err("non-cjs bridge paths must be rejected");
     assert!(err.to_string().contains(".cjs"), "unexpected error: {err}");
 }

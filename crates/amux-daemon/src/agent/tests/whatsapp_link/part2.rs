@@ -235,7 +235,10 @@ async fn subscribe_snapshot_is_not_broadcast_to_existing_subscribers() {
     assert!(matches!(newcomer_event, WhatsAppLinkEvent::Status(_)));
 
     let duplicate = timeout(Duration::from_millis(75), existing.recv()).await;
-    assert!(duplicate.is_err(), "existing subscriber got duplicate status");
+    assert!(
+        duplicate.is_err(),
+        "existing subscriber got duplicate status"
+    );
 }
 
 #[tokio::test]
@@ -389,7 +392,10 @@ async fn recoverable_error_while_connected_keeps_connected_state() {
     match status_event {
         WhatsAppLinkEvent::Status(snapshot) => {
             assert_eq!(snapshot.state, "connected");
-            assert_eq!(snapshot.last_error.as_deref(), Some("transient decrypt warning"));
+            assert_eq!(
+                snapshot.last_error.as_deref(),
+                Some("transient decrypt warning")
+            );
         }
         other => panic!("expected status event, got {other:?}"),
     }

@@ -54,7 +54,11 @@ impl WhatsAppLinkRuntime {
         .await
     }
 
-    pub(super) async fn send_sidecar_command(&self, method: &str, params: serde_json::Value) -> Result<()> {
+    pub(super) async fn send_sidecar_command(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<()> {
         let mut inner = self.inner.lock().await;
         if inner.stopping {
             bail!("whatsapp link sidecar is stopping");

@@ -101,8 +101,18 @@ pub(crate) fn build_policy_eval_prompt(context: &PolicyEvaluationContext) -> Str
     ));
     prompt.push('\n');
     prompt.push_str(&format_policy_prompt_section(
+        "Continuity summary",
+        normalized_optional_text(&context.continuity_summary).as_deref(),
+    ));
+    prompt.push('\n');
+    prompt.push_str(&format_policy_prompt_section(
         "Counter-who context",
         normalized_optional_text(&context.counter_who_context).as_deref(),
+    ));
+    prompt.push('\n');
+    prompt.push_str(&format_policy_prompt_section(
+        "Ruled-out approaches",
+        normalized_optional_text(&context.negative_constraints_context).as_deref(),
     ));
     prompt.push('\n');
     prompt.push_str(&format_policy_prompt_section(

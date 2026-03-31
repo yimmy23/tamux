@@ -11,7 +11,7 @@ mod persistence;
 mod reporting;
 use helpers::{
     command_family, estimate_plan_success, estimated_success_probability,
-    pattern_family_from_factor, summarize_outcome, FamilyOutcomeSummary,
+    pattern_family_from_factor, summarize_outcome, FamilyOutcomeSummary, OutcomeSummary,
 };
 
 impl AgentEngine {

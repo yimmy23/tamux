@@ -1,5 +1,6 @@
 fn render_subagents_tab<'a>(
     content_width: u16,
+    settings: &'a SettingsState,
     subagents: &'a crate::state::subagents::SubAgentsState,
     theme: &ThemeTokens,
 ) -> Vec<Line<'a>> {
@@ -14,10 +15,31 @@ fn render_subagents_tab<'a>(
     lines.push(Line::raw(""));
 
     if let Some(editor) = subagents.editor.as_ref() {
-        let role_label = crate::state::subagents::find_role_preset(&editor.role)
+        let name_is_editing =
+            settings.is_editing() && settings.editing_field() == Some("subagent_name");
+        let role_is_editing =
+            settings.is_editing() && settings.editing_field() == Some("subagent_role");
+        let prompt_is_editing =
+            settings.is_editing() && settings.editing_field() == Some("subagent_system_prompt");
+        let name_value = if name_is_editing {
+            format!("{}\u{2588}", settings.edit_buffer())
+        } else {
+            editor.name.clone()
+        };
+        let role_value = if role_is_editing {
+            settings.edit_buffer().to_string()
+        } else {
+            editor.role.clone()
+        };
+        let prompt_value = if prompt_is_editing {
+            settings.edit_buffer().to_string()
+        } else {
+            editor.system_prompt.clone()
+        };
+        let role_label = crate::state::subagents::find_role_preset(&role_value)
             .map(|preset| preset.label)
             .unwrap_or_else(|| {
-                if editor.role.trim().is_empty() {
+                if role_value.trim().is_empty() {
                     "None"
                 } else {
                     "Custom"
@@ -51,7 +73,7 @@ fn render_subagents_tab<'a>(
                 crate::state::subagents::SubAgentEditorField::Name
             ),
             "Name",
-            editor.name.clone(),
+            name_value,
         ));
         lines.push(field_line(
             matches!(
@@ -85,51 +107,95 @@ fn render_subagents_tab<'a>(
             "Role",
             format!(
                 "{role_label} ({})",
-                if editor.role.is_empty() {
+                if role_value.is_empty() {
                     "none"
                 } else {
-                    &editor.role
+                    &role_value
                 }
             ),
         ));
         lines.push(Line::raw(""));
-        lines.push(Line::from(vec![
-            Span::styled(
-                if matches!(
-                    editor.field,
-                    crate::state::subagents::SubAgentEditorField::SystemPrompt
-                ) {
-                    "> "
-                } else {
-                    "  "
-                },
-                if matches!(
-                    editor.field,
-                    crate::state::subagents::SubAgentEditorField::SystemPrompt
-                ) {
-                    theme.fg_active
-                } else {
-                    theme.fg_dim
-                },
-            ),
-            Span::styled("System Prompt", theme.fg_dim),
-        ]));
-        for line in wrap_text(
-            if editor.system_prompt.trim().is_empty() {
-                "Optional override. Use Enter to edit."
-            } else {
-                &editor.system_prompt
-            },
-            (content_width as usize).saturating_sub(4).max(20),
-        ) {
+        if prompt_is_editing && settings.is_textarea() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if matches!(
+                        editor.field,
+                        crate::state::subagents::SubAgentEditorField::SystemPrompt
+                    ) {
+                        "> "
+                    } else {
+                        "  "
+                    },
+                    if matches!(
+                        editor.field,
+                        crate::state::subagents::SubAgentEditorField::SystemPrompt
+                    ) {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
+                Span::styled("System Prompt", theme.fg_dim),
+                Span::styled(" [Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
+            ]));
             lines.push(Line::from(Span::styled(
-                format!("    {line}"),
-                if editor.system_prompt.trim().is_empty() {
-                    theme.fg_dim
-                } else {
-                    Style::default().fg(Color::White)
-                },
+                "  ╭──────────────────────────────────────────╮",
+                theme.fg_dim,
             )));
+            for (idx, buf_line) in settings.edit_buffer().split('\n').enumerate() {
+                let rendered = if idx == settings.edit_cursor_line_col().0 {
+                    render_edit_line_with_cursor(buf_line, settings.edit_cursor_line_col().1)
+                } else {
+                    buf_line.to_string()
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("  │ ", theme.fg_dim),
+                    Span::styled(rendered, theme.fg_active),
+                ]));
+            }
+            lines.push(Line::from(Span::styled(
+                "  ╰──────────────────────────────────────────╯",
+                theme.fg_dim,
+            )));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if matches!(
+                        editor.field,
+                        crate::state::subagents::SubAgentEditorField::SystemPrompt
+                    ) {
+                        "> "
+                    } else {
+                        "  "
+                    },
+                    if matches!(
+                        editor.field,
+                        crate::state::subagents::SubAgentEditorField::SystemPrompt
+                    ) {
+                        theme.fg_active
+                    } else {
+                        theme.fg_dim
+                    },
+                ),
+                Span::styled("System Prompt", theme.fg_dim),
+            ]));
+            for line in wrap_text(
+                if prompt_value.trim().is_empty() {
+                    "Optional override. Use Enter to edit."
+                } else {
+                    &prompt_value
+                },
+                (content_width as usize).saturating_sub(4).max(20),
+            ) {
+                lines.push(Line::from(Span::styled(
+                    format!("    {line}"),
+                    if prompt_value.trim().is_empty() {
+                        theme.fg_dim
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                )));
+            }
         }
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
@@ -323,4 +389,3 @@ fn render_subagents_tab<'a>(
 
     lines
 }
-

@@ -83,8 +83,16 @@ pub(super) fn policy_eval_context() -> PolicyEvaluationContext {
             "Short-term tool success rate dropped and repeated failures cluster on the same path."
                 .to_string(),
         ),
+        continuity_summary: Some(
+            "Carry forward the current bash-focused debugging thread and avoid the ruled-out sync path."
+                .to_string(),
+        ),
         counter_who_context: Some(
             "Counter-who detected the same failing bash approach three times.".to_string(),
+        ),
+        negative_constraints_context: Some(
+            "## Ruled-Out Approaches (Negative Knowledge)\n- Dead: retrying the old sync path keeps failing."
+                .to_string(),
         ),
         self_assessment_summary: Some(
             "Negative momentum suggests the current strategy is no longer productive.".to_string(),

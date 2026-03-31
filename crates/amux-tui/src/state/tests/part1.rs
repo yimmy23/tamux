@@ -352,4 +352,3 @@ fn undo_restores_previous_state() {
     state.reduce(InputAction::Undo);
     assert_eq!(state.buffer(), "");
 }
-

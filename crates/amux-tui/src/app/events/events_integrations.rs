@@ -29,7 +29,9 @@ impl TuiModel {
         entries: Vec<crate::state::SubAgentEntry>,
     ) {
         self.subagents
-            .reduce(crate::state::subagents::SubAgentsAction::ListReceived(entries));
+            .reduce(crate::state::subagents::SubAgentsAction::ListReceived(
+                entries,
+            ));
     }
 
     pub(in crate::app) fn handle_subagent_updated_event(
@@ -42,7 +44,9 @@ impl TuiModel {
 
     pub(in crate::app) fn handle_subagent_removed_event(&mut self, sub_agent_id: String) {
         self.subagents
-            .reduce(crate::state::subagents::SubAgentsAction::Removed(sub_agent_id));
+            .reduce(crate::state::subagents::SubAgentsAction::Removed(
+                sub_agent_id,
+            ));
     }
 
     pub(in crate::app) fn handle_concierge_config_event(&mut self, raw: Value) {
@@ -138,7 +142,9 @@ impl TuiModel {
             }
         }
 
-        if self.chat.active_thread_id().is_none() || self.chat.active_thread_id() != Some("concierge") {
+        if self.chat.active_thread_id().is_none()
+            || self.chat.active_thread_id() != Some("concierge")
+        {
             self.chat
                 .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
             self.send_daemon_command(DaemonCommand::RequestThread("concierge".to_string()));
@@ -182,12 +188,11 @@ impl TuiModel {
         self.plugin_settings.loading = false;
     }
 
-    pub(in crate::app) fn handle_plugin_get_event(
-        &mut self,
-        settings_schema: Option<String>,
-    ) {
+    pub(in crate::app) fn handle_plugin_get_event(&mut self, settings_schema: Option<String>) {
         if let Some(schema_json) = settings_schema {
-            if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&schema_json) {
+            if let Ok(map) =
+                serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&schema_json)
+            {
                 self.plugin_settings.schema_fields = map
                     .into_iter()
                     .map(|(key, val)| crate::state::settings::PluginSchemaField {
@@ -206,10 +211,7 @@ impl TuiModel {
                             .get("required")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false),
-                        secret: val
-                            .get("secret")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
+                        secret: val.get("secret").and_then(|v| v.as_bool()).unwrap_or(false),
                         options: val.get("options").and_then(|v| v.as_array()).map(|arr| {
                             arr.iter()
                                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -245,9 +247,7 @@ impl TuiModel {
             if self.settings.active_tab() == settings::SettingsTab::Plugins {
                 self.send_daemon_command(DaemonCommand::PluginList);
                 if let Some(plugin) = self.plugin_settings.selected_plugin() {
-                    self.send_daemon_command(DaemonCommand::PluginGetSettings(
-                        plugin.name.clone(),
-                    ));
+                    self.send_daemon_command(DaemonCommand::PluginGetSettings(plugin.name.clone()));
                 }
             }
         } else {

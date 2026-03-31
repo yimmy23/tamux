@@ -2,10 +2,10 @@
 
 use super::*;
 
-#[path = "goal_planner/progress.rs"]
-mod progress_impl;
 #[path = "goal_planner/finalization.rs"]
 mod finalization_impl;
+#[path = "goal_planner/progress.rs"]
+mod progress_impl;
 
 impl AgentEngine {
     pub(super) async fn plan_goal_run(&self, goal_run_id: &str) -> Result<()> {
@@ -437,7 +437,6 @@ impl AgentEngine {
 
         Ok(())
     }
-
 }
 
 #[cfg(test)]

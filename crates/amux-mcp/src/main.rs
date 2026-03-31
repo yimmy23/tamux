@@ -29,12 +29,12 @@ use tokio::time::{timeout, Duration};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 
+#[path = "main/agent_tools.rs"]
+mod agent_tools;
 #[path = "main/daemon.rs"]
 mod daemon;
 #[path = "main/daemon_tools.rs"]
 mod daemon_tools;
-#[path = "main/agent_tools.rs"]
-mod agent_tools;
 #[path = "main/rpc.rs"]
 mod rpc;
 #[path = "main/skills.rs"]
@@ -48,11 +48,10 @@ mod utils;
 
 use agent_tools::{
     tool_activate_generated_tool, tool_control_goal_run, tool_generate_soc2_artifact,
-    tool_get_causal_trace_report, tool_get_collaboration_sessions,
-    tool_get_counterfactual_report, tool_get_goal_run, tool_get_memory_provenance_report,
-    tool_get_operator_model, tool_get_provenance_report, tool_list_generated_tools,
-    tool_list_goal_runs, tool_promote_generated_tool, tool_run_generated_tool,
-    tool_synthesize_tool,
+    tool_get_causal_trace_report, tool_get_collaboration_sessions, tool_get_counterfactual_report,
+    tool_get_goal_run, tool_get_memory_provenance_report, tool_get_operator_model,
+    tool_get_provenance_report, tool_list_generated_tools, tool_list_goal_runs,
+    tool_promote_generated_tool, tool_run_generated_tool, tool_synthesize_tool,
 };
 use daemon::{connect_daemon, daemon_roundtrip};
 use daemon_tools::{
@@ -73,7 +72,6 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 #[allow(dead_code)]
 const INTERNAL_ERROR: i64 = -32603;
-
 
 // ---------------------------------------------------------------------------
 // Tool dispatch
@@ -447,8 +445,6 @@ async fn tool_start_goal_run(args: &Value) -> Result<Value> {
     }
 }
 
-
-
 async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcResponse {
     let params = match params {
         Some(p) => p,
@@ -472,7 +468,6 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
     let result = handle_tool_call(&tool_name, &arguments).await;
     JsonRpcResponse::success(id, result)
 }
-
 
 // ---------------------------------------------------------------------------
 // Main loop

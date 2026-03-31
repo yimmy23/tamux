@@ -11,7 +11,9 @@ fn policy_eval_prompt_builder_includes_recent_context_sections() {
         prompt.contains("bash => failure: Retrying the same test command still exits with code 1.")
     );
     assert!(prompt.contains("Awareness summary"));
+    assert!(prompt.contains("Continuity summary"));
     assert!(prompt.contains("Counter-who context"));
+    assert!(prompt.contains("Ruled-out approaches"));
     assert!(prompt.contains("Self-assessment summary"));
     assert!(prompt.contains("Thread context"));
     assert!(prompt.contains("Recent policy decision summary"));
@@ -54,7 +56,9 @@ fn policy_eval_prompt_normalizes_and_truncates_free_form_fields() {
         "line one\nline two\n{}",
         "extra context ".repeat(30),
     ));
+    context.continuity_summary = Some("  carry\n\nforward  ".to_string());
     context.counter_who_context = Some("  first line\n\nsecond line  ".to_string());
+    context.negative_constraints_context = Some(" ruled\n\nout ".to_string());
     context.self_assessment_summary = Some("alpha\nbeta\ngamma".to_string());
     context.thread_context = Some(" operator request\nwith details ".to_string());
     context.recent_decision_summary = Some(format!("{}", "decision ".repeat(40)));
@@ -65,7 +69,9 @@ fn policy_eval_prompt_normalizes_and_truncates_free_form_fields() {
     assert!(prompt.contains("bash script => failure retry:"));
     assert!(!prompt.contains("line one\nline two"));
     assert!(prompt.contains("line one line two"));
+    assert!(prompt.contains("carry forward"));
     assert!(prompt.contains("first line second line"));
+    assert!(prompt.contains("ruled out"));
     assert!(prompt.contains("alpha beta gamma"));
     assert!(prompt.contains("operator request with details"));
     assert!(prompt.contains("..."));
@@ -76,7 +82,9 @@ fn policy_eval_prompt_keeps_required_sections_after_normalization() {
     let mut context = policy_eval_context();
     context.recent_tool_outcomes.clear();
     context.awareness_summary = Some("\n\n".to_string());
+    context.continuity_summary = Some("continuity\nsummary".to_string());
     context.counter_who_context = Some("counter\nwho".to_string());
+    context.negative_constraints_context = Some("negative\nconstraints".to_string());
     context.self_assessment_summary = Some("self\nassessment".to_string());
     context.thread_context = Some("thread\ncontext".to_string());
     context.recent_decision_summary = Some("recent\ndecision".to_string());
@@ -86,7 +94,9 @@ fn policy_eval_prompt_keeps_required_sections_after_normalization() {
     assert!(prompt.contains("## Trigger context"));
     assert!(prompt.contains("## Recent tool outcomes\n- none"));
     assert!(prompt.contains("## Awareness summary\nnone"));
+    assert!(prompt.contains("## Continuity summary\ncontinuity summary"));
     assert!(prompt.contains("## Counter-who context\ncounter who"));
+    assert!(prompt.contains("## Ruled-out approaches\nnegative constraints"));
     assert!(prompt.contains("## Self-assessment summary\nself assessment"));
     assert!(prompt.contains("## Thread context\nthread context"));
     assert!(prompt.contains("## Recent policy decision summary\nrecent decision"));

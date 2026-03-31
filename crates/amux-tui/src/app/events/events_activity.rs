@@ -359,7 +359,8 @@ impl TuiModel {
             .active_thread_id()
             .map(str::to_string)
             .unwrap_or_else(|| "local-explain".to_string());
-        let content = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
+        let content =
+            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
         self.chat.reduce(chat::ChatAction::AppendMessage {
             thread_id,
             message: chat::AgentMessage {
@@ -371,7 +372,10 @@ impl TuiModel {
         self.status_line = "Explainability result received".to_string();
     }
 
-    pub(in crate::app) fn handle_divergent_session_started_event(&mut self, payload: serde_json::Value) {
+    pub(in crate::app) fn handle_divergent_session_started_event(
+        &mut self,
+        payload: serde_json::Value,
+    ) {
         let session_id = payload
             .get("session_id")
             .and_then(|v| v.as_str())
@@ -405,7 +409,8 @@ impl TuiModel {
             .active_thread_id()
             .map(str::to_string)
             .unwrap_or_else(|| "local-divergent".to_string());
-        let content = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
+        let content =
+            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
         self.chat.reduce(chat::ChatAction::AppendMessage {
             thread_id,
             message: chat::AgentMessage {

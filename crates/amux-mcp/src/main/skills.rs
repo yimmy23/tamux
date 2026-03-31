@@ -43,7 +43,10 @@ pub(super) fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Res
             continue;
         }
 
-        let file_name = path.file_name().and_then(|value| value.to_str()).unwrap_or("");
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
         let include = file_name.eq_ignore_ascii_case("SKILL.md")
             || (path
                 .extension()

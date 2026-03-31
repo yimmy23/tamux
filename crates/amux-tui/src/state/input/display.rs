@@ -247,5 +247,4 @@ impl InputState {
 
         self.buffer_cache.len()
     }
-
 }
