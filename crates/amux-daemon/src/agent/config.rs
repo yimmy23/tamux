@@ -436,8 +436,10 @@ impl AgentEngine {
                 config.providers.get(def.id)
             {
                 if def.id == "github-copilot" {
-                    let resolved =
-                        super::copilot_auth::resolve_github_copilot_auth(&pc.api_key, pc.auth_source);
+                    let resolved = super::copilot_auth::resolve_github_copilot_auth(
+                        &pc.api_key,
+                        pc.auth_source,
+                    );
                     (
                         resolved.is_some(),
                         resolved
@@ -576,13 +578,7 @@ mod tests {
     use super::*;
     use crate::session_manager::SessionManager;
     use std::ffi::OsString;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
-
-    fn copilot_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
 
     struct EnvGuard {
         saved: Vec<(&'static str, Option<OsString>)>,
@@ -898,7 +894,7 @@ mod tests {
 
     #[tokio::test]
     async fn copilot_auth_states_include_provider_row_when_unconfigured() {
-        let _lock = copilot_env_lock();
+        let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
         let _guard = EnvGuard::new(&[
             "TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI",
             "TAMUX_PROVIDER_AUTH_DB_PATH",

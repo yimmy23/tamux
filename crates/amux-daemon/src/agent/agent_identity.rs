@@ -86,9 +86,9 @@ fn spawned_persona(seed: &str) -> &'static PersonaSeed {
 
 fn persona_by_alias(alias: &str) -> Option<&'static PersonaSeed> {
     let normalized = alias.trim().to_ascii_lowercase();
-    SPAWNED_PERSONAS.iter().find(|persona| {
-        normalized == persona.id || normalized == persona.name.to_ascii_lowercase()
-    })
+    SPAWNED_PERSONAS
+        .iter()
+        .find(|persona| normalized == persona.id || normalized == persona.name.to_ascii_lowercase())
 }
 
 pub(super) fn canonical_agent_id(alias: &str) -> &'static str {

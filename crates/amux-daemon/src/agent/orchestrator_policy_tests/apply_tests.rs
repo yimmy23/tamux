@@ -1,7 +1,7 @@
 use crate::agent::types::{AgentEvent, MessageRole, TaskStatus};
 
-use super::common::*;
 use super::super::*;
+use super::common::*;
 
 #[tokio::test]
 async fn apply_halt_retries_blocks_same_pattern_retry_in_same_thread() {
@@ -45,7 +45,13 @@ async fn apply_halt_retries_blocks_same_pattern_retry_in_same_thread() {
         .expect("halt retries should apply");
 
     let outcome = engine
-        .enforce_orchestrator_retry_guard(thread_id, Some("task-1"), &scope, "approach-hash-1", 1_010)
+        .enforce_orchestrator_retry_guard(
+            thread_id,
+            Some("task-1"),
+            &scope,
+            "approach-hash-1",
+            1_010,
+        )
         .await
         .expect("retry guard should be enforced");
 
@@ -94,8 +100,14 @@ async fn apply_fresh_halt_retries_marks_task_as_failed_immediately() {
     let task = tasks.iter().find(|task| task.id == "task-1").expect("task");
     assert_eq!(task.status, TaskStatus::Failed);
     assert_eq!(task.retry_count, task.max_retries);
-    assert_eq!(task.blocked_reason.as_deref(), Some("policy halted repeated retry"));
-    assert_eq!(task.last_error.as_deref(), Some("policy halted repeated retry"));
+    assert_eq!(
+        task.blocked_reason.as_deref(),
+        Some("policy halted repeated retry")
+    );
+    assert_eq!(
+        task.last_error.as_deref(),
+        Some("policy halted repeated retry")
+    );
     assert!(task.completed_at.is_some());
     assert!(task
         .logs
@@ -146,7 +158,9 @@ async fn apply_pivot_routes_into_existing_strategy_refresh_behavior() {
         .find(|message| {
             message.role == MessageRole::System
                 && message.content.contains("Investigate failure")
-                && message.content.contains("Inspect state before running the same command again")
+                && message
+                    .content
+                    .contains("Inspect state before running the same command again")
         })
         .expect("strategy refresh prompt");
     assert!(injected.content.contains("Fallback strategy"));
@@ -199,14 +213,16 @@ async fn apply_escalate_routes_into_existing_escalation_behavior() {
     for _ in 0..4 {
         let event = events.recv().await.expect("event");
         match event {
-            AgentEvent::EscalationUpdate { thread_id: event_thread_id, .. }
-                if event_thread_id == thread_id =>
-            {
+            AgentEvent::EscalationUpdate {
+                thread_id: event_thread_id,
+                ..
+            } if event_thread_id == thread_id => {
                 saw_escalation_update = true;
             }
-            AgentEvent::AuditAction { thread_id: Some(event_thread_id), .. }
-                if event_thread_id == thread_id =>
-            {
+            AgentEvent::AuditAction {
+                thread_id: Some(event_thread_id),
+                ..
+            } if event_thread_id == thread_id => {
                 saw_audit_action = true;
             }
             _ => {}
@@ -286,8 +302,15 @@ async fn apply_pivot_uses_actual_trigger_context_when_refreshing_strategy() {
     let injected = thread
         .messages
         .iter()
-        .find(|message| message.role == MessageRole::System && message.content.contains("Re-check state before doing more work."))
+        .find(|message| {
+            message.role == MessageRole::System
+                && message
+                    .content
+                    .contains("Re-check state before doing more work.")
+        })
         .expect("strategy refresh prompt");
-    assert!(injected.content.contains("Spawn a sub-agent with expertise"));
+    assert!(injected
+        .content
+        .contains("Spawn a sub-agent with expertise"));
     assert!(!injected.content.contains("Disable the following tools"));
 }

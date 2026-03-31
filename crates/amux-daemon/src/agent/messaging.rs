@@ -16,24 +16,17 @@ impl AgentEngine {
             message_ids.iter().map(String::as_str).collect();
 
         let removed = {
-            let mut threads = self.threads.write().await;
-            if let Some(thread) = threads.get_mut(thread_id) {
-                let before = thread.messages.len();
-                thread
-                    .messages
-                    .retain(|msg| !id_set.contains(msg.id.as_str()));
-                let removed = before.saturating_sub(thread.messages.len());
-                if removed > 0 {
-                    thread.updated_at = now_millis();
-                    thread.total_input_tokens =
-                        thread.messages.iter().map(|m| m.input_tokens).sum();
-                    thread.total_output_tokens =
-                        thread.messages.iter().map(|m| m.output_tokens).sum();
-                }
-                removed
-            } else {
-                0
-            }
+            let threads = self.threads.read().await;
+            threads
+                .get(thread_id)
+                .map(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .filter(|message| id_set.contains(message.id.as_str()))
+                        .count()
+                })
+                .unwrap_or(0)
         };
 
         // Also delete from SQLite (by synthetic ID or direct ID).
@@ -46,13 +39,48 @@ impl AgentEngine {
 
         let total = removed.max(db_removed);
         if total > 0 {
-            // Re-persist the thread to sync SQLite with in-memory state.
-            self.persist_thread_by_id(thread_id).await;
+            let existing_pinned = {
+                let threads = self.threads.read().await;
+                threads.get(thread_id).map(|thread| thread.pinned)
+            };
+
+            if let Some(mut restored) = self.restore_thread_from_db(thread_id).await {
+                if let Some(pinned) = existing_pinned {
+                    restored.pinned = pinned;
+                }
+
+                let mut threads = self.threads.write().await;
+                threads.insert(thread_id.to_string(), restored);
+            } else {
+                let mut threads = self.threads.write().await;
+                if let Some(thread) = threads.get_mut(thread_id) {
+                    thread
+                        .messages
+                        .retain(|message| !id_set.contains(message.id.as_str()));
+                    thread.updated_at = now_millis();
+                    thread.total_input_tokens = thread
+                        .messages
+                        .iter()
+                        .map(|message| message.input_tokens)
+                        .sum();
+                    thread.total_output_tokens = thread
+                        .messages
+                        .iter()
+                        .map(|message| message.output_tokens)
+                        .sum();
+                }
+            }
+
+            self.repair_tool_call_sequence(thread_id).await;
+            self.clear_thread_continuation_state(thread_id).await;
+            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                thread_id: thread_id.to_string(),
+            });
             tracing::info!(
                 thread_id,
                 in_memory = removed,
                 sqlite = db_removed,
-                "deleted messages and persisted"
+                "deleted messages and reconciled thread state"
             );
         }
         Ok(total)
@@ -270,13 +298,11 @@ impl AgentEngine {
 
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
-        Ok(
-            Box::pin(self.send_message_inner(
-                thread_id, content, None, None, None, None, None, true,
-            ))
-                .await?
-                .thread_id,
+        Ok(Box::pin(
+            self.send_message_inner(thread_id, content, None, None, None, None, None, true),
         )
+        .await?
+        .thread_id)
     }
 
     pub async fn send_message_with_ephemeral_user_override(
@@ -286,20 +312,18 @@ impl AgentEngine {
         llm_user_override: &str,
         stream_chunk_timeout: std::time::Duration,
     ) -> Result<String> {
-        Ok(
-            Box::pin(self.send_message_inner(
-                thread_id,
-                stored_content,
-                None,
-                None,
-                None,
-                Some(llm_user_override),
-                Some(stream_chunk_timeout),
-                true,
-            ))
-            .await?
-            .thread_id,
-        )
+        Ok(Box::pin(self.send_message_inner(
+            thread_id,
+            stored_content,
+            None,
+            None,
+            None,
+            Some(llm_user_override),
+            Some(stream_chunk_timeout),
+            true,
+        ))
+        .await?
+        .thread_id)
     }
 
     pub async fn send_message_with_session(
@@ -308,20 +332,18 @@ impl AgentEngine {
         preferred_session_hint: Option<&str>,
         content: &str,
     ) -> Result<String> {
-        Ok(
-            Box::pin(self.send_message_inner(
-                thread_id,
-                content,
-                None,
-                preferred_session_hint,
-                None,
-                None,
-                None,
-                true,
-            ))
-            .await?
-            .thread_id,
-        )
+        Ok(Box::pin(self.send_message_inner(
+            thread_id,
+            content,
+            None,
+            preferred_session_hint,
+            None,
+            None,
+            None,
+            true,
+        ))
+        .await?
+        .thread_id)
     }
 
     pub(super) async fn send_task_message(
@@ -678,7 +700,10 @@ mod tests {
                         .nth(1)
                         .unwrap_or_default()
                         .to_string();
-                    recorded_bodies.lock().expect("lock request log").push_back(body);
+                    recorded_bodies
+                        .lock()
+                        .expect("lock request log")
+                        .push_back(body);
 
                     let response = concat!(
                         "HTTP/1.1 200 OK\r\n",
@@ -719,7 +744,6 @@ mod tests {
             .unwrap_or(agent_loop_source.as_str());
 
         for required in [
-            "Box::pin(self.send_message_inner(\n                thread_id, content, None, None, None, None, None, true,\n            ))",
             "Box::pin(self.send_message_inner(",
             "let target_thread_id = Box::pin(self.send_message_inner(",
         ] {
@@ -798,6 +822,437 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_continuation";
+
+        let assistant_id = "assistant-anchor".to_string();
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Continuation".to_string(),
+                    created_at: 1,
+                    updated_at: 4,
+                    pinned: false,
+                    upstream_thread_id: Some("upstream-thread-1".to_string()),
+                    upstream_transport: Some(ApiTransport::Responses),
+                    upstream_provider: Some("github-copilot".to_string()),
+                    upstream_model: Some("gpt-5.4".to_string()),
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("first", 1),
+                        AgentMessage {
+                            id: assistant_id.clone(),
+                            role: MessageRole::Assistant,
+                            content: "answer".to_string(),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_arguments: None,
+                            tool_status: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: Some("github-copilot".to_string()),
+                            model: Some("gpt-5.4".to_string()),
+                            api_transport: Some(ApiTransport::Responses),
+                            response_id: Some("resp_123".to_string()),
+                            reasoning: None,
+                            timestamp: 2,
+                        },
+                        AgentMessage::user("continue", 3),
+                    ],
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        engine
+            .delete_thread_messages(thread_id, std::slice::from_ref(&assistant_id))
+            .await
+            .expect("delete should succeed");
+
+        let threads = engine.threads.read().await;
+        let thread = threads.get(thread_id).expect("thread should exist");
+        assert_eq!(thread.messages.len(), 2);
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.response_id.is_none()));
+        assert!(thread.upstream_thread_id.is_none());
+        assert!(thread.upstream_transport.is_none());
+        assert!(thread.upstream_provider.is_none());
+        assert!(thread.upstream_model.is_none());
+        drop(threads);
+
+        let persisted = engine
+            .history
+            .list_messages(thread_id, Some(10))
+            .await
+            .unwrap();
+        assert_eq!(persisted.len(), 2);
+        assert!(persisted.iter().all(|message| {
+            !message
+                .metadata_json
+                .as_deref()
+                .unwrap_or_default()
+                .contains("resp_123")
+        }));
+    }
+
+    #[tokio::test]
+    async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_orphans";
+
+        let assistant_id = "assistant-tool-turn".to_string();
+        let tool_a_id = "tool-a".to_string();
+        let tool_b_id = "tool-b".to_string();
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Orphans".to_string(),
+                    created_at: 1,
+                    updated_at: 6,
+                    pinned: false,
+                    upstream_thread_id: Some("upstream-thread-2".to_string()),
+                    upstream_transport: Some(ApiTransport::Responses),
+                    upstream_provider: Some("github-copilot".to_string()),
+                    upstream_model: Some("gpt-5.4".to_string()),
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("start", 1),
+                        AgentMessage {
+                            id: assistant_id.clone(),
+                            role: MessageRole::Assistant,
+                            content: "checking".to_string(),
+                            tool_calls: Some(vec![
+                                ToolCall {
+                                    id: "call-a".to_string(),
+                                    function: ToolFunction {
+                                        name: "tool_a".to_string(),
+                                        arguments: "{}".to_string(),
+                                    },
+                                },
+                                ToolCall {
+                                    id: "call-b".to_string(),
+                                    function: ToolFunction {
+                                        name: "tool_b".to_string(),
+                                        arguments: "{}".to_string(),
+                                    },
+                                },
+                            ]),
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_arguments: None,
+                            tool_status: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: Some("github-copilot".to_string()),
+                            model: Some("gpt-5.4".to_string()),
+                            api_transport: Some(ApiTransport::Responses),
+                            response_id: Some("resp_456".to_string()),
+                            reasoning: None,
+                            timestamp: 2,
+                        },
+                        AgentMessage {
+                            id: tool_a_id.clone(),
+                            role: MessageRole::Tool,
+                            content: "partial".to_string(),
+                            tool_calls: None,
+                            tool_call_id: Some("call-a".to_string()),
+                            tool_name: Some("tool_a".to_string()),
+                            tool_arguments: Some("{}".to_string()),
+                            tool_status: Some("done".to_string()),
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: None,
+                            model: None,
+                            api_transport: None,
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 3,
+                        },
+                        AgentMessage {
+                            id: tool_b_id.clone(),
+                            role: MessageRole::Tool,
+                            content: "done".to_string(),
+                            tool_calls: None,
+                            tool_call_id: Some("call-b".to_string()),
+                            tool_name: Some("tool_b".to_string()),
+                            tool_arguments: Some("{}".to_string()),
+                            tool_status: Some("done".to_string()),
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: None,
+                            model: None,
+                            api_transport: None,
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 4,
+                        },
+                        AgentMessage {
+                            id: "assistant-final".to_string(),
+                            role: MessageRole::Assistant,
+                            content: "final answer".to_string(),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_arguments: None,
+                            tool_status: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: Some("github-copilot".to_string()),
+                            model: Some("gpt-5.4".to_string()),
+                            api_transport: Some(ApiTransport::Responses),
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 5,
+                        },
+                    ],
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        engine
+            .delete_thread_messages(thread_id, std::slice::from_ref(&assistant_id))
+            .await
+            .expect("delete should succeed");
+
+        let threads = engine.threads.read().await;
+        let thread = threads.get(thread_id).expect("thread should exist");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].content, "start");
+        assert_eq!(thread.messages[1].content, "final answer");
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.role != MessageRole::Tool));
+        drop(threads);
+
+        let persisted = engine
+            .history
+            .list_messages(thread_id, Some(10))
+            .await
+            .unwrap();
+        assert_eq!(persisted.len(), 2);
+        assert!(persisted.iter().all(|message| message.role != "tool"));
+    }
+
+    #[tokio::test]
+    async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_delete() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_incomplete_tool_turn";
+
+        let tool_result_a_id = "tool-result-a".to_string();
+        let tool_result_b_id = "tool-result-b".to_string();
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Incomplete tool turn".to_string(),
+                    created_at: 1,
+                    updated_at: 6,
+                    pinned: false,
+                    upstream_thread_id: Some("upstream-thread-3".to_string()),
+                    upstream_transport: Some(ApiTransport::Responses),
+                    upstream_provider: Some("github-copilot".to_string()),
+                    upstream_model: Some("gpt-5.4".to_string()),
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("start", 1),
+                        AgentMessage {
+                            id: "assistant-tool-turn".to_string(),
+                            role: MessageRole::Assistant,
+                            content: "checking".to_string(),
+                            tool_calls: Some(vec![
+                                ToolCall {
+                                    id: "call-a".to_string(),
+                                    function: ToolFunction {
+                                        name: "tool_a".to_string(),
+                                        arguments: "{}".to_string(),
+                                    },
+                                },
+                                ToolCall {
+                                    id: "call-b".to_string(),
+                                    function: ToolFunction {
+                                        name: "tool_b".to_string(),
+                                        arguments: "{}".to_string(),
+                                    },
+                                },
+                            ]),
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_arguments: None,
+                            tool_status: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: Some("github-copilot".to_string()),
+                            model: Some("gpt-5.4".to_string()),
+                            api_transport: Some(ApiTransport::Responses),
+                            response_id: Some("resp_789".to_string()),
+                            reasoning: None,
+                            timestamp: 2,
+                        },
+                        AgentMessage {
+                            id: tool_result_a_id.clone(),
+                            role: MessageRole::Tool,
+                            content: "result a".to_string(),
+                            tool_calls: None,
+                            tool_call_id: Some("call-a".to_string()),
+                            tool_name: Some("tool_a".to_string()),
+                            tool_arguments: Some("{}".to_string()),
+                            tool_status: Some("done".to_string()),
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: None,
+                            model: None,
+                            api_transport: None,
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 3,
+                        },
+                        AgentMessage {
+                            id: tool_result_b_id.clone(),
+                            role: MessageRole::Tool,
+                            content: "result b".to_string(),
+                            tool_calls: None,
+                            tool_call_id: Some("call-b".to_string()),
+                            tool_name: Some("tool_b".to_string()),
+                            tool_arguments: Some("{}".to_string()),
+                            tool_status: Some("done".to_string()),
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: None,
+                            model: None,
+                            api_transport: None,
+                            response_id: None,
+                            reasoning: None,
+                            timestamp: 4,
+                        },
+                        AgentMessage::user("continue", 5),
+                    ],
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        engine
+            .delete_thread_messages(thread_id, std::slice::from_ref(&tool_result_b_id))
+            .await
+            .expect("delete should succeed");
+
+        let threads = engine.threads.read().await;
+        let thread = threads.get(thread_id).expect("thread should exist");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].content, "start");
+        assert_eq!(thread.messages[1].content, "continue");
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.tool_calls.is_none()));
+        assert!(thread
+            .messages
+            .iter()
+            .all(|message| message.role != MessageRole::Tool));
+    }
+
+    #[tokio::test]
+    async fn delete_thread_messages_emits_thread_reload_event_after_reconciliation() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_reload_event";
+        let assistant_id = "assistant-anchor".to_string();
+        let mut events = engine.subscribe();
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Reload event".to_string(),
+                    created_at: 1,
+                    updated_at: 3,
+                    pinned: false,
+                    upstream_thread_id: Some("upstream-thread-4".to_string()),
+                    upstream_transport: Some(ApiTransport::Responses),
+                    upstream_provider: Some("github-copilot".to_string()),
+                    upstream_model: Some("gpt-5.4".to_string()),
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    messages: vec![
+                        AgentMessage::user("first", 1),
+                        AgentMessage {
+                            id: assistant_id.clone(),
+                            role: MessageRole::Assistant,
+                            content: "answer".to_string(),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            tool_name: None,
+                            tool_arguments: None,
+                            tool_status: None,
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            provider: Some("github-copilot".to_string()),
+                            model: Some("gpt-5.4".to_string()),
+                            api_transport: Some(ApiTransport::Responses),
+                            response_id: Some("resp_999".to_string()),
+                            reasoning: None,
+                            timestamp: 2,
+                        },
+                        AgentMessage::user("continue", 3),
+                    ],
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        while events.try_recv().is_ok() {}
+
+        engine
+            .delete_thread_messages(thread_id, std::slice::from_ref(&assistant_id))
+            .await
+            .expect("delete should succeed");
+
+        let mut saw_reload = false;
+        while let Ok(event) = events.try_recv() {
+            if let AgentEvent::ThreadReloadRequired {
+                thread_id: event_thread_id,
+            } = event
+            {
+                assert_eq!(event_thread_id, thread_id);
+                saw_reload = true;
+                break;
+            }
+        }
+
+        assert!(saw_reload, "delete should emit thread reload event");
+    }
+
+    #[tokio::test]
     async fn send_message_with_ephemeral_user_override_keeps_thread_history_clean() {
         let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
         let server_url = spawn_recording_openai_server(recorded_bodies.clone()).await;
@@ -839,7 +1294,9 @@ mod tests {
             .pop_front()
             .expect("captured llm request");
         assert!(
-            request_body.contains("Your final assistant response will be delivered back to the user automatically."),
+            request_body.contains(
+                "Your final assistant response will be delivered back to the user automatically."
+            ),
             "LLM request should include the ephemeral gateway wrapper"
         );
         assert!(
@@ -847,5 +1304,4 @@ mod tests {
             "LLM request should replace the raw stored user text with the ephemeral override"
         );
     }
-
 }

@@ -733,8 +733,11 @@ mod tests {
 
         tokio::fs::write(&main_paths.user_path, "# User\n- prefers detailed audits\n").await?;
         tokio::fs::write(&persona_paths.soul_path, "# Identity\nRadogost persona\n").await?;
-        tokio::fs::write(&persona_paths.memory_path, "# Memory\n- prefers tradeoff tables\n")
-            .await?;
+        tokio::fs::write(
+            &persona_paths.memory_path,
+            "# Memory\n- prefers tradeoff tables\n",
+        )
+        .await?;
 
         let loaded = load_memory_for_scope(&root, RADOGOST_AGENT_ID).await?;
         assert!(loaded.soul.contains("Radogost persona"));

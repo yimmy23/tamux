@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::agent::metacognitive::{escalation, replanning};
 use crate::agent::{
-    AgentEngine, AgentEvent, AgentMessage, MessageRole, TaskLogLevel, TaskStatus,
-    generate_message_id, make_task_log_entry, now_millis,
+    generate_message_id, make_task_log_entry, now_millis, AgentEngine, AgentEvent, AgentMessage,
+    MessageRole, TaskLogLevel, TaskStatus,
 };
 
 use super::*;
@@ -16,21 +16,20 @@ fn build_strategy_refresh_prompt(
     strategy_hint: Option<&str>,
 ) -> String {
     let decision = replanning::select_replan_strategy(&replanning::ReplanContext {
-            current_step_index: 0,
-            step_title: step_title.to_string(),
-            stuck_reason: infer_stuck_reason(trigger),
-            attempt_count: task_retry_count,
-            error_rate: if tool_success_rate >= 1.0 {
-                0.0
-            } else {
-                1.0 - tool_success_rate
-            },
-            tool_success_rate,
-            context_utilization_pct: 0,
-            has_checkpoint: false,
-            recent_tool_names: Vec::new(),
+        current_step_index: 0,
+        step_title: step_title.to_string(),
+        stuck_reason: infer_stuck_reason(trigger),
+        attempt_count: task_retry_count,
+        error_rate: if tool_success_rate >= 1.0 {
+            0.0
+        } else {
+            1.0 - tool_success_rate
         },
-    );
+        tool_success_rate,
+        context_utilization_pct: 0,
+        has_checkpoint: false,
+        recent_tool_names: Vec::new(),
+    });
     let mut prompt = replanning::build_replan_prompt(&decision, step_title);
     if let Some(strategy_hint) = strategy_hint
         .map(str::trim)
@@ -346,7 +345,11 @@ impl AgentEngine {
         let selection = if evaluated.retry_guard.is_none()
             || retry_guard_matches_runtime_context(&evaluated, &context)
         {
-            select_orchestrator_policy_decision(recent.as_ref(), &context.trigger, evaluated.clone())
+            select_orchestrator_policy_decision(
+                recent.as_ref(),
+                &context.trigger,
+                evaluated.clone(),
+            )
         } else {
             SelectedPolicyDecision {
                 source: PolicyDecisionSource::FreshEvaluation,

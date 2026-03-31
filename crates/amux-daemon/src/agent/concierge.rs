@@ -9,8 +9,10 @@ use super::types::*;
 use super::{execute_tool, get_available_tools, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME};
 use anyhow::Result;
 use futures::StreamExt;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 /// Well-known thread ID for the concierge.
 pub const CONCIERGE_THREAD_ID: &str = "concierge";
@@ -40,6 +42,7 @@ pub struct ConciergeEngine {
     http_client: reqwest::Client,
     circuit_breakers: Arc<CircuitBreakerRegistry>,
     welcome_cache: Arc<RwLock<Option<WelcomeCacheEntry>>>,
+    recovery_investigations: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl ConciergeEngine {
@@ -55,7 +58,68 @@ impl ConciergeEngine {
             http_client,
             circuit_breakers,
             welcome_cache: Arc::new(RwLock::new(None)),
+            recovery_investigations: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub(super) async fn maybe_start_recovery_investigation(
+        &self,
+        agent: &AgentEngine,
+        thread_id: &str,
+        signature: &str,
+        failure_class: &str,
+        summary: &str,
+        diagnostics: &Value,
+    ) -> Option<String> {
+        let key = format!("{thread_id}::{signature}");
+
+        {
+            let mut investigations = self.recovery_investigations.lock().await;
+            if let Some(existing_task_id) = investigations.get(&key).cloned() {
+                let tasks = agent.tasks.lock().await;
+                let still_running = tasks
+                    .iter()
+                    .find(|task| task.id == existing_task_id)
+                    .is_some_and(|task| {
+                        !super::task_scheduler::is_task_terminal_status(task.status)
+                    });
+                drop(tasks);
+                if still_running {
+                    return None;
+                }
+                investigations.remove(&key);
+            }
+        }
+
+        let task = agent
+            .enqueue_task(
+                format!("Investigate daemon recovery: {signature}"),
+                build_recovery_investigation_description(
+                    thread_id,
+                    signature,
+                    failure_class,
+                    summary,
+                    diagnostics,
+                ),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "concierge_recovery",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        self.recovery_investigations
+            .lock()
+            .await
+            .insert(key, task.id.clone());
+
+        Some(task.id)
     }
 
     /// Initialize the concierge — ensure the pinned thread exists.
@@ -1163,6 +1227,18 @@ impl ConciergeEngine {
     }
 }
 
+fn build_recovery_investigation_description(
+    thread_id: &str,
+    signature: &str,
+    failure_class: &str,
+    summary: &str,
+    diagnostics: &Value,
+) -> String {
+    format!(
+        "Investigate a daemon-side upstream request failure.\n\nThread: {thread_id}\nSignature: {signature}\nFailure class: {failure_class}\nSummary: {summary}\nDiagnostics: {diagnostics}\n\nInspect thread state, request-body synthesis inputs, tool definitions, and transport selection. Do not switch provider or transport automatically. If you find a daemon-internal side-effect-free repair, explain it; otherwise report the likely root cause and operator-safe next step.",
+    )
+}
+
 // ── Onboarding templates (Phase 10 Plan 03) ─────────────────────────────
 
 /// Static template fallback for onboarding (Pitfall 5 -- always works without LLM).
@@ -1697,7 +1773,10 @@ impl AgentEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::engine::AgentEngine;
+    use crate::session_manager::SessionManager;
     use std::collections::HashMap;
+    use tempfile::tempdir;
     use tokio::sync::Mutex;
 
     fn test_now_millis() -> u64 {
@@ -1833,6 +1912,47 @@ mod tests {
         let mut task = sample_task(id, title, created_at);
         task.thread_id = Some(thread_id.to_string());
         task
+    }
+
+    #[tokio::test]
+    async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_signature() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let first = engine
+            .concierge
+            .maybe_start_recovery_investigation(
+                &engine,
+                "thread-recovery",
+                "request-invalid-empty-tool-name",
+                "request_invalid",
+                "invalid request body",
+                &serde_json::json!({"raw_message": "Invalid 'input[12].name': empty string"}),
+            )
+            .await;
+        let second = engine
+            .concierge
+            .maybe_start_recovery_investigation(
+                &engine,
+                "thread-recovery",
+                "request-invalid-empty-tool-name",
+                "request_invalid",
+                "invalid request body",
+                &serde_json::json!({"raw_message": "Invalid 'input[12].name': empty string"}),
+            )
+            .await;
+
+        assert!(first.is_some());
+        assert!(second.is_none());
+
+        let tasks = engine.tasks.lock().await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].source, "concierge_recovery");
+        assert_eq!(
+            tasks[0].parent_thread_id.as_deref(),
+            Some("thread-recovery")
+        );
     }
 
     #[tokio::test]

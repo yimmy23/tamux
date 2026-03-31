@@ -633,7 +633,6 @@ impl AgentEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
     use tokio::io::AsyncReadExt;
     use tokio::net::TcpListener;
@@ -673,11 +672,6 @@ mod tests {
             context_window_tokens: 0,
             response_schema: None,
         }
-    }
-
-    fn openai_auth_env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     fn write_openai_subscription_auth() {
@@ -798,7 +792,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_alternative_excludes_openai_subscription_without_auth() {
-        let _env_guard = openai_auth_env_lock().lock().expect("lock auth env");
+        let _env_guard = crate::agent::provider_auth_store::provider_auth_test_env_lock();
         let temp_dir = TempDir::new().expect("temp dir");
         let db_path = temp_dir.path().join("provider-auth.db");
         std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
@@ -832,7 +826,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_alternative_uses_candidate_default_model_for_empty_named_model() {
-        let _env_guard = openai_auth_env_lock().lock().expect("lock auth env");
+        let _env_guard = crate::agent::provider_auth_store::provider_auth_test_env_lock();
         let temp_dir = TempDir::new().expect("temp dir");
         let db_path = temp_dir.path().join("provider-auth.db");
         std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);

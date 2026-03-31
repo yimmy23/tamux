@@ -1,8 +1,30 @@
 //! Core agent loop — LLM streaming, tool execution, and turn management.
 
 use super::*;
+use crate::agent::llm_client::{
+    parse_structured_upstream_failure, sanitize_upstream_failure_message, StructuredUpstreamFailure,
+};
 
 const POLICY_TOOL_OUTCOME_HISTORY_LIMIT: usize = 6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FixableUpstreamRecoveryAction {
+    InvestigateOnly,
+    RepairThreadStateAndRetry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FixableUpstreamRecovery {
+    signature: String,
+    action: FixableUpstreamRecoveryAction,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct FixableUpstreamRecoveryDisposition {
+    started_investigation: bool,
+    retry_attempted: bool,
+    signature: Option<String>,
+}
 
 fn tool_args_summary(arguments: &str) -> String {
     arguments.chars().take(100).collect()
@@ -88,7 +110,11 @@ fn build_runtime_self_assessment(
                 momentum,
             },
             efficiency: super::metacognitive::self_assessment::EfficiencyMetrics {
-                token_efficiency: if short_term_success_rate > 0.0 { 0.6 } else { 0.0 },
+                token_efficiency: if short_term_success_rate > 0.0 {
+                    0.6
+                } else {
+                    0.0
+                },
                 tool_success_rate: short_term_success_rate,
                 time_efficiency: 0.0,
                 tokens_consumed: 0,
@@ -133,7 +159,9 @@ async fn build_policy_context_for_tool_result(
                     .iter()
                     .rev()
                     .take(3)
-                    .filter(|approach| !matches!(approach.outcome, super::episodic::EpisodeOutcome::Success))
+                    .filter(|approach| {
+                        !matches!(approach.outcome, super::episodic::EpisodeOutcome::Success)
+                    })
                     .all(|approach| approach.approach_hash == current_approach_hash)
         })
     };
@@ -184,7 +212,8 @@ async fn build_policy_context_for_tool_result(
         let scope_id = crate::agent::agent_identity::current_agent_scope_id();
         let stores = engine.episodic_store.read().await;
         stores.get(&scope_id).and_then(|store| {
-            let formatted = super::episodic::counter_who::format_counter_who_context(&store.counter_who);
+            let formatted =
+                super::episodic::counter_who::format_counter_who_context(&store.counter_who);
             (!formatted.trim().is_empty()).then_some(formatted)
         })
     };
@@ -192,7 +221,10 @@ async fn build_policy_context_for_tool_result(
         format!(
             "Goal: {}\nCurrent step: {}\nTask: {}",
             goal_run.goal,
-            goal_run.current_step_title.as_deref().unwrap_or("current step"),
+            goal_run
+                .current_step_title
+                .as_deref()
+                .unwrap_or("current step"),
             task.title,
         )
     });
@@ -263,6 +295,110 @@ fn unexpected_stream_end_message(accumulated_content: &str) -> String {
 const DEFAULT_LLM_STREAM_CHUNK_TIMEOUT_SECS: u64 = 120;
 
 impl AgentEngine {
+    pub(super) async fn clear_thread_continuation_state(&self, thread_id: &str) {
+        let mut threads = self.threads.write().await;
+        if let Some(thread) = threads.get_mut(thread_id) {
+            thread.upstream_thread_id = None;
+            thread.upstream_transport = None;
+            thread.upstream_provider = None;
+            thread.upstream_model = None;
+            thread.upstream_assistant_id = None;
+            for message in &mut thread.messages {
+                message.response_id = None;
+            }
+            thread.updated_at = now_millis();
+        }
+        drop(threads);
+        self.persist_thread_by_id(thread_id).await;
+    }
+
+    async fn maybe_recover_fixable_upstream_failure(
+        &self,
+        thread_id: &str,
+        structured: &StructuredUpstreamFailure,
+        assistant_output_visible: bool,
+        tool_side_effect_committed: bool,
+        attempted_recovery_signatures: &mut std::collections::HashSet<String>,
+    ) -> Result<FixableUpstreamRecoveryDisposition> {
+        let Some(recovery) = classify_fixable_upstream_recovery(structured) else {
+            return Ok(FixableUpstreamRecoveryDisposition::default());
+        };
+
+        let started_investigation = self
+            .concierge
+            .maybe_start_recovery_investigation(
+                self,
+                thread_id,
+                &recovery.signature,
+                &structured.class,
+                &structured.summary,
+                &structured.diagnostics,
+            )
+            .await
+            .is_some();
+
+        let retry_allowed = matches!(
+            recovery.action,
+            FixableUpstreamRecoveryAction::RepairThreadStateAndRetry
+        ) && !assistant_output_visible
+            && !tool_side_effect_committed
+            && attempted_recovery_signatures.insert(recovery.signature.clone());
+
+        if retry_allowed {
+            self.emit_workflow_notice(
+                thread_id,
+                "concierge-recovery",
+                "Detected a daemon-fixable request issue. Starting background investigation and retrying with repaired thread state.",
+                Some(
+                    serde_json::json!({
+                        "class": structured.class,
+                        "signature": recovery.signature,
+                        "retry": true,
+                        "investigation_started": started_investigation,
+                    })
+                    .to_string(),
+                ),
+            );
+            self.repair_tool_call_sequence(thread_id).await;
+            self.clear_thread_continuation_state(thread_id).await;
+            return Ok(FixableUpstreamRecoveryDisposition {
+                started_investigation,
+                retry_attempted: true,
+                signature: Some(recovery.signature),
+            });
+        }
+
+        if started_investigation {
+            let reason = if assistant_output_visible || tool_side_effect_committed {
+                "Automatic retry is skipped because this turn already committed visible output or tool side effects."
+            } else {
+                "Automatic retry is skipped until the background investigation finishes."
+            };
+            self.emit_workflow_notice(
+                thread_id,
+                "concierge-recovery",
+                format!(
+                    "Started background investigation for a daemon-side request issue. {reason}"
+                ),
+                Some(
+                    serde_json::json!({
+                        "class": structured.class,
+                        "signature": recovery.signature,
+                        "retry": false,
+                        "investigation_started": true,
+                    })
+                    .to_string(),
+                ),
+            );
+        }
+
+        Ok(FixableUpstreamRecoveryDisposition {
+            started_investigation,
+            retry_attempted: false,
+            signature: Some(recovery.signature),
+        })
+    }
+
     pub(super) async fn send_message_inner(
         &self,
         thread_id: Option<&str>,
@@ -402,7 +538,7 @@ impl AgentEngine {
             } {
                 Ok(provider_config) => provider_config,
                 Err(error) => {
-                    let error_text = error.to_string();
+                    let error_text = sanitize_upstream_failure_message(&error.to_string());
                     self.add_assistant_message(
                         &tid,
                         &format!("Error: {error_text}"),
@@ -640,6 +776,9 @@ impl AgentEngine {
         let mut tool_ack_emitted = false;
         let mut tool_sequence_repaired = false;
         let mut retry_status_visible = false;
+        let mut assistant_output_visible = false;
+        let mut tool_side_effect_committed = false;
+        let mut attempted_recovery_signatures = std::collections::HashSet::new();
         let mut recent_policy_tool_outcomes =
             VecDeque::<super::orchestrator_policy::PolicyToolOutcomeSummary>::new();
 
@@ -872,6 +1011,7 @@ impl AgentEngine {
                                     first_token_at = Some(Instant::now());
                                 }
                                 if !content.is_empty() {
+                                    assistant_output_visible = true;
                                     accumulated_content.push_str(&content);
                                     let _ = self.event_tx.send(AgentEvent::Delta {
                                         thread_id: tid.clone(),
@@ -904,45 +1044,7 @@ impl AgentEngine {
                                 });
                                 retry_status_visible = true;
                             }
-                            CompletionChunk::TransportFallback { from, to, message } => {
-                                if retry_status_visible {
-                                    let _ = self.event_tx.send(AgentEvent::RetryStatus {
-                                        thread_id: tid.clone(),
-                                        phase: "cleared".to_string(),
-                                        attempt: 0,
-                                        max_retries: 0,
-                                        delay_ms: 0,
-                                        failure_class: String::new(),
-                                        message: String::new(),
-                                    });
-                                    retry_status_visible = false;
-                                }
-                                effective_transport_for_turn = to;
-                                {
-                                    let mut stored_config = self.config.write().await;
-                                    stored_config.api_transport = to;
-                                    if let Some(provider_entry) =
-                                        stored_config.providers.get_mut(&config.provider)
-                                    {
-                                        provider_entry.api_transport = to;
-                                    }
-                                }
-                                self.persist_config().await;
-                                self.emit_workflow_notice(
-                                    &tid,
-                                    "transport-fallback",
-                                    "Responses API was incompatible for this provider. Switched to legacy chat completions.",
-                                    Some(
-                                        serde_json::json!({
-                                            "provider": config.provider,
-                                            "from": from,
-                                            "to": to,
-                                            "reason": message,
-                                        })
-                                        .to_string(),
-                                    ),
-                                );
-                            }
+                            CompletionChunk::TransportFallback { .. } => {}
                             chunk @ CompletionChunk::Done { .. } => {
                                 final_chunk = Some(chunk);
                                 break;
@@ -952,6 +1054,41 @@ impl AgentEngine {
                                 break;
                             }
                             CompletionChunk::Error { message } => {
+                                let visible_message = sanitize_upstream_failure_message(&message);
+                                if let Some(structured) = parse_structured_upstream_failure(&message) {
+                                    let recovery = self
+                                        .maybe_recover_fixable_upstream_failure(
+                                            &tid,
+                                            &structured,
+                                            assistant_output_visible,
+                                            tool_side_effect_committed,
+                                            &mut attempted_recovery_signatures,
+                                        )
+                                        .await?;
+                                    if recovery.retry_attempted {
+                                        continue 'agent_loop;
+                                    }
+                                    let notice_kind = match structured.class.as_str() {
+                                        "transport_incompatible" => "transport-incompatible",
+                                        "request_invalid" => "request-invalid",
+                                        "temporary_upstream" => "temporary-upstream",
+                                        _ => "upstream-error",
+                                    };
+                                    self.emit_workflow_notice(
+                                        &tid,
+                                        notice_kind,
+                                        structured.summary.clone(),
+                                        Some(
+                                            serde_json::json!({
+                                                "provider": config.provider,
+                                                "transport": prepared_request.transport,
+                                                "class": structured.class,
+                                                "diagnostics": structured.diagnostics,
+                                            })
+                                            .to_string(),
+                                        ),
+                                    );
+                                }
                                 if config.auto_retry
                                     && is_transient_retry_message(&message)
                                 {
@@ -964,7 +1101,7 @@ impl AgentEngine {
                                         delay_ms,
                                         failure_class: retry_failure_class_from_message(&message)
                                             .to_string(),
-                                        message: message.clone(),
+                                        message: visible_message.clone(),
                                     });
                                     retry_status_visible = true;
                                     tokio::select! {
@@ -993,7 +1130,7 @@ impl AgentEngine {
                                 // Add error as assistant message
                                 self.add_assistant_message(
                                     &tid,
-                                    &format!("Error: {message}"),
+                                    &format!("Error: {visible_message}"),
                                     0,
                                     0,
                                     None,
@@ -1006,7 +1143,7 @@ impl AgentEngine {
                                 self.persist_threads().await;
                                 self.emit_turn_error_completion(
                                     &tid,
-                                    &message,
+                                    &visible_message,
                                     Some(config.provider.clone()),
                                     Some(provider_config.model.clone()),
                                 )
@@ -1228,6 +1365,7 @@ impl AgentEngine {
                     {
                         let mut threads = self.threads.write().await;
                         if let Some(thread) = threads.get_mut(&tid) {
+                            assistant_output_visible = true;
                             thread.messages.push(AgentMessage {
                                 id: generate_message_id(),
                                 role: MessageRole::Assistant,
@@ -1327,6 +1465,7 @@ impl AgentEngine {
                                 {
                                     let mut threads = self.threads.write().await;
                                     if let Some(thread) = threads.get_mut(&tid) {
+                                        tool_side_effect_committed = true;
                                         thread.messages.push(AgentMessage {
                                             id: generate_message_id(),
                                             role: MessageRole::Tool,
@@ -1539,6 +1678,7 @@ impl AgentEngine {
                         {
                             let mut threads = self.threads.write().await;
                             if let Some(thread) = threads.get_mut(&tid) {
+                                tool_side_effect_committed = true;
                                 thread.messages.push(AgentMessage {
                                     id: generate_message_id(),
                                     role: MessageRole::Tool,
@@ -1882,7 +2022,7 @@ impl AgentEngine {
     /// Repair a thread's message sequence by removing broken tool-call/result
     /// pairs. Walks messages and ensures every Assistant with tool_calls is
     /// immediately followed by matching Tool results. Drops orphaned messages.
-    async fn repair_tool_call_sequence(&self, thread_id: &str) {
+    pub(super) async fn repair_tool_call_sequence(&self, thread_id: &str) {
         let removed = {
             let mut threads = self.threads.write().await;
             let Some(thread) = threads.get_mut(thread_id) else {
@@ -2142,6 +2282,14 @@ impl AgentEngine {
 }
 
 fn retry_failure_class_from_message(message: &str) -> &'static str {
+    if let Some(structured) = parse_structured_upstream_failure(message) {
+        return match structured.class.as_str() {
+            "rate_limit" => "rate_limit",
+            "temporary_upstream" => "upstream",
+            "transient_transport" => "transport",
+            _ => "upstream",
+        };
+    }
     let lower = message.to_ascii_lowercase();
     if lower.contains("429") || lower.contains("rate limit") || lower.contains("too many requests")
     {
@@ -2160,6 +2308,12 @@ fn retry_failure_class_from_message(message: &str) -> &'static str {
 }
 
 fn is_transient_retry_message(message: &str) -> bool {
+    if let Some(structured) = parse_structured_upstream_failure(message) {
+        return matches!(
+            structured.class.as_str(),
+            "rate_limit" | "temporary_upstream" | "transient_transport"
+        );
+    }
     let lower = message.to_ascii_lowercase();
     lower.contains("429")
         || lower.contains("rate limit")
@@ -2172,6 +2326,61 @@ fn is_transient_retry_message(message: &str) -> bool {
         || lower.contains("overloaded")
         || lower.contains("unavailable")
         || lower.contains("try again later")
+}
+
+fn classify_fixable_upstream_recovery(
+    structured: &StructuredUpstreamFailure,
+) -> Option<FixableUpstreamRecovery> {
+    let combined = format!(
+        "{}\n{}",
+        structured.summary.to_ascii_lowercase(),
+        structured.diagnostics.to_string().to_ascii_lowercase()
+    );
+
+    match structured.class.as_str() {
+        "request_invalid"
+            if combined.contains("empty string")
+                && combined.contains("input[")
+                && combined.contains(".name") =>
+        {
+            Some(FixableUpstreamRecovery {
+                signature: "request-invalid-empty-tool-name".to_string(),
+                action: FixableUpstreamRecoveryAction::RepairThreadStateAndRetry,
+            })
+        }
+        "request_invalid"
+            if combined.contains("previous_response_id")
+                || combined.contains("upstream_thread_id")
+                || combined.contains("stale thread")
+                || combined.contains("message stack") =>
+        {
+            Some(FixableUpstreamRecovery {
+                signature: "request-invalid-stale-continuation".to_string(),
+                action: FixableUpstreamRecoveryAction::RepairThreadStateAndRetry,
+            })
+        }
+        "transport_incompatible"
+            if combined.contains("previous_response_id")
+                || combined.contains("upstream_thread_id")
+                || combined.contains("request body")
+                || combined.contains("payload mismatch")
+                || combined.contains("message stack") =>
+        {
+            Some(FixableUpstreamRecovery {
+                signature: "transport-incompatible-request-shape".to_string(),
+                action: FixableUpstreamRecoveryAction::RepairThreadStateAndRetry,
+            })
+        }
+        "transport_incompatible"
+            if combined.contains("empty string") && combined.contains("tool") =>
+        {
+            Some(FixableUpstreamRecovery {
+                signature: "transport-incompatible-empty-tool-name".to_string(),
+                action: FixableUpstreamRecoveryAction::InvestigateOnly,
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Parse a plugin command from user input.
@@ -2205,9 +2414,10 @@ pub(super) fn parse_plugin_command(content: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::llm_client::UPSTREAM_DIAGNOSTICS_MARKER;
     use crate::agent::types::{AgentEvent, TaskStatus};
-    use rusqlite::OptionalExtension;
     use crate::session_manager::SessionManager;
+    use rusqlite::OptionalExtension;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
     use tempfile::tempdir;
@@ -2442,7 +2652,8 @@ mod tests {
                     } else if assistant_turns.fetch_add(1, Ordering::SeqCst) == 0 {
                         let tool_args = serde_json::json!({
                             "path": readable_path,
-                            "max_lines": 1,
+                            "offset": 0,
+                            "limit": 1,
                         })
                         .to_string();
                         let chunk_one = serde_json::json!({
@@ -2498,7 +2709,48 @@ mod tests {
         format!("http://{addr}/v1")
     }
 
-    async fn latest_trace_outcome_for_task(root: &std::path::Path, task_id: &str) -> Option<String> {
+    async fn spawn_transport_incompatibility_server(request_counter: Arc<AtomicUsize>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind transport incompatibility server");
+        let addr = listener
+            .local_addr()
+            .expect("transport incompatibility server addr");
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let request_counter = request_counter.clone();
+                tokio::spawn(async move {
+                    request_counter.fetch_add(1, Ordering::SeqCst);
+                    let mut buffer = vec![0u8; 65536];
+                    let _ = socket
+                        .read(&mut buffer)
+                        .await
+                        .expect("read incompatibility request");
+                    let body = r#"{"error":{"message":"Responses API not supported for this provider endpoint"}}"#;
+                    let response = format!(
+                        "HTTP/1.1 405 Method Not Allowed\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write incompatibility response");
+                });
+            }
+        });
+
+        format!("http://{addr}/v1")
+    }
+
+    async fn latest_trace_outcome_for_task(
+        root: &std::path::Path,
+        task_id: &str,
+    ) -> Option<String> {
         let store = crate::history::HistoryStore::new_test_store(root)
             .await
             .expect("open history store");
@@ -2526,6 +2778,7 @@ mod tests {
         config.base_url = spawn_tool_call_server().await;
         config.model = "gpt-4o-mini".to_string();
         config.api_key = "test-key".to_string();
+        config.api_transport = ApiTransport::ChatCompletions;
         config.auto_retry = false;
         config.max_retries = 0;
         config.max_tool_loops = 2;
@@ -2650,10 +2903,14 @@ mod tests {
             thread_id: thread_id.to_string(),
             goal_run_id: Some("goal-1".to_string()),
         };
-        engine.record_retry_guard(&scope, &args_hash, now_epoch_secs).await;
+        engine
+            .record_retry_guard(&scope, &args_hash, now_epoch_secs)
+            .await;
         {
             let mut stores = engine.episodic_store.write().await;
-            let store = stores.entry(crate::agent::agent_identity::MAIN_AGENT_ID.to_string()).or_default();
+            let store = stores
+                .entry(crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
+                .or_default();
             store.counter_who.tried_approaches = VecDeque::from(vec![
                 crate::agent::episodic::TriedApproach {
                     approach_hash: args_hash.clone(),
@@ -2756,8 +3013,272 @@ mod tests {
         assert_eq!(task.status, TaskStatus::Failed);
         drop(tasks);
 
-        let trace_outcome = latest_trace_outcome_for_task(root.path(), "task-policy-loop-proof").await;
+        let trace_outcome =
+            latest_trace_outcome_for_task(root.path(), "task-policy-loop-proof").await;
         assert_eq!(trace_outcome.as_deref(), Some("failure"));
+    }
+
+    #[tokio::test]
+    async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_notice() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let request_counter = Arc::new(AtomicUsize::new(0));
+        let mut config = AgentConfig::default();
+        config.provider = "custom".to_string();
+        config.base_url = spawn_transport_incompatibility_server(request_counter.clone()).await;
+        config.model = "gpt-4.1".to_string();
+        config.api_key = "test-key".to_string();
+        config.auth_source = AuthSource::ApiKey;
+        config.api_transport = ApiTransport::Responses;
+        config.auto_retry = false;
+        config.max_retries = 0;
+        config.providers.insert(
+            "custom".to_string(),
+            ProviderConfig {
+                base_url: config.base_url.clone(),
+                model: config.model.clone(),
+                api_key: config.api_key.clone(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                reasoning_effort: String::new(),
+                context_window_tokens: 0,
+                response_schema: None,
+            },
+        );
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        engine.persist_config().await;
+        let mut events = engine.subscribe();
+
+        let _error = match engine
+            .send_message_inner(None, "hello", None, None, None, None, None, true)
+            .await
+        {
+            Ok(_) => panic!("transport incompatibility should fail the turn"),
+            Err(error) => error,
+        };
+
+        let stored_config = engine.config.read().await.clone();
+        assert_eq!(stored_config.api_transport, ApiTransport::Responses);
+        assert_eq!(
+            stored_config
+                .providers
+                .get("custom")
+                .expect("provider entry")
+                .api_transport,
+            ApiTransport::Responses
+        );
+
+        let persisted_items = engine
+            .history
+            .list_agent_config_items()
+            .await
+            .expect("list persisted config items");
+        let persisted = crate::agent::config::load_config_from_items(persisted_items)
+            .expect("decode persisted config");
+        assert_eq!(persisted.api_transport, ApiTransport::Responses);
+        assert_eq!(
+            persisted
+                .providers
+                .get("custom")
+                .expect("persisted provider entry")
+                .api_transport,
+            ApiTransport::Responses
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let mut saw_notice = false;
+        let mut saw_done = false;
+        let mut seen_notice_kinds = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            match event {
+                AgentEvent::WorkflowNotice {
+                    kind,
+                    message,
+                    details,
+                    ..
+                } => {
+                    seen_notice_kinds.push(kind.clone());
+                    if kind == "transport-incompatible" || kind == "upstream-error" {
+                        saw_notice = true;
+                        assert!(
+                            message.contains("incompatible")
+                                || details
+                                    .as_deref()
+                                    .is_some_and(|d| d.contains("transport_incompatible"))
+                        );
+                        let details = details.expect("notice should include diagnostics");
+                        assert!(details.contains("transport_incompatible"));
+                        assert!(details.contains("Responses API not supported"));
+                    }
+                }
+                AgentEvent::Done { .. } => saw_done = true,
+                _ => {}
+            }
+        }
+
+        assert!(
+            saw_notice,
+            "expected operator-visible transport incompatibility notice, saw {:?}",
+            seen_notice_kinds
+        );
+        assert!(
+            saw_done,
+            "expected turn completion event for surfaced error"
+        );
+        assert_eq!(request_counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn structured_upstream_diagnostics_are_not_persisted_or_streamed_to_user() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let request_counter = Arc::new(AtomicUsize::new(0));
+        let mut config = AgentConfig::default();
+        config.provider = "custom".to_string();
+        config.base_url = spawn_transport_incompatibility_server(request_counter.clone()).await;
+        config.model = "gpt-4.1".to_string();
+        config.api_key = "test-key".to_string();
+        config.auth_source = AuthSource::ApiKey;
+        config.api_transport = ApiTransport::Responses;
+        config.auto_retry = false;
+        config.max_retries = 0;
+
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let mut events = engine.subscribe();
+
+        let error = match engine
+            .send_message_inner(None, "hello", None, None, None, None, None, true)
+            .await
+        {
+            Ok(_) => panic!("structured upstream failure should fail the turn"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains(UPSTREAM_DIAGNOSTICS_MARKER),
+            "precondition: returned error still carries structured diagnostics envelope"
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let mut saw_error_delta = false;
+        while let Ok(event) = events.try_recv() {
+            if let AgentEvent::Delta { content, .. } = event {
+                if content.starts_with("Error: ") {
+                    saw_error_delta = true;
+                    assert!(
+                        !content.contains(UPSTREAM_DIAGNOSTICS_MARKER),
+                        "error delta should not expose structured diagnostics"
+                    );
+                }
+            }
+        }
+        assert!(saw_error_delta, "expected streamed error delta");
+
+        let threads = engine.threads.read().await;
+        let thread = threads.values().next().expect("thread should be created");
+        let assistant_error = thread
+            .messages
+            .iter()
+            .find(|message| {
+                message.role == MessageRole::Assistant && message.content.starts_with("Error: ")
+            })
+            .expect("assistant error should be persisted");
+        assert!(
+            !assistant_error
+                .content
+                .contains(UPSTREAM_DIAGNOSTICS_MARKER),
+            "persisted assistant error should not include structured diagnostics"
+        );
+    }
+
+    #[tokio::test]
+    async fn concierge_recovery_fixable_request_invalid_starts_one_background_investigation() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let structured = StructuredUpstreamFailure {
+            class: "request_invalid".to_string(),
+            summary: "provider rejected the daemon request as invalid: Invalid 'input[12].name': empty string".to_string(),
+            diagnostics: serde_json::json!({
+                "raw_message": "Invalid 'input[12].name': empty string"
+            }),
+        };
+        let mut attempted = std::collections::HashSet::new();
+
+        let first = engine
+            .maybe_recover_fixable_upstream_failure(
+                "thread-recovery",
+                &structured,
+                false,
+                false,
+                &mut attempted,
+            )
+            .await
+            .expect("recovery evaluation should succeed");
+        let second = engine
+            .maybe_recover_fixable_upstream_failure(
+                "thread-recovery",
+                &structured,
+                false,
+                false,
+                &mut attempted,
+            )
+            .await
+            .expect("repeat recovery evaluation should succeed");
+
+        assert!(first.started_investigation);
+        assert!(first.retry_attempted);
+        assert_eq!(
+            first.signature.as_deref(),
+            Some("request-invalid-empty-tool-name")
+        );
+        assert!(!second.started_investigation);
+        assert!(!second.retry_attempted);
+
+        let tasks = engine.tasks.lock().await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].source, "concierge_recovery");
+        assert_eq!(
+            tasks[0].parent_thread_id.as_deref(),
+            Some("thread-recovery")
+        );
+    }
+
+    #[tokio::test]
+    async fn concierge_recovery_transport_signature_is_blocked_after_committed_output() {
+        let root = tempdir().unwrap();
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let structured = StructuredUpstreamFailure {
+            class: "transport_incompatible".to_string(),
+            summary: "The selected provider/transport combination is incompatible: request body mismatch from stale thread state".to_string(),
+            diagnostics: serde_json::json!({
+                "details": "request body mismatch from stale thread state"
+            }),
+        };
+        let mut attempted = std::collections::HashSet::new();
+
+        let disposition = engine
+            .maybe_recover_fixable_upstream_failure(
+                "thread-visible-output",
+                &structured,
+                true,
+                false,
+                &mut attempted,
+            )
+            .await
+            .expect("recovery evaluation should succeed");
+
+        assert!(disposition.started_investigation);
+        assert!(!disposition.retry_attempted);
+
+        let tasks = engine.tasks.lock().await;
+        assert_eq!(tasks.len(), 1);
     }
 
     #[tokio::test]
@@ -2776,6 +3297,7 @@ mod tests {
         .await;
         config.model = "gpt-4o-mini".to_string();
         config.api_key = "test-key".to_string();
+        config.api_transport = ApiTransport::ChatCompletions;
         config.auto_retry = false;
         config.max_retries = 0;
         config.max_tool_loops = 2;
@@ -2917,7 +3439,8 @@ mod tests {
 
         let tool_args = serde_json::json!({
             "path": readable_path.display().to_string(),
-            "max_lines": 1,
+            "offset": 0,
+            "limit": 1,
         })
         .to_string();
         let args_hash =
@@ -2991,7 +3514,10 @@ mod tests {
         .expect("policy checkpoint should succeed")
         .expect("policy checkpoint should apply an action");
 
-        assert_eq!(action, crate::agent::orchestrator_policy::PolicyLoopAction::RestartLoop);
+        assert_eq!(
+            action,
+            crate::agent::orchestrator_policy::PolicyLoopAction::RestartLoop
+        );
 
         let scope = crate::agent::orchestrator_policy::PolicyDecisionScope {
             thread_id: thread_id.to_string(),
@@ -3001,13 +3527,21 @@ mod tests {
             .latest_policy_decision(&scope, 10)
             .await
             .expect("expected checkpoint to persist a policy decision");
-        assert_eq!(recent_decision.decision.action, crate::agent::orchestrator_policy::PolicyAction::Pivot);
-        assert_eq!(recent_decision.decision.strategy_hint.as_deref(), Some("Inspect the workspace state before more reads."));
+        assert_eq!(
+            recent_decision.decision.action,
+            crate::agent::orchestrator_policy::PolicyAction::Pivot
+        );
+        assert_eq!(
+            recent_decision.decision.strategy_hint.as_deref(),
+            Some("Inspect the workspace state before more reads.")
+        );
 
         let recorded = recorded_bodies.lock().expect("lock recorded bodies");
         assert!(
             recorded.iter().any(|body| {
-                body.contains("tamux orchestrator should continue, pivot, escalate, or halt_retries")
+                body.contains(
+                    "tamux orchestrator should continue, pivot, escalate, or halt_retries",
+                )
             }),
             "expected the policy checkpoint to issue the orchestrator policy evaluation prompt",
         );
@@ -3016,13 +3550,12 @@ mod tests {
         let threads = engine.threads.read().await;
         let thread = threads.get(thread_id).expect("thread");
         assert!(
-            thread
-                .messages
-                .iter()
-                .any(|message| {
-                    message.role == MessageRole::System
-                        && message.content.contains("Inspect the workspace state before more reads.")
-                }),
+            thread.messages.iter().any(|message| {
+                message.role == MessageRole::System
+                    && message
+                        .content
+                        .contains("Inspect the workspace state before more reads.")
+            }),
             "expected pivot application to inject a strategy refresh system message",
         );
     }

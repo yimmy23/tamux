@@ -181,7 +181,8 @@ pub(super) fn resolve_provider_model_switch(
             }
         }
         AuthSource::ChatgptSubscription => {
-            if provider_id != "openai" || !super::llm_client::has_openai_chatgpt_subscription_auth() {
+            if provider_id != "openai" || !super::llm_client::has_openai_chatgpt_subscription_auth()
+            {
                 bail!(
                     "ChatGPT subscription auth is not available for provider '{}'",
                     provider_id

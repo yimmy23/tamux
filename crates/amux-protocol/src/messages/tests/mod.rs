@@ -1,0 +1,217 @@
+use super::*;
+use crate::codec::{AmuxCodec, DaemonCodec};
+use bytes::BytesMut;
+use tokio_util::codec::{Decoder, Encoder};
+
+#[test]
+fn agent_provider_validation_bincode_roundtrip() {
+    let msg = DaemonMessage::AgentProviderValidation {
+        provider_id: "openrouter".to_string(),
+        valid: true,
+        error: None,
+        models_json: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentProviderValidation {
+            provider_id,
+            valid,
+            error,
+            models_json,
+        } => {
+            assert_eq!(provider_id, "openrouter");
+            assert!(valid);
+            assert!(error.is_none());
+            assert!(models_json.is_none());
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn agent_provider_validation_codec_roundtrip() {
+    let msg = DaemonMessage::AgentProviderValidation {
+        provider_id: "openrouter".to_string(),
+        valid: true,
+        error: None,
+        models_json: None,
+    };
+    let mut daemon_codec = DaemonCodec;
+    let mut buf = BytesMut::new();
+    daemon_codec.encode(msg.clone(), &mut buf).unwrap();
+    let mut client_codec = AmuxCodec;
+    let decoded = client_codec.decode(&mut buf).unwrap().unwrap();
+    match decoded {
+        DaemonMessage::AgentProviderValidation {
+            provider_id,
+            valid,
+            error,
+            models_json,
+        } => {
+            assert_eq!(provider_id, "openrouter");
+            assert!(valid);
+            assert!(error.is_none());
+            assert!(models_json.is_none());
+        }
+        other => panic!("decoded wrong variant: {:?}", other),
+    }
+}
+
+fn sample_skill_variant() -> SkillVariantPublic {
+    SkillVariantPublic {
+        variant_id: "sv-001".to_string(),
+        skill_name: "git_rebase_workflow".to_string(),
+        variant_name: "v1".to_string(),
+        relative_path: "drafts/git_rebase_workflow/SKILL.md".to_string(),
+        status: "active".to_string(),
+        use_count: 12,
+        success_count: 10,
+        failure_count: 2,
+        context_tags: vec!["git".to_string(), "rebase".to_string()],
+        created_at: 1700000000,
+        updated_at: 1700001000,
+    }
+}
+
+fn sample_community_skill_entry() -> CommunitySkillEntry {
+    CommunitySkillEntry {
+        name: "git-rebase-workflow".to_string(),
+        description: "Safely rebase a feature branch".to_string(),
+        version: "1.2.0".to_string(),
+        publisher_id: "abcd1234efgh5678".to_string(),
+        publisher_verified: true,
+        success_rate: 0.93,
+        use_count: 42,
+        content_hash: "d34db33f".to_string(),
+        tamux_version: "0.1.10".to_string(),
+        maturity_at_publish: "proven".to_string(),
+        tags: vec!["git".to_string(), "workflow".to_string()],
+        published_at: 1700001234,
+    }
+}
+
+#[test]
+fn gateway_register_round_trip() {
+    let msg = ClientMessage::GatewayRegister {
+        registration: GatewayRegistration {
+            gateway_id: "gateway-main".to_string(),
+            instance_id: "instance-01".to_string(),
+            protocol_version: 1,
+            supported_platforms: vec![
+                "slack".to_string(),
+                "discord".to_string(),
+                "telegram".to_string(),
+            ],
+            process_id: Some(4242),
+        },
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::GatewayRegister { registration } => {
+            assert_eq!(registration.gateway_id, "gateway-main");
+            assert_eq!(registration.instance_id, "instance-01");
+            assert_eq!(registration.protocol_version, 1);
+            assert_eq!(registration.supported_platforms.len(), 3);
+            assert_eq!(registration.process_id, Some(4242));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn gateway_bootstrap_round_trip() {
+    let msg = DaemonMessage::GatewayBootstrap {
+        payload: GatewayBootstrapPayload {
+            bootstrap_correlation_id: "boot-1".to_string(),
+            feature_flags: vec![
+                "gateway_runtime_ownership".to_string(),
+                "gateway_route_persistence".to_string(),
+            ],
+            providers: vec![GatewayProviderBootstrap {
+                platform: "slack".to_string(),
+                enabled: true,
+                credentials_json: r#"{"token":"secret"}"#.to_string(),
+                config_json: r#"{"channel_filter":"C123"}"#.to_string(),
+            }],
+            continuity: GatewayContinuityState {
+                cursors: vec![GatewayCursorState {
+                    platform: "slack".to_string(),
+                    channel_id: "C123".to_string(),
+                    cursor_value: "1712345678.000100".to_string(),
+                    cursor_type: "message_ts".to_string(),
+                    updated_at_ms: 1_710_000_000_000,
+                }],
+                thread_bindings: vec![GatewayThreadBindingState {
+                    channel_key: "Slack:C123".to_string(),
+                    thread_id: Some("thread-123".to_string()),
+                    updated_at_ms: 1_710_000_000_001,
+                }],
+                route_modes: vec![GatewayRouteModeState {
+                    channel_key: "Slack:C123".to_string(),
+                    route_mode: GatewayRouteMode::Rarog,
+                    updated_at_ms: 1_710_000_000_002,
+                }],
+                health_snapshots: vec![GatewayHealthState {
+                    platform: "slack".to_string(),
+                    status: GatewayConnectionStatus::Error,
+                    last_success_at_ms: Some(1_710_000_000_000),
+                    last_error_at_ms: Some(1_710_000_000_100),
+                    consecutive_failure_count: 2,
+                    last_error: Some("timeout".to_string()),
+                    current_backoff_secs: 30,
+                }],
+            },
+        },
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::GatewayBootstrap { payload } => {
+            assert_eq!(payload.bootstrap_correlation_id, "boot-1");
+            assert_eq!(payload.feature_flags.len(), 2);
+            assert_eq!(payload.providers.len(), 1);
+            assert_eq!(payload.providers[0].platform, "slack");
+            assert_eq!(payload.continuity.cursors.len(), 1);
+            assert_eq!(payload.continuity.thread_bindings.len(), 1);
+            assert_eq!(payload.continuity.route_modes.len(), 1);
+            assert_eq!(payload.continuity.health_snapshots.len(), 1);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn skill_variant_result_round_trip() {
+    let msg = DaemonMessage::SkillListResult {
+        variants: vec![sample_skill_variant()],
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SkillListResult { variants } => {
+            assert_eq!(variants.len(), 1);
+            assert_eq!(variants[0].skill_name, "git_rebase_workflow");
+            assert_eq!(variants[0].status, "active");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn skill_search_result_round_trip() {
+    let msg = DaemonMessage::SkillSearchResult {
+        entries: vec![sample_community_skill_entry()],
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SkillSearchResult { entries } => {
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].name, "git-rebase-workflow");
+            assert!(entries[0].publisher_verified);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}

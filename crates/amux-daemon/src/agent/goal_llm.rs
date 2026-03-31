@@ -581,8 +581,12 @@ impl AgentEngine {
     }
 
     pub(super) async fn run_goal_llm_json(&self, prompt: &str) -> Result<String> {
-        self.run_goal_llm_json_with_schema(prompt, goal_plan_json_schema(), "goal planning LLM call")
-            .await
+        self.run_goal_llm_json_with_schema(
+            prompt,
+            goal_plan_json_schema(),
+            "goal planning LLM call",
+        )
+        .await
     }
 
     pub(super) async fn run_goal_llm_json_with_schema(

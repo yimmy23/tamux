@@ -398,14 +398,21 @@ mod tests {
         let root = std::path::Path::new("/tmp/tamux/agent");
         let paths = memory_paths_for_scope(root, RADOGOST_AGENT_ID);
         let shared_user_root = active_memory_dir_for_scope(root, MAIN_AGENT_ID);
-        assert_eq!(paths.memory_dir, root.join("personas").join(RADOGOST_AGENT_ID));
+        assert_eq!(
+            paths.memory_dir,
+            root.join("personas").join(RADOGOST_AGENT_ID)
+        );
         assert_eq!(
             paths.memory_path,
-            root.join("personas").join(RADOGOST_AGENT_ID).join("MEMORY.md")
+            root.join("personas")
+                .join(RADOGOST_AGENT_ID)
+                .join("MEMORY.md")
         );
         assert_eq!(
             paths.soul_path,
-            root.join("personas").join(RADOGOST_AGENT_ID).join("SOUL.md")
+            root.join("personas")
+                .join(RADOGOST_AGENT_ID)
+                .join("SOUL.md")
         );
         assert_eq!(paths.user_path, shared_user_root.join("USER.md"));
     }

@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use amux_protocol::parse_whatsapp_allowed_contacts;
 use anyhow::{Context, Result};
-use wa_rs::Jid;
 use wa_rs::bot::Bot;
 use wa_rs::proto_helpers::MessageExt;
 use wa_rs::store::SqliteStore;
 use wa_rs::types::events::Event;
 use wa_rs::wa_rs_proto::whatsapp as wa;
+use wa_rs::Jid;
 use wa_rs_tokio_transport::TokioWebSocketTransportFactory;
 use wa_rs_ureq_http::UreqHttpClient;
 
@@ -20,8 +20,8 @@ use super::whatsapp_link::{
     normalize_identifier, normalize_jid_user, transport,
 };
 use super::{
-    AgentEngine, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME, WHATSAPP_LINK_PROVIDER_ID, gateway,
-    persist_transport_session_update,
+    gateway, persist_transport_session_update, AgentEngine, CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME,
+    WHATSAPP_LINK_PROVIDER_ID,
 };
 
 fn tamux_self_chat_prefix() -> String {

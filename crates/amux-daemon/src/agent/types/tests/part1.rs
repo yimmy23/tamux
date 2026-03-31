@@ -1,0 +1,277 @@
+    use super::*;
+
+    /// FOUN-05: Channel capacity is configurable via AgentConfig.
+    #[test]
+    fn configurable_channel_capacity() {
+        // Test defaults
+        let json_minimal = r#"{}"#;
+        let parsed: AgentConfig = serde_json::from_str(json_minimal).unwrap();
+        assert_eq!(parsed.pty_channel_capacity, 1024);
+        assert_eq!(parsed.agent_event_channel_capacity, 512);
+        assert!(parsed.auto_retry);
+        assert_eq!(
+            parsed.concierge.detail_level,
+            ConciergeDetailLevel::ContextSummary
+        );
+
+        // Test serde roundtrip with custom values
+        let json = r#"{"pty_channel_capacity": 2048, "agent_event_channel_capacity": 1024}"#;
+        let parsed: AgentConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.pty_channel_capacity, 2048);
+        assert_eq!(parsed.agent_event_channel_capacity, 1024);
+    }
+
+    #[test]
+    fn alibaba_coding_plan_uses_openai_by_default() {
+        assert_eq!(
+            get_provider_api_type(
+                "alibaba-coding-plan",
+                "qwen3.5-plus",
+                "https://coding-intl.dashscope.aliyuncs.com/v1"
+            ),
+            ApiType::OpenAI
+        );
+    }
+
+    #[test]
+    fn alibaba_coding_plan_switches_to_anthropic_for_anthropic_base_url() {
+        assert_eq!(
+            get_provider_api_type(
+                "alibaba-coding-plan",
+                "qwen3.5-plus",
+                "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
+            ),
+            ApiType::Anthropic
+        );
+    }
+
+    /// FOUN-04: Circuit breaker AgentEvent variants serialize and deserialize correctly.
+    // -----------------------------------------------------------------------
+    // Heartbeat type contract tests (BEAT-01, BEAT-02, BEAT-04, BEAT-05)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn heartbeat_checks_config_deserializes_from_empty_json() {
+        let cfg: HeartbeatChecksConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.stale_todos_enabled);
+        assert_eq!(cfg.stale_todo_threshold_hours, 24);
+        assert!(cfg.stuck_goals_enabled);
+        assert_eq!(cfg.stuck_goal_threshold_hours, 2);
+        assert!(cfg.unreplied_messages_enabled);
+        assert_eq!(cfg.unreplied_message_threshold_hours, 1);
+        assert!(cfg.repo_changes_enabled);
+        assert!(cfg.stale_todos_cron.is_none());
+        assert!(cfg.stuck_goals_cron.is_none());
+        assert!(cfg.unreplied_messages_cron.is_none());
+        assert!(cfg.repo_changes_cron.is_none());
+        // BEAT-06: Priority weight fields default to 1.0
+        assert!((cfg.stale_todos_priority_weight - 1.0).abs() < f64::EPSILON);
+        assert!((cfg.stuck_goals_priority_weight - 1.0).abs() < f64::EPSILON);
+        assert!((cfg.unreplied_messages_priority_weight - 1.0).abs() < f64::EPSILON);
+        assert!((cfg.repo_changes_priority_weight - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn heartbeat_checks_config_priority_overrides_default_none() {
+        let cfg: HeartbeatChecksConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.stale_todos_priority_override.is_none());
+        assert!(cfg.stuck_goals_priority_override.is_none());
+        assert!(cfg.unreplied_messages_priority_override.is_none());
+        assert!(cfg.repo_changes_priority_override.is_none());
+        assert!(!cfg.reset_learned_priorities);
+    }
+
+    #[test]
+    fn agent_config_adaptive_heartbeat_defaults() {
+        let cfg: AgentConfig = serde_json::from_str("{}").unwrap();
+        assert!((cfg.ema_alpha - 0.3).abs() < f64::EPSILON);
+        assert_eq!(cfg.low_activity_frequency_factor, 4);
+        assert!((cfg.ema_activity_threshold - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn heartbeat_check_type_serializes_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::StaleTodos).unwrap(),
+            "\"stale_todos\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::StuckGoalRuns).unwrap(),
+            "\"stuck_goal_runs\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::UnrepliedGatewayMessages).unwrap(),
+            "\"unreplied_gateway_messages\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeartbeatCheckType::RepoChanges).unwrap(),
+            "\"repo_changes\""
+        );
+    }
+
+    #[test]
+    fn check_severity_serializes_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::Low).unwrap(),
+            "\"low\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::High).unwrap(),
+            "\"high\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckSeverity::Critical).unwrap(),
+            "\"critical\""
+        );
+    }
+
+    #[test]
+    fn heartbeat_check_result_roundtrips_through_serde() {
+        let result = HeartbeatCheckResult {
+            check_type: HeartbeatCheckType::StaleTodos,
+            items_found: 2,
+            summary: "2 stale TODO(s)".to_string(),
+            details: vec![CheckDetail {
+                id: "todo-1".to_string(),
+                label: "Fix the bug".to_string(),
+                age_hours: 48.5,
+                severity: CheckSeverity::High,
+                context: "TODO pending for 48.5h".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: HeartbeatCheckResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.check_type, HeartbeatCheckType::StaleTodos);
+        assert_eq!(parsed.items_found, 2);
+        assert_eq!(parsed.details.len(), 1);
+        assert_eq!(parsed.details[0].severity, CheckSeverity::High);
+    }
+
+    #[test]
+    fn heartbeat_digest_item_roundtrips_through_serde() {
+        let item = HeartbeatDigestItem {
+            priority: 1,
+            check_type: HeartbeatCheckType::StuckGoalRuns,
+            title: "Stuck goal run".to_string(),
+            suggestion: "Consider cancelling".to_string(),
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        let parsed: HeartbeatDigestItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.priority, 1);
+        assert_eq!(parsed.check_type, HeartbeatCheckType::StuckGoalRuns);
+        assert_eq!(parsed.title, "Stuck goal run");
+        assert_eq!(parsed.suggestion, "Consider cancelling");
+    }
+
+    #[test]
+    fn agent_config_backward_compat_new_heartbeat_fields() {
+        // JSON missing heartbeat_cron, heartbeat_checks, quiet_hours, dnd_enabled
+        let json = r#"{}"#;
+        let parsed: AgentConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.heartbeat_cron.is_none());
+        assert!(parsed.heartbeat_checks.stale_todos_enabled);
+        assert_eq!(parsed.heartbeat_checks.stale_todo_threshold_hours, 24);
+        assert!(parsed.quiet_hours_start.is_none());
+        assert!(parsed.quiet_hours_end.is_none());
+        assert!(!parsed.dnd_enabled);
+    }
+
+    #[test]
+    fn agent_event_heartbeat_digest_serde_roundtrip() {
+        let event = AgentEvent::HeartbeatDigest {
+            cycle_id: "cycle-1".to_string(),
+            actionable: true,
+            digest: "2 items need attention".to_string(),
+            items: vec![HeartbeatDigestItem {
+                priority: 1,
+                check_type: HeartbeatCheckType::StaleTodos,
+                title: "Stale todos".to_string(),
+                suggestion: "Review pending items".to_string(),
+            }],
+            checked_at: 1234567890,
+            explanation: Some("Heartbeat found stale items".to_string()),
+            confidence: Some(0.85),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            AgentEvent::HeartbeatDigest {
+                cycle_id,
+                actionable,
+                digest,
+                items,
+                checked_at,
+                explanation,
+                confidence,
+            } => {
+                assert_eq!(cycle_id, "cycle-1");
+                assert!(actionable);
+                assert_eq!(digest, "2 items need attention");
+                assert_eq!(items.len(), 1);
+                assert_eq!(checked_at, 1234567890);
+                assert_eq!(explanation.as_deref(), Some("Heartbeat found stale items"));
+                assert!((confidence.unwrap() - 0.85).abs() < f64::EPSILON);
+            }
+            _ => panic!("wrong variant after deserialize"),
+        }
+    }
+
+    #[test]
+    fn interval_mins_to_cron_converts_correctly() {
+        assert_eq!(interval_mins_to_cron(1), "* * * * *");
+        assert_eq!(interval_mins_to_cron(15), "*/15 * * * *");
+        assert_eq!(interval_mins_to_cron(60), "0 * * * *");
+        assert_eq!(interval_mins_to_cron(120), "0 */2 * * *");
+        assert_eq!(interval_mins_to_cron(0), "* * * * *");
+    }
+
+    #[test]
+    fn circuit_breaker_event_serde_roundtrip() {
+        let event = AgentEvent::ProviderCircuitOpen {
+            provider: "openai".to_string(),
+            failed_model: None,
+            trip_count: 3,
+            reason: "circuit breaker open".to_string(),
+            suggested_alternatives: vec![ProviderAlternativeSuggestion {
+                provider_id: "groq".to_string(),
+                model: Some("llama-3.3-70b-versatile".to_string()),
+                reason: "healthy and configured".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            AgentEvent::ProviderCircuitOpen {
+                provider,
+                failed_model,
+                trip_count,
+                reason,
+                suggested_alternatives,
+            } => {
+                assert_eq!(provider, "openai");
+                assert!(failed_model.is_none());
+                assert_eq!(trip_count, 3);
+                assert_eq!(reason, "circuit breaker open");
+                assert_eq!(suggested_alternatives.len(), 1);
+                assert_eq!(suggested_alternatives[0].provider_id, "groq");
+            }
+            _ => panic!("wrong variant after deserialize"),
+        }
+
+        let recovery = AgentEvent::ProviderCircuitRecovered {
+            provider: "anthropic".to_string(),
+        };
+        let json = serde_json::to_string(&recovery).unwrap();
+        let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            AgentEvent::ProviderCircuitRecovered { provider } => {
+                assert_eq!(provider, "anthropic");
+            }
+            _ => panic!("wrong variant after deserialize"),
+        }
+    }
+

@@ -2,13 +2,13 @@ use std::collections::VecDeque;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex as StdMutex};
 
-use crate::agent::{AgentConfig, AgentEngine};
 use crate::agent::types::{
-    AgentMessage, AgentTask, AgentTaskLogEntry, GoalRun, GoalRunStatus, GoalRunStep,
+    AgentMessage, AgentTask, AgentTaskLogEntry, ApiTransport, GoalRun, GoalRunStatus, GoalRunStep,
     GoalRunStepKind, GoalRunStepStatus, TaskLogLevel, TaskPriority, TaskStatus,
 };
+use crate::agent::{AgentConfig, AgentEngine};
 use crate::session_manager::SessionManager;
-use tempfile::{TempDir, tempdir};
+use tempfile::{tempdir, TempDir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -134,6 +134,7 @@ pub(super) async fn policy_runtime_engine(
     config.base_url = server_url;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
     TestEngine {
         engine,

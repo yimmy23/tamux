@@ -558,8 +558,9 @@ impl AgentEngine {
         reply_text: &str,
     ) -> Result<String> {
         let existing_thread = self.gateway_threads.read().await.get(channel_key).cloned();
-        let (thread_id, is_new_thread) =
-            self.get_or_create_thread(existing_thread.as_deref(), &msg.content).await;
+        let (thread_id, is_new_thread) = self
+            .get_or_create_thread(existing_thread.as_deref(), &msg.content)
+            .await;
         self.ensure_thread_identity(&thread_id, &gateway_thread_title(msg), false)
             .await;
 
@@ -2383,16 +2384,15 @@ mod tests {
             .await
             .expect("list thread messages");
         assert!(
-            messages.iter().any(|msg| {
-                msg.role == "user" && msg.content == "switch to swarog"
-            }),
+            messages
+                .iter()
+                .any(|msg| { msg.role == "user" && msg.content == "switch to swarog" }),
             "fast-path gateway thread should persist the inbound user message"
         );
         assert!(
             messages.iter().any(|msg| {
                 msg.role == "assistant"
-                    && msg.content
-                        == gateway_route_confirmation(gateway::GatewayRouteMode::Swarog)
+                    && msg.content == gateway_route_confirmation(gateway::GatewayRouteMode::Swarog)
             }),
             "fast-path gateway thread should persist the assistant reply"
         );
@@ -2559,9 +2559,18 @@ mod tests {
         let gateway_source =
             fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/gateway.rs"))
                 .expect("read gateway.rs");
-        let tool_source =
-            fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/tool_executor.rs"))
-                .expect("read tool_executor.rs");
+        let tool_root = repo_root().join("crates/amux-daemon/src/agent/tool_executor");
+        let mut tool_paths = fs::read_dir(&tool_root)
+            .expect("read tool_executor dir")
+            .map(|entry| entry.expect("tool_executor dir entry").path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("rs"))
+            .collect::<Vec<_>>();
+        tool_paths.sort();
+        let tool_source = tool_paths
+            .into_iter()
+            .map(|path| fs::read_to_string(path).expect("read split tool_executor source"))
+            .collect::<Vec<_>>()
+            .join("\n");
         for forbidden in [
             "https://slack.com/api",
             "https://discord.com/api/v10",
