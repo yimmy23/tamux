@@ -63,6 +63,7 @@ pub struct CommandItem {
 pub enum ModalAction {
     Push(ModalKind),
     Pop,
+    RemoveAll(ModalKind),
     SetQuery(String),
     Navigate(i32), // +1 = down, -1 = up
     Execute,
@@ -279,6 +280,12 @@ impl ModalState {
             }
             ModalAction::Pop => {
                 self.stack.pop();
+                self.command_query.clear();
+                self.picker_cursor = 0;
+                self.refilter();
+            }
+            ModalAction::RemoveAll(kind) => {
+                self.stack.retain(|entry| *entry != kind);
                 self.command_query.clear();
                 self.picker_cursor = 0;
                 self.refilter();

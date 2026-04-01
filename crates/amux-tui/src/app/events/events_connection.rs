@@ -40,8 +40,7 @@ impl TuiModel {
             .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
         self.chat.reduce(chat::ChatAction::ResetStreaming);
         self.clear_pending_stop();
-        self.openai_auth_url = None;
-        self.openai_auth_status_text = None;
+        self.clear_openai_auth_modal_state();
         self.status_line = "Disconnected from daemon".to_string();
     }
 
@@ -56,8 +55,7 @@ impl TuiModel {
             .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
         self.chat.reduce(chat::ChatAction::ResetStreaming);
         self.clear_pending_stop();
-        self.openai_auth_url = None;
-        self.openai_auth_status_text = None;
+        self.clear_openai_auth_modal_state();
         self.status_line = format!("Connection lost. Retrying in {}s", delay_secs);
     }
 

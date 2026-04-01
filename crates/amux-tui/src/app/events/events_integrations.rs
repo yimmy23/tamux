@@ -4,6 +4,17 @@ use serde_json::Value;
 use amux_protocol::AGENT_NAME_RAROG;
 
 impl TuiModel {
+    pub(in crate::app) fn clear_openai_auth_modal_state(&mut self) {
+        self.openai_auth_url = None;
+        self.openai_auth_status_text = None;
+        self.modal
+            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::OpenAIAuth));
+    }
+
+    fn refresh_auth_views_after_openai_event(&mut self) {
+        self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+    }
+
     fn apply_openai_codex_auth_status(&mut self, status: &crate::client::OpenAICodexAuthStatusVm) {
         self.config.chatgpt_auth_available = status.available;
         self.config.chatgpt_auth_source = status.source.clone();
@@ -32,8 +43,8 @@ impl TuiModel {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
             }
-        } else if self.modal.top() == Some(modal::ModalKind::OpenAIAuth) {
-            self.close_top_modal();
+        } else {
+            self.clear_openai_auth_modal_state();
         }
     }
 
@@ -64,6 +75,7 @@ impl TuiModel {
         status: crate::client::OpenAICodexAuthStatusVm,
     ) {
         self.apply_openai_codex_auth_status(&status);
+        self.refresh_auth_views_after_openai_event();
         if let Some(error) = status.error {
             self.status_line = error;
         } else if status.available {
@@ -78,6 +90,7 @@ impl TuiModel {
         status: crate::client::OpenAICodexAuthStatusVm,
     ) {
         self.apply_openai_codex_auth_status(&status);
+        self.refresh_auth_views_after_openai_event();
 
         if status.auth_url.is_some() {
             self.status_line = "ChatGPT subscription login started".to_string();
@@ -96,15 +109,17 @@ impl TuiModel {
         if ok {
             self.config.chatgpt_auth_available = false;
             self.config.chatgpt_auth_source = None;
-            self.openai_auth_url = None;
-            self.openai_auth_status_text = None;
-            if self.modal.top() == Some(modal::ModalKind::OpenAIAuth) {
-                self.close_top_modal();
-            }
+            self.clear_openai_auth_modal_state();
+            self.refresh_auth_views_after_openai_event();
             self.status_line = "ChatGPT subscription auth cleared".to_string();
         } else {
             self.openai_auth_url = None;
             self.openai_auth_status_text = error.clone();
+            if self.modal.top() != Some(modal::ModalKind::OpenAIAuth) {
+                self.modal
+                    .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
+            }
+            self.refresh_auth_views_after_openai_event();
             self.status_line = error.unwrap_or_else(|| {
                 "OpenAI authentication failed. Please try signing in again.".to_string()
             });

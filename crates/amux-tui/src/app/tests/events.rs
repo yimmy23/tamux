@@ -600,7 +600,7 @@ fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
 
 #[test]
 fn openai_codex_auth_events_update_config_and_modal_state() {
-    let mut model = make_model();
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
 
     model.handle_client_event(ClientEvent::OpenAICodexAuthStatus(
         crate::client::OpenAICodexAuthStatusVm {
@@ -646,6 +646,18 @@ fn openai_codex_auth_events_update_config_and_modal_state() {
         .openai_auth_status_text
         .as_deref()
         .is_some_and(|text| text.contains("complete ChatGPT authentication")));
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected auth state refresh after status"),
+        DaemonCommand::GetProviderAuthStates
+    ));
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected auth state refresh after login"),
+        DaemonCommand::GetProviderAuthStates
+    ));
 
     model.handle_client_event(ClientEvent::OpenAICodexAuthLogoutResult {
         ok: true,
@@ -656,6 +668,12 @@ fn openai_codex_auth_events_update_config_and_modal_state() {
     assert!(model.config.chatgpt_auth_source.is_none());
     assert!(model.openai_auth_url.is_none());
     assert!(model.openai_auth_status_text.is_none());
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected auth state refresh after logout"),
+        DaemonCommand::GetProviderAuthStates
+    ));
     assert_eq!(model.status_line, "ChatGPT subscription auth cleared");
 }
 
@@ -678,12 +696,18 @@ fn connected_event_requests_openai_codex_auth_status_from_daemon() {
 
 #[test]
 fn openai_codex_auth_status_event_clears_stale_modal_state() {
-    let mut model = make_model();
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.openai_auth_url = Some("https://stale.example/login".to_string());
     model.openai_auth_status_text = Some("stale".to_string());
     model
         .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
 
     model.handle_client_event(ClientEvent::OpenAICodexAuthStatus(
         crate::client::OpenAICodexAuthStatusVm {
@@ -707,5 +731,50 @@ fn openai_codex_auth_status_event_clears_stale_modal_state() {
         model.modal.top(),
         Some(crate::state::modal::ModalKind::OpenAIAuth)
     );
+    model.close_top_modal();
+    assert_eq!(
+        model.modal.top(),
+        Some(crate::state::modal::ModalKind::CommandPalette)
+    );
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected auth state refresh after status"),
+        DaemonCommand::GetProviderAuthStates
+    ));
     assert_eq!(model.status_line, "Timed out waiting for callback");
+}
+
+#[test]
+fn disconnect_and_reconnect_clear_openai_auth_modal_even_when_nested() {
+    let mut model = make_model();
+    model.openai_auth_url = Some("https://auth.openai.com/oauth/authorize?flow=tui".to_string());
+    model.openai_auth_status_text = Some("pending".to_string());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+
+    model.handle_disconnected_event();
+
+    assert!(model.openai_auth_url.is_none());
+    assert!(model.openai_auth_status_text.is_none());
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::CommandPalette));
+
+    model.openai_auth_url = Some("https://auth.openai.com/oauth/authorize?flow=tui".to_string());
+    model.openai_auth_status_text = Some("pending".to_string());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
+
+    model.handle_reconnecting_event(3);
+
+    assert!(model.openai_auth_url.is_none());
+    assert!(model.openai_auth_status_text.is_none());
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::CommandPalette));
 }

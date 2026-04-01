@@ -360,12 +360,8 @@ impl TuiModel {
                         self.provider_auth_snapshot(&entry.provider_id);
                     if entry.provider_id == "openai" && auth_source == "chatgpt_subscription" {
                         self.refresh_openai_auth_status();
-                        self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
-                        self.status_line = if self.config.chatgpt_auth_available {
-                            "ChatGPT subscription auth is available".to_string()
-                        } else {
-                            "ChatGPT subscription auth is not configured".to_string()
-                        };
+                        self.status_line =
+                            "Refreshing ChatGPT subscription auth status...".to_string();
                     } else {
                         self.auth.validating = Some(entry.provider_id.clone());
                         self.send_daemon_command(DaemonCommand::ValidateProvider {

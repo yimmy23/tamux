@@ -21,6 +21,21 @@ fn stacked_modals_pop_in_order() {
 }
 
 #[test]
+fn remove_all_modal_kind_removes_nested_instances() {
+    let mut state = ModalState::new();
+    state.reduce(ModalAction::Push(ModalKind::Settings));
+    state.reduce(ModalAction::Push(ModalKind::OpenAIAuth));
+    state.reduce(ModalAction::Push(ModalKind::CommandPalette));
+    state.reduce(ModalAction::Push(ModalKind::OpenAIAuth));
+
+    state.reduce(ModalAction::RemoveAll(ModalKind::OpenAIAuth));
+
+    assert_eq!(state.top(), Some(ModalKind::CommandPalette));
+    state.reduce(ModalAction::Pop);
+    assert_eq!(state.top(), Some(ModalKind::Settings));
+}
+
+#[test]
 fn fuzzy_filter_narrows_items() {
     let mut state = ModalState::new();
     state.reduce(ModalAction::SetQuery("pro".into()));
