@@ -1,10 +1,8 @@
 use anyhow::Result;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
-use super::llm_client::{
-    extract_jwt_expiry, extract_openai_codex_account_id, CodexCliAuthFile, StoredOpenAICodexAuth,
-};
 use super::task_prompt::now_millis;
 
 mod flow;
@@ -68,6 +66,31 @@ struct OpenAICodexTokenResponse {
     expires_in: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoredOpenAICodexAuth {
+    pub(crate) provider: Option<String>,
+    pub(crate) auth_mode: Option<String>,
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: String,
+    pub(crate) account_id: Option<String>,
+    pub(crate) expires_at: Option<i64>,
+    pub(crate) source: Option<String>,
+    pub(crate) updated_at: Option<i64>,
+    pub(crate) created_at: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CodexCliAuthFile {
+    pub(super) tokens: Option<CodexCliTokens>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CodexCliTokens {
+    pub(super) access_token: Option<String>,
+    pub(super) refresh_token: Option<String>,
+}
+
 pub(crate) trait OpenAICodexExchange: Send + Sync {
     fn exchange_authorization_code(
         &self,
@@ -102,6 +125,29 @@ fn auth_runtime() -> &'static Mutex<OpenAICodexAuthRuntime> {
 fn exchange_client() -> &'static dyn OpenAICodexExchange {
     static EXCHANGE: OnceLock<ReqwestOpenAICodexExchange> = OnceLock::new();
     EXCHANGE.get_or_init(ReqwestOpenAICodexExchange::new)
+}
+
+fn decode_jwt_payload(access_token: &str) -> Option<serde_json::Value> {
+    let payload = access_token.split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    serde_json::from_slice::<serde_json::Value>(&decoded).ok()
+}
+
+pub(crate) fn extract_openai_codex_account_id(access_token: &str) -> Option<String> {
+    decode_jwt_payload(access_token)?
+        .get("https://api.openai.com/auth")
+        .and_then(|value| value.get("chatgpt_account_id"))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+}
+
+pub(crate) fn extract_jwt_expiry(access_token: &str) -> Option<i64> {
+    decode_jwt_payload(access_token)?
+        .get("exp")
+        .and_then(|value| value.as_i64())
+        .map(|seconds| seconds.saturating_mul(1000))
 }
 
 fn tombstone_auth_mode() -> &'static str {
@@ -170,6 +216,7 @@ fn empty_status() -> OpenAICodexAuthStatus {
 pub(crate) use flow::{complete_browser_auth, complete_browser_auth_with};
 #[cfg(test)]
 pub(crate) use flow::{
+    complete_browser_auth_with_timeout_for_tests,
     complete_openai_codex_auth_flow_with_result_for_tests,
     complete_openai_codex_auth_with_code_for_tests, current_pending_openai_codex_flow_id_for_tests,
     mark_openai_codex_auth_timeout_for_tests,

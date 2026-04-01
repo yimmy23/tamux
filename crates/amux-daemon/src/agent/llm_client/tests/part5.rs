@@ -1,4 +1,5 @@
 use crate::agent::openai_codex_auth::{
+    complete_browser_auth_with_timeout_for_tests,
     complete_openai_codex_auth_flow_with_result_for_tests,
     complete_openai_codex_auth_with_code_for_tests, logout_openai_codex_auth,
     current_pending_openai_codex_flow_id_for_tests, has_openai_chatgpt_subscription_auth,
@@ -8,21 +9,14 @@ use crate::agent::openai_codex_auth::{
 use crate::agent::types::{AgentConfig, ApiTransport, ProviderConfig};
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
+use std::time::Duration;
 
 #[test]
 fn pending_login_reuses_flow() {
     let _lock = provider_auth_store::provider_auth_test_env_lock();
     let temp_dir = tempdir().expect("tempdir should succeed");
     let _env_guard = EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
 
     let first = begin_openai_codex_auth_login().expect("first login should succeed");
     let second = begin_openai_codex_auth_login().expect("second login should succeed");
@@ -69,6 +63,18 @@ fn write_codex_cli_auth_fixture(path: &std::path::Path) {
     std::fs::write(path, CODEX_CLI_AUTH_FIXTURE_JSON).expect("write codex auth fixture");
 }
 
+fn set_test_auth_env(root: &std::path::Path, cli_auth_path: &std::path::Path) {
+    std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", root.join("provider-auth.db"));
+    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", cli_auth_path);
+}
+
+fn prepare_openai_auth_test(root: &std::path::Path, cli_auth_name: &str) -> std::path::PathBuf {
+    let cli_auth_path = root.join(cli_auth_name);
+    set_test_auth_env(root, &cli_auth_path);
+    clear_openai_codex_auth_test_state();
+    cli_auth_path
+}
+
 #[test]
 fn login_timeout_sets_error_state() {
     let _lock = provider_auth_store::provider_auth_test_env_lock();
@@ -77,15 +83,7 @@ fn login_timeout_sets_error_state() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     begin_openai_codex_auth_login().expect("login should start");
 
     let status = mark_openai_codex_auth_timeout_for_tests();
@@ -107,15 +105,7 @@ fn exchange_failure_sets_error_state() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     begin_openai_codex_auth_login().expect("login should start");
 
     let status = complete_openai_codex_auth_with_code_for_tests(
@@ -142,15 +132,7 @@ fn successful_login_persists_auth_and_reports_completed() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     begin_openai_codex_auth_login().expect("login should start");
 
     let completed = complete_openai_codex_auth_with_code_for_tests(
@@ -178,15 +160,7 @@ fn status_during_pending_returns_same_auth_url() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
 
     let login = begin_openai_codex_auth_login().expect("login should start");
     let status = openai_codex_auth_status(false);
@@ -206,15 +180,7 @@ fn logout_during_pending_cancels_flow() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     begin_openai_codex_auth_login().expect("login should start");
 
     logout_openai_codex_auth().expect("logout should succeed");
@@ -237,9 +203,7 @@ fn logout_tombstone_blocks_codex_import() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         temp_dir.path().join("provider-auth.db"),
     );
-    let codex_auth_path = temp_dir.path().join("codex-auth.json");
-    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
-    clear_openai_codex_auth_test_state();
+    let codex_auth_path = prepare_openai_auth_test(temp_dir.path(), "codex-auth.json");
     write_codex_cli_auth_fixture(&codex_auth_path);
 
     logout_openai_codex_auth().expect("logout should succeed");
@@ -259,13 +223,7 @@ fn helper_reports_available_when_only_codex_cli_auth_exists() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    let codex_auth_path = temp_dir.path().join("codex-auth.json");
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
-    clear_openai_codex_auth_test_state();
+    let codex_auth_path = prepare_openai_auth_test(temp_dir.path(), "codex-auth.json");
     write_codex_cli_auth_fixture(&codex_auth_path);
 
     assert!(read_stored_openai_codex_auth().is_none());
@@ -281,15 +239,7 @@ fn explicit_login_clears_tombstone() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     logout_openai_codex_auth().expect("logout should succeed");
     assert!(tombstone_present_for_tests());
 
@@ -307,15 +257,7 @@ fn login_after_error_starts_fresh_flow() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     begin_openai_codex_auth_login().expect("login should start");
     mark_openai_codex_auth_timeout_for_tests();
 
@@ -327,6 +269,33 @@ fn login_after_error_starts_fresh_flow() {
 }
 
 #[test]
+fn browser_callback_timeout_sets_error_state() {
+    let _lock = provider_auth_store::provider_auth_test_env_lock();
+    let temp_dir = tempdir().expect("tempdir should succeed");
+    let _env_guard = EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
+    begin_openai_codex_auth_login().expect("login should start");
+
+    let status = complete_browser_auth_with_timeout_for_tests(
+        &TestExchange {
+            result: Ok(stored_auth_fixture()),
+        },
+        Duration::from_millis(10),
+    );
+
+    assert_eq!(status.status.as_deref(), Some("error"));
+    assert!(!status.available);
+    assert!(status
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("timed out"));
+}
+
+#[test]
 fn stale_flow_completion_returns_current_pending_status() {
     let _lock = provider_auth_store::provider_auth_test_env_lock();
     let temp_dir = tempdir().expect("tempdir should succeed");
@@ -334,15 +303,7 @@ fn stale_flow_completion_returns_current_pending_status() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
 
     begin_openai_codex_auth_login().expect("first login should start");
     let stale_flow_id = current_pending_openai_codex_flow_id_for_tests()
@@ -368,15 +329,7 @@ fn successful_login_reports_error_when_persistence_fails() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
-    clear_openai_codex_auth_test_state();
+    prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     begin_openai_codex_auth_login().expect("login should start");
     std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", temp_dir.path());
 
@@ -434,14 +387,7 @@ async fn provider_auth_states_respect_codex_helper_state() {
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
     let root = tempdir().unwrap();
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        root.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        root.path().join("missing-codex-auth.json"),
-    );
+    set_test_auth_env(root.path(), &root.path().join("missing-codex-auth.json"));
     reset_openai_codex_auth_runtime_for_tests();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
@@ -504,13 +450,7 @@ async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
     let root = tempdir().unwrap();
-    let codex_auth_path = root.path().join("codex-auth.json");
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        root.path().join("provider-auth.db"),
-    );
-    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
-    clear_openai_codex_auth_test_state();
+    let codex_auth_path = prepare_openai_auth_test(root.path(), "codex-auth.json");
     write_codex_cli_auth_fixture(&codex_auth_path);
 
     let manager = SessionManager::new_test(root.path()).await;
@@ -553,14 +493,7 @@ fn codex_status_payload_omits_secrets() {
         "TAMUX_PROVIDER_AUTH_DB_PATH",
         "TAMUX_CODEX_CLI_AUTH_PATH",
     ]);
-    std::env::set_var(
-        "TAMUX_PROVIDER_AUTH_DB_PATH",
-        temp_dir.path().join("provider-auth.db"),
-    );
-    std::env::set_var(
-        "TAMUX_CODEX_CLI_AUTH_PATH",
-        temp_dir.path().join("missing-codex-auth.json"),
-    );
+    set_test_auth_env(temp_dir.path(), &temp_dir.path().join("missing-codex-auth.json"));
     reset_openai_codex_auth_runtime_for_tests();
     begin_openai_codex_auth_login().expect("login should start");
     let pending_json = serde_json::to_value(begin_openai_codex_auth_login().expect("pending login")).expect("serialize pending");

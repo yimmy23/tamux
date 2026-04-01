@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
@@ -16,6 +16,8 @@ use super::{
     OPENAI_CODEX_AUTH_AUTHORIZE_URL, OPENAI_CODEX_AUTH_CLIENT_ID, OPENAI_CODEX_AUTH_REDIRECT_URI,
     OPENAI_CODEX_AUTH_SCOPE, OPENAI_CODEX_AUTH_TOKEN_URL,
 };
+
+const OPENAI_CODEX_CALLBACK_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub(super) fn build_pending_auth_flow() -> Result<PendingOpenAICodexAuth> {
     let (verifier, challenge) = generate_pkce_pair();
@@ -153,7 +155,7 @@ fn complete_pending_flow_with_result(
     }
 }
 
-fn read_callback_request(stream: &mut std::net::TcpStream) -> Result<(String, String)> {
+fn read_callback_request(stream: &mut TcpStream) -> Result<(String, String)> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut buffer = [0u8; 8192];
     let read = stream.read(&mut buffer)?;
@@ -177,24 +179,41 @@ fn read_callback_request(stream: &mut std::net::TcpStream) -> Result<(String, St
     Ok((callback_state, code))
 }
 
-fn write_callback_failure(stream: &mut std::net::TcpStream) {
+fn write_callback_failure(stream: &mut TcpStream) {
     let _ = stream.write_all(
         b"HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInvalid OpenAI OAuth callback.",
     );
 }
 
-fn write_callback_success(stream: &mut std::net::TcpStream) {
+fn write_callback_success(stream: &mut TcpStream) {
     let _ = stream.write_all(
         b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!doctype html><html><body><p>Authentication successful. Return to tamux.</p></body></html>",
     );
 }
 
-pub(crate) fn complete_browser_auth() -> OpenAICodexAuthStatus {
-    complete_browser_auth_with(exchange_client())
+fn await_browser_callback(listener: &TcpListener, timeout: Duration) -> Result<TcpStream> {
+    listener
+        .set_nonblocking(true)
+        .context("failed to configure callback listener")?;
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => return Ok(stream),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    anyhow::bail!("OpenAI OAuth callback timed out");
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => return Err(error).context("failed to accept OpenAI OAuth callback"),
+        }
+    }
 }
 
-pub(crate) fn complete_browser_auth_with(
+fn complete_browser_auth_with_timeout(
     exchange: &dyn OpenAICodexExchange,
+    timeout: Duration,
 ) -> OpenAICodexAuthStatus {
     let pending = {
         let runtime = auth_runtime()
@@ -209,10 +228,7 @@ pub(crate) fn complete_browser_auth_with(
     let result = (|| -> Result<StoredOpenAICodexAuth> {
         let listener = TcpListener::bind("127.0.0.1:1455")
             .context("failed to bind localhost callback listener on port 1455")?;
-        listener
-            .set_nonblocking(false)
-            .context("failed to configure callback listener")?;
-        let (mut stream, _) = listener.accept()?;
+        let mut stream = await_browser_callback(&listener, timeout)?;
         let (callback_state, code) = read_callback_request(&mut stream)?;
 
         if callback_state != pending.state || code.is_empty() {
@@ -225,6 +241,16 @@ pub(crate) fn complete_browser_auth_with(
     })();
 
     complete_pending_flow_with_result(result, &pending.flow_id)
+}
+
+pub(crate) fn complete_browser_auth() -> OpenAICodexAuthStatus {
+    complete_browser_auth_with_timeout(exchange_client(), OPENAI_CODEX_CALLBACK_TIMEOUT)
+}
+
+pub(crate) fn complete_browser_auth_with(
+    exchange: &dyn OpenAICodexExchange,
+) -> OpenAICodexAuthStatus {
+    complete_browser_auth_with_timeout(exchange, OPENAI_CODEX_CALLBACK_TIMEOUT)
 }
 
 #[cfg(test)]
@@ -274,4 +300,12 @@ pub(crate) fn complete_openai_codex_auth_flow_with_result_for_tests(
     result: Result<StoredOpenAICodexAuth>,
 ) -> OpenAICodexAuthStatus {
     complete_pending_flow_with_result(result, flow_id)
+}
+
+#[cfg(test)]
+pub(crate) fn complete_browser_auth_with_timeout_for_tests(
+    exchange: &dyn OpenAICodexExchange,
+    timeout: Duration,
+) -> OpenAICodexAuthStatus {
+    complete_browser_auth_with_timeout(exchange, timeout)
 }

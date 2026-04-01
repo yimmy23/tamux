@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use base64::Engine;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -176,31 +175,6 @@ impl fmt::Display for RateLimitError {
 }
 
 impl std::error::Error for RateLimitError {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct StoredOpenAICodexAuth {
-    pub(crate) provider: Option<String>,
-    pub(crate) auth_mode: Option<String>,
-    pub(crate) access_token: String,
-    pub(crate) refresh_token: String,
-    pub(crate) account_id: Option<String>,
-    pub(crate) expires_at: Option<i64>,
-    pub(crate) source: Option<String>,
-    pub(crate) updated_at: Option<i64>,
-    pub(crate) created_at: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct CodexCliAuthFile {
-    pub(crate) tokens: Option<CodexCliTokens>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct CodexCliTokens {
-    pub(crate) access_token: Option<String>,
-    pub(crate) refresh_token: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 struct OpenAICodexRequestAuth {

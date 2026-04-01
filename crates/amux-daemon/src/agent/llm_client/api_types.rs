@@ -1,8 +1,8 @@
 pub(crate) use super::openai_codex_auth::{
     begin_openai_codex_auth_login, clear_openai_codex_auth_test_state,
-    import_codex_cli_auth_if_present,
+    extract_openai_codex_account_id, import_codex_cli_auth_if_present,
     read_stored_openai_codex_auth, reset_openai_codex_auth_runtime_for_tests,
-    write_stored_openai_codex_auth,
+    write_stored_openai_codex_auth, StoredOpenAICodexAuth,
 };
 
 fn classify_http_failure(
@@ -217,29 +217,6 @@ impl Stream for CompletionStream {
     ) -> Poll<Option<Self::Item>> {
         self.rx.poll_recv(cx)
     }
-}
-
-fn decode_jwt_payload(access_token: &str) -> Option<serde_json::Value> {
-    let payload = access_token.split('.').nth(1)?;
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .ok()?;
-    serde_json::from_slice::<serde_json::Value>(&decoded).ok()
-}
-
-pub(crate) fn extract_openai_codex_account_id(access_token: &str) -> Option<String> {
-    decode_jwt_payload(access_token)?
-        .get("https://api.openai.com/auth")
-        .and_then(|value| value.get("chatgpt_account_id"))
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-}
-
-pub(crate) fn extract_jwt_expiry(access_token: &str) -> Option<i64> {
-    decode_jwt_payload(access_token)?
-        .get("exp")
-        .and_then(|value| value.as_i64())
-        .map(|seconds| seconds.saturating_mul(1000))
 }
 
 pub(crate) fn has_openai_chatgpt_subscription_auth() -> bool {
