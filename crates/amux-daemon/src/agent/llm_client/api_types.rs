@@ -309,7 +309,10 @@ async fn resolve_openai_codex_request_auth(
         return Ok(None);
     }
 
-    let auth = read_stored_openai_codex_auth().or_else(import_codex_cli_auth_if_present);
+    let auth = match read_stored_openai_codex_auth() {
+        Some(auth) => Some(auth),
+        None => import_codex_cli_auth_if_present()?,
+    };
     let mut auth = auth.context(
         "No ChatGPT subscription auth found. Authenticate in the frontend or import ~/.codex/auth.json.",
     )?;

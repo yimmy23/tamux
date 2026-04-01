@@ -1,7 +1,8 @@
 use crate::agent::openai_codex_auth::{
+    complete_openai_codex_auth_flow_with_result_for_tests,
     complete_openai_codex_auth_with_code_for_tests, logout_openai_codex_auth,
-    mark_openai_codex_auth_timeout_for_tests, openai_codex_auth_status,
-    tombstone_present_for_tests, OpenAICodexExchange,
+    current_pending_openai_codex_flow_id_for_tests, mark_openai_codex_auth_timeout_for_tests,
+    openai_codex_auth_status, tombstone_present_for_tests, OpenAICodexExchange,
 };
 use crate::agent::types::{AgentConfig, ApiTransport, ProviderConfig};
 use crate::agent::AgentEngine;
@@ -51,7 +52,7 @@ fn stored_auth_fixture() -> StoredOpenAICodexAuth {
     StoredOpenAICodexAuth {
         provider: Some("openai-codex".to_string()),
         auth_mode: Some("chatgpt_subscription".to_string()),
-        access_token: "header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiacctMSJ9LCJleHAiOjQxMDI0NDQ4MDB9.signature".to_string(),
+        access_token: "header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn0sImV4cCI6NDEwMjQ0NDgwMH0.signature".to_string(),
         refresh_token: "refresh-token".to_string(),
         account_id: Some("acct-1".to_string()),
         expires_at: Some(4_102_444_800_000),
@@ -234,17 +235,17 @@ fn logout_tombstone_blocks_codex_import() {
     clear_openai_codex_auth_test_state();
     std::fs::write(
         &codex_auth_path,
-        r#"{"tokens":{"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiacctMSJ9LCJleHAiOjQxMDI0NDQ4MDB9.signature","refresh_token":"refresh-token"}}"#,
+        r#"{"tokens":{"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn0sImV4cCI6NDEwMjQ0NDgwMH0.signature","refresh_token":"refresh-token"}}"#,
     )
     .expect("write codex auth fixture");
 
     logout_openai_codex_auth().expect("logout should succeed");
     assert!(tombstone_present_for_tests());
-    assert!(import_codex_cli_auth_if_present().is_none());
+    assert!(import_codex_cli_auth_if_present().expect("import should not error").is_none());
 
     reset_openai_codex_auth_runtime_for_tests();
     assert!(tombstone_present_for_tests());
-    assert!(import_codex_cli_auth_if_present().is_none());
+    assert!(import_codex_cli_auth_if_present().expect("import should not error").is_none());
 }
 
 #[test]
@@ -298,6 +299,110 @@ fn login_after_error_starts_fresh_flow() {
     assert_eq!(fresh.status.as_deref(), Some("pending"));
     assert!(fresh.error.is_none());
     assert!(fresh.auth_url.is_some());
+}
+
+#[test]
+fn stale_flow_completion_returns_current_pending_status() {
+    let _lock = provider_auth_store::provider_auth_test_env_lock();
+    let temp_dir = tempdir().expect("tempdir should succeed");
+    let _env_guard = EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
+    std::env::set_var(
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        temp_dir.path().join("provider-auth.db"),
+    );
+    std::env::set_var(
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+        temp_dir.path().join("missing-codex-auth.json"),
+    );
+    clear_openai_codex_auth_test_state();
+
+    begin_openai_codex_auth_login().expect("first login should start");
+    let stale_flow_id = current_pending_openai_codex_flow_id_for_tests()
+        .expect("pending flow id should be present");
+    logout_openai_codex_auth().expect("logout should succeed");
+    let current = begin_openai_codex_auth_login().expect("second login should start");
+
+    let status = complete_openai_codex_auth_flow_with_result_for_tests(
+        &stale_flow_id,
+        Ok(stored_auth_fixture()),
+    );
+
+    assert_eq!(status.status.as_deref(), Some("pending"));
+    assert_eq!(status.auth_url, current.auth_url);
+    assert!(!status.available);
+}
+
+#[test]
+fn successful_login_reports_error_when_persistence_fails() {
+    let _lock = provider_auth_store::provider_auth_test_env_lock();
+    let temp_dir = tempdir().expect("tempdir should succeed");
+    let _env_guard = EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
+    std::env::set_var(
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        temp_dir.path().join("provider-auth.db"),
+    );
+    std::env::set_var(
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+        temp_dir.path().join("missing-codex-auth.json"),
+    );
+    clear_openai_codex_auth_test_state();
+    begin_openai_codex_auth_login().expect("login should start");
+    std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", temp_dir.path());
+
+    let status = complete_openai_codex_auth_with_code_for_tests(
+        "good-code",
+        &TestExchange {
+            result: Ok(stored_auth_fixture()),
+        },
+    );
+
+    assert_eq!(status.status.as_deref(), Some("error"));
+    assert!(!status.available);
+    assert!(status
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("persist"));
+}
+
+#[test]
+fn status_refresh_reports_import_persistence_failure() {
+    let _lock = provider_auth_store::provider_auth_test_env_lock();
+    let temp_dir = tempdir().expect("tempdir should succeed");
+    let _env_guard = EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
+    let codex_auth_path = temp_dir.path().join("codex-auth.json");
+    let invalid_parent = temp_dir.path().join("not-a-dir");
+    std::fs::write(&invalid_parent, "blocking parent").expect("write blocking file");
+    std::env::set_var(
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        invalid_parent.join("provider-auth.db"),
+    );
+    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
+    clear_openai_codex_auth_test_state();
+    std::fs::write(
+        &codex_auth_path,
+        r#"{"tokens":{"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn0sImV4cCI6NDEwMjQ0NDgwMH0.signature","refresh_token":"refresh-token"}}"#,
+    )
+    .expect("write codex auth fixture");
+
+    let status = openai_codex_auth_status(true);
+
+    assert_eq!(status.status.as_deref(), Some("error"));
+    assert!(!status.available);
+    assert!(status
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("persist"));
 }
 
 #[tokio::test]
