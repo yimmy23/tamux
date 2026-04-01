@@ -225,3 +225,29 @@ async fn refresh_constraint_cache_can_load_more_than_twenty_active_rows() -> any
     assert_eq!(store.cached_constraints.len(), 25);
     Ok(())
 }
+
+#[tokio::test]
+async fn record_negative_knowledge_from_tool_failure_is_immediately_queryable() -> anyhow::Result<()>
+{
+    let engine = make_test_engine().await;
+
+    engine
+        .record_negative_knowledge_from_tool_failure(
+            Some("Inspect persisted state"),
+            "read_file",
+            "src/main.rs",
+            "No such file or directory",
+        )
+        .await?;
+
+    let constraints = engine
+        .query_active_constraints(Some("Inspect persisted state"))
+        .await?;
+
+    assert_eq!(constraints.len(), 1);
+    assert!(constraints[0].subject.contains("Inspect persisted state"));
+    assert!(constraints[0].subject.contains("read_file(src/main.rs)"));
+    assert_eq!(constraints[0].description, "No such file or directory");
+    assert!(constraints[0].direct_observation);
+    Ok(())
+}

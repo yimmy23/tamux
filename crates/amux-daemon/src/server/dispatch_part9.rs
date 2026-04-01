@@ -246,6 +246,30 @@ if matches!(
                     tracing::info!(plugin = %name, "OAuth2 flow start requested");
                     match plugin_manager.start_oauth_flow_for_plugin(&name).await {
                         Ok(mut flow_state) => {
+                            let operation = async_command_capability
+                                .as_ref()
+                                .filter(|capability| {
+                                    capability.version >= 1
+                                        && capability.supports_operation_acceptance
+                                })
+                                .map(|_| {
+                                    operation_registry().accept_operation(
+                                        OPERATION_KIND_PLUGIN_OAUTH_START,
+                                        Some(plugin_oauth_start_dedup_key(&agent, &name)),
+                                    )
+                                });
+
+                            if let Some(operation) = operation.as_ref() {
+                                framed
+                                    .send(DaemonMessage::OperationAccepted {
+                                        operation_id: operation.operation_id.clone(),
+                                        kind: operation.kind.clone(),
+                                        dedup: operation.dedup.clone(),
+                                        revision: operation.revision,
+                                    })
+                                    .await?;
+                            }
+
                             // Send the auth URL to the requesting client immediately
                             let auth_url = flow_state.auth_url.clone();
                             framed
@@ -255,31 +279,46 @@ if matches!(
                                 })
                                 .await?;
 
-                            // Await callback and complete the flow (up to 5 min timeout)
-                            match plugin_manager
-                                .complete_oauth_flow(&name, &mut flow_state)
-                                .await
-                            {
-                                Ok(()) => {
-                                    framed
-                                        .send(DaemonMessage::PluginOAuthComplete {
-                                            name,
-                                            success: true,
-                                            error: None,
-                                        })
-                                        .await?;
+                            let operation_id = operation.map(|record| record.operation_id);
+                            let plugin_manager = plugin_manager.clone();
+                            let background_daemon_tx = background_daemon_tx.clone();
+                            background_daemon_pending = background_daemon_pending.saturating_add(1);
+                            tokio::spawn(async move {
+                                if let Some(operation_id) = operation_id.as_deref() {
+                                    operation_registry().mark_started(operation_id);
                                 }
-                                Err(e) => {
-                                    tracing::warn!(plugin = %name, error = %e, "OAuth2 flow failed");
-                                    framed
-                                        .send(DaemonMessage::PluginOAuthComplete {
-                                            name,
-                                            success: false,
-                                            error: Some(e.to_string()),
-                                        })
-                                        .await?;
+
+                                match plugin_manager
+                                    .complete_oauth_flow(&name, &mut flow_state)
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        let _ = background_daemon_tx.send(
+                                            DaemonMessage::PluginOAuthComplete {
+                                                name,
+                                                success: true,
+                                                error: None,
+                                            },
+                                        );
+                                        if let Some(operation_id) = operation_id.as_deref() {
+                                            operation_registry().mark_completed(operation_id);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(plugin = %name, error = %e, "OAuth2 flow failed");
+                                        let _ = background_daemon_tx.send(
+                                            DaemonMessage::PluginOAuthComplete {
+                                                name,
+                                                success: false,
+                                                error: Some(e.to_string()),
+                                            },
+                                        );
+                                        if let Some(operation_id) = operation_id.as_deref() {
+                                            operation_registry().mark_failed(operation_id);
+                                        }
+                                    }
                                 }
-                            }
+                            });
                         }
                         Err(e) => {
                             tracing::warn!(plugin = %name, error = %e, "OAuth2 flow start failed");

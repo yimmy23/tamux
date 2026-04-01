@@ -6,6 +6,7 @@ pub(super) const OPERATION_KIND_CONCIERGE_WELCOME: &str = "concierge_welcome";
 pub(super) const OPERATION_KIND_PROVIDER_VALIDATION: &str = "provider_validation";
 pub(super) const OPERATION_KIND_FETCH_MODELS: &str = "fetch_models";
 pub(super) const OPERATION_KIND_EXPLAIN_ACTION: &str = "explain_action";
+pub(super) const OPERATION_KIND_PLUGIN_OAUTH_START: &str = "plugin_oauth_start";
 
 #[derive(Debug, Clone)]
 pub(super) struct OperationRecord {
@@ -60,6 +61,16 @@ pub(super) fn explain_action_dedup_key(
     format!(
         "{OPERATION_KIND_EXPLAIN_ACTION}:{action_id}:{:?}:{:p}",
         step_index,
+        Arc::as_ptr(agent)
+    )
+}
+
+pub(super) fn plugin_oauth_start_dedup_key(
+    agent: &Arc<crate::agent::AgentEngine>,
+    plugin_name: &str,
+) -> String {
+    format!(
+        "{OPERATION_KIND_PLUGIN_OAUTH_START}:{plugin_name}:{:p}",
         Arc::as_ptr(agent)
     )
 }

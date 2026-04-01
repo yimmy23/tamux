@@ -29,6 +29,7 @@
         task: JoinHandle<anyhow::Result<()>>,
         root: PathBuf,
         agent: Arc<AgentEngine>,
+        plugin_manager: Arc<PluginManager>,
     }
 
     impl TestConnection {
@@ -46,6 +47,7 @@
                 task,
                 root,
                 agent: _,
+                plugin_manager: _,
             } = self;
             drop(framed);
             let join = timeout(Duration::from_secs(2), task)
@@ -83,7 +85,7 @@
             server_stream,
             manager,
             agent.clone(),
-            plugin_manager,
+            plugin_manager.clone(),
         ));
 
         TestConnection {
@@ -91,6 +93,7 @@
             task: server_task,
             root,
             agent,
+            plugin_manager,
         }
     }
 
@@ -116,6 +119,73 @@
             }
             other => panic!("expected async command capability ack, got {other:?}"),
         }
+    }
+
+    async fn register_test_oauth_plugin(conn: &TestConnection, name: &str) {
+        let plugin_dir = conn.root.join("plugins").join(name);
+        std::fs::create_dir_all(&plugin_dir).expect("create oauth plugin dir");
+        let manifest = serde_json::json!({
+            "name": name,
+            "version": "1.0.0",
+            "schema_version": 1,
+            "settings": {
+                "client_id": {
+                    "type": "string",
+                    "label": "Client ID",
+                    "required": true
+                }
+            },
+            "auth": {
+                "type": "oauth2",
+                "authorization_url": "https://example.com/oauth/authorize",
+                "token_url": "http://127.0.0.1:9/token",
+                "pkce": true
+            }
+        });
+        std::fs::write(
+            plugin_dir.join("plugin.json"),
+            serde_json::to_vec_pretty(&manifest).expect("serialize oauth plugin manifest"),
+        )
+        .expect("write oauth plugin manifest");
+
+        conn.plugin_manager
+            .register_plugin(name, "test")
+            .await
+            .expect("register oauth plugin");
+        conn.plugin_manager
+            .update_setting(name, "client_id", "test-client", false)
+            .await
+            .expect("configure oauth plugin client id");
+    }
+
+    async fn complete_test_oauth_callback(auth_url: &str) {
+        let parsed = url::Url::parse(auth_url).expect("parse auth url");
+        let redirect_uri = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "redirect_uri")
+            .map(|(_, value)| value.into_owned())
+            .expect("redirect_uri query parameter");
+        let state = parsed
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned())
+            .expect("state query parameter");
+        let redirect = url::Url::parse(&redirect_uri).expect("parse redirect uri");
+        let host = redirect.host_str().expect("redirect host");
+        let port = redirect.port_or_known_default().expect("redirect port");
+        let path = redirect.path();
+
+        let mut stream = tokio::net::TcpStream::connect((host, port))
+            .await
+            .expect("connect oauth callback listener");
+        let request = format!(
+            "GET {path}?code=test-auth-code&state={state} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        );
+        use tokio::io::AsyncWriteExt;
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("write oauth callback request");
     }
 
     async fn register_gateway(conn: &mut TestConnection) -> String {
@@ -825,6 +895,176 @@
             }
             other => panic!("expected explain-action payload, got {other:?}"),
         }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn plugin_oauth_async_request_does_not_block_ping() {
+        let mut conn = spawn_test_connection().await;
+        register_test_oauth_plugin(&conn, "oauth-test").await;
+        declare_async_command_capability(&mut conn).await;
+
+        conn.framed
+            .send(ClientMessage::PluginOAuthStart {
+                name: "oauth-test".to_string(),
+            })
+            .await
+            .expect("request plugin oauth start");
+
+        let first = conn.recv().await;
+        let (operation_id, auth_url) = match first {
+            DaemonMessage::OperationAccepted {
+                operation_id,
+                kind,
+                ..
+            } => {
+                assert_eq!(kind, "plugin_oauth_start");
+                match conn.recv().await {
+                    DaemonMessage::PluginOAuthUrl { name, url } => {
+                        assert_eq!(name, "oauth-test");
+                        (Some(operation_id), url)
+                    }
+                    other => panic!("expected plugin oauth url after acceptance, got {other:?}"),
+                }
+            }
+            DaemonMessage::PluginOAuthUrl { name, url } => {
+                assert_eq!(name, "oauth-test");
+                (None, url)
+            }
+            other => panic!("expected operation acceptance or oauth url, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while oauth flow is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::Pong => return true,
+                    DaemonMessage::PluginOAuthComplete { .. } => continue,
+                    other => panic!(
+                        "expected Pong while plugin oauth runs in background, got {other:?}"
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        complete_test_oauth_callback(&auth_url).await;
+
+        assert!(
+            operation_id.is_some(),
+            "async-capable client should receive operation acceptance before oauth url"
+        );
+        assert!(pong_received, "ping should not be blocked behind plugin oauth flow");
+
+        if let Some(operation_id) = operation_id {
+            conn.framed
+                .send(ClientMessage::AgentGetOperationStatus { operation_id })
+                .await
+                .expect("query plugin oauth status");
+
+            match conn.recv().await {
+                DaemonMessage::OperationStatus { snapshot } => {
+                    assert_eq!(snapshot.kind, "plugin_oauth_start");
+                    assert!(matches!(
+                        snapshot.state,
+                        amux_protocol::OperationLifecycleState::Accepted
+                            | amux_protocol::OperationLifecycleState::Started
+                            | amux_protocol::OperationLifecycleState::Completed
+                            | amux_protocol::OperationLifecycleState::Failed
+                    ));
+                }
+                other => panic!("expected plugin oauth status snapshot, got {other:?}"),
+            }
+        }
+
+        let _ = timeout(Duration::from_secs(1), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::PluginOAuthComplete { name, .. } => {
+                        assert_eq!(name, "oauth-test");
+                        return;
+                    }
+                    DaemonMessage::OperationStatus { .. } | DaemonMessage::Pong => continue,
+                    other => panic!("expected oauth completion during cleanup, got {other:?}"),
+                }
+            }
+        })
+        .await;
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn plugin_oauth_legacy_request_does_not_block_ping() {
+        let mut conn = spawn_test_connection().await;
+        register_test_oauth_plugin(&conn, "oauth-test-legacy").await;
+
+        conn.framed
+            .send(ClientMessage::PluginOAuthStart {
+                name: "oauth-test-legacy".to_string(),
+            })
+            .await
+            .expect("request legacy plugin oauth start");
+
+        let auth_url = match conn.recv().await {
+            DaemonMessage::PluginOAuthUrl { name, url } => {
+                assert_eq!(name, "oauth-test-legacy");
+                url
+            }
+            DaemonMessage::OperationAccepted { .. } => {
+                panic!("legacy client should not receive operation acceptance")
+            }
+            other => panic!("expected plugin oauth url for legacy client, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while legacy oauth flow is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::Pong => return true,
+                    DaemonMessage::PluginOAuthComplete { .. } => continue,
+                    DaemonMessage::OperationAccepted { .. } => {
+                        panic!("legacy client should not receive operation acceptance")
+                    }
+                    other => panic!(
+                        "expected Pong while legacy plugin oauth runs in background, got {other:?}"
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        complete_test_oauth_callback(&auth_url).await;
+
+        assert!(
+            pong_received,
+            "ping should not be blocked behind legacy plugin oauth flow"
+        );
+
+        let _ = timeout(Duration::from_secs(1), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::PluginOAuthComplete { name, .. } => {
+                        assert_eq!(name, "oauth-test-legacy");
+                        return;
+                    }
+                    DaemonMessage::Pong => continue,
+                    other => panic!("expected oauth completion during cleanup, got {other:?}"),
+                }
+            }
+        })
+        .await;
 
         conn.shutdown().await;
     }

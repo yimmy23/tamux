@@ -123,6 +123,59 @@ impl AgentEngine {
         self.add_negative_constraint(constraint).await
     }
 
+    pub(crate) async fn record_negative_knowledge_from_tool_failure(
+        &self,
+        scope_hint: Option<&str>,
+        tool_name: &str,
+        args_summary: &str,
+        failure_description: &str,
+    ) -> Result<()> {
+        let config = self.config.read().await;
+        let constraint_ttl_days = config.episodic.constraint_ttl_days;
+        drop(config);
+
+        let scope_hint = scope_hint.map(str::trim).filter(|value| !value.is_empty());
+        let args_summary = args_summary.trim();
+        let tool_signature = if args_summary.is_empty() {
+            tool_name.to_string()
+        } else {
+            format!("{tool_name}({args_summary})")
+        };
+        let subject = scope_hint
+            .map(|scope| format!("{scope}: {tool_signature}"))
+            .unwrap_or(tool_signature);
+        let description = failure_description
+            .trim()
+            .chars()
+            .take(400)
+            .collect::<String>();
+
+        let now_ms = now_millis();
+        let valid_until = now_ms + constraint_ttl_days * 86400 * 1000;
+        let constraint = NegativeConstraint {
+            id: format!("nc_{}", uuid::Uuid::new_v4()),
+            episode_id: None,
+            constraint_type: ConstraintType::RuledOut,
+            subject: subject.clone(),
+            solution_class: scope_hint.map(str::to_string),
+            description: if description.is_empty() {
+                format!("{tool_name} failed")
+            } else {
+                description
+            },
+            confidence: 0.7,
+            state: ConstraintState::Dying,
+            evidence_count: 1,
+            direct_observation: true,
+            derived_from_constraint_ids: Vec::new(),
+            related_subject_tokens: normalize_subject_tokens(&subject),
+            valid_until: Some(valid_until),
+            created_at: now_ms,
+        };
+
+        self.add_negative_constraint(constraint).await
+    }
+
     pub(crate) async fn query_active_constraints(
         &self,
         entity_filter: Option<&str>,

@@ -53,6 +53,35 @@ impl<'a> SendMessageRunner<'a> {
             )
             .await;
 
+        if result.is_error {
+            let scope_hint = self
+                .current_task_snapshot
+                .as_ref()
+                .map(|task| task.title.as_str())
+                .or_else(|| {
+                    self.current_task_snapshot
+                        .as_ref()
+                        .and_then(|task| task.goal_run_title.as_deref())
+                });
+            if let Err(error) = self
+                .engine
+                .record_negative_knowledge_from_tool_failure(
+                    scope_hint,
+                    &tc.function.name,
+                    args_summary,
+                    &result.content,
+                )
+                .await
+            {
+                tracing::warn!(
+                    thread_id = %self.tid,
+                    tool_name = %tc.function.name,
+                    error = %error,
+                    "failed to record immediate negative knowledge from tool failure"
+                );
+            }
+        }
+
         let tool_result_content = result.content.clone();
         let tool_result_name = result.name.clone();
         let tool_result_id = result.tool_call_id.clone();

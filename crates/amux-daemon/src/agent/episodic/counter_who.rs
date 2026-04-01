@@ -197,6 +197,7 @@ impl AgentEngine {
         let mut stores = self.episodic_store.write().await;
         let store = stores.entry(scope_id).or_default();
         store.counter_who.tried_approaches.push(approach);
+        store.counter_who.thread_id = Some(thread_id.to_string());
         store.counter_who.current_focus = Some(format!("Tool: {tool_name}"));
         store.counter_who.recent_changes.push(format!(
             "{tool_name} -> {}",
@@ -207,20 +208,27 @@ impl AgentEngine {
         prune_old_approaches(&mut store.counter_who, now_ms, 7, 20);
 
         // Check for repeated approaches (CWHO-02)
-        if let Some(suggestion) = detect_repeated_approaches(&store.counter_who.tried_approaches, 3)
-        {
-            let pattern = suggestion.clone();
-            let count = store
-                .counter_who
-                .tried_approaches
-                .iter()
-                .filter(|a| a.outcome == EpisodeOutcome::Failure)
-                .count() as u32;
-            drop(store);
+        let repeated_alert = detect_repeated_approaches(&store.counter_who.tried_approaches, 3)
+            .map(|suggestion| {
+                let attempt_count = store
+                    .counter_who
+                    .tried_approaches
+                    .iter()
+                    .filter(|a| a.outcome == EpisodeOutcome::Failure)
+                    .count() as u32;
+                (suggestion.clone(), attempt_count, suggestion)
+            });
+        drop(stores);
+
+        if let Err(error) = self.persist_counter_who().await {
+            tracing::warn!(thread_id = %thread_id, error = %error, "failed to persist counter-who state after tool result");
+        }
+
+        if let Some((pattern, attempt_count, suggestion)) = repeated_alert {
             let _ = self.event_tx.send(AgentEvent::CounterWhoAlert {
                 thread_id: thread_id.to_string(),
                 pattern,
-                attempt_count: count,
+                attempt_count,
                 suggestion,
             });
         }
@@ -237,6 +245,7 @@ impl AgentEngine {
         let scope_id = crate::agent::agent_identity::current_agent_scope_id();
         let mut stores = self.episodic_store.write().await;
         let store = stores.entry(scope_id).or_default();
+        store.counter_who.thread_id = Some(thread_id.to_string());
         record_correction(&mut store.counter_who, correction_pattern, now_ms);
         store.counter_who.updated_at = now_ms;
 
@@ -249,12 +258,20 @@ impl AgentEngine {
             .map(|cp| cp.correction_count)
             .unwrap_or(0);
 
-        if correction_count >= 2 {
+        let persistent_alert = (correction_count >= 2).then(|| {
             let pattern = format!(
                 "Persistent correction: {correction_pattern} (corrected {correction_count} times)"
             );
             let suggestion = pattern.clone();
-            drop(store);
+            (pattern, suggestion)
+        });
+        drop(stores);
+
+        if let Err(error) = self.persist_counter_who().await {
+            tracing::warn!(thread_id = %thread_id, error = %error, "failed to persist counter-who state after operator correction");
+        }
+
+        if let Some((pattern, suggestion)) = persistent_alert {
             let _ = self.event_tx.send(AgentEvent::CounterWhoAlert {
                 thread_id: thread_id.to_string(),
                 pattern,

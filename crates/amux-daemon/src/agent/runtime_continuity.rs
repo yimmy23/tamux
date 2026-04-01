@@ -147,6 +147,20 @@ pub(crate) async fn build_runtime_continuity_context(
     let scope_id = crate::agent::agent_identity::current_agent_scope_id();
     let agent_name = canonical_agent_name(&scope_id);
     let agent_guidance = canonical_agent_guidance(&scope_id);
+
+    let should_restore_counter_who = {
+        let stores = engine.episodic_store.read().await;
+        stores
+            .get(&scope_id)
+            .map(|store| counter_who_state_is_empty(&store.counter_who))
+            .unwrap_or(true)
+    };
+    if should_restore_counter_who {
+        if let Err(error) = engine.restore_counter_who(None).await {
+            tracing::warn!(scope_id = %scope_id, error = %error, "failed to restore counter-who state for runtime continuity");
+        }
+    }
+
     let counter_who = {
         let stores = engine.episodic_store.read().await;
         stores
@@ -179,10 +193,23 @@ pub(crate) async fn build_runtime_continuity_context(
     }
 }
 
+fn counter_who_state_is_empty(state: &CounterWhoState) -> bool {
+    state.goal_run_id.is_none()
+        && state.thread_id.is_none()
+        && state.current_focus.is_none()
+        && state.recent_changes.is_empty()
+        && state.tried_approaches.is_empty()
+        && state.correction_patterns.is_empty()
+        && state.active_constraint_ids.is_empty()
+        && state.updated_at == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent::agent_identity::{MAIN_AGENT_ID, MAIN_AGENT_NAME};
+    use crate::agent::{types::AgentConfig, SessionManager};
+    use tempfile::tempdir;
 
     fn sample_constraint(description: &str) -> NegativeConstraint {
         NegativeConstraint {
@@ -337,5 +364,38 @@ mod tests {
         assert!(prompt.contains("## Episodic Context"));
         assert!(prompt.contains("## Working Continuity"));
         assert!(prompt.contains("## Ruled-Out Approaches (Negative Knowledge)"));
+    }
+
+    #[tokio::test]
+    async fn build_runtime_continuity_context_restores_persisted_counter_who_state() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .update_counter_who_on_tool_result(
+                "thread-runtime-restore",
+                "read_file",
+                "src/main.rs",
+                false,
+            )
+            .await;
+
+        {
+            let mut stores = engine.episodic_store.write().await;
+            stores.clear();
+        }
+
+        let context = build_runtime_continuity_context(
+            &engine,
+            Some("goal \"Test goal\" / task \"Inspect persisted state\""),
+            None,
+        )
+        .await;
+
+        let summary = context
+            .continuity_summary
+            .expect("continuity summary should be present");
+        assert!(summary.contains("I am still focused on: Tool: read_file"));
     }
 }
