@@ -140,5 +140,5 @@ pub enum DaemonMessage {
     GatewayShutdownCommand { command: GatewayShutdownCommand },
     AgentOpenAICodexAuthStatus { status_json: String },
     AgentOpenAICodexAuthLoginResult { result_json: String },
-    AgentOpenAICodexAuthLogoutResult { ok: bool, #[serde(default)] error: Option<String> },
+    AgentOpenAICodexAuthLogoutResult { ok: bool, error: Option<String> },
 }
