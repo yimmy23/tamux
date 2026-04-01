@@ -93,6 +93,9 @@ use anticipatory::*;
 use behavioral_events::*;
 use capability_tier::*;
 use compaction::*;
+pub(crate) use config::{
+    ConfigEffectiveRuntimeState, ConfigReconcileState, ConfigRuntimeProjection,
+};
 pub(crate) use explanation::*;
 pub(crate) use gateway_health::GatewayConnectionStatus as RuntimeGatewayConnectionStatus;
 use goal_parsing::*;

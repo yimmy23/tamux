@@ -273,7 +273,7 @@ fn hit_test_returns_tool_file_path_target() {
             received_at_tick: 0,
         });
 
-        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 1);
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 20);
         let action_line = lines
             .iter()
             .find(|line| matches!(line.kind, RenderedLineKind::RetryAction))
@@ -283,7 +283,7 @@ fn hit_test_returns_tool_file_path_target() {
         assert!(action_text.contains("[No]"));
 
         let area = Rect::new(0, 0, 80, 8);
-        let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 1)
+        let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 20)
             .expect("retry state should render visible lines");
         let retry_row = visible
             .iter()
@@ -299,7 +299,7 @@ fn hit_test_returns_tool_file_path_target() {
             area,
             &chat,
             &ThemeTokens::default(),
-            1,
+            20,
             Position::new(no_x, no_y),
         );
         assert_eq!(hit, Some(ChatHitTarget::RetryStop));

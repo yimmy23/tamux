@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::{SessionId, WorkspaceId};
+use super::{
+    SessionId, WorkspaceId, AGENT_HANDLE_CONCIERGE, AGENT_HANDLE_MAIN, AGENT_HANDLE_RAROG,
+    AGENT_HANDLE_SVAROG, AGENT_HANDLE_SWAROG_LEGACY, AGENT_ID_RAROG, AGENT_ID_SWAROG,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GatewayRegistration {
@@ -50,6 +53,23 @@ pub struct GatewayThreadBindingState {
 pub enum GatewayRouteMode {
     Rarog,
     Swarog,
+}
+
+impl GatewayRouteMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rarog => AGENT_ID_RAROG,
+            Self::Swarog => AGENT_ID_SWAROG,
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            AGENT_HANDLE_SVAROG | AGENT_HANDLE_SWAROG_LEGACY | AGENT_HANDLE_MAIN => Self::Swarog,
+            AGENT_HANDLE_RAROG | AGENT_HANDLE_CONCIERGE => Self::Rarog,
+            _ => Self::Rarog,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

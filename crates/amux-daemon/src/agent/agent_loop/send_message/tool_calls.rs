@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn inter_tool_call_delay(index: usize) -> Option<std::time::Duration> {
+    (index > 0).then(|| std::time::Duration::from_millis(500))
+}
+
 impl<'a> SendMessageRunner<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn handle_tool_calls_chunk(
@@ -62,10 +66,14 @@ impl<'a> SendMessageRunner<'a> {
             )
             .await;
 
-        for tc in &tool_calls {
+        for (index, tc) in tool_calls.iter().enumerate() {
             if self.stream_cancel_token.is_cancelled() {
                 self.was_cancelled = true;
                 break;
+            }
+
+            if let Some(delay) = inter_tool_call_delay(index) {
+                tokio::time::sleep(delay).await;
             }
 
             let args_summary = tool_args_summary(&tc.function.arguments);
@@ -433,5 +441,18 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inter_tool_call_delay;
+    use std::time::Duration;
+
+    #[test]
+    fn inter_tool_call_delay_is_half_second_between_consecutive_tools() {
+        assert_eq!(inter_tool_call_delay(0), None);
+        assert_eq!(inter_tool_call_delay(1), Some(Duration::from_millis(500)));
+        assert_eq!(inter_tool_call_delay(2), Some(Duration::from_millis(500)));
     }
 }

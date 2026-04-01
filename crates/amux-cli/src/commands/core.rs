@@ -272,7 +272,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         Commands::Dm {
             thread,
             session,
-            swarog,
+            svarog,
             rarog,
             main_target,
             concierge,
@@ -283,7 +283,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             if content.is_empty() {
                 bail!("message cannot be empty");
             }
-            let target = resolve_dm_target(swarog, rarog, main_target, concierge);
+            let target = resolve_dm_target(svarog, rarog, main_target, concierge);
             let response = client::send_direct_message(target, thread, content, session).await?;
             if json {
                 println!(

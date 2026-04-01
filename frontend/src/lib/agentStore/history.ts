@@ -1,5 +1,6 @@
 import { readPersistedJson, scheduleJsonWrite } from "../persistence";
 import { getBridge } from "../bridge";
+import { PRIMARY_AGENT_NAME } from "../agentNames";
 import { normalizeAgentProviderId, normalizeApiTransport } from "./providers";
 import type { AgentSettings } from "./settings";
 import type {
@@ -53,7 +54,7 @@ type AgentDbMessageRecord = {
   metadata_json: string | null;
 };
 
-type RemoteAgentMessageRecord = {
+export type RemoteAgentMessageRecord = {
   role?: AgentRole;
   content?: string;
   provider?: string | null;
@@ -359,7 +360,7 @@ export function deserializeThread(thread: AgentDbThreadRecord): AgentThread {
     workspaceId: thread.workspace_id,
     surfaceId: thread.surface_id,
     paneId: thread.pane_id,
-    agent_name: thread.agent_name ?? "Swarog",
+    agent_name: thread.agent_name ?? PRIMARY_AGENT_NAME,
     title: thread.title,
     createdAt: thread.created_at,
     updatedAt: thread.updated_at,

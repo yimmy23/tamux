@@ -1,4 +1,5 @@
 use super::*;
+use amux_protocol::AGENT_ID_SWAROG;
 
 #[tokio::test]
 async fn gateway_init_loads_replay_cursors() {
@@ -95,7 +96,7 @@ async fn gateway_state_updates_survive_gateway_restart() {
         .expect("save thread binding");
     engine
         .history
-        .upsert_gateway_route_mode("Slack:C123", "swarog", 2222)
+        .upsert_gateway_route_mode("Slack:C123", AGENT_ID_SWAROG, 2222)
         .await
         .expect("save route mode");
 
@@ -130,7 +131,8 @@ async fn gateway_state_updates_survive_gateway_restart() {
         .expect("list route modes");
     assert!(modes
         .iter()
-        .any(|(channel_key, route_mode)| channel_key == "Slack:C123" && route_mode == "swarog"));
+        .any(|(channel_key, route_mode)| channel_key == "Slack:C123"
+            && route_mode == AGENT_ID_SWAROG));
 
     fs::remove_dir_all(&root).expect("cleanup test root");
 }
@@ -293,7 +295,7 @@ async fn gateway_fast_path_reply_creates_thread_binding_and_history() {
     let msg = super::gateway::IncomingMessage {
         platform: "Discord".into(),
         sender: "alice".into(),
-        content: "switch to swarog".into(),
+        content: "switch to svarog".into(),
         channel: "D123".into(),
         message_id: Some("discord:msg-1".into()),
         thread_context: Some(super::gateway::ThreadContext {
@@ -317,7 +319,7 @@ async fn gateway_fast_path_reply_creates_thread_binding_and_history() {
         .expect("list thread messages");
     assert!(messages
         .iter()
-        .any(|msg| msg.role == "user" && msg.content == "switch to swarog"));
+        .any(|msg| msg.role == "user" && msg.content == "switch to svarog"));
     assert!(messages.iter().any(|msg| {
         msg.role == "assistant"
             && msg.content == gateway_route_confirmation(gateway::GatewayRouteMode::Swarog)

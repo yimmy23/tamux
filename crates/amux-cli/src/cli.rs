@@ -114,7 +114,7 @@ pub(crate) enum Commands {
         action: SettingsAction,
     },
 
-    /// Send a direct message to Swarog or Rarog from the CLI.
+    /// Send a direct message to svarog or Rarog from the CLI.
     Dm {
         /// Continue a specific thread.
         #[arg(long)]
@@ -122,17 +122,17 @@ pub(crate) enum Commands {
         /// Preferred terminal session hint.
         #[arg(long)]
         session: Option<String>,
-        /// Route the message to Swarog explicitly.
-        #[arg(long, conflicts_with_all = ["rarog", "main_target", "concierge"])]
-        swarog: bool,
+        /// Route the message to svarog explicitly.
+        #[arg(long = "svarog", alias = "swarog", conflicts_with_all = ["rarog", "main_target", "concierge"])]
+        svarog: bool,
         /// Route the message to Rarog explicitly.
-        #[arg(long, conflicts_with_all = ["swarog", "main_target", "concierge"])]
+        #[arg(long, conflicts_with_all = ["svarog", "main_target", "concierge"])]
         rarog: bool,
-        /// Route the message to Swarog using the old alias.
-        #[arg(long = "main", conflicts_with_all = ["swarog", "rarog", "concierge"])]
+        /// Route the message to svarog using the old alias.
+        #[arg(long = "main", conflicts_with_all = ["svarog", "rarog", "concierge"])]
         main_target: bool,
-        /// Route the message to Rarog instead of Swarog.
-        #[arg(long, conflicts_with_all = ["swarog", "rarog", "main_target"])]
+        /// Route the message to Rarog instead of svarog.
+        #[arg(long, conflicts_with_all = ["svarog", "rarog", "main_target"])]
         concierge: bool,
         /// Emit a JSON object with response and ids.
         #[arg(long)]

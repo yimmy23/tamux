@@ -4,9 +4,15 @@ pub type SessionId = Uuid;
 pub type WorkspaceId = String;
 
 pub const AGENT_ID_SWAROG: &str = "swarog";
-pub const AGENT_NAME_SWAROG: &str = "Swarog";
+pub const AGENT_NAME_SVAROG: &str = "Svarog";
+pub const AGENT_NAME_SWAROG: &str = AGENT_NAME_SVAROG;
 pub const AGENT_ID_RAROG: &str = "rarog";
 pub const AGENT_NAME_RAROG: &str = "Rarog";
+pub const AGENT_HANDLE_SVAROG: &str = "svarog";
+pub const AGENT_HANDLE_SWAROG_LEGACY: &str = AGENT_ID_SWAROG;
+pub const AGENT_HANDLE_RAROG: &str = AGENT_ID_RAROG;
+pub const AGENT_HANDLE_MAIN: &str = "main";
+pub const AGENT_HANDLE_CONCIERGE: &str = "concierge";
 pub const GATEWAY_IPC_PROTOCOL_VERSION: u16 = 1;
 
 mod client;

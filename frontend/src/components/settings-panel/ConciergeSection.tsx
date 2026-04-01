@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import { useAgentStore } from "../../lib/agentStore";
 import type { AgentProviderId } from "../../lib/agentStore";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle } from "./shared";
@@ -25,7 +26,7 @@ export function ConciergeSection() {
     const selectedLevel = DETAIL_LEVELS.find((l) => l.value === config.detail_level) || DETAIL_LEVELS[1];
 
     return (
-        <Section title="Rarog">
+        <Section title={CONCIERGE_AGENT_NAME}>
             <SettingRow label="Enabled">
                 <button
                     onClick={() => update({ ...config, enabled: !config.enabled })}
@@ -54,7 +55,7 @@ export function ConciergeSection() {
                     onChange={(e) => update({ ...config, provider: e.target.value || undefined, model: undefined })}
                     style={{ ...inputStyle, width: 180 }}
                 >
-                    <option value="">Use Swarog defaults</option>
+                    <option value="">Use {PRIMARY_AGENT_NAME} defaults</option>
                     {providerAuthStates.map((p) => (
                         <option key={p.provider_id} value={p.provider_id}>
                             {p.provider_name}{p.authenticated ? "" : " (no key)"}
@@ -73,7 +74,7 @@ export function ConciergeSection() {
             )}
             {!config.provider && (
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", padding: "2px 0 4px" }}>
-                    Model inherited from Swarog when no provider is selected.
+                    Model inherited from {PRIMARY_AGENT_NAME} when no provider is selected.
                 </div>
             )}
         </Section>

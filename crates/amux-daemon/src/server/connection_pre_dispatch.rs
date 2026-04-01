@@ -118,14 +118,18 @@
                 }
             }
         }
-        loop {
-            match background_daemon_rx.try_recv() {
-                Ok(daemon_msg) => {
-                    background_daemon_pending = background_daemon_pending.saturating_sub(1);
-                    framed.send(daemon_msg).await?;
+        for subsystem in BackgroundSubsystem::ALL {
+            loop {
+                match background_daemon_queues.try_recv(subsystem) {
+                    Ok(BackgroundSignal::Deliver(daemon_msg)) => {
+                        framed.send(daemon_msg).await?;
+                    }
+                    Ok(BackgroundSignal::Finished) => {
+                        background_daemon_pending.decrement(subsystem);
+                    }
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
                 }
-                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
-                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
             }
         }
 
@@ -134,7 +138,7 @@
             || agent_event_rx.is_some()
             || whatsapp_link_rx.is_some()
             || gateway_ipc_rx.is_some()
-            || background_daemon_pending > 0;
+            || background_daemon_pending.any();
         let msg = if !has_subscriptions {
             // No attached sessions or agent subscription — just wait for client input.
             match framed.next().await {

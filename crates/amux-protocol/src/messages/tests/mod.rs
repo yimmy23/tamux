@@ -155,6 +155,22 @@ fn client_message_roundtrips_explain_action() {
 }
 
 #[test]
+fn client_message_roundtrips_start_divergent_session() {
+    let msg = ClientMessage::AgentStartDivergentSession {
+        problem_statement: "compare rollout strategies".to_string(),
+        thread_id: "thread-div-1".to_string(),
+        goal_run_id: None,
+        custom_framings_json: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded,
+        ClientMessage::AgentStartDivergentSession { .. }
+    ));
+}
+
+#[test]
 fn daemon_message_roundtrips_operation_status_snapshot() {
     let msg = DaemonMessage::OperationStatus {
         snapshot: OperationStatusSnapshot {
@@ -168,6 +184,51 @@ fn daemon_message_roundtrips_operation_status_snapshot() {
     let bytes = bincode::serialize(&msg).unwrap();
     let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
     assert!(matches!(decoded, DaemonMessage::OperationStatus { .. }));
+}
+
+#[test]
+fn client_message_roundtrips_effective_config_state_query() {
+    let msg = ClientMessage::AgentGetEffectiveConfigState;
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded,
+        ClientMessage::AgentGetEffectiveConfigState
+    ));
+}
+
+#[test]
+fn daemon_message_roundtrips_effective_config_state() {
+    let msg = DaemonMessage::AgentEffectiveConfigState {
+        state_json: r#"{"reconcile":{"state":"reconciling","desired_revision":2,"effective_revision":1,"last_error":null},"gateway_runtime_connected":false}"#.to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded,
+        DaemonMessage::AgentEffectiveConfigState { .. }
+    ));
+}
+
+#[test]
+fn client_message_roundtrips_subsystem_metrics_query() {
+    let msg = ClientMessage::AgentGetSubsystemMetrics;
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(decoded, ClientMessage::AgentGetSubsystemMetrics));
+}
+
+#[test]
+fn daemon_message_roundtrips_subsystem_metrics_response() {
+    let msg = DaemonMessage::AgentSubsystemMetrics {
+        metrics_json: r#"{"plugin_io":{"current_depth":1,"max_depth":2,"rejection_count":1,"accepted_count":3,"started_count":3,"completed_count":1,"failed_count":2,"accepted_to_started_samples":3,"started_to_terminal_samples":3,"last_accepted_to_started_ms":1,"last_started_to_terminal_ms":2}}"#.to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded,
+        DaemonMessage::AgentSubsystemMetrics { .. }
+    ));
 }
 
 fn sample_skill_variant() -> SkillVariantPublic {

@@ -1,4 +1,5 @@
 use super::*;
+use amux_protocol::AGENT_NAME_SWAROG;
 
 impl AgentEngine {
     async fn process_single_gateway_message(&self, msg: gateway::IncomingMessage) {
@@ -107,7 +108,8 @@ impl AgentEngine {
             tracing::info!(
                 platform = %msg.platform,
                 channel = %msg.channel,
-                "gateway: sticky route is set to Swarog; bypassing concierge triage"
+                "gateway: sticky route is set to {}; bypassing concierge triage",
+                AGENT_NAME_SWAROG,
             );
         }
 

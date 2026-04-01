@@ -65,7 +65,7 @@ fn default_max_retries() -> u32 {
     3
 }
 fn default_retry_delay_ms() -> u64 {
-    2000
+    5000
 }
 fn default_auto_retry() -> bool {
     true

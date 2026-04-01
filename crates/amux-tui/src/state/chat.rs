@@ -9,6 +9,8 @@ mod interactions;
 
 pub use chat_types::*;
 
+use amux_protocol::AGENT_NAME_RAROG;
+
 // ── ChatState ─────────────────────────────────────────────────────────────────
 
 pub struct ChatState {
@@ -458,7 +460,7 @@ impl ChatState {
                     thread.messages.push(message);
                 } else {
                     let title = if thread_id == "concierge" {
-                        "Rarog".to_string()
+                        AGENT_NAME_RAROG.to_string()
                     } else {
                         thread_id.clone()
                     };

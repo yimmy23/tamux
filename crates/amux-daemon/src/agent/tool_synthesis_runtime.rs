@@ -1,5 +1,10 @@
 use super::*;
 
+#[cfg(test)]
+static TEST_SYNTHESIZE_TOOL_DELAY: std::sync::OnceLock<
+    tokio::sync::Mutex<std::collections::HashMap<usize, Duration>>,
+> = std::sync::OnceLock::new();
+
 pub(super) async fn synthesize_cli_tool(
     target: &str,
     requested_name: Option<&str>,
@@ -376,6 +381,27 @@ pub(super) fn default_parameter_location() -> String {
 pub(super) fn run_generated_tool_json_wrappers() {}
 
 impl AgentEngine {
+    #[cfg(test)]
+    pub async fn set_test_synthesize_tool_delay(&self, delay: Option<Duration>) {
+        let gate = TEST_SYNTHESIZE_TOOL_DELAY
+            .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+        let key = self as *const AgentEngine as usize;
+        let mut delays = gate.lock().await;
+        if let Some(delay) = delay {
+            delays.insert(key, delay);
+        } else {
+            delays.remove(&key);
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn take_test_synthesize_tool_delay(&self) -> Option<Duration> {
+        let gate = TEST_SYNTHESIZE_TOOL_DELAY
+            .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+        let key = self as *const AgentEngine as usize;
+        gate.lock().await.remove(&key)
+    }
+
     pub async fn list_generated_tools_json(&self) -> Result<String> {
         list_generated_tools(&self.data_dir)
     }

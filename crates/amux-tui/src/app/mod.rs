@@ -31,6 +31,8 @@ use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
 
+pub(crate) const TUI_TICK_RATE_MS: u64 = 50;
+
 /// A file attached to the next outgoing message.
 #[derive(Debug, Clone)]
 pub struct Attachment {

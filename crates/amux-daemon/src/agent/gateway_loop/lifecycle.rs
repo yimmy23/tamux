@@ -234,7 +234,7 @@ impl AgentEngine {
         tracing::info!("gateway: runtime state initialized in daemon");
     }
 
-    pub async fn reinit_gateway(&self) {
+    pub async fn reinit_gateway(&self) -> Option<String> {
         let config = self.config.read().await.clone();
         let gw = &config.gateway;
 
@@ -244,21 +244,34 @@ impl AgentEngine {
             *self.gateway_discord_channels.write().await = Vec::new();
             *self.gateway_slack_channels.write().await = Vec::new();
             self.stop_gateway().await;
-            return;
+            return None;
         }
 
         *self.gateway_state.lock().await = None;
         *self.gateway_discord_channels.write().await = Vec::new();
         *self.gateway_slack_channels.write().await = Vec::new();
 
-        if let Err(error) = self
+        let mut degraded_reason = None;
+
+        match self
             .request_gateway_reload(Some("config reloaded".to_string()))
             .await
         {
-            tracing::debug!(error = %error, "gateway: reload command not delivered");
+            Ok(true) => {}
+            Ok(false) => {
+                degraded_reason = Some(
+                    "gateway reload command not delivered because runtime is not connected"
+                        .to_string(),
+                );
+            }
+            Err(error) => {
+                tracing::debug!(error = %error, "gateway: reload command not delivered");
+                degraded_reason = Some(format!("gateway reload command not delivered: {error}"));
+            }
         }
 
         self.maybe_spawn_gateway().await;
+        degraded_reason
     }
 
     pub(crate) async fn set_gateway_ipc_sender(

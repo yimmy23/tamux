@@ -3,6 +3,8 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
+use amux_protocol::{AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 use crate::state::chat::{AgentThread, ChatState};
 use crate::state::modal::{ModalState, ThreadPickerTab};
 use crate::theme::ThemeTokens;
@@ -29,10 +31,10 @@ fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
     [chunks[0], chunks[1], chunks[2], chunks[3], chunks[4]]
 }
 
-fn tab_specs() -> [(ThreadPickerTab, &'static str); 2] {
+fn tab_specs() -> [(ThreadPickerTab, String); 2] {
     [
-        (ThreadPickerTab::Swarog, "[Swarog]"),
-        (ThreadPickerTab::Rarog, "[Rarog]"),
+        (ThreadPickerTab::Swarog, format!("[{AGENT_NAME_SWAROG}]")),
+        (ThreadPickerTab::Rarog, format!("[{AGENT_NAME_RAROG}]")),
     ]
 }
 
@@ -54,7 +56,7 @@ pub(crate) fn is_rarog_thread(thread: &AgentThread) -> bool {
 
 pub(crate) fn thread_display_title(thread: &AgentThread) -> String {
     if thread.id == "concierge" || thread.title.eq_ignore_ascii_case("concierge") {
-        "Rarog".to_string()
+        AGENT_NAME_RAROG.to_string()
     } else {
         thread.title.clone()
     }
@@ -75,7 +77,7 @@ pub(crate) fn filtered_threads<'a>(
         .collect()
 }
 
-fn tab_cells(area: Rect) -> Vec<(ThreadPickerTab, Rect, &'static str)> {
+fn tab_cells(area: Rect) -> Vec<(ThreadPickerTab, Rect, String)> {
     let mut x = area.x;
     tab_specs()
         .into_iter()
@@ -463,6 +465,6 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(thread_display_title(&thread), "Rarog");
+        assert_eq!(thread_display_title(&thread), AGENT_NAME_RAROG);
     }
 }

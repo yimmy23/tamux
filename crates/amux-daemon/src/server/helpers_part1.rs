@@ -133,10 +133,7 @@ fn gateway_bootstrap_providers(
 }
 
 fn parse_gateway_route_mode(value: &str) -> GatewayRouteMode {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "swarog" | "main" => GatewayRouteMode::Swarog,
-        _ => GatewayRouteMode::Rarog,
-    }
+    GatewayRouteMode::parse(value)
 }
 
 async fn build_gateway_bootstrap_payload(

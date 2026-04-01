@@ -162,7 +162,7 @@
             .await
             .expect("persist binding");
         history
-            .upsert_gateway_route_mode("Slack:C123", "swarog", 2345)
+            .upsert_gateway_route_mode("Slack:C123", amux_protocol::AGENT_ID_SWAROG, 2345)
             .await
             .expect("persist route mode");
 

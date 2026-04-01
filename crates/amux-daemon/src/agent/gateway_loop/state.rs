@@ -1,5 +1,70 @@
 use super::*;
 
+const PRIMARY_ROUTE_SWITCH_COMMAND: &str = "!svarog";
+const PRIMARY_ROUTE_SWITCH_COMMAND_LEGACY: &str = "!swarog";
+const PRIMARY_ROUTE_EXACT_PHRASES: &[&str] = &[
+    "switch to svarog",
+    "switch to swarog",
+    "talk to svarog",
+    "talk to swarog",
+    "connect me to svarog",
+    "connect me to swarog",
+    "put svarog on",
+    "put swarog on",
+    "use svarog",
+    "use swarog",
+    "hand me to svarog",
+    "hand me to swarog",
+    "route me to svarog",
+    "route me to swarog",
+    "switch me to svarog",
+    "switch me to swarog",
+    "i want svarog",
+    "i want swarog",
+];
+const PRIMARY_ROUTE_PHRASES: &[&str] = &[
+    "switch to svarog",
+    "switch to swarog",
+    "switch me to svarog",
+    "switch me to swarog",
+    "talk to svarog",
+    "talk to swarog",
+    "let svarog handle",
+    "let swarog handle",
+    "have svarog handle",
+    "have swarog handle",
+    "route this to svarog",
+    "route this to swarog",
+    "svarog take over",
+    "swarog take over",
+    "svarog, take over",
+    "swarog, take over",
+];
+const CONCIERGE_ROUTE_EXACT_PHRASES: &[&str] = &[
+    "switch to rarog",
+    "switch back to rarog",
+    "switch back to concierge",
+    "talk to rarog",
+    "connect me to rarog",
+    "put rarog on",
+    "use rarog",
+    "hand me back to rarog",
+    "route me to rarog",
+    "switch me to rarog",
+    "i want rarog",
+];
+const CONCIERGE_ROUTE_PHRASES: &[&str] = &[
+    "switch to rarog",
+    "switch back to rarog",
+    "switch back to concierge",
+    "talk to rarog",
+    "let rarog handle",
+    "have rarog handle",
+    "route this to rarog",
+    "rarog take this back",
+    "rarog, take this back",
+];
+
 pub(crate) fn platform_health_from_snapshot(
     snapshot: &amux_protocol::GatewayHealthState,
 ) -> PlatformHealthState {
@@ -76,7 +141,9 @@ pub(super) struct GatewayRouteRequest {
 
 fn gateway_switch_command(trimmed_lower: &str) -> Option<gateway::GatewayRouteMode> {
     match trimmed_lower {
-        "!swarog" | "!main" => Some(gateway::GatewayRouteMode::Swarog),
+        PRIMARY_ROUTE_SWITCH_COMMAND | PRIMARY_ROUTE_SWITCH_COMMAND_LEGACY | "!main" => {
+            Some(gateway::GatewayRouteMode::Swarog)
+        }
         "!rarog" | "!concierge" => Some(gateway::GatewayRouteMode::Rarog),
         _ => None,
     }
@@ -97,54 +164,20 @@ pub(super) fn classify_gateway_route_request(content: &str) -> Option<GatewayRou
         .collect::<Vec<_>>()
         .join(" ");
 
-    let exact_swarog = [
-        "switch to swarog",
-        "talk to swarog",
-        "connect me to swarog",
-        "put swarog on",
-        "use swarog",
-        "hand me to swarog",
-        "route me to swarog",
-        "switch me to swarog",
-        "i want swarog",
-    ];
-    let exact_rarog = [
-        "switch to rarog",
-        "switch back to rarog",
-        "switch back to concierge",
-        "talk to rarog",
-        "connect me to rarog",
-        "put rarog on",
-        "use rarog",
-        "hand me back to rarog",
-        "route me to rarog",
-        "switch me to rarog",
-        "i want rarog",
-    ];
-    if exact_swarog.contains(&normalized.as_str()) {
+    if PRIMARY_ROUTE_EXACT_PHRASES.contains(&normalized.as_str()) {
         return Some(GatewayRouteRequest {
             mode: gateway::GatewayRouteMode::Swarog,
             ack_only: true,
         });
     }
-    if exact_rarog.contains(&normalized.as_str()) {
+    if CONCIERGE_ROUTE_EXACT_PHRASES.contains(&normalized.as_str()) {
         return Some(GatewayRouteRequest {
             mode: gateway::GatewayRouteMode::Rarog,
             ack_only: true,
         });
     }
 
-    let swarog_phrases = [
-        "switch to swarog",
-        "switch me to swarog",
-        "talk to swarog",
-        "let swarog handle",
-        "have swarog handle",
-        "route this to swarog",
-        "swarog take over",
-        "swarog, take over",
-    ];
-    if swarog_phrases
+    if PRIMARY_ROUTE_PHRASES
         .iter()
         .any(|phrase| normalized.contains(phrase))
     {
@@ -154,18 +187,7 @@ pub(super) fn classify_gateway_route_request(content: &str) -> Option<GatewayRou
         });
     }
 
-    let rarog_phrases = [
-        "switch to rarog",
-        "switch back to rarog",
-        "switch back to concierge",
-        "talk to rarog",
-        "let rarog handle",
-        "have rarog handle",
-        "route this to rarog",
-        "rarog take this back",
-        "rarog, take this back",
-    ];
-    if rarog_phrases
+    if CONCIERGE_ROUTE_PHRASES
         .iter()
         .any(|phrase| normalized.contains(phrase))
     {

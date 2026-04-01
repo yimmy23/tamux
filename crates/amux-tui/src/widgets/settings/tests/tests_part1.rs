@@ -51,12 +51,12 @@
         let line = render_tabs_line(&tabs, &settings, &ThemeTokens::default());
         let text = line.to_string();
 
-        assert!(text.contains("Swar"));
+        assert!(text.contains("Svar"));
         assert!(text.contains("Rar"));
         assert!(!text.contains("Con"));
         assert!(!text.contains("Prov"));
         let auth_idx = text.find("Auth").expect("auth tab should be visible");
-        let swar_idx = text.find("Swar").expect("swarog tab should be visible");
+        let swar_idx = text.find("Svar").expect("svarog tab should be visible");
         let rar_idx = text.find("Rar").expect("rarog tab should be visible");
         assert!(auth_idx < swar_idx && swar_idx < rar_idx);
     }
@@ -227,7 +227,7 @@
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Swarog"));
+        assert!(text.contains("Svarog"));
     }
 
     #[test]
@@ -245,7 +245,7 @@
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Swarog"));
+        assert!(text.contains("Svarog"));
     }
 
     #[test]
@@ -263,7 +263,7 @@
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Swarog Provider"));
+        assert!(text.contains("Svarog Provider"));
         assert!(text.contains("Provider"));
         assert!(text.contains("System Prompt"));
     }
@@ -283,9 +283,9 @@
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Swarog"));
+        assert!(text.contains("Svarog"));
         assert!(!text.contains("Agent Name"));
-        assert!(!text.contains("Swarog Name [Enter: edit]"));
+        assert!(!text.contains("Svarog Name [Enter: edit]"));
     }
 
     #[test]

@@ -75,6 +75,16 @@ if matches!(
                         "validating provider connection"
                     );
 
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::ProviderIo) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::ProviderIo);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "provider_io background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
+                    }
+
                     let operation = async_command_capability
                         .as_ref()
                         .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
@@ -98,40 +108,40 @@ if matches!(
 
                     let operation_id = operation.map(|record| record.operation_id);
                     let provider_id_for_task = provider_id.clone();
-                    let background_daemon_tx = background_daemon_tx.clone();
-                    background_daemon_pending = background_daemon_pending.saturating_add(1);
-                    tokio::spawn(async move {
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_started(operation_id);
-                        }
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::ProviderIo);
+                    spawn_background_operation(
+                        BackgroundSubsystem::ProviderIo,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            let (valid, error) =
+                                match crate::agent::llm_client::validate_provider_connection(
+                                    &provider_id_for_task,
+                                    &resolved_url,
+                                    &resolved_key,
+                                    auth_source,
+                                )
+                                .await
+                                {
+                                    Ok(_) => (true, None),
+                                    Err(e) => {
+                                        tracing::warn!(provider = %provider_id_for_task, error = %e, "provider validation failed");
+                                        (false, Some(e.to_string()))
+                                    }
+                                };
 
-                        let (valid, error) =
-                            match crate::agent::llm_client::validate_provider_connection(
-                                &provider_id_for_task,
-                                &resolved_url,
-                                &resolved_key,
-                                auth_source,
+                            BackgroundOperationOutput::Completed(
+                                DaemonMessage::AgentProviderValidation {
+                                    provider_id: provider_id_for_task,
+                                    valid,
+                                    error,
+                                    models_json: None,
+                                },
                             )
-                            .await
-                            {
-                                Ok(_) => (true, None),
-                                Err(e) => {
-                                    tracing::warn!(provider = %provider_id_for_task, error = %e, "provider validation failed");
-                                    (false, Some(e.to_string()))
-                                }
-                            };
-
-                        let _ = background_daemon_tx.send(DaemonMessage::AgentProviderValidation {
-                            provider_id: provider_id_for_task,
-                            valid,
-                            error,
-                            models_json: None,
-                        });
-
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_completed(operation_id);
-                        }
-                    });
+                        },
+                    );
                 }
 
                 ClientMessage::AgentSetSubAgent { sub_agent_json } => {
@@ -223,11 +233,14 @@ if matches!(
 
                     let agent = agent.clone();
                     let operation_id = operation.map(|record| record.operation_id);
-                    tokio::spawn(async move {
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_started(operation_id);
-                        }
-
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::ConciergeWork);
+                    spawn_background_side_effect(
+                        BackgroundSubsystem::ConciergeWork,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
                         let (onboarding_done, tier) = {
                             let cfg = agent.config.read().await;
                             let done = cfg.tier.onboarding_completed;
@@ -253,10 +266,7 @@ if matches!(
                                     .await;
                                 let mut cfg = agent.config.write().await;
                                 cfg.tier.onboarding_completed = true;
-                                if let Some(operation_id) = operation_id.as_deref() {
-                                    operation_registry().mark_completed(operation_id);
-                                }
-                                return;
+                                return BackgroundSideEffectOutcome::Completed;
                             }
 
                             let mut cfg = agent.config.write().await;
@@ -270,10 +280,9 @@ if matches!(
                         agent
                             .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
                             .await;
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_completed(operation_id);
-                        }
-                    });
+                        BackgroundSideEffectOutcome::Completed
+                    },
+                    );
                 }
 
                 ClientMessage::AgentDismissConciergeWelcome => {

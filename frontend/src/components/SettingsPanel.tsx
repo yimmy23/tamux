@@ -26,6 +26,7 @@ import {
   headerBtnStyle,
 } from "./settings-panel/shared";
 import { useTierStore, type CapabilityTier } from "../lib/tierStore";
+import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "../lib/agentNames";
 
 type SettingsTab = "appearance" | "terminal" | "behavior" | "auth" | "agent" | "concierge" | "subagents" | "gateway" | "keyboard" | "about" | "plugins";
 
@@ -175,8 +176,8 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     { id: "terminal", label: "Execution" },
     { id: "behavior", label: "Operator" },
     { id: "auth", label: "Auth" },
-    { id: "agent", label: "Swarog" },
-    { id: "concierge", label: "Rarog" },
+    { id: "agent", label: PRIMARY_AGENT_NAME },
+    { id: "concierge", label: CONCIERGE_AGENT_NAME },
     { id: "subagents", label: "Sub-Agents" },
     { id: "gateway", label: "Gateway" },
     { id: "keyboard", label: "Bindings" },
@@ -250,7 +251,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
             <SettingsMetric label="Theme" value={settings.themeName} />
-            <SettingsMetric label="Swarog Provider" value={agentSettings.active_provider} />
+            <SettingsMetric label={`${PRIMARY_AGENT_NAME} Provider`} value={agentSettings.active_provider} />
             <SettingsMetric label="Approvals" value={String(approvals.filter((entry) => entry.status === "pending").length)} />
             <SettingsMetric label="Snapshots" value={String(snapshots.length)} />
           </div>

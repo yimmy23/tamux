@@ -45,6 +45,8 @@ pub struct PluginManager {
     command_registry: RwLock<commands::PluginCommandRegistry>,
     /// Per-plugin Mutex for serializing concurrent token refresh attempts (Pitfall 7).
     oauth_refresh_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    #[cfg(test)]
+    test_api_call_delay: tokio::sync::Mutex<Option<Duration>>,
 }
 
 impl PluginManager {
@@ -71,7 +73,19 @@ impl PluginManager {
             template_registry: template::create_registry(),
             command_registry: RwLock::new(commands::PluginCommandRegistry::new()),
             oauth_refresh_locks: tokio::sync::Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            test_api_call_delay: tokio::sync::Mutex::new(None),
         }
+    }
+
+    #[cfg(test)]
+    pub async fn set_test_api_call_delay(&self, delay: Duration) {
+        *self.test_api_call_delay.lock().await = Some(delay);
+    }
+
+    #[cfg(test)]
+    pub async fn test_api_call_delay(&self) -> Option<Duration> {
+        *self.test_api_call_delay.lock().await
     }
 
     /// Load all plugins from disk, validate, persist to SQLite, reconcile stale records.

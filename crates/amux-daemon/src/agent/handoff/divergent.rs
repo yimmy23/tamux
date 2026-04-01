@@ -120,7 +120,33 @@ impl DivergentSession {
 
 use crate::agent::engine::AgentEngine;
 
+#[cfg(test)]
+static TEST_DIVERGENT_SESSION_DELAY: std::sync::OnceLock<
+    tokio::sync::Mutex<std::collections::HashMap<usize, std::time::Duration>>,
+> = std::sync::OnceLock::new();
+
 impl AgentEngine {
+    #[cfg(test)]
+    pub async fn set_test_divergent_session_delay(&self, delay: Option<std::time::Duration>) {
+        let gate = TEST_DIVERGENT_SESSION_DELAY
+            .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+        let key = self as *const AgentEngine as usize;
+        let mut delays = gate.lock().await;
+        if let Some(delay) = delay {
+            delays.insert(key, delay);
+        } else {
+            delays.remove(&key);
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn take_test_divergent_session_delay(&self) -> Option<std::time::Duration> {
+        let gate = TEST_DIVERGENT_SESSION_DELAY
+            .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+        let key = self as *const AgentEngine as usize;
+        gate.lock().await.remove(&key)
+    }
+
     /// Start a divergent session: create framings, set up a collaboration session,
     /// enqueue tasks for each framing, and return the session ID.
     ///
@@ -133,6 +159,11 @@ impl AgentEngine {
         thread_id: &str,
         goal_run_id: Option<&str>,
     ) -> Result<String> {
+        #[cfg(test)]
+        if let Some(delay) = self.take_test_divergent_session_delay().await {
+            tokio::time::sleep(delay).await;
+        }
+
         let framings =
             custom_framings.unwrap_or_else(|| generate_framing_prompts(problem_statement));
 

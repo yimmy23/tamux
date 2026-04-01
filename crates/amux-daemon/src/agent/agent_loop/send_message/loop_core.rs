@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn inter_request_delay(loop_count: u32) -> Option<std::time::Duration> {
+    (loop_count > 1).then(|| std::time::Duration::from_millis(500))
+}
+
 impl<'a> SendMessageRunner<'a> {
     async fn prepare_request(&mut self) -> Result<PreparedLlmRequest> {
         let threads = self.engine.threads.read().await;
@@ -63,8 +67,8 @@ impl<'a> SendMessageRunner<'a> {
 
     pub(super) async fn stream_once(&mut self) -> Result<StreamIteration> {
         let prepared_request = self.prepare_request().await?;
-        if self.loop_count > 1 {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        if let Some(delay) = inter_request_delay(self.loop_count) {
+            tokio::time::sleep(delay).await;
         }
 
         if let Err(e) = self
@@ -417,5 +421,17 @@ impl<'a> SendMessageRunner<'a> {
             }
             _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => Ok(true),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inter_request_delay;
+    use std::time::Duration;
+
+    #[test]
+    fn inter_request_delay_is_half_second_after_first_loop() {
+        assert_eq!(inter_request_delay(1), None);
+        assert_eq!(inter_request_delay(2), Some(Duration::from_millis(500)));
     }
 }

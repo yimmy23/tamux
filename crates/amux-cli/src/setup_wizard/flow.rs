@@ -164,7 +164,10 @@ async fn configure_model(
     println!();
     let existing_model = read_config_key("model").await;
     let user_wants_replace = if let Some(ref model) = existing_model {
-        println!("Model is already configured ({}).", model.clone().bold());
+        println!(
+            "Svarog's model is already configured ({}).",
+            model.clone().bold()
+        );
         match select_list(
             "Replace model?",
             &[
@@ -207,14 +210,16 @@ async fn configure_model(
                 if !models.is_empty() {
                     let items: Vec<(&str, &str)> =
                         models.iter().map(|m| (m.as_str(), "")).collect();
-                    if let Some(idx) = select_list("Select default model:", &items, true, 0)? {
+                    if let Some(idx) =
+                        select_list("Select default Svarog's model:", &items, true, 0)?
+                    {
                         let chosen = &models[idx];
                         set_config_item(framed, "/model", format!("\"{}\"", chosen))
                             .await
-                            .context("Failed to set model")?;
+                            .context("Failed to set Svarog's model")?;
                         summary.model = Some(chosen.clone());
                     } else {
-                        println!("Skipped -- using default model.");
+                        println!("Skipped -- using default Svarog's model.");
                     }
                 } else {
                     let fallback = if provider.default_model.is_empty() {
@@ -228,13 +233,13 @@ async fn configure_model(
                         if !m.is_empty() {
                             set_config_item(framed, "/model", format!("\"{}\"", m))
                                 .await
-                                .context("Failed to set model")?;
+                                .context("Failed to set Svarog's model")?;
                             summary.model = Some(m);
                         } else {
-                            println!("Skipped -- using default model.");
+                            println!("Skipped -- using default Svarog's model.");
                         }
                     } else {
-                        println!("Skipped -- using default model.");
+                        println!("Skipped -- using default Svarog's model.");
                     }
                 }
             }
@@ -249,13 +254,13 @@ async fn configure_model(
                     if !m.is_empty() {
                         set_config_item(framed, "/model", format!("\"{}\"", m))
                             .await
-                            .context("Failed to set model")?;
+                            .context("Failed to set Svarog's model")?;
                         summary.model = Some(m);
                     } else {
-                        println!("Skipped -- using default model.");
+                        println!("Skipped -- using default Svarog's model.");
                     }
                 } else {
-                    println!("Skipped -- using default model.");
+                    println!("Skipped -- using default Svarog's model.");
                 }
             }
             _ => println!("Unexpected response fetching models."),
@@ -264,7 +269,7 @@ async fn configure_model(
     } else if existing_model.is_none() && !provider.default_model.is_empty() {
         set_config_item(framed, "/model", format!("\"{}\"", provider.default_model))
             .await
-            .context("Failed to set default model")?;
+            .context("Failed to set default Svarog's model")?;
         summary.model = Some(provider.default_model.clone());
     }
 
@@ -301,7 +306,7 @@ pub async fn run_setup_wizard() -> Result<PostSetupAction> {
         .context("Failed to connect to daemon for setup")?;
 
     println!();
-    println!("{}", "tamux -- The Agent That Lives".bold());
+    println!("{}", "Svarog, Rarog, Weles -- Agents That Live".bold());
     println!("First-time setup");
     println!();
 

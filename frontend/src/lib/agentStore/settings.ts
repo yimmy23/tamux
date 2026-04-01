@@ -12,6 +12,8 @@ import type {
   AuthSource,
 } from "./types";
 
+import { PRIMARY_AGENT_NAME } from "../agentNames";
+
 export interface AgentSettings {
   enabled: boolean;
   agent_name: string;
@@ -104,10 +106,10 @@ export interface AgentSettings {
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   enabled: false,
-  agent_name: "Swarog",
+  agent_name: PRIMARY_AGENT_NAME,
   handler: "/agent",
   additionalHandlers: [],
-  system_prompt: "You are Swarog - The Smith (He is a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:\n- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).\n- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).\n- Personality: Strict but fair; an accessible \"doer\" who ensures this through perfect tools.) operating in tamux, an agentic terminal multiplexer assistant. You can execute terminal commands, check system resources, and send messages to connected chat platforms (Slack, Discord, Telegram, WhatsApp) via the gateway. Use your tools proactively when the user asks you to perform actions. Be concise and direct.",
+  system_prompt: `You are ${PRIMARY_AGENT_NAME} - The Smith (He is a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:\n- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).\n- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).\n- Personality: Strict but fair; an accessible "doer" who ensures this through perfect tools.) operating in tamux, an agentic terminal multiplexer assistant. You can execute terminal commands, check system resources, and send messages to connected chat platforms (Slack, Discord, Telegram, WhatsApp) via the gateway. Use your tools proactively when the user asks you to perform actions. Be concise and direct.`,
   active_provider: "openai",
   featherless: { base_url: "https://api.featherless.ai/v1", model: "meta-llama/Llama-3.3-70B-Instruct", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   openai: { base_url: "https://api.openai.com/v1", model: "gpt-5.4", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },

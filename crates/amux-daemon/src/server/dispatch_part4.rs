@@ -17,6 +17,7 @@ if matches!(
         ClientMessage::AgentGetTodos{ .. } |
         ClientMessage::AgentGetWorkContext{ .. } |
         ClientMessage::AgentGetConfig |
+        ClientMessage::AgentGetEffectiveConfigState |
         ClientMessage::AgentSetConfigItem{ .. } |
         ClientMessage::AgentSetProviderModel{ .. } |
         ClientMessage::AgentFetchModels{ .. } |
@@ -28,6 +29,7 @@ if matches!(
         ClientMessage::AgentDeclareAsyncCommandCapability{ .. } |
         ClientMessage::AgentGetOperationStatus{ .. } |
         ClientMessage::AgentGetSubagentMetrics{ .. } |
+        ClientMessage::AgentGetSubsystemMetrics |
         ClientMessage::AgentListCheckpoints{ .. } |
         ClientMessage::AgentRestoreCheckpoint{ .. } |
         ClientMessage::AgentGetHealthStatus
@@ -244,11 +246,93 @@ if matches!(
                         .await?;
                 }
 
+                ClientMessage::AgentGetEffectiveConfigState => {
+                    let state = agent.current_effective_config_runtime_state().await;
+                    let json = serde_json::to_string(&state).unwrap_or_default();
+                    framed
+                        .send(DaemonMessage::AgentEffectiveConfigState { state_json: json })
+                        .await?;
+                }
+
+                ClientMessage::AgentGetSubsystemMetrics => {
+                    let metrics_json = subsystem_metrics().all_snapshots_json();
+                    framed
+                        .send(DaemonMessage::AgentSubsystemMetrics { metrics_json })
+                        .await?;
+                }
+
                 ClientMessage::AgentSetConfigItem {
                     key_path,
                     value_json,
-                } => match agent.set_config_item_json(&key_path, &value_json).await {
-                    Ok(_) => {}
+                } => match agent.prepare_config_item_json(&key_path, &value_json).await {
+                    Ok((merged, value)) => {
+                        if !background_daemon_pending.has_capacity(BackgroundSubsystem::ConfigReconcile) {
+                            background_daemon_pending.note_rejection(BackgroundSubsystem::ConfigReconcile);
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: "config_reconcile background queue is full".to_string(),
+                                })
+                                .await?;
+                            continue;
+                        }
+
+                        if let Err(e) = agent
+                            .persist_prepared_config_item_json(&key_path, &value, merged)
+                            .await
+                        {
+                            tracing::warn!(error = %e, key_path, "server: AgentSetConfigItem persist failed");
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("Invalid config item: {e}"),
+                                })
+                                .await?;
+                            continue;
+                        }
+
+                        let operation = async_command_capability
+                            .as_ref()
+                            .filter(|capability| {
+                                capability.version >= 1
+                                    && capability.supports_operation_acceptance
+                            })
+                            .map(|_| {
+                                operation_registry().accept_operation(
+                                    OPERATION_KIND_CONFIG_SET_ITEM,
+                                    Some(config_set_item_dedup_key(
+                                        &agent,
+                                        &key_path,
+                                        &value_json,
+                                    )),
+                                )
+                            });
+
+                        if let Some(operation) = operation.as_ref() {
+                            framed
+                                .send(DaemonMessage::OperationAccepted {
+                                    operation_id: operation.operation_id.clone(),
+                                    kind: operation.kind.clone(),
+                                    dedup: operation.dedup.clone(),
+                                    revision: operation.revision,
+                                })
+                                .await?;
+                        }
+
+                        let agent = agent.clone();
+                        let background_daemon_tx =
+                            background_daemon_queues.sender(BackgroundSubsystem::ConfigReconcile);
+                        spawn_background_side_effect(
+                            BackgroundSubsystem::ConfigReconcile,
+                            operation.map(|record| record.operation_id),
+                            background_daemon_tx,
+                            &mut background_daemon_pending,
+                            async move {
+                                match agent.reconcile_config_runtime_after_commit().await {
+                                    Ok(()) => BackgroundSideEffectOutcome::Completed,
+                                    Err(_) => BackgroundSideEffectOutcome::Failed,
+                                }
+                            },
+                        );
+                    }
                     Err(e) => {
                         tracing::warn!(error = %e, key_path, "server: AgentSetConfigItem rejected");
                         framed
@@ -260,8 +344,64 @@ if matches!(
                 },
 
                 ClientMessage::AgentSetProviderModel { provider_id, model } => {
-                    match agent.set_provider_model_json(&provider_id, &model).await {
-                        Ok(_) => {}
+                    match agent.prepare_provider_model_json(&provider_id, &model).await {
+                        Ok(merged) => {
+                            if !background_daemon_pending.has_capacity(BackgroundSubsystem::ConfigReconcile) {
+                                background_daemon_pending.note_rejection(BackgroundSubsystem::ConfigReconcile);
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: "config_reconcile background queue is full".to_string(),
+                                    })
+                                    .await?;
+                                continue;
+                            }
+
+                            agent.persist_prepared_provider_model_json(merged).await;
+
+                            let operation = async_command_capability
+                                .as_ref()
+                                .filter(|capability| {
+                                    capability.version >= 1
+                                        && capability.supports_operation_acceptance
+                                })
+                                .map(|_| {
+                                    operation_registry().accept_operation(
+                                        OPERATION_KIND_SET_PROVIDER_MODEL,
+                                        Some(set_provider_model_dedup_key(
+                                            &agent,
+                                            &provider_id,
+                                            &model,
+                                        )),
+                                    )
+                                });
+
+                            if let Some(operation) = operation.as_ref() {
+                                framed
+                                    .send(DaemonMessage::OperationAccepted {
+                                        operation_id: operation.operation_id.clone(),
+                                        kind: operation.kind.clone(),
+                                        dedup: operation.dedup.clone(),
+                                        revision: operation.revision,
+                                    })
+                                    .await?;
+                            }
+
+                            let agent = agent.clone();
+                            let background_daemon_tx = background_daemon_queues
+                                .sender(BackgroundSubsystem::ConfigReconcile);
+                            spawn_background_side_effect(
+                                BackgroundSubsystem::ConfigReconcile,
+                                operation.map(|record| record.operation_id),
+                                background_daemon_tx,
+                                &mut background_daemon_pending,
+                                async move {
+                                    match agent.reconcile_config_runtime_after_commit().await {
+                                        Ok(()) => BackgroundSideEffectOutcome::Completed,
+                                        Err(_) => BackgroundSideEffectOutcome::Failed,
+                                    }
+                                },
+                            );
+                        }
                         Err(e) => {
                             tracing::warn!(
                                 error = %e,
@@ -283,6 +423,16 @@ if matches!(
                     base_url,
                     api_key,
                 } => {
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::ProviderIo) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::ProviderIo);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "provider_io background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
+                    }
+
                     let operation = async_command_capability
                         .as_ref()
                         .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
@@ -305,36 +455,34 @@ if matches!(
                     }
 
                     let operation_id = operation.map(|record| record.operation_id);
-                    let background_daemon_tx = background_daemon_tx.clone();
-                    background_daemon_pending = background_daemon_pending.saturating_add(1);
-                    tokio::spawn(async move {
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_started(operation_id);
-                        }
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::ProviderIo);
+                    spawn_background_operation(
+                        BackgroundSubsystem::ProviderIo,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            let result = crate::agent::llm_client::fetch_models(
+                                &provider_id,
+                                &base_url,
+                                &api_key,
+                            )
+                            .await;
 
-                        let result = crate::agent::llm_client::fetch_models(
-                            &provider_id,
-                            &base_url,
-                            &api_key,
-                        )
-                        .await;
+                            let daemon_msg = match result {
+                                Ok(models) => {
+                                    let json = serde_json::to_string(&models).unwrap_or_default();
+                                    DaemonMessage::AgentModelsResponse { models_json: json }
+                                }
+                                Err(e) => DaemonMessage::AgentError {
+                                    message: e.to_string(),
+                                },
+                            };
 
-                        let daemon_msg = match result {
-                            Ok(models) => {
-                                let json = serde_json::to_string(&models).unwrap_or_default();
-                                DaemonMessage::AgentModelsResponse { models_json: json }
-                            }
-                            Err(e) => DaemonMessage::AgentError {
-                                message: e.to_string(),
-                            },
-                        };
-
-                        let _ = background_daemon_tx.send(daemon_msg);
-
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_completed(operation_id);
-                        }
-                    });
+                            BackgroundOperationOutput::Completed(daemon_msg)
+                        },
+                    );
                 }
 
                 ClientMessage::AgentHeartbeatGetItems => {

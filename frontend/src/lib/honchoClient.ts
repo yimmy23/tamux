@@ -1,4 +1,5 @@
 import { Buffer as BrowserBuffer } from "buffer";
+import { PRIMARY_AGENT_NAME } from "./agentNames";
 import type { AgentMessage, AgentSettings } from "./agentStore";
 
 type HonchoPeer = {
@@ -90,7 +91,7 @@ async function ensureSession(settings: AgentSettings, threadId: string): Promise
     }
 
     const userPeer = await client.peer("operator") as HonchoPeer;
-    const assistantPeer = await client.peer(settings.agent_name.trim() || "Swarog") as HonchoPeer;
+    const assistantPeer = await client.peer(settings.agent_name.trim() || PRIMARY_AGENT_NAME) as HonchoPeer;
     const session = await client.session(threadId) as HonchoSession;
     await session.addPeers([userPeer, assistantPeer]);
     return { session, userPeer, assistantPeer };

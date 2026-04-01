@@ -27,14 +27,14 @@ pub(crate) fn find_sibling_binary(name: &str) -> PathBuf {
 }
 
 pub(crate) fn resolve_dm_target(
-    swarog: bool,
+    svarog: bool,
     rarog: bool,
     main_target: bool,
     concierge: bool,
 ) -> &'static str {
     if rarog || concierge {
         AGENT_ID_RAROG
-    } else if swarog || main_target {
+    } else if svarog || main_target {
         AGENT_ID_SWAROG
     } else {
         AGENT_ID_SWAROG

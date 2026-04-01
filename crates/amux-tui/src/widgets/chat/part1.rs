@@ -276,7 +276,7 @@ fn action_hit_target(
 
 fn retry_wait_remaining_secs(status: &crate::state::chat::RetryStatusVm, current_tick: u64) -> u64 {
     let elapsed_ticks = current_tick.saturating_sub(status.received_at_tick);
-    let elapsed_ms = elapsed_ticks.saturating_mul(1_000);
+    let elapsed_ms = elapsed_ticks.saturating_mul(crate::app::TUI_TICK_RATE_MS);
     status
         .delay_ms
         .saturating_sub(elapsed_ms)

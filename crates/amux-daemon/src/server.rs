@@ -25,6 +25,9 @@ use crate::session_manager::SessionManager;
 include!("server/helpers_part1.rs");
 include!("server/helpers_part2.rs");
 include!("server/operations.rs");
+include!("server/subsystem_queue.rs");
+include!("server/subsystem_metrics.rs");
+include!("server/operation_retention.rs");
 include!("server/operations_registry.rs");
 
 #[cfg(test)]
@@ -54,8 +57,8 @@ where
     let mut last_concierge_welcome_fingerprint: Option<String> = None;
     let mut async_command_capability: Option<amux_protocol::AsyncCommandCapability> = None;
     let mut agent_event_rx: Option<broadcast::Receiver<crate::agent::types::AgentEvent>> = None;
-    let (background_daemon_tx, mut background_daemon_rx) = mpsc::unbounded_channel();
-    let mut background_daemon_pending = 0usize;
+    let mut background_daemon_queues = BackgroundSubsystemQueues::new();
+    let mut background_daemon_pending = BackgroundPendingCounts::default();
     let mut whatsapp_link_rx: Option<
         broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>,
     > = None;

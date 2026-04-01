@@ -1,4 +1,5 @@
 use super::*;
+use amux_protocol::AGENT_HANDLE_SVAROG;
 
 impl ConciergeEngine {
     pub async fn triage_gateway_message(
@@ -276,7 +277,7 @@ fn gateway_triage_system_prompt() -> String {
          COMPLEX messages (route to agent): code requests, file operations, debugging, \
          multi-step tasks, technical analysis, project work, or anything needing tools beyond the provided safe set.\n\n\
          If the user asks about prior context you do not already have, use the safe tools first instead of saying you cannot access it.\n\
-         If the user asks specifically about {} or asks you to check with {} instead of answering from your own perspective, call `message_agent` targeting `swarog` and base the reply on that result.\n\
+         If the user asks specifically about {} or asks you to check with {} instead of answering from your own perspective, call `message_agent` targeting `{}` and base the reply on that result.\n\
          If SIMPLE: respond with [SIMPLE] followed by your concise, friendly reply.\n\
          If COMPLEX: respond with just [COMPLEX].\n\
          Be fast. Keep simple replies concise and natural. Never hallucinate tool usage.",
@@ -284,6 +285,7 @@ fn gateway_triage_system_prompt() -> String {
         MAIN_AGENT_NAME,
         MAIN_AGENT_NAME,
         MAIN_AGENT_NAME,
+        AGENT_HANDLE_SVAROG,
     )
 }
 

@@ -2,6 +2,15 @@
 // Public API
 // ---------------------------------------------------------------------------
 
+const MAX_RETRY_DELAY_MS: u64 = 60_000;
+
+pub(crate) fn compute_retry_delay_ms_for_attempt(base_delay_ms: u64, attempt: u32) -> u64 {
+    let multiplier = u64::from(attempt.max(1));
+    base_delay_ms
+        .saturating_mul(multiplier)
+        .min(MAX_RETRY_DELAY_MS)
+}
+
 /// Send a completion request. Returns a stream of `CompletionChunk`.
 pub fn send_completion_request(
     client: &reqwest::Client,
@@ -111,21 +120,24 @@ pub fn send_completion_request(
                                 retry_delay_ms,
                             } if retry_attempt < max_retries => {
                                 retry_attempt += 1;
+                                let delay_ms =
+                                    compute_retry_delay_ms_for_attempt(retry_delay_ms, retry_attempt);
                                 let _ = tx
                                     .send(Ok(CompletionChunk::Retry {
                                         attempt: retry_attempt,
                                         max_retries,
-                                        delay_ms: retry_delay_ms,
+                                        delay_ms,
                                         failure_class: failure_class.to_string(),
                                         message: retry_message.clone(),
                                     }))
                                     .await;
-                                tokio::time::sleep(Duration::from_millis(retry_delay_ms)).await;
+                                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                                 continue;
                             }
                             RetryStrategy::DurableRateLimited if is_rate_limited => {
                                 retry_attempt = retry_attempt.saturating_add(1);
-                                let delay_ms = if retry_attempt <= 10 { 2_000 } else { 60_000 };
+                                let delay_ms =
+                                    compute_retry_delay_ms_for_attempt(5_000, retry_attempt);
                                 let _ = tx
                                     .send(Ok(CompletionChunk::Retry {
                                         attempt: retry_attempt,

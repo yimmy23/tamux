@@ -254,7 +254,6 @@ if matches!(
                         .to_string();
                     drop(config);
 
-                    let client = RegistryClient::new(registry_url, agent.history.data_dir());
                     let whitelist = vec![
                         "read_file".to_string(),
                         "write_file".to_string(),
@@ -262,112 +261,171 @@ if matches!(
                         "create_directory".to_string(),
                         "search_history".to_string(),
                     ];
-                    let skills_root = agent.history.data_dir().join("skills");
-
-                    let import_result: Result<(String, String), anyhow::Error> = async {
-                        if source.starts_with("http://") || source.starts_with("https://") {
-                            let archive_name = source
-                                .rsplit('/')
-                                .next()
-                                .unwrap_or("community-skill.tar.gz")
-                                .trim_end_matches(".tar.gz")
-                                .to_string();
-                            let archive_path = client.fetch_skill(&archive_name).await?;
-                            let extract_dir = std::env::temp_dir().join(format!(
-                                "tamux-community-import-{}-{}",
-                                archive_name,
-                                uuid::Uuid::new_v4()
-                            ));
-                            if extract_dir.exists() {
-                                let _ = tokio::fs::remove_dir_all(&extract_dir).await;
-                            }
-                            tokio::fs::create_dir_all(&extract_dir).await?;
-                            unpack_skill(&archive_path, &extract_dir)?;
-                            let skill_path = extract_dir.join("SKILL.md");
-                            let content = tokio::fs::read_to_string(&skill_path).await?;
-                            Ok((archive_name, content))
-                        } else {
-                            let archive_path = client.fetch_skill(&source).await?;
-                            let extract_dir = std::env::temp_dir().join(format!(
-                                "tamux-community-import-{}-{}",
-                                source,
-                                uuid::Uuid::new_v4()
-                            ));
-                            if extract_dir.exists() {
-                                let _ = tokio::fs::remove_dir_all(&extract_dir).await;
-                            }
-                            tokio::fs::create_dir_all(&extract_dir).await?;
-                            unpack_skill(&archive_path, &extract_dir)?;
-                            let skill_path = extract_dir.join("SKILL.md");
-                            let content = tokio::fs::read_to_string(&skill_path).await?;
-                            Ok((source.clone(), content))
-                        }
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::PluginIo) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::PluginIo);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "plugin_io background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
                     }
-                    .await;
 
-                    let msg = match import_result {
-                        Ok((skill_name, content)) => match import_community_skill(
-                            &agent.history,
-                            &content,
-                            &skill_name,
-                            &source,
-                            &whitelist,
-                            force,
-                            publisher_verified,
-                            &skills_root,
-                        )
-                        .await
-                        {
-                            Ok(ImportResult::Success {
-                                variant_id,
-                                scan_verdict,
-                            }) => DaemonMessage::SkillImportResult {
-                                success: true,
-                                message: format!(
-                                    "Imported community skill '{skill_name}' as draft."
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| {
+                            capability.version >= 1
+                                && capability.supports_operation_acceptance
+                        })
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_SKILL_IMPORT,
+                                Some(skill_import_dedup_key(
+                                    &agent,
+                                    &source,
+                                    force,
+                                    publisher_verified,
+                                )),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
+                    }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let history = agent.history.clone();
+                    let skills_root = agent.history.data_dir().to_path_buf();
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
+                    spawn_background_operation(
+                        BackgroundSubsystem::PluginIo,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            let client = RegistryClient::new(registry_url, &skills_root);
+                            let import_result: Result<(String, String), anyhow::Error> = async {
+                            if source.starts_with("http://") || source.starts_with("https://") {
+                                let archive_name = source
+                                    .rsplit('/')
+                                    .next()
+                                    .unwrap_or("community-skill.tar.gz")
+                                    .trim_end_matches(".tar.gz")
+                                    .to_string();
+                                let archive_path = client.fetch_skill(&archive_name).await?;
+                                let extract_dir = std::env::temp_dir().join(format!(
+                                    "tamux-community-import-{}-{}",
+                                    archive_name,
+                                    uuid::Uuid::new_v4()
+                                ));
+                                if extract_dir.exists() {
+                                    let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+                                }
+                                tokio::fs::create_dir_all(&extract_dir).await?;
+                                unpack_skill(&archive_path, &extract_dir)?;
+                                let skill_path = extract_dir.join("SKILL.md");
+                                let content = tokio::fs::read_to_string(&skill_path).await?;
+                                Ok((archive_name, content))
+                            } else {
+                                let archive_path = client.fetch_skill(&source).await?;
+                                let extract_dir = std::env::temp_dir().join(format!(
+                                    "tamux-community-import-{}-{}",
+                                    source,
+                                    uuid::Uuid::new_v4()
+                                ));
+                                if extract_dir.exists() {
+                                    let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+                                }
+                                tokio::fs::create_dir_all(&extract_dir).await?;
+                                unpack_skill(&archive_path, &extract_dir)?;
+                                let skill_path = extract_dir.join("SKILL.md");
+                                let content = tokio::fs::read_to_string(&skill_path).await?;
+                                Ok((source.clone(), content))
+                            }
+                        }
+                            .await;
+
+                            match import_result {
+                                Ok((skill_name, content)) => match import_community_skill(
+                                    &history,
+                                    &content,
+                                    &skill_name,
+                                    &source,
+                                    &whitelist,
+                                    force,
+                                    publisher_verified,
+                                    &skills_root,
+                                )
+                                .await
+                                {
+                                    Ok(ImportResult::Success {
+                                        variant_id,
+                                        scan_verdict,
+                                    }) => BackgroundOperationOutput::Completed(
+                                        DaemonMessage::SkillImportResult {
+                                            success: true,
+                                            message: format!(
+                                                "Imported community skill '{skill_name}' as draft."
+                                            ),
+                                            variant_id: Some(variant_id),
+                                            scan_verdict: Some(scan_verdict),
+                                            findings_count: 0,
+                                        },
+                                    ),
+                                    Ok(ImportResult::Blocked {
+                                        report_summary,
+                                        findings_count,
+                                    }) => BackgroundOperationOutput::Failed(
+                                        DaemonMessage::SkillImportResult {
+                                            success: false,
+                                            message: report_summary,
+                                            variant_id: None,
+                                            scan_verdict: Some("block".to_string()),
+                                            findings_count,
+                                        },
+                                    ),
+                                    Ok(ImportResult::NeedsForce {
+                                        report_summary,
+                                        findings_count,
+                                    }) => BackgroundOperationOutput::Failed(
+                                        DaemonMessage::SkillImportResult {
+                                            success: false,
+                                            message: report_summary,
+                                            variant_id: None,
+                                            scan_verdict: Some("warn".to_string()),
+                                            findings_count,
+                                        },
+                                    ),
+                                    Err(e) => BackgroundOperationOutput::Failed(
+                                        DaemonMessage::SkillImportResult {
+                                            success: false,
+                                            message: format!("community skill import failed: {e}"),
+                                            variant_id: None,
+                                            scan_verdict: None,
+                                            findings_count: 0,
+                                        },
+                                    ),
+                                },
+                                Err(e) => BackgroundOperationOutput::Failed(
+                                    DaemonMessage::SkillImportResult {
+                                        success: false,
+                                        message: format!("community skill fetch failed: {e}"),
+                                        variant_id: None,
+                                        scan_verdict: None,
+                                        findings_count: 0,
+                                    },
                                 ),
-                                variant_id: Some(variant_id),
-                                scan_verdict: Some(scan_verdict),
-                                findings_count: 0,
-                            },
-                            Ok(ImportResult::Blocked {
-                                report_summary,
-                                findings_count,
-                            }) => DaemonMessage::SkillImportResult {
-                                success: false,
-                                message: report_summary,
-                                variant_id: None,
-                                scan_verdict: Some("block".to_string()),
-                                findings_count,
-                            },
-                            Ok(ImportResult::NeedsForce {
-                                report_summary,
-                                findings_count,
-                            }) => DaemonMessage::SkillImportResult {
-                                success: false,
-                                message: report_summary,
-                                variant_id: None,
-                                scan_verdict: Some("warn".to_string()),
-                                findings_count,
-                            },
-                            Err(e) => DaemonMessage::SkillImportResult {
-                                success: false,
-                                message: format!("community skill import failed: {e}"),
-                                variant_id: None,
-                                scan_verdict: None,
-                                findings_count: 0,
-                            },
+                            }
                         },
-                        Err(e) => DaemonMessage::SkillImportResult {
-                            success: false,
-                            message: format!("community skill fetch failed: {e}"),
-                            variant_id: None,
-                            scan_verdict: None,
-                            findings_count: 0,
-                        },
-                    };
-
-                    framed.send(msg).await?;
+                    );
                 }
 
                 ClientMessage::SkillExport {

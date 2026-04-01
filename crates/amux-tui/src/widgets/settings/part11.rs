@@ -146,7 +146,10 @@ fn render_agent_tab<'a>(
     let mut lines = render_provider_tab(settings, config, theme);
 
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  Swarog", theme.fg_active)));
+    lines.push(Line::from(Span::styled(
+        format!("  {}", amux_protocol::AGENT_NAME_SWAROG),
+        theme.fg_active,
+    )));
     lines.push(Line::from(Span::styled(
         "  Main agent identity and behavior",
         theme.fg_dim,
@@ -155,7 +158,7 @@ fn render_agent_tab<'a>(
 
     lines.push(Line::from(vec![
         Span::styled("  Fixed Name        ", theme.fg_dim),
-        Span::styled("Swarog", theme.fg_active),
+        Span::styled(amux_protocol::AGENT_NAME_SWAROG, theme.fg_active),
     ]));
 
     let system_prompt = if let Some(raw) = config.agent_config_raw() {

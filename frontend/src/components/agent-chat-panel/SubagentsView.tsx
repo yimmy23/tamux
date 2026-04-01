@@ -3,7 +3,7 @@ import { getBridge } from "@/lib/bridge";
 import { allLeafIds, findLeaf } from "../../lib/bspTree";
 import { fetchAgentRuns, formatRunStatus, formatRunTimestamp, isRunActive, isSubagentRun, runStatusColor, type AgentRun } from "../../lib/agentRuns";
 import { fetchThreadTodos } from "../../lib/agentTodos";
-import { useAgentStore } from "../../lib/agentStore";
+import { buildHydratedRemoteMessage, type RemoteAgentMessageRecord, useAgentStore } from "../../lib/agentStore";
 import type { Workspace } from "../../lib/types";
 import { shortenHomePath, useWorkspaceStore } from "../../lib/workspaceStore";
 import { ActionButton, EmptyPanel, MetricRibbon, SectionTitle } from "./shared";
@@ -22,23 +22,10 @@ type TaskWorkspaceLocation = {
     cwd: string | null;
 };
 
-type RemoteAgentMessage = {
-    role: "user" | "assistant" | "system" | "tool";
-    content: string;
-    input_tokens?: number;
-    output_tokens?: number;
-    reasoning?: string | null;
-    tool_calls?: unknown[] | null;
-    tool_name?: string | null;
-    tool_call_id?: string | null;
-    tool_arguments?: string | null;
-    tool_status?: string | null;
-};
-
 type RemoteAgentThread = {
     id: string;
     title: string;
-    messages: RemoteAgentMessage[];
+    messages: RemoteAgentMessageRecord[];
 };
 
 function findTaskWorkspaceLocation(workspaces: Workspace[], sessionId: string | null | undefined): TaskWorkspaceLocation | null {
@@ -165,22 +152,21 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
         setThreadDaemonId(localThreadId, remoteThread.id);
 
         for (const message of remoteThread.messages ?? []) {
+            const hydrated = buildHydratedRemoteMessage(localThreadId, message);
             addMessage(localThreadId, {
-                role: message.role,
-                content: message.content ?? "",
-                provider: undefined,
-                model: undefined,
-                toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls as any : undefined,
-                toolName: message.tool_name ?? undefined,
-                toolCallId: message.tool_call_id ?? undefined,
-                toolArguments: message.tool_arguments ?? undefined,
-                toolStatus: message.tool_status === "requested" || message.tool_status === "executing" || message.tool_status === "done" || message.tool_status === "error"
-                    ? message.tool_status
-                    : undefined,
-                inputTokens: message.input_tokens ?? 0,
-                outputTokens: message.output_tokens ?? 0,
-                totalTokens: (message.input_tokens ?? 0) + (message.output_tokens ?? 0),
-                reasoning: message.reasoning ?? undefined,
+                role: hydrated.role,
+                content: hydrated.content,
+                provider: hydrated.provider,
+                model: hydrated.model,
+                toolCalls: hydrated.toolCalls,
+                toolName: hydrated.toolName,
+                toolCallId: hydrated.toolCallId,
+                toolArguments: hydrated.toolArguments,
+                toolStatus: hydrated.toolStatus,
+                inputTokens: hydrated.inputTokens,
+                outputTokens: hydrated.outputTokens,
+                totalTokens: hydrated.totalTokens,
+                reasoning: hydrated.reasoning,
                 isCompactionSummary: false,
                 isStreaming: false,
             });

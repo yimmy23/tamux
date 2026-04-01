@@ -276,25 +276,80 @@ if matches!(
                 }
 
                 ClientMessage::AgentSynthesizeTool { request_json } => {
-                    match agent.synthesize_tool_json(&request_json).await {
-                        Ok(result_json) => {
-                            framed
-                                .send(DaemonMessage::AgentGeneratedToolResult {
-                                    tool_name: None,
-                                    result_json,
-                                })
-                                .await
-                                .ok();
-                        }
-                        Err(e) => {
-                            framed
-                                .send(DaemonMessage::AgentError {
-                                    message: format!("failed to synthesize generated tool: {e}"),
-                                })
-                                .await
-                                .ok();
-                        }
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::AgentWork) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::AgentWork);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "agent_work background queue is full".to_string(),
+                            })
+                            .await
+                            .ok();
+                        continue;
                     }
+
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| {
+                            capability.version >= 1
+                                && capability.supports_operation_acceptance
+                        })
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_SYNTHESIZE_TOOL,
+                                Some(synthesize_tool_dedup_key(&agent, &request_json)),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await
+                            .ok();
+                    }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let agent = agent.clone();
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::AgentWork);
+                    spawn_background_operation(
+                        BackgroundSubsystem::AgentWork,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            #[cfg(test)]
+                            if let Some(delay) = agent.take_test_synthesize_tool_delay().await {
+                                tokio::time::sleep(delay).await;
+                                return BackgroundOperationOutput::Failed(DaemonMessage::AgentError {
+                                    message: "failed to synthesize generated tool: timed out"
+                                        .to_string(),
+                                });
+                            }
+
+                            match agent.synthesize_tool_json(&request_json).await {
+                                Ok(result_json) => {
+                                    BackgroundOperationOutput::Completed(
+                                        DaemonMessage::AgentGeneratedToolResult {
+                                            tool_name: None,
+                                            result_json,
+                                        },
+                                    )
+                                }
+                                Err(e) => BackgroundOperationOutput::Failed(
+                                    DaemonMessage::AgentError {
+                                        message: format!(
+                                            "failed to synthesize generated tool: {e}"
+                                        ),
+                                    },
+                                ),
+                            }
+                        },
+                    );
                 }
 
                 ClientMessage::AgentRunGeneratedTool {

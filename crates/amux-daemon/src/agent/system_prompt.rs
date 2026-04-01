@@ -1,6 +1,6 @@
 //! System prompt construction and external agent prompt building.
 
-use super::agent_identity::CONCIERGE_AGENT_NAME;
+use super::agent_identity::{CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME};
 use super::memory_curation_guidance;
 use super::types::*;
 
@@ -56,8 +56,12 @@ pub(super) fn build_system_prompt(
         prompt.push_str(
             "\n## Shared User Profile Policy\n\
              - USER.md is shared across agents and read-only for you.\n\
-             - If a user preference or operator profile fact should change, ask Swarog via `message_agent` and let Swarog decide whether to apply it.\n",
+             - If a user preference or operator profile fact should change, ask ",
         );
+        prompt.push_str(MAIN_AGENT_NAME);
+        prompt.push_str(" via `message_agent` and let ");
+        prompt.push_str(MAIN_AGENT_NAME);
+        prompt.push_str(" decide whether to apply it.\n");
     }
 
     prompt.push_str(

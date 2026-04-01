@@ -9,6 +9,7 @@
         assert_eq!(parsed.pty_channel_capacity, 1024);
         assert_eq!(parsed.agent_event_channel_capacity, 512);
         assert!(parsed.auto_retry);
+        assert_eq!(parsed.retry_delay_ms, 5_000);
         assert_eq!(
             parsed.concierge.detail_level,
             ConciergeDetailLevel::ContextSummary
@@ -43,6 +44,12 @@
             ),
             ApiType::Anthropic
         );
+    }
+
+    #[test]
+    fn default_retry_delay_is_five_seconds() {
+        let parsed: AgentConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(parsed.retry_delay_ms, 5_000);
     }
 
     /// FOUN-04: Circuit breaker AgentEvent variants serialize and deserialize correctly.

@@ -1,7 +1,85 @@
 //! Agent configuration get/set.
 
 use super::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum ConfigReconcileState {
+    Applied,
+    Reconciling,
+    Degraded,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ConfigRuntimeProjection {
+    pub state: ConfigReconcileState,
+    pub desired_revision: u64,
+    pub effective_revision: u64,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ConfigEffectiveRuntimeState {
+    pub reconcile: ConfigRuntimeProjection,
+    pub gateway_runtime_connected: bool,
+}
+
+impl Default for ConfigRuntimeProjection {
+    fn default() -> Self {
+        Self {
+            state: ConfigReconcileState::Applied,
+            desired_revision: 0,
+            effective_revision: 0,
+            last_error: None,
+        }
+    }
+}
+
+fn gateway_runtime_is_desired_at_startup(config: &AgentConfig) -> bool {
+    config.gateway.enabled
+        && (!config.gateway.slack_token.trim().is_empty()
+            || !config.gateway.telegram_token.trim().is_empty()
+            || !config.gateway.discord_token.trim().is_empty()
+            || !config.gateway.whatsapp_token.trim().is_empty()
+            || config.gateway.whatsapp_link_fallback_electron)
+}
+
+pub(crate) fn derive_startup_config_runtime_projection(
+    config: &AgentConfig,
+) -> ConfigRuntimeProjection {
+    if gateway_runtime_is_desired_at_startup(config) {
+        ConfigRuntimeProjection {
+            state: ConfigReconcileState::Degraded,
+            desired_revision: 1,
+            effective_revision: 0,
+            last_error: Some(
+                "startup: gateway runtime is not connected; effective state must be re-derived"
+                    .to_string(),
+            ),
+        }
+    } else {
+        ConfigRuntimeProjection::default()
+    }
+}
+
+#[cfg(test)]
+fn config_reconcile_delay_map(
+) -> &'static std::sync::Mutex<std::collections::HashMap<usize, std::time::Duration>> {
+    static MAP: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<usize, std::time::Duration>>,
+    > = std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(test)]
+fn config_reconcile_failure_map(
+) -> &'static std::sync::Mutex<std::collections::HashMap<usize, String>> {
+    static MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, String>>> =
+        std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
 
 fn is_sensitive_config_key(key: &str) -> bool {
     let normalized = camel_to_snake_key(key);
@@ -328,6 +406,23 @@ pub(crate) fn sanitize_config_value(config: &mut Value) {
 }
 
 impl AgentEngine {
+    pub(crate) async fn current_desired_config_snapshot(&self) -> AgentConfig {
+        self.get_config().await
+    }
+
+    pub(crate) async fn current_effective_config_runtime_state(
+        &self,
+    ) -> ConfigEffectiveRuntimeState {
+        ConfigEffectiveRuntimeState {
+            reconcile: self.current_config_runtime_projection().await,
+            gateway_runtime_connected: self.gateway_ipc_sender.lock().await.is_some(),
+        }
+    }
+
+    pub(crate) async fn current_config_runtime_projection(&self) -> ConfigRuntimeProjection {
+        self.config_runtime_projection.lock().await.clone()
+    }
+
     pub async fn get_config(&self) -> AgentConfig {
         self.config.read().await.clone()
     }
@@ -351,6 +446,18 @@ impl AgentEngine {
         key_path: &str,
         value_json: &str,
     ) -> Result<AgentConfig> {
+        let (merged, value) = self.prepare_config_item_json(key_path, value_json).await?;
+        self.persist_prepared_config_item_json(key_path, &value, merged.clone())
+            .await?;
+        self.reconcile_config_runtime_after_commit().await?;
+        Ok(merged)
+    }
+
+    pub async fn prepare_config_item_json(
+        &self,
+        key_path: &str,
+        value_json: &str,
+    ) -> Result<(AgentConfig, Value)> {
         let value =
             serde_json::from_str::<Value>(value_json).context("invalid config item JSON")?;
         let mut merged_value = serde_json::to_value(self.get_config().await)?;
@@ -359,17 +466,130 @@ impl AgentEngine {
         sanitize_config_value(&mut merged_value);
         let merged = serde_json::from_value::<AgentConfig>(merged_value)
             .context("updated config item could not be parsed")?;
+        Ok((merged, value))
+    }
+
+    pub async fn persist_prepared_config_item_json(
+        &self,
+        key_path: &str,
+        value: &Value,
+        merged: AgentConfig,
+    ) -> Result<()> {
         self.history
             .upsert_agent_config_item(key_path, &value)
             .await
             .context("failed to persist config item update")?;
         *self.config.write().await = merged.clone();
         self.config_notify.notify_waiters();
-        self.reinit_gateway().await;
-        Ok(merged)
+        let mut projection = self.config_runtime_projection.lock().await;
+        projection.desired_revision = projection.desired_revision.saturating_add(1);
+        projection.state = ConfigReconcileState::Reconciling;
+        projection.last_error = None;
+        Ok(())
+    }
+
+    pub async fn reconcile_config_runtime_after_commit(&self) -> Result<()> {
+        #[cfg(test)]
+        if let Some(delay) = self.take_test_config_reconcile_delay().await {
+            tokio::time::sleep(delay).await;
+        }
+
+        #[cfg(test)]
+        if let Some(error) = self.take_test_config_reconcile_failure().await {
+            let mut projection = self.config_runtime_projection.lock().await;
+            projection.state = ConfigReconcileState::Error;
+            projection.last_error = Some(error.clone());
+            return Err(anyhow::anyhow!(error));
+        }
+
+        let degraded_reason = self.reinit_gateway().await;
+        let mut projection = self.config_runtime_projection.lock().await;
+        if let Some(reason) = degraded_reason {
+            projection.state = ConfigReconcileState::Degraded;
+            projection.last_error = Some(reason);
+        } else {
+            projection.effective_revision = projection.desired_revision;
+            projection.state = ConfigReconcileState::Applied;
+            projection.last_error = None;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub async fn set_test_config_reconcile_delay(&self, delay: Option<std::time::Duration>) {
+        let key = self as *const _ as usize;
+        let mut delays = config_reconcile_delay_map()
+            .lock()
+            .expect("config reconcile delay map mutex poisoned");
+        if let Some(delay) = delay {
+            delays.insert(key, delay);
+        } else {
+            delays.remove(&key);
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn set_test_config_reconcile_failure(&self, error: Option<String>) {
+        let key = self as *const _ as usize;
+        let mut failures = config_reconcile_failure_map()
+            .lock()
+            .expect("config reconcile failure map mutex poisoned");
+        if let Some(error) = error {
+            failures.insert(key, error);
+        } else {
+            failures.remove(&key);
+        }
+    }
+
+    #[cfg(test)]
+    async fn take_test_config_reconcile_delay(&self) -> Option<std::time::Duration> {
+        let key = self as *const _ as usize;
+        config_reconcile_delay_map()
+            .lock()
+            .expect("config reconcile delay map mutex poisoned")
+            .remove(&key)
+    }
+
+    #[cfg(test)]
+    async fn take_test_config_reconcile_failure(&self) -> Option<String> {
+        let key = self as *const _ as usize;
+        config_reconcile_failure_map()
+            .lock()
+            .expect("config reconcile failure map mutex poisoned")
+            .remove(&key)
     }
 
     pub async fn set_provider_model_json(
+        &self,
+        provider_id: &str,
+        model: &str,
+    ) -> Result<AgentConfig> {
+        let updated = self.prepare_provider_model_json(provider_id, model).await?;
+        self.persist_prepared_provider_model_json(updated.clone())
+            .await;
+        self.reconcile_config_runtime_after_commit().await?;
+        Ok(updated)
+    }
+
+    pub async fn persist_prepared_provider_model_json(&self, merged: AgentConfig) {
+        let mut value =
+            serde_json::to_value(&merged).unwrap_or_else(|_| Value::Object(Default::default()));
+        normalize_config_keys_to_snake_case(&mut value);
+        sanitize_config_value(&mut value);
+        let mut items = Vec::new();
+        flatten_config_value_to_items(&value, "", &mut items);
+        if let Err(error) = self.history.replace_agent_config_items(&items).await {
+            tracing::warn!("failed to persist agent config to sqlite: {error}");
+        }
+        *self.config.write().await = merged;
+        self.config_notify.notify_waiters();
+        let mut projection = self.config_runtime_projection.lock().await;
+        projection.desired_revision = projection.desired_revision.saturating_add(1);
+        projection.state = ConfigReconcileState::Reconciling;
+        projection.last_error = None;
+    }
+
+    pub async fn prepare_provider_model_json(
         &self,
         provider_id: &str,
         model: &str,
@@ -388,7 +608,6 @@ impl AgentEngine {
         updated.api_transport = selection.api_transport;
         updated.context_window_tokens = selection.context_window_tokens;
 
-        self.set_config(updated.clone()).await;
         Ok(updated)
     }
 
@@ -419,7 +638,7 @@ impl AgentEngine {
             }
         };
         self.set_config(merged.clone()).await;
-        self.reinit_gateway().await;
+        let _ = self.reinit_gateway().await;
         Ok(merged)
     }
 

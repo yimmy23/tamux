@@ -127,6 +127,8 @@ pub struct AgentEngine {
     pub circuit_breakers: Arc<CircuitBreakerRegistry>,
     /// Notifies the run_loop when config changes so heartbeat schedule can be recomputed.
     pub config_notify: tokio::sync::Notify,
+    /// Tracks desired-vs-effective runtime config reconciliation progress.
+    pub(super) config_runtime_projection: Mutex<ConfigRuntimeProjection>,
     /// Learned priority weights per check type, updated from feedback signals (D-04).
     /// When present, these override the config `priority_weight` fields.
     /// Falls back to config weights when a check type has no learned weight.
@@ -212,6 +214,9 @@ impl AgentEngine {
                 .chain(std::iter::once(config.provider.clone())),
         ));
 
+        let initial_config_runtime_projection =
+            super::config::derive_startup_config_runtime_projection(&config);
+
         let config = Arc::new(RwLock::new(config));
         let concierge = Arc::new(ConciergeEngine::new(
             config.clone(),
@@ -269,6 +274,7 @@ impl AgentEngine {
             watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
             circuit_breakers,
             config_notify: tokio::sync::Notify::new(),
+            config_runtime_projection: Mutex::new(initial_config_runtime_projection),
             learned_check_weights: RwLock::new(HashMap::new()),
             heuristic_store: RwLock::new(super::learning::heuristics::HeuristicStore::default()),
             pattern_store: RwLock::new(super::learning::patterns::PatternStore::default()),

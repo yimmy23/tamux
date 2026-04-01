@@ -294,7 +294,7 @@ mod tests {
         );
         assert_eq!(
             internal_dm_thread_id(MAIN_AGENT_ALIAS, CONCIERGE_AGENT_ALIAS),
-            "dm:rarog:swarog"
+            format!("dm:{}:{}", CONCIERGE_AGENT_ID, MAIN_AGENT_ID)
         );
     }
 

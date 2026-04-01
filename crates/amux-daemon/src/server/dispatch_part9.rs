@@ -32,15 +32,17 @@ if matches!(
                         },
                     };
 
-                    let msg = if let Some(v) = variant {
+                    if let Some(v) = variant {
                         if v.status != "proven" && v.status != "canonical" {
-                            DaemonMessage::SkillPublishResult {
-                                success: false,
-                                message: format!(
-                                    "Only proven or canonical skills can be published; '{}' is {}.",
-                                    v.skill_name, v.status
-                                ),
-                            }
+                            framed
+                                .send(DaemonMessage::SkillPublishResult {
+                                    success: false,
+                                    message: format!(
+                                        "Only proven or canonical skills can be published; '{}' is {}.",
+                                        v.skill_name, v.status
+                                    ),
+                                })
+                                .await?;
                         } else {
                             let config = agent.config.read().await;
                             let registry_url = config
@@ -51,41 +53,94 @@ if matches!(
                                 .to_string();
                             drop(config);
 
-                            let skill_dir = agent.history.data_dir().join("skills").join(
-                                Path::new(&v.relative_path)
-                                    .parent()
-                                    .unwrap_or(Path::new(".")),
-                            );
-                            let machine_id = agent.history.data_dir().to_string_lossy().to_string();
-                            match prepare_publish(&skill_dir, &v, &machine_id) {
-                                Ok((tarball, metadata)) => {
-                                    let client =
-                                        RegistryClient::new(registry_url, agent.history.data_dir());
-                                    match client.publish_skill(&tarball, &metadata).await {
-                                        Ok(()) => DaemonMessage::SkillPublishResult {
-                                            success: true,
-                                            message: format!("Published skill '{}'.", v.skill_name),
-                                        },
-                                        Err(e) => DaemonMessage::SkillPublishResult {
-                                            success: false,
-                                            message: format!("community skill publish failed: {e}"),
-                                        },
-                                    }
-                                }
-                                Err(e) => DaemonMessage::SkillPublishResult {
-                                    success: false,
-                                    message: format!("failed to prepare skill publish: {e}"),
-                                },
+                            if !background_daemon_pending.has_capacity(BackgroundSubsystem::PluginIo)
+                            {
+                                background_daemon_pending.note_rejection(BackgroundSubsystem::PluginIo);
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: "plugin_io background queue is full".to_string(),
+                                    })
+                                    .await?;
+                                continue;
                             }
+
+                            let operation = async_command_capability
+                                .as_ref()
+                                .filter(|capability| {
+                                    capability.version >= 1
+                                        && capability.supports_operation_acceptance
+                                })
+                                .map(|_| {
+                                    operation_registry().accept_operation(
+                                        OPERATION_KIND_SKILL_PUBLISH,
+                                        Some(skill_publish_dedup_key(&agent, &identifier)),
+                                    )
+                                });
+
+                            if let Some(operation) = operation.as_ref() {
+                                framed
+                                    .send(DaemonMessage::OperationAccepted {
+                                        operation_id: operation.operation_id.clone(),
+                                        kind: operation.kind.clone(),
+                                        dedup: operation.dedup.clone(),
+                                        revision: operation.revision,
+                                    })
+                                    .await?;
+                            }
+
+                            let operation_id = operation.map(|record| record.operation_id);
+                            let skill_root = agent.history.data_dir().to_path_buf();
+                            let machine_id = skill_root.to_string_lossy().to_string();
+                            let background_daemon_tx =
+                                background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
+                            spawn_background_operation(
+                                BackgroundSubsystem::PluginIo,
+                                operation_id,
+                                background_daemon_tx,
+                                &mut background_daemon_pending,
+                                async move {
+                                    let skill_dir = skill_root.join(
+                                        Path::new(&v.relative_path)
+                                            .parent()
+                                            .unwrap_or(Path::new(".")),
+                                    );
+
+                                    match prepare_publish(&skill_dir, &v, &machine_id) {
+                                        Ok((tarball, metadata)) => {
+                                            let client = RegistryClient::new(registry_url, &skill_root);
+                                            match client.publish_skill(&tarball, &metadata).await {
+                                                Ok(()) => BackgroundOperationOutput::Completed(
+                                                    DaemonMessage::SkillPublishResult {
+                                                        success: true,
+                                                        message: format!("Published skill '{}'.", v.skill_name),
+                                                    },
+                                                ),
+                                                Err(e) => BackgroundOperationOutput::Failed(
+                                                    DaemonMessage::SkillPublishResult {
+                                                        success: false,
+                                                        message: format!("community skill publish failed: {e}"),
+                                                    },
+                                                ),
+                                            }
+                                        }
+                                        Err(e) => BackgroundOperationOutput::Failed(
+                                            DaemonMessage::SkillPublishResult {
+                                                success: false,
+                                                message: format!("failed to prepare skill publish: {e}"),
+                                            },
+                                        ),
+                                    }
+                                },
+                            );
                         }
                     } else {
-                        DaemonMessage::SkillPublishResult {
-                            success: false,
-                            message: format!("Skill not found: {identifier}"),
-                        }
-                    };
-
-                    framed.send(msg).await?;
+                        framed
+                            .send(DaemonMessage::SkillPublishResult {
+                                success: false,
+                                message: format!("Skill not found: {identifier}"),
+                            })
+                            .await?;
+                    }
                 }
 
                 ClientMessage::AgentStatusQuery => {
@@ -244,6 +299,16 @@ if matches!(
                 // OAuth2 flow: start listener, return URL, await callback, exchange, store.
                 ClientMessage::PluginOAuthStart { name } => {
                     tracing::info!(plugin = %name, "OAuth2 flow start requested");
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::PluginIo) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::PluginIo);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "plugin_io background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
+                    }
+
                     match plugin_manager.start_oauth_flow_for_plugin(&name).await {
                         Ok(mut flow_state) => {
                             let operation = async_command_capability
@@ -281,44 +346,38 @@ if matches!(
 
                             let operation_id = operation.map(|record| record.operation_id);
                             let plugin_manager = plugin_manager.clone();
-                            let background_daemon_tx = background_daemon_tx.clone();
-                            background_daemon_pending = background_daemon_pending.saturating_add(1);
-                            tokio::spawn(async move {
-                                if let Some(operation_id) = operation_id.as_deref() {
-                                    operation_registry().mark_started(operation_id);
-                                }
-
-                                match plugin_manager
-                                    .complete_oauth_flow(&name, &mut flow_state)
-                                    .await
-                                {
-                                    Ok(()) => {
-                                        let _ = background_daemon_tx.send(
+                            let background_daemon_tx =
+                                background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
+                            spawn_background_operation(
+                                BackgroundSubsystem::PluginIo,
+                                operation_id,
+                                background_daemon_tx,
+                                &mut background_daemon_pending,
+                                async move {
+                                    match plugin_manager
+                                        .complete_oauth_flow(&name, &mut flow_state)
+                                        .await
+                                    {
+                                        Ok(()) => BackgroundOperationOutput::Completed(
                                             DaemonMessage::PluginOAuthComplete {
                                                 name,
                                                 success: true,
                                                 error: None,
                                             },
-                                        );
-                                        if let Some(operation_id) = operation_id.as_deref() {
-                                            operation_registry().mark_completed(operation_id);
+                                        ),
+                                        Err(e) => {
+                                            tracing::warn!(plugin = %name, error = %e, "OAuth2 flow failed");
+                                            BackgroundOperationOutput::Failed(
+                                                DaemonMessage::PluginOAuthComplete {
+                                                    name,
+                                                    success: false,
+                                                    error: Some(e.to_string()),
+                                                },
+                                            )
                                         }
                                     }
-                                    Err(e) => {
-                                        tracing::warn!(plugin = %name, error = %e, "OAuth2 flow failed");
-                                        let _ = background_daemon_tx.send(
-                                            DaemonMessage::PluginOAuthComplete {
-                                                name,
-                                                success: false,
-                                                error: Some(e.to_string()),
-                                            },
-                                        );
-                                        if let Some(operation_id) = operation_id.as_deref() {
-                                            operation_registry().mark_failed(operation_id);
-                                        }
-                                    }
-                                }
-                            });
+                                },
+                            );
                         }
                         Err(e) => {
                             tracing::warn!(plugin = %name, error = %e, "OAuth2 flow start failed");
@@ -339,59 +398,138 @@ if matches!(
                     endpoint_name,
                     params,
                 } => {
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::PluginIo) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::PluginIo);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "plugin_io background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
+                    }
+
                     let params_json: serde_json::Value = serde_json::from_str(&params)
                         .unwrap_or(serde_json::Value::Object(Default::default()));
-                    match plugin_manager
-                        .api_call(&plugin_name, &endpoint_name, params_json)
-                        .await
-                    {
-                        Ok(result_text) => {
-                            framed
-                                .send(DaemonMessage::PluginApiCallResult {
-                                    plugin_name,
-                                    endpoint_name,
-                                    success: true,
-                                    result: result_text,
-                                    error_type: None,
-                                })
-                                .await?;
-                        }
-                        Err(e) => {
-                            let error_type = match &e {
-                                crate::plugin::PluginApiError::SsrfBlocked { .. } => "ssrf_blocked",
-                                crate::plugin::PluginApiError::RateLimited { .. } => "rate_limited",
-                                crate::plugin::PluginApiError::Timeout => "timeout",
-                                crate::plugin::PluginApiError::HttpError { .. } => "http_error",
-                                crate::plugin::PluginApiError::TemplateError { .. } => {
-                                    "template_error"
-                                }
-                                crate::plugin::PluginApiError::EndpointNotFound { .. } => {
-                                    "endpoint_not_found"
-                                }
-                                crate::plugin::PluginApiError::PluginNotFound { .. } => {
-                                    "plugin_not_found"
-                                }
-                                crate::plugin::PluginApiError::PluginDisabled { .. } => {
-                                    "plugin_disabled"
-                                }
-                                crate::plugin::PluginApiError::AuthExpired { .. } => "auth_expired",
-                            };
-                            framed
-                                .send(DaemonMessage::PluginApiCallResult {
-                                    plugin_name,
-                                    endpoint_name,
-                                    success: false,
-                                    result: e.to_string(),
-                                    error_type: Some(error_type.to_string()),
-                                })
-                                .await?;
-                        }
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| {
+                            capability.version >= 1
+                                && capability.supports_operation_acceptance
+                        })
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_PLUGIN_API_CALL,
+                                Some(plugin_api_call_dedup_key(
+                                    &agent,
+                                    &plugin_name,
+                                    &endpoint_name,
+                                    &params_json,
+                                )),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
                     }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let plugin_manager = plugin_manager.clone();
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
+                    spawn_background_operation(
+                        BackgroundSubsystem::PluginIo,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            #[cfg(test)]
+                            if let Some(delay) = plugin_manager.test_api_call_delay().await {
+                                tokio::time::sleep(delay).await;
+                                return BackgroundOperationOutput::Failed(
+                                    DaemonMessage::PluginApiCallResult {
+                                        plugin_name,
+                                        endpoint_name,
+                                        success: false,
+                                        result: crate::plugin::PluginApiError::Timeout.to_string(),
+                                        error_type: Some("timeout".to_string()),
+                                    },
+                                );
+                            }
+
+                            match plugin_manager
+                                .api_call(&plugin_name, &endpoint_name, params_json)
+                                .await
+                            {
+                                Ok(result_text) => BackgroundOperationOutput::Completed(
+                                    DaemonMessage::PluginApiCallResult {
+                                        plugin_name,
+                                        endpoint_name,
+                                        success: true,
+                                        result: result_text,
+                                        error_type: None,
+                                    },
+                                ),
+                                Err(e) => {
+                                    let error_type = match &e {
+                                        crate::plugin::PluginApiError::SsrfBlocked { .. } => {
+                                            "ssrf_blocked"
+                                        }
+                                        crate::plugin::PluginApiError::RateLimited { .. } => {
+                                            "rate_limited"
+                                        }
+                                        crate::plugin::PluginApiError::Timeout => "timeout",
+                                        crate::plugin::PluginApiError::HttpError { .. } => "http_error",
+                                        crate::plugin::PluginApiError::TemplateError { .. } => {
+                                            "template_error"
+                                        }
+                                        crate::plugin::PluginApiError::EndpointNotFound { .. } => {
+                                            "endpoint_not_found"
+                                        }
+                                        crate::plugin::PluginApiError::PluginNotFound { .. } => {
+                                            "plugin_not_found"
+                                        }
+                                        crate::plugin::PluginApiError::PluginDisabled { .. } => {
+                                            "plugin_disabled"
+                                        }
+                                        crate::plugin::PluginApiError::AuthExpired { .. } => {
+                                            "auth_expired"
+                                        }
+                                    };
+                                    BackgroundOperationOutput::Failed(
+                                        DaemonMessage::PluginApiCallResult {
+                                            plugin_name,
+                                            endpoint_name,
+                                            success: false,
+                                            result: e.to_string(),
+                                            error_type: Some(error_type.to_string()),
+                                        },
+                                    )
+                                }
+                            }
+                        },
+                    );
                 }
                 ClientMessage::AgentExplainAction {
                     action_id,
                     step_index,
                 } => {
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::AgentWork) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::AgentWork);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "agent_work background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
+                    }
+
                     let operation = async_command_capability
                         .as_ref()
                         .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
@@ -415,23 +553,21 @@ if matches!(
 
                     let operation_id = operation.map(|record| record.operation_id);
                     let agent = agent.clone();
-                    let background_daemon_tx = background_daemon_tx.clone();
-                    background_daemon_pending = background_daemon_pending.saturating_add(1);
-                    tokio::spawn(async move {
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_started(operation_id);
-                        }
-
-                        let explanation = agent.handle_explain_action(&action_id, step_index).await;
-                        let json = serde_json::to_string(&explanation).unwrap_or_default();
-                        let _ = background_daemon_tx.send(DaemonMessage::AgentExplanation {
-                            explanation_json: json,
-                        });
-
-                        if let Some(operation_id) = operation_id.as_deref() {
-                            operation_registry().mark_completed(operation_id);
-                        }
-                    });
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::AgentWork);
+                    spawn_background_operation(
+                        BackgroundSubsystem::AgentWork,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            let explanation = agent.handle_explain_action(&action_id, step_index).await;
+                            let json = serde_json::to_string(&explanation).unwrap_or_default();
+                            BackgroundOperationOutput::Completed(DaemonMessage::AgentExplanation {
+                                explanation_json: json,
+                            })
+                        },
+                    );
                 }
                 ClientMessage::AgentStartDivergentSession {
                     problem_statement,
@@ -439,6 +575,16 @@ if matches!(
                     goal_run_id,
                     custom_framings_json,
                 } => {
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::AgentWork) {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::AgentWork);
+                        framed
+                            .send(DaemonMessage::Error {
+                                message: "agent_work background queue is full".to_string(),
+                            })
+                            .await?;
+                        continue;
+                    }
+
                     // Parse optional custom framings from JSON
                     let custom_framings = custom_framings_json
                         .as_deref()
@@ -461,35 +607,72 @@ if matches!(
                         })
                         .filter(|v| v.len() >= 2);
 
-                    match agent
-                        .start_divergent_session(
-                            &problem_statement,
-                            custom_framings,
-                            &thread_id,
-                            goal_run_id.as_deref(),
-                        )
-                        .await
-                    {
-                        Ok(session_id) => {
-                            let result = serde_json::json!({
-                                "session_id": session_id,
-                                "status": "started",
-                            });
-                            framed
-                                .send(DaemonMessage::AgentDivergentSessionStarted {
-                                    session_json: serde_json::to_string(&result)
-                                        .unwrap_or_default(),
-                                })
-                                .await?;
-                        }
-                        Err(e) => {
-                            framed
-                                .send(DaemonMessage::Error {
-                                    message: format!("Failed to start divergent session: {e}"),
-                                })
-                                .await?;
-                        }
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| {
+                            capability.version >= 1
+                                && capability.supports_operation_acceptance
+                        })
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_START_DIVERGENT_SESSION,
+                                Some(start_divergent_session_dedup_key(
+                                    &agent,
+                                    &problem_statement,
+                                    &thread_id,
+                                    goal_run_id.as_deref(),
+                                )),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
                     }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let agent = agent.clone();
+                    let background_daemon_tx =
+                        background_daemon_queues.sender(BackgroundSubsystem::AgentWork);
+                    spawn_background_operation(
+                        BackgroundSubsystem::AgentWork,
+                        operation_id,
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            match agent
+                                .start_divergent_session(
+                                    &problem_statement,
+                                    custom_framings,
+                                    &thread_id,
+                                    goal_run_id.as_deref(),
+                                )
+                                .await
+                            {
+                                Ok(session_id) => {
+                                    let result = serde_json::json!({
+                                        "session_id": session_id,
+                                        "status": "started",
+                                    });
+                                    BackgroundOperationOutput::Completed(
+                                        DaemonMessage::AgentDivergentSessionStarted {
+                                            session_json: serde_json::to_string(&result)
+                                                .unwrap_or_default(),
+                                        },
+                                    )
+                                }
+                                Err(e) => BackgroundOperationOutput::Failed(DaemonMessage::Error {
+                                    message: format!("Failed to start divergent session: {e}"),
+                                }),
+                            }
+                        },
+                    );
                 }
             _ => unreachable!("message chunk should be exhaustive"),
         }

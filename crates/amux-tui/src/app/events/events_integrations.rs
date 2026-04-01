@@ -1,6 +1,8 @@
 use super::*;
 use serde_json::Value;
 
+use amux_protocol::AGENT_NAME_RAROG;
+
 impl TuiModel {
     pub(in crate::app) fn handle_provider_auth_states_event(
         &mut self,
@@ -111,7 +113,7 @@ impl TuiModel {
         if !existing_thread {
             self.chat.reduce(chat::ChatAction::ThreadCreated {
                 thread_id: concierge_thread_id.clone(),
-                title: "Rarog".to_string(),
+                title: AGENT_NAME_RAROG.to_string(),
             });
         }
         self.chat.reduce(chat::ChatAction::ClearThread {

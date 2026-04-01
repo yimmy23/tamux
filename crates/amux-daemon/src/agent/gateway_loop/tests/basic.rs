@@ -12,7 +12,21 @@ fn reset_commands_require_bang_prefix() {
 #[test]
 fn gateway_route_requests_support_commands_and_natural_language() {
     assert_eq!(
+        classify_gateway_route_request("!svarog"),
+        Some(GatewayRouteRequest {
+            mode: gateway::GatewayRouteMode::Swarog,
+            ack_only: true,
+        })
+    );
+    assert_eq!(
         classify_gateway_route_request("!swarog"),
+        Some(GatewayRouteRequest {
+            mode: gateway::GatewayRouteMode::Swarog,
+            ack_only: true,
+        })
+    );
+    assert_eq!(
+        classify_gateway_route_request("switch to svarog"),
         Some(GatewayRouteRequest {
             mode: gateway::GatewayRouteMode::Swarog,
             ack_only: true,
@@ -26,7 +40,7 @@ fn gateway_route_requests_support_commands_and_natural_language() {
         })
     );
     assert_eq!(
-        classify_gateway_route_request("switch to swarog and take over this channel"),
+        classify_gateway_route_request("switch to svarog and take over this channel"),
         Some(GatewayRouteRequest {
             mode: gateway::GatewayRouteMode::Swarog,
             ack_only: false,
@@ -47,7 +61,7 @@ fn gateway_route_requests_support_commands_and_natural_language() {
         })
     );
     assert_eq!(
-        classify_gateway_route_request("what does swarog think?"),
+        classify_gateway_route_request("what does svarog think?"),
         None
     );
 }

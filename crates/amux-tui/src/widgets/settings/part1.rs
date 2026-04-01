@@ -34,7 +34,7 @@ pub enum SubAgentTabAction {
 }
 
 const TAB_LABELS: [&str; 11] = [
-    "Auth", "Swar", "Rar", "Tools", "Search", "Chat", "GW", "Sub", "Feat", "Adv", "Plug",
+    "Auth", "Svar", "Rar", "Tools", "Search", "Chat", "GW", "Sub", "Feat", "Adv", "Plug",
 ];
 const TAB_DIVIDER: &str = " | ";
 

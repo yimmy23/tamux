@@ -75,7 +75,7 @@ fn main() -> Result<()> {
     model.load_saved_settings();
 
     // Main loop
-    let tick_rate = Duration::from_millis(50);
+    let tick_rate = Duration::from_millis(crate::app::TUI_TICK_RATE_MS);
     let result = run_loop(&mut terminal, &mut model, tick_rate);
 
     // Restore terminal

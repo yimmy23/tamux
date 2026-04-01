@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getBridge } from "@/lib/bridge";
+import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
@@ -184,7 +185,7 @@ export function AgentTab({
                     background: providerAuthenticated ? "#4ade80" : "#6b7280",
                 }} />
                 <span style={{ fontSize: 12, fontWeight: 600 }}>
-                    Swarog: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
+                    {PRIMARY_AGENT_NAME}: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
                 </span>
                 <span style={{
                     fontSize: 10,
@@ -206,7 +207,7 @@ export function AgentTab({
                 </button>
             </div>
             <Section title="General">
-                <SettingRow label="Enable Swarog">
+                <SettingRow label={`Enable ${PRIMARY_AGENT_NAME}`}>
                     <Toggle value={settings.enabled} onChange={(value) => updateSetting("enabled", value)} />
                 </SettingRow>
                 <SettingRow label="Agent Backend">
@@ -240,9 +241,9 @@ export function AgentTab({
                         </div>
                     </div>
                 ) : null}
-                <SettingRow label="Swarog Name">
+                <SettingRow label={`${PRIMARY_AGENT_NAME} Name`}>
                     <div style={{ ...inputStyle, width: "100%", color: "var(--text-primary)", opacity: 0.85, cursor: "default" }}>
-                        Swarog
+                        {PRIMARY_AGENT_NAME}
                     </div>
                 </SettingRow>
                 <SettingRow label="Handler Prefix">
@@ -257,7 +258,7 @@ export function AgentTab({
             </Section>
 
             {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
-                <Section title="Swarog Provider">
+                <Section title={`${PRIMARY_AGENT_NAME} Provider`}>
                     <SettingRow label="Active Provider">
                         <SelectInput value={settings.active_provider}
                             options={providerOptions.map((provider) => provider.id)}

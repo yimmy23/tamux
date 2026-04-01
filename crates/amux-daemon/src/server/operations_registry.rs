@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 #[derive(Default)]
 pub(super) struct OperationRegistry {
-    records: Mutex<HashMap<String, OperationRecord>>,
-    dedup_index: Mutex<HashMap<String, String>>,
+    records: std::sync::Mutex<std::collections::HashMap<String, OperationRecord>>,
+    dedup_index: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl OperationRegistry {
@@ -45,6 +42,8 @@ impl OperationRegistry {
             records.insert(record.operation_id.clone(), record.clone());
         }
 
+        subsystem_metrics().record_operation_accepted(kind, &record.operation_id);
+
         if let Some(dedup_key) = dedup {
             let mut dedup_index = self
                 .dedup_index
@@ -78,12 +77,157 @@ impl OperationRegistry {
     }
 
     fn update_state(&self, operation_id: &str, state: amux_protocol::OperationLifecycleState) {
-        let mut records = self.records.lock().expect("operation records mutex poisoned");
-        if let Some(record) = records.get_mut(operation_id) {
-            if record.state != state {
-                record.state = state;
-                record.revision = record.revision.saturating_add(1);
+        let mut dedup_to_release = None;
+        let mut should_record_started = false;
+        let mut terminal_failed = None;
+
+        {
+            let mut records = self.records.lock().expect("operation records mutex poisoned");
+            if let Some(record) = records.get_mut(operation_id) {
+                if record.state != state {
+                    record.state = state;
+                    record.revision = record.revision.saturating_add(1);
+
+                    if matches!(state, amux_protocol::OperationLifecycleState::Started) {
+                        should_record_started = true;
+                    }
+
+                    if matches!(
+                        state,
+                        amux_protocol::OperationLifecycleState::Completed
+                            | amux_protocol::OperationLifecycleState::Failed
+                    ) {
+                        terminal_failed = Some(matches!(
+                            state,
+                            amux_protocol::OperationLifecycleState::Failed
+                        ));
+                    }
+
+                    if matches!(
+                        state,
+                        amux_protocol::OperationLifecycleState::Completed
+                            | amux_protocol::OperationLifecycleState::Failed
+                    ) && retention_policy_for_kind(&record.kind).release_dedup_on_terminal
+                    {
+                        dedup_to_release = record.dedup.clone();
+                    }
+                }
             }
         }
+
+        if should_record_started {
+            subsystem_metrics().record_operation_started(operation_id);
+        }
+
+        if let Some(failed) = terminal_failed {
+            subsystem_metrics().record_operation_terminal(operation_id, failed);
+        }
+
+        if let Some(dedup_key) = dedup_to_release {
+            let mut dedup_index = self
+                .dedup_index
+                .lock()
+                .expect("operation dedup mutex poisoned");
+            if dedup_index
+                .get(&dedup_key)
+                .map(|existing| existing == operation_id)
+                .unwrap_or(false)
+            {
+                dedup_index.remove(&dedup_key);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod operation_registry_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_operations_remain_queryable_but_release_dedup_slot() {
+        let registry = OperationRegistry::default();
+        let first = registry.accept_operation("plugin_api_call", Some("plugin:dedup".to_string()));
+
+        registry.mark_completed(&first.operation_id);
+
+        let completed = registry
+            .snapshot(&first.operation_id)
+            .expect("completed operation should remain queryable");
+        assert_eq!(completed.state, amux_protocol::OperationLifecycleState::Completed);
+
+        let second = registry.accept_operation("plugin_api_call", Some("plugin:dedup".to_string()));
+        assert_ne!(first.operation_id, second.operation_id);
+        assert_eq!(second.state, amux_protocol::OperationLifecycleState::Accepted);
+    }
+
+    #[test]
+    fn retention_policy_is_explicit_for_migrated_operation_kinds() {
+        let policy = retention_policy_for_kind(OPERATION_KIND_PLUGIN_API_CALL);
+        assert_eq!(policy.terminal_visibility, OperationTerminalVisibility::UntilProcessExit);
+        assert_eq!(policy.interrupted_visibility, InterruptedVisibility::ReconnectOnly);
+        assert!(!policy.survives_process_restart);
+        assert!(policy.release_dedup_on_terminal);
+
+        let config_policy = retention_policy_for_kind(OPERATION_KIND_CONFIG_SET_ITEM);
+        assert_eq!(
+            config_policy.terminal_visibility,
+            OperationTerminalVisibility::UntilProcessExit
+        );
+        assert_eq!(
+            config_policy.interrupted_visibility,
+            InterruptedVisibility::ReconnectOnly
+        );
+        assert!(!config_policy.survives_process_restart);
+        assert!(config_policy.release_dedup_on_terminal);
+    }
+
+    #[test]
+    fn subsystem_metrics_track_operation_lifecycle_counts_and_latencies() {
+        subsystem_metrics().reset_for_tests();
+
+        let registry = OperationRegistry::default();
+        let record = registry.accept_operation(OPERATION_KIND_PLUGIN_API_CALL, None);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        registry.mark_started(&record.operation_id);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        registry.mark_failed(&record.operation_id);
+
+        let snapshot = subsystem_metrics().snapshot_for(BackgroundSubsystem::PluginIo);
+        assert_eq!(snapshot.accepted_count, 1);
+        assert_eq!(snapshot.started_count, 1);
+        assert_eq!(snapshot.failed_count, 1);
+        assert_eq!(snapshot.completed_count, 0);
+        assert_eq!(snapshot.accepted_to_started_samples, 1);
+        assert_eq!(snapshot.started_to_terminal_samples, 1);
+        assert!(snapshot.last_accepted_to_started_ms.is_some());
+        assert!(snapshot.last_started_to_terminal_ms.is_some());
+    }
+
+    #[test]
+    fn shutdown_policy_is_explicit_for_ephemeral_and_config_reconcile_work() {
+        let ephemeral = retention_policy_for_kind(OPERATION_KIND_PLUGIN_API_CALL);
+        assert_eq!(ephemeral.durability, OperationDurability::Ephemeral);
+        assert_eq!(ephemeral.accepted_shutdown, ShutdownDisposition::LostOnDaemonStop);
+        assert_eq!(ephemeral.started_shutdown, ShutdownDisposition::LostOnDaemonStop);
+
+        let config = retention_policy_for_kind(OPERATION_KIND_CONFIG_SET_ITEM);
+        assert_eq!(config.durability, OperationDurability::DesiredStateDurable);
+        assert_eq!(
+            config.accepted_shutdown,
+            ShutdownDisposition::DesiredStateRemainsNeedsReconcile
+        );
+        assert_eq!(
+            config.started_shutdown,
+            ShutdownDisposition::DesiredStateRemainsNeedsReconcile
+        );
+    }
+
+    #[test]
+    fn superseded_state_policy_is_explicit_for_phase_two() {
+        let plugin = retention_policy_for_kind(OPERATION_KIND_PLUGIN_API_CALL);
+        assert_eq!(plugin.supersession, SupersessionPolicy::NotEmittedInPhaseTwo);
+
+        let config = retention_policy_for_kind(OPERATION_KIND_CONFIG_SET_ITEM);
+        assert_eq!(config.supersession, SupersessionPolicy::NotEmittedInPhaseTwo);
     }
 }

@@ -141,24 +141,33 @@ async fn gateway_route_modes_round_trip() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
     store
-        .upsert_gateway_route_mode("Slack:C123", "swarog", 1000)
+        .upsert_gateway_route_mode("Slack:C123", amux_protocol::AGENT_ID_SWAROG, 1000)
         .await?;
     store
-        .upsert_gateway_route_mode("Discord:999", "rarog", 1100)
+        .upsert_gateway_route_mode("Discord:999", amux_protocol::AGENT_ID_RAROG, 1100)
         .await?;
     store
-        .upsert_gateway_route_mode("Slack:C123", "rarog", 1200)
+        .upsert_gateway_route_mode("Slack:C123", amux_protocol::AGENT_ID_RAROG, 1200)
         .await?;
 
     let modes = store.list_gateway_route_modes().await?;
     let map: std::collections::HashMap<String, String> = modes.into_iter().collect();
-    assert_eq!(map.get("Slack:C123").map(String::as_str), Some("rarog"));
-    assert_eq!(map.get("Discord:999").map(String::as_str), Some("rarog"));
+    assert_eq!(
+        map.get("Slack:C123").map(String::as_str),
+        Some(amux_protocol::AGENT_ID_RAROG)
+    );
+    assert_eq!(
+        map.get("Discord:999").map(String::as_str),
+        Some(amux_protocol::AGENT_ID_RAROG)
+    );
 
     store.delete_gateway_route_mode("Discord:999").await?;
     let modes = store.list_gateway_route_modes().await?;
     let map: std::collections::HashMap<String, String> = modes.into_iter().collect();
-    assert_eq!(map.get("Slack:C123").map(String::as_str), Some("rarog"));
+    assert_eq!(
+        map.get("Slack:C123").map(String::as_str),
+        Some(amux_protocol::AGENT_ID_RAROG)
+    );
     assert!(!map.contains_key("Discord:999"));
 
     fs::remove_dir_all(root)?;
