@@ -146,6 +146,30 @@ fn operator_profile_bridge_commands_deserialize_failures() {
 }
 
 #[test]
+fn agent_protocol_codex_auth_bridge_commands_deserialize() {
+    let cmd: AgentBridgeCommand = serde_json::from_str(r#"{"type":"openai-codex-auth-status"}"#)
+        .expect("openai-codex-auth-status must deserialize");
+    assert!(
+        matches!(cmd, AgentBridgeCommand::OpenAICodexAuthStatus),
+        "expected OpenAICodexAuthStatus"
+    );
+
+    let cmd: AgentBridgeCommand = serde_json::from_str(r#"{"type":"openai-codex-auth-login"}"#)
+        .expect("openai-codex-auth-login must deserialize");
+    assert!(
+        matches!(cmd, AgentBridgeCommand::OpenAICodexAuthLogin),
+        "expected OpenAICodexAuthLogin"
+    );
+
+    let cmd: AgentBridgeCommand = serde_json::from_str(r#"{"type":"openai-codex-auth-logout"}"#)
+        .expect("openai-codex-auth-logout must deserialize");
+    assert!(
+        matches!(cmd, AgentBridgeCommand::OpenAICodexAuthLogout),
+        "expected OpenAICodexAuthLogout"
+    );
+}
+
+#[test]
 fn agent_bridge_declares_async_command_capability_on_connect() {
     let messages = initial_bridge_messages();
     assert_eq!(messages.len(), 2);
