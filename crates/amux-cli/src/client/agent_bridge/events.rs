@@ -101,6 +101,7 @@ where
             emit_agent_event(&msg.to_string())?;
         }
         Some(Ok(DaemonMessage::AgentProviderValidation {
+            operation_id: _,
             provider_id,
             valid,
             error,
@@ -185,14 +186,20 @@ where
             });
             emit_agent_event(&msg.to_string())?;
         }
-        Some(Ok(DaemonMessage::AgentExplanation { explanation_json })) => {
+        Some(Ok(DaemonMessage::AgentExplanation {
+            operation_id: _,
+            explanation_json,
+        })) => {
             let msg = serde_json::json!({
                 "type": "agent-explanation",
                 "data": serde_json::from_str::<serde_json::Value>(&explanation_json).unwrap_or_default(),
             });
             emit_agent_event(&msg.to_string())?;
         }
-        Some(Ok(DaemonMessage::AgentDivergentSessionStarted { session_json })) => {
+        Some(Ok(DaemonMessage::AgentDivergentSessionStarted {
+            operation_id: _,
+            session_json,
+        })) => {
             let msg = serde_json::json!({
                 "type": "agent-divergent-session-started",
                 "data": serde_json::from_str::<serde_json::Value>(&session_json).unwrap_or_default(),
@@ -279,6 +286,7 @@ where
             emit_agent_event(&msg.to_string())?;
         }
         Some(Ok(DaemonMessage::PluginOAuthComplete {
+            operation_id: _,
             name,
             success,
             error,

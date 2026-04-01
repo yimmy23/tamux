@@ -48,6 +48,19 @@ fn slash_prefix_stripped_for_matching() {
 }
 
 #[test]
+fn install_queries_match_predefined_helper_commands() {
+    let mut state = ModalState::new();
+    state.reduce(ModalAction::SetQuery("install".into()));
+    let filtered_commands: Vec<&str> = state
+        .filtered_items()
+        .iter()
+        .map(|&idx| state.command_items()[idx].command.as_str())
+        .collect();
+    assert!(filtered_commands.contains(&"plugins install"));
+    assert!(filtered_commands.contains(&"skills install"));
+}
+
+#[test]
 fn navigation_clamps_to_bounds() {
     let mut state = ModalState::new();
     state.reduce(ModalAction::Navigate(-1));
@@ -79,7 +92,7 @@ fn push_resets_query_and_cursor() {
 #[test]
 fn thread_picker_push_resets_to_swarog_tab() {
     let mut state = ModalState::new();
-    state.set_thread_picker_tab(ThreadPickerTab::Rarog);
+    state.set_thread_picker_tab(ThreadPickerTab::Internal);
 
     state.reduce(ModalAction::Push(ModalKind::ThreadPicker));
 

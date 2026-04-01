@@ -1,5 +1,39 @@
 use super::*;
 
+pub(super) fn parse_fetch_models_terminal_response(msg: DaemonMessage) -> Option<Result<String>> {
+    match msg {
+        DaemonMessage::OperationAccepted { .. } => None,
+        DaemonMessage::AgentModelsResponse { models_json, .. } => Some(Ok(models_json)),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            Some(Err(anyhow::anyhow!(message)))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn parse_set_config_item_response(msg: DaemonMessage) -> Option<Result<()>> {
+    match msg {
+        DaemonMessage::OperationAccepted { .. } | DaemonMessage::AgentConfigResponse { .. } => {
+            Some(Ok(()))
+        }
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            Some(Err(anyhow::anyhow!(message)))
+        }
+        _ => None,
+    }
+}
+
+async fn recv_fetch_models_terminal_response(
+    framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
+) -> Result<String> {
+    loop {
+        let msg = wizard_recv(framed).await?;
+        if let Some(result) = parse_fetch_models_terminal_response(msg) {
+            return result;
+        }
+    }
+}
+
 pub(super) async fn set_config_item(
     framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
     key_path: impl Into<String>,
@@ -12,10 +46,17 @@ pub(super) async fn set_config_item(
             value_json: value_json.into(),
         },
     )
-    .await
+    .await?;
+
+    loop {
+        let msg = wizard_recv(framed).await?;
+        if let Some(result) = parse_set_config_item_response(msg) {
+            return result;
+        }
+    }
 }
 
-async fn select_provider(
+pub(super) async fn select_provider(
     framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>,
 ) -> Result<ProviderSelection> {
     wizard_send(framed, ClientMessage::AgentGetProviderAuthStates).await?;
@@ -204,8 +245,8 @@ async fn configure_model(
         .await
         .context("Failed to fetch models")?;
 
-        match wizard_recv(framed).await? {
-            DaemonMessage::AgentModelsResponse { models_json } => {
+        match recv_fetch_models_terminal_response(framed).await {
+            Ok(models_json) => {
                 let models: Vec<String> = serde_json::from_str(&models_json).unwrap_or_default();
                 if !models.is_empty() {
                     let items: Vec<(&str, &str)> =
@@ -243,7 +284,8 @@ async fn configure_model(
                     }
                 }
             }
-            DaemonMessage::AgentError { message } => {
+            Err(error) => {
+                let message = error.to_string();
                 println!("Could not fetch models: {message}");
                 let fallback = if provider.default_model.is_empty() {
                     ""
@@ -263,7 +305,6 @@ async fn configure_model(
                     println!("Skipped -- using default Svarog's model.");
                 }
             }
-            _ => println!("Unexpected response fetching models."),
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     } else if existing_model.is_none() && !provider.default_model.is_empty() {

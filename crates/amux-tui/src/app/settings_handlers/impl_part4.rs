@@ -362,6 +362,10 @@ impl TuiModel {
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
                 self.modal.set_picker_item_count(count);
             }
+            "concierge_reasoning_effort" => {
+                self.settings_picker_target = Some(SettingsPickerTarget::ConciergeReasoningEffort);
+                self.execute_command("effort");
+            }
             "managed_security_level" => {
                 let levels = ["highest", "moderate", "lowest", "yolo"];
                 let current_idx = levels

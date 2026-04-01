@@ -1,5 +1,26 @@
 use super::*;
 
+pub(super) fn wizard_startup_messages() -> Vec<ClientMessage> {
+    vec![ClientMessage::AgentDeclareAsyncCommandCapability {
+        capability: amux_protocol::AsyncCommandCapability {
+            version: 1,
+            supports_operation_acceptance: true,
+        },
+    }]
+}
+
+async fn initialize_wizard_connection<T>(
+    mut framed: Framed<T, AmuxCodec>,
+) -> Result<Framed<T, AmuxCodec>>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    for msg in wizard_startup_messages() {
+        framed.send(msg).await?;
+    }
+    Ok(framed)
+}
+
 #[cfg(unix)]
 pub(super) async fn wizard_connect(
 ) -> Result<Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>> {
@@ -8,7 +29,7 @@ pub(super) async fn wizard_connect(
     let stream = tokio::net::UnixStream::connect(&path)
         .await
         .with_context(|| format!("cannot connect to daemon at {}", path.display()))?;
-    Ok(Framed::new(stream, AmuxCodec))
+    initialize_wizard_connection(Framed::new(stream, AmuxCodec)).await
 }
 
 #[cfg(windows)]
@@ -18,7 +39,7 @@ pub(super) async fn wizard_connect(
     let stream = tokio::net::TcpStream::connect(&addr)
         .await
         .with_context(|| format!("cannot connect to daemon on {addr}"))?;
-    Ok(Framed::new(stream, AmuxCodec))
+    initialize_wizard_connection(Framed::new(stream, AmuxCodec)).await
 }
 
 pub(super) async fn wizard_send(
@@ -36,6 +57,17 @@ pub(super) async fn wizard_recv(
         .await
         .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))?
         .map_err(Into::into)
+}
+
+pub(super) fn parse_provider_validation_terminal_response(
+    msg: DaemonMessage,
+) -> Option<Result<(bool, Option<String>)>> {
+    match msg {
+        DaemonMessage::OperationAccepted { .. } => None,
+        DaemonMessage::AgentProviderValidation { valid, error, .. } => Some(Ok((valid, error))),
+        DaemonMessage::Error { message } => Some(Err(anyhow::anyhow!(message))),
+        _ => None,
+    }
 }
 
 pub(super) async fn validate_provider_on_stream(
@@ -57,26 +89,17 @@ pub(super) async fn validate_provider_on_stream(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         match tokio::time::timeout_at(deadline, wizard_recv(framed)).await {
-            Ok(Ok(DaemonMessage::AgentProviderValidation { valid, error, .. })) => {
-                if !valid {
-                    if let Some(err) = error {
-                        println!("Validation error: {err}");
+            Ok(Ok(msg)) => {
+                if let Some(result) = parse_provider_validation_terminal_response(msg) {
+                    let (valid, error) = result?;
+                    if !valid {
+                        if let Some(err) = error {
+                            println!("Validation error: {err}");
+                        }
                     }
+                    return Ok(valid);
                 }
-                return Ok(valid);
             }
-            Ok(Ok(DaemonMessage::Error { message })) => {
-                tracing::debug!("skipping daemon error during validate: {message}");
-            }
-            Ok(Ok(
-                DaemonMessage::GatewayBootstrap { .. }
-                | DaemonMessage::GatewaySendRequest { .. }
-                | DaemonMessage::GatewayReloadCommand { .. }
-                | DaemonMessage::GatewayShutdownCommand { .. }
-                | DaemonMessage::AgentEvent { .. }
-                | DaemonMessage::AgentConfigResponse { .. },
-            )) => {}
-            Ok(Ok(other)) => tracing::debug!("unexpected message during validate: {other:?}"),
             Ok(Err(e)) => anyhow::bail!("Connection error: {e}"),
             Err(_) => anyhow::bail!("Timed out (30s)"),
         }

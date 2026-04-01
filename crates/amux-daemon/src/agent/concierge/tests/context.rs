@@ -256,3 +256,59 @@ async fn context_summary_excludes_structured_heartbeat_threads() {
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
 }
+
+#[tokio::test]
+async fn context_summary_hides_weles_internal_threads_and_tasks() {
+    let config = Arc::new(RwLock::new(AgentConfig::default()));
+    let (event_tx, _) = broadcast::channel(8);
+    let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+        std::iter::empty(),
+    ));
+    let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+    let now = test_now_millis();
+    let threads = RwLock::new(HashMap::from([
+        (
+            "thread-real".to_string(),
+            thread_with_messages(
+                "thread-real",
+                "Actual work",
+                now - 100,
+                vec![
+                    user_message("fix concierge context", now - 120),
+                    assistant_message("working on it", now - 110),
+                ],
+            ),
+        ),
+        (
+            "thread-weles".to_string(),
+            thread_with_messages(
+                "thread-weles",
+                "WELES governance runtime thread",
+                now,
+                vec![
+                    user_message(
+                        &crate::agent::agent_identity::build_weles_persona_prompt("governance"),
+                        now - 20,
+                    ),
+                    assistant_message("Internal governance review", now - 10),
+                ],
+            ),
+        ),
+    ]));
+    let mut weles_task = sample_task("task-weles", "WELES", now - 10);
+    weles_task.sub_agent_def_id = Some("weles_builtin".to_string());
+    let tasks = Mutex::new(std::collections::VecDeque::from([
+        sample_task("task-real", "real task", now - 20),
+        weles_task,
+    ]));
+
+    let context = engine
+        .gather_context(&threads, &tasks, ConciergeDetailLevel::ContextSummary)
+        .await;
+
+    assert_eq!(context.recent_threads.len(), 1);
+    assert_eq!(context.recent_threads[0].id, "thread-real");
+    assert_eq!(context.pending_task_total, 1);
+    assert_eq!(context.pending_tasks.len(), 1);
+    assert!(context.pending_tasks[0].contains("real task"));
+}

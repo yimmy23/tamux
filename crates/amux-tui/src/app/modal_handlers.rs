@@ -558,13 +558,13 @@ impl TuiModel {
                 self.input.reduce(input::InputAction::Clear);
             }
             KeyCode::Left if kind == modal::ModalKind::ThreadPicker => {
-                self.modal
-                    .set_thread_picker_tab(modal::ThreadPickerTab::Swarog);
+                let previous = self.modal.thread_picker_tab().prev();
+                self.modal.set_thread_picker_tab(previous);
                 self.sync_thread_picker_item_count();
             }
             KeyCode::Right if kind == modal::ModalKind::ThreadPicker => {
-                self.modal
-                    .set_thread_picker_tab(modal::ThreadPickerTab::Rarog);
+                let next = self.modal.thread_picker_tab().next();
+                self.modal.set_thread_picker_tab(next);
                 self.sync_thread_picker_item_count();
             }
             KeyCode::Down => self.modal.reduce(modal::ModalAction::Navigate(1)),

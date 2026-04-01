@@ -6,12 +6,18 @@ impl AgentEngine {
     pub async fn list_threads(&self) -> Vec<AgentThread> {
         let threads = self.threads.read().await;
         let mut list: Vec<AgentThread> = threads.values().cloned().collect();
+        list.retain(|thread| !crate::agent::concierge::is_user_visible_thread(thread));
         list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         list
     }
 
     pub async fn get_thread(&self, thread_id: &str) -> Option<AgentThread> {
-        self.threads.read().await.get(thread_id).cloned()
+        self.threads
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .filter(|thread| !crate::agent::concierge::is_user_visible_thread(thread))
     }
 
     pub async fn planner_required_for_thread(&self, thread_id: &str) -> bool {

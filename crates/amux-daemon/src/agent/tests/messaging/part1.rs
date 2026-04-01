@@ -9,13 +9,14 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
         .split("\n#[cfg(test)]")
         .next()
         .unwrap_or(messaging_source.as_str());
-    let agent_loop_source =
-        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/agent_loop.rs"))
-            .expect("read agent_loop.rs");
-    let agent_loop_production = agent_loop_source
+    let send_message_source = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/agent_loop/send_message/mod.rs"),
+    )
+    .expect("read send_message/mod.rs");
+    let send_message_production = send_message_source
         .split("\n#[cfg(test)]")
         .next()
-        .unwrap_or(agent_loop_source.as_str());
+        .unwrap_or(send_message_source.as_str());
 
     for required in [
         "Box::pin(self.send_message_inner(",
@@ -28,8 +29,60 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
     }
 
     assert!(
-        agent_loop_production.contains("Box::pin(run_with_agent_scope(agent_scope_id, async {"),
+        send_message_production
+            .contains("Box::pin(run_with_agent_scope(agent_scope_id, async move {"),
         "send_message_inner should box the oversized agent loop future"
+    );
+}
+
+#[test]
+fn tool_execution_hot_path_boxes_large_futures() {
+    let finalize_source = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/agent_loop/send_message/finalize.rs"),
+    )
+    .expect("read finalize.rs");
+    let finalize_production = finalize_source
+        .split("\n#[cfg(test)]")
+        .next()
+        .unwrap_or(finalize_source.as_str());
+    let tool_calls_source = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/agent_loop/send_message/tool_calls.rs"),
+    )
+    .expect("read tool_calls.rs");
+    let tool_calls_production = tool_calls_source
+        .split("\n#[cfg(test)]")
+        .next()
+        .unwrap_or(tool_calls_source.as_str());
+    let execute_tool_source = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/tool_executor/execute_tool_impl.rs"),
+    )
+    .expect("read execute_tool_impl.rs");
+    let execute_tool_production = execute_tool_source
+        .split("\n#[cfg(test)]")
+        .next()
+        .unwrap_or(execute_tool_source.as_str());
+
+    assert!(
+        finalize_production.contains("Box::pin(self.handle_tool_calls_chunk("),
+        "tool-call iteration handling should box the large handle_tool_calls_chunk future"
+    );
+    assert!(
+        tool_calls_production.contains("Box::pin(execute_tool("),
+        "tool execution callsites should box execute_tool futures"
+    );
+    assert!(
+        execute_tool_production.contains("pub fn execute_tool<'a>("),
+        "execute_tool should return an explicitly boxed future instead of an inline async fn"
+    );
+    assert!(
+        execute_tool_production.contains(
+            "-> std::pin::Pin<Box<dyn std::future::Future<Output = ToolResult> + Send + 'a>>"
+        ),
+        "execute_tool should expose a boxed future return type"
+    );
+    assert!(
+        execute_tool_production.contains("Box::pin(async move {"),
+        "execute_tool implementation should heap-box its async state machine"
     );
 }
 

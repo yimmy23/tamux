@@ -85,8 +85,10 @@ enum SettingsPickerTarget {
     Model,
     SubAgentProvider,
     SubAgentModel,
+    SubAgentReasoningEffort,
     ConciergeProvider,
     ConciergeModel,
+    ConciergeReasoningEffort,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

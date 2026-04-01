@@ -85,28 +85,22 @@ if matches!(
                         continue;
                     }
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_PROVIDER_VALIDATION,
-                                Some(provider_validation_dedup_key(&agent, &provider_id)),
-                            )
-                        });
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_PROVIDER_VALIDATION,
+                        Some(provider_validation_dedup_key(&agent, &provider_id)),
+                    );
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await?;
-                    }
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
+                        })
+                        .await?;
 
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let provider_id_for_task = provider_id.clone();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::ProviderIo);
@@ -134,6 +128,7 @@ if matches!(
 
                             BackgroundOperationOutput::Completed(
                                 DaemonMessage::AgentProviderValidation {
+                                    operation_id: result_operation_id,
                                     provider_id: provider_id_for_task,
                                     valid,
                                     error,
@@ -149,103 +144,71 @@ if matches!(
                         Ok(mut def) => {
                             crate::agent::canonicalize_weles_client_update(&mut def);
                             let requested_sub_agent_id = def.id.clone();
-                            let async_operation = async_command_capability
-                                .as_ref()
-                                .filter(|capability| {
-                                    capability.version >= 1
-                                        && capability.supports_operation_acceptance
-                                })
-                                .map(|_| {
-                                    operation_registry().accept_operation(
-                                        OPERATION_KIND_SET_SUB_AGENT,
-                                        Some(set_sub_agent_dedup_key(
-                                            &agent,
-                                            &requested_sub_agent_id,
-                                            &sub_agent_json,
-                                        )),
-                                    )
-                                });
-
-                            if let Some(operation) = async_operation.as_ref() {
-                                if !background_daemon_pending
-                                    .has_capacity(BackgroundSubsystem::ConfigReconcile)
-                                {
-                                    background_daemon_pending
-                                        .note_rejection(BackgroundSubsystem::ConfigReconcile);
-                                    framed
-                                        .send(DaemonMessage::Error {
-                                            message: "config_reconcile background queue is full"
-                                                .to_string(),
-                                        })
-                                        .await?;
-                                    continue;
-                                }
-
+                            if !background_daemon_pending
+                                .has_capacity(BackgroundSubsystem::ConfigReconcile)
+                            {
+                                background_daemon_pending
+                                    .note_rejection(BackgroundSubsystem::ConfigReconcile);
                                 framed
-                                    .send(DaemonMessage::OperationAccepted {
-                                        operation_id: operation.operation_id.clone(),
-                                        kind: operation.kind.clone(),
-                                        dedup: operation.dedup.clone(),
-                                        revision: operation.revision,
+                                    .send(DaemonMessage::Error {
+                                        message: "config_reconcile background queue is full"
+                                            .to_string(),
                                     })
                                     .await?;
-
-                                let agent = agent.clone();
-                                let sub_agent_json_for_task = sub_agent_json.clone();
-                                let background_daemon_tx = background_daemon_queues
-                                    .sender(BackgroundSubsystem::ConfigReconcile);
-                                spawn_background_operation(
-                                    BackgroundSubsystem::ConfigReconcile,
-                                    Some(operation.operation_id.clone()),
-                                    background_daemon_tx,
-                                    &mut background_daemon_pending,
-                                    async move {
-                                        match agent.set_sub_agent(def).await {
-                                            Ok(()) => {
-                                                let updated_sub_agent_json = agent
-                                                    .get_sub_agent(&requested_sub_agent_id)
-                                                    .await
-                                                    .and_then(|entry| serde_json::to_string(&entry).ok())
-                                                    .unwrap_or(sub_agent_json_for_task);
-                                                BackgroundOperationOutput::Completed(
-                                                    DaemonMessage::AgentSubAgentUpdated {
-                                                        sub_agent_json: updated_sub_agent_json,
-                                                    },
-                                                )
-                                            }
-                                            Err(e) => BackgroundOperationOutput::Failed(
-                                                DaemonMessage::AgentError {
-                                                    message: format!(
-                                                        "Invalid sub-agent mutation: {e}"
-                                                    ),
-                                                },
-                                            ),
-                                        }
-                                    },
-                                );
-                            } else {
-                                match agent.set_sub_agent(def).await {
-                                    Ok(()) => {
-                                        let updated_sub_agent_json = agent
-                                            .get_sub_agent(&requested_sub_agent_id)
-                                            .await
-                                            .and_then(|entry| serde_json::to_string(&entry).ok())
-                                            .unwrap_or(sub_agent_json.clone());
-                                        framed
-                                            .send(DaemonMessage::AgentSubAgentUpdated {
-                                                sub_agent_json: updated_sub_agent_json,
-                                            })
-                                            .await?;
-                                    }
-                                    Err(e) => {
-                                        framed
-                                            .send(DaemonMessage::AgentError {
-                                                message: format!("Invalid sub-agent mutation: {e}"),
-                                            })
-                                            .await?;
-                                    }
-                                }
+                                continue;
                             }
+
+                            let operation = operation_registry().accept_operation(
+                                OPERATION_KIND_SET_SUB_AGENT,
+                                Some(set_sub_agent_dedup_key(
+                                    &agent,
+                                    &requested_sub_agent_id,
+                                    &sub_agent_json,
+                                )),
+                            );
+
+                            framed
+                                .send(DaemonMessage::OperationAccepted {
+                                    operation_id: operation.operation_id.clone(),
+                                    kind: operation.kind.clone(),
+                                    dedup: operation.dedup.clone(),
+                                    revision: operation.revision,
+                                })
+                                .await?;
+
+                            let agent = agent.clone();
+                            let sub_agent_json_for_task = sub_agent_json.clone();
+                            let background_daemon_tx = background_daemon_queues
+                                .sender(BackgroundSubsystem::ConfigReconcile);
+                            spawn_background_operation(
+                                BackgroundSubsystem::ConfigReconcile,
+                                Some(operation.operation_id.clone()),
+                                background_daemon_tx,
+                                &mut background_daemon_pending,
+                                async move {
+                                    match agent.set_sub_agent(def).await {
+                                        Ok(()) => {
+                                            let updated_sub_agent_json = agent
+                                                .get_sub_agent(&requested_sub_agent_id)
+                                                .await
+                                                .and_then(|entry| serde_json::to_string(&entry).ok())
+                                                .unwrap_or(sub_agent_json_for_task);
+                                            BackgroundOperationOutput::Completed(
+                                                DaemonMessage::AgentSubAgentUpdated {
+                                                    sub_agent_json: updated_sub_agent_json,
+                                                },
+                                            )
+                                        }
+                                        Err(e) => BackgroundOperationOutput::Failed(
+                                            DaemonMessage::AgentError {
+                                                message: format!(
+                                                    "Invalid sub-agent mutation: {e}"
+                                                ),
+                                            },
+                                        ),
+                                    }
+                                },
+                            );
                         }
                         Err(e) => {
                             framed
@@ -258,82 +221,58 @@ if matches!(
                 }
 
                 ClientMessage::AgentRemoveSubAgent { sub_agent_id } => {
-                    let async_operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| {
-                            capability.version >= 1 && capability.supports_operation_acceptance
-                        })
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_REMOVE_SUB_AGENT,
-                                Some(remove_sub_agent_dedup_key(&agent, &sub_agent_id)),
-                            )
-                        });
-
-                    if let Some(operation) = async_operation.as_ref() {
-                        if !background_daemon_pending
-                            .has_capacity(BackgroundSubsystem::ConfigReconcile)
-                        {
-                            background_daemon_pending
-                                .note_rejection(BackgroundSubsystem::ConfigReconcile);
-                            framed
-                                .send(DaemonMessage::Error {
-                                    message: "config_reconcile background queue is full"
-                                        .to_string(),
-                                })
-                                .await?;
-                            continue;
-                        }
-
+                    if !background_daemon_pending
+                        .has_capacity(BackgroundSubsystem::ConfigReconcile)
+                    {
+                        background_daemon_pending
+                            .note_rejection(BackgroundSubsystem::ConfigReconcile);
                         framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
+                            .send(DaemonMessage::Error {
+                                message: "config_reconcile background queue is full"
+                                    .to_string(),
                             })
                             .await?;
-
-                        let agent = agent.clone();
-                        let sub_agent_id_for_task = sub_agent_id.clone();
-                        let background_daemon_tx = background_daemon_queues
-                            .sender(BackgroundSubsystem::ConfigReconcile);
-                        spawn_background_operation(
-                            BackgroundSubsystem::ConfigReconcile,
-                            Some(operation.operation_id.clone()),
-                            background_daemon_tx,
-                            &mut background_daemon_pending,
-                            async move {
-                                match agent.remove_sub_agent(&sub_agent_id_for_task).await {
-                                    Ok(_) => BackgroundOperationOutput::Completed(
-                                        DaemonMessage::AgentSubAgentRemoved {
-                                            sub_agent_id: sub_agent_id_for_task,
-                                        },
-                                    ),
-                                    Err(e) => BackgroundOperationOutput::Failed(
-                                        DaemonMessage::AgentError {
-                                            message: format!("Invalid sub-agent mutation: {e}"),
-                                        },
-                                    ),
-                                }
-                            },
-                        );
-                    } else {
-                        match agent.remove_sub_agent(&sub_agent_id).await {
-                            Ok(_) => {
-                                framed
-                                    .send(DaemonMessage::AgentSubAgentRemoved { sub_agent_id })
-                                    .await?;
-                            }
-                            Err(e) => {
-                                framed
-                                    .send(DaemonMessage::AgentError {
-                                        message: format!("Invalid sub-agent mutation: {e}"),
-                                    })
-                                    .await?;
-                            }
-                        }
+                        continue;
                     }
+
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_REMOVE_SUB_AGENT,
+                        Some(remove_sub_agent_dedup_key(&agent, &sub_agent_id)),
+                    );
+
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
+                        })
+                        .await?;
+
+                    let agent = agent.clone();
+                    let sub_agent_id_for_task = sub_agent_id.clone();
+                    let background_daemon_tx = background_daemon_queues
+                        .sender(BackgroundSubsystem::ConfigReconcile);
+                    spawn_background_operation(
+                        BackgroundSubsystem::ConfigReconcile,
+                        Some(operation.operation_id.clone()),
+                        background_daemon_tx,
+                        &mut background_daemon_pending,
+                        async move {
+                            match agent.remove_sub_agent(&sub_agent_id_for_task).await {
+                                Ok(_) => BackgroundOperationOutput::Completed(
+                                    DaemonMessage::AgentSubAgentRemoved {
+                                        sub_agent_id: sub_agent_id_for_task,
+                                    },
+                                ),
+                                Err(e) => BackgroundOperationOutput::Failed(
+                                    DaemonMessage::AgentError {
+                                        message: format!("Invalid sub-agent mutation: {e}"),
+                                    },
+                                ),
+                            }
+                        },
+                    );
                 }
 
                 ClientMessage::AgentListSubAgents => {
@@ -373,33 +312,37 @@ if matches!(
                 ClientMessage::AgentRequestConciergeWelcome => {
                     tracing::info!("server: received AgentRequestConciergeWelcome");
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_CONCIERGE_WELCOME,
-                                Some(concierge_welcome_dedup_key(&agent)),
-                            )
-                        });
-
-                    if let Some(operation) = operation.as_ref() {
+                    if !background_daemon_pending.has_capacity(BackgroundSubsystem::ConciergeWork)
+                    {
+                        background_daemon_pending.note_rejection(BackgroundSubsystem::ConciergeWork);
                         framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
+                            .send(DaemonMessage::Error {
+                                message: "concierge_work background queue is full".to_string(),
                             })
                             .await?;
+                        continue;
                     }
+
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_CONCIERGE_WELCOME,
+                        Some(concierge_welcome_dedup_key(&agent)),
+                    );
+
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
+                        })
+                        .await?;
 
                     if agent_event_rx.is_none() {
                         agent_event_rx = Some(agent.subscribe());
                     }
 
                     let agent = agent.clone();
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::ConciergeWork);
                     spawn_background_side_effect(

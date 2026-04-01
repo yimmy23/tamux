@@ -29,7 +29,8 @@ pub(super) fn render_effort_picker(
     frame.render_widget(block, area);
 
     let efforts = [
-        ("", "Off"),
+        ("", "None"),
+        ("minimal", "Minimal"),
         ("low", "Low"),
         ("medium", "Medium"),
         ("high", "High"),

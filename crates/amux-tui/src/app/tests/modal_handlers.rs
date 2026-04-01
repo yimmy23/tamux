@@ -115,6 +115,46 @@ fn command_palette_tools_opens_settings_tools_tab() {
 }
 
 #[test]
+fn command_palette_plugins_install_seeds_terminal_command() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+    model
+        .modal
+        .reduce(modal::ModalAction::SetQuery("plugins install".into()));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.input.buffer(), "tamux install plugin ");
+}
+
+#[test]
+fn command_palette_skills_install_seeds_terminal_command() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+    model
+        .modal
+        .reduce(modal::ModalAction::SetQuery("skills install".into()));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.input.buffer(), "tamux skill import ");
+}
+
+#[test]
 fn stacked_modal_pop_only_cleans_whatsapp_when_top() {
     let (mut model, mut daemon_rx) = make_model();
     model
@@ -189,7 +229,7 @@ fn stacked_modal_pop_preserves_connected_whatsapp_session() {
 #[test]
 fn selecting_custom_provider_does_not_chain_into_model_picker() {
     let (mut model, _daemon_rx) = make_model();
-    let custom_index = providers::PROVIDERS
+    let custom_index = widgets::provider_picker::available_provider_defs(&model.auth)
         .iter()
         .position(|provider| provider.id == "custom")
         .expect("custom provider to exist");
@@ -198,9 +238,9 @@ fn selecting_custom_provider_does_not_chain_into_model_picker() {
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-    model
-        .modal
-        .set_picker_item_count(providers::PROVIDERS.len());
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
     if custom_index > 0 {
         model
             .modal
@@ -221,7 +261,7 @@ fn selecting_custom_provider_does_not_chain_into_model_picker() {
 #[test]
 fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
     let (mut model, _daemon_rx) = make_model();
-    let custom_index = providers::PROVIDERS
+    let custom_index = widgets::provider_picker::available_provider_defs(&model.auth)
         .iter()
         .position(|provider| provider.id == "custom")
         .expect("custom provider to exist");
@@ -233,9 +273,9 @@ fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-    model
-        .modal
-        .set_picker_item_count(providers::PROVIDERS.len());
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
     if custom_index > 0 {
         model
             .modal
@@ -255,6 +295,97 @@ fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
 }
 
 #[test]
+fn provider_picker_filters_to_authenticated_entries_plus_custom() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: "openai".to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: "groq".to_string(),
+            provider_name: "Groq".to_string(),
+            authenticated: false,
+            auth_source: "api_key".to_string(),
+            model: "llama".to_string(),
+        },
+    ];
+
+    let defs = widgets::provider_picker::available_provider_defs(&model.auth);
+    assert!(defs.iter().any(|provider| provider.id == "openai"));
+    assert!(defs.iter().any(|provider| provider.id == "custom"));
+    assert!(!defs.iter().any(|provider| provider.id == "groq"));
+}
+
+#[test]
+fn protected_weles_editor_can_open_provider_model_and_effort_pickers() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: "openai".to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        Some("weles_builtin".to_string()),
+        1,
+        "openai".to_string(),
+        "gpt-5.4-mini".to_string(),
+    );
+    editor.name = "WELES".to_string();
+    editor.builtin = true;
+    editor.immutable_identity = true;
+    editor.disable_allowed = false;
+    editor.delete_allowed = false;
+    editor.reasoning_effort = Some("medium".to_string());
+    editor.field = crate::state::subagents::SubAgentEditorField::Provider;
+    model.subagents.editor = Some(editor.clone());
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+
+    model.close_top_modal();
+    if let Some(editor) = model.subagents.editor.as_mut() {
+        editor.field = crate::state::subagents::SubAgentEditorField::Model;
+    }
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+
+    model.close_top_modal();
+    if let Some(editor) = model.subagents.editor.as_mut() {
+        editor.field = crate::state::subagents::SubAgentEditorField::ReasoningEffort;
+    }
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
+}
+
+#[test]
 fn thread_picker_right_arrow_switches_to_rarog_tab() {
     let (mut model, _daemon_rx) = make_model();
     model
@@ -271,6 +402,58 @@ fn thread_picker_right_arrow_switches_to_rarog_tab() {
     assert_eq!(
         model.modal.thread_picker_tab(),
         modal::ThreadPickerTab::Rarog
+    );
+}
+
+#[test]
+fn thread_picker_left_right_cycles_all_sources() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Rarog
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Weles
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Internal
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Left,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Weles
     );
 }
 

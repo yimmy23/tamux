@@ -124,7 +124,8 @@ impl<'a> SendMessageRunner<'a> {
         let agent_scope_id = current_agent_scope_id();
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
-        let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override {
+        let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override
+        {
             format!("{}\n\n{}", override_prompt, config.system_prompt)
         } else {
             config.system_prompt.clone()
@@ -199,14 +200,16 @@ impl<'a> SendMessageRunner<'a> {
         let weles_runtime_override = current_task_snapshot.as_ref().and_then(|task| {
             (task.sub_agent_def_id.as_deref()
                 == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID))
-                .then_some(task)
-                .and_then(|task| {
-                    task.override_system_prompt.as_deref().and_then(|override_prompt| {
+            .then_some(task)
+            .and_then(|task| {
+                task.override_system_prompt
+                    .as_deref()
+                    .and_then(|override_prompt| {
                         crate::agent::weles_governance::parse_weles_internal_override_payload(
                             override_prompt,
                         )
                     })
-                })
+            })
         });
         let runtime_context_query = select_runtime_context_query(
             current_task_snapshot.as_ref().and_then(|task| {

@@ -55,7 +55,6 @@ where
         Vec::new();
     let mut client_agent_threads: HashSet<String> = HashSet::new();
     let mut last_concierge_welcome_fingerprint: Option<String> = None;
-    let mut async_command_capability: Option<amux_protocol::AsyncCommandCapability> = None;
     let mut agent_event_rx: Option<broadcast::Receiver<crate::agent::types::AgentEvent>> = None;
     let mut background_daemon_queues = BackgroundSubsystemQueues::new();
     let mut background_daemon_pending = BackgroundPendingCounts::default();

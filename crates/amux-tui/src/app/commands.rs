@@ -214,6 +214,8 @@ impl TuiModel {
                 | "prompt"
                 | "goal"
                 | "attach"
+                | "plugins install"
+                | "skills install"
                 | "help"
                 | "explain"
                 | "diverge"
@@ -226,7 +228,9 @@ impl TuiModel {
             "provider" => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-                self.modal.set_picker_item_count(providers::PROVIDERS.len());
+                self.modal.set_picker_item_count(
+                    widgets::provider_picker::available_provider_defs(&self.auth).len(),
+                );
             }
             "model" => {
                 let models = providers::known_models_for_provider_auth(
@@ -257,7 +261,7 @@ impl TuiModel {
             "effort" => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
-                self.modal.set_picker_item_count(5);
+                self.modal.set_picker_item_count(6);
             }
             "thread" => {
                 self.modal
@@ -302,6 +306,16 @@ impl TuiModel {
             "attach" => {
                 self.status_line =
                     "Usage: /attach <path>  — attach a file to the next message".to_string();
+            }
+            "plugins install" => {
+                self.input.set_text("tamux install plugin ");
+                self.focus = FocusArea::Input;
+                self.status_line = "Edit the plugin source and run it in the terminal".to_string();
+            }
+            "skills install" => {
+                self.input.set_text("tamux skill import ");
+                self.focus = FocusArea::Input;
+                self.status_line = "Edit the skill source and run it in the terminal".to_string();
             }
             "help" => {
                 self.modal

@@ -17,11 +17,12 @@ export function ConciergeSection() {
     const update = useAgentStore((s) => s.updateConciergeConfig);
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
+    const selectableProviders = providerAuthStates.filter((provider) => provider.authenticated);
 
     useEffect(() => {
         refresh();
         refreshProviderAuthStates();
-    }, []);
+    }, [refresh, refreshProviderAuthStates]);
 
     const selectedLevel = DETAIL_LEVELS.find((l) => l.value === config.detail_level) || DETAIL_LEVELS[1];
 
@@ -56,9 +57,9 @@ export function ConciergeSection() {
                     style={{ ...inputStyle, width: 180 }}
                 >
                     <option value="">Use {PRIMARY_AGENT_NAME} defaults</option>
-                    {providerAuthStates.map((p) => (
+                    {selectableProviders.map((p) => (
                         <option key={p.provider_id} value={p.provider_id}>
-                            {p.provider_name}{p.authenticated ? "" : " (no key)"}
+                            {p.provider_name}
                         </option>
                     ))}
                 </select>
@@ -72,6 +73,20 @@ export function ConciergeSection() {
                     />
                 </SettingRow>
             )}
+            <SettingRow label="Reasoning Effort">
+                <select
+                    value={config.reasoning_effort || ""}
+                    onChange={(e) => update({ ...config, reasoning_effort: e.target.value || undefined })}
+                    style={{ ...inputStyle, width: 180 }}
+                >
+                    <option value="">None</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="xhigh">Extra High</option>
+                </select>
+            </SettingRow>
             {!config.provider && (
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", padding: "2px 0 4px" }}>
                     Model inherited from {PRIMARY_AGENT_NAME} when no provider is selected.

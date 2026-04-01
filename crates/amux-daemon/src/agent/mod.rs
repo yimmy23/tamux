@@ -68,10 +68,10 @@ mod task_prompt;
 mod task_scheduler;
 mod thread_crud;
 mod tool_synthesis;
-mod whatsapp_link;
-mod whatsapp_native;
 pub(crate) mod weles_governance;
 mod weles_health;
+mod whatsapp_link;
+mod whatsapp_native;
 mod work_context;
 
 pub mod awareness;
@@ -133,9 +133,9 @@ use self::tool_executor::{execute_tool, get_available_tools};
 use self::types::*;
 
 // Public re-exports consumed by sibling modules in this bin crate.
+pub(crate) use config::canonicalize_weles_client_update;
 #[allow(unused_imports)]
 pub use engine::*;
-pub(crate) use config::canonicalize_weles_client_update;
 pub use task_prompt::load_config_from_history;
 pub(crate) use whatsapp_link::{
     clear_persisted_provider_state, load_persisted_provider_state, merge_persisted_state_update,

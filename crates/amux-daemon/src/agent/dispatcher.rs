@@ -185,8 +185,32 @@ impl AgentEngine {
     async fn execute_dispatched_task(&self, task: AgentTask) -> Result<()> {
         let mut prompt = build_task_prompt(&task);
         task_prompt::append_effective_sub_agent_registry(self, &mut prompt).await;
-        match self
-            .send_task_message(
+        let weles_sender_scope = if task.sub_agent_def_id.as_deref()
+            == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+        {
+            let tasks = self.tasks.lock().await;
+            task.parent_task_id
+                .as_deref()
+                .and_then(|parent_task_id| tasks.iter().find(|entry| entry.id == parent_task_id))
+                .map(|parent| crate::agent::agent_identity::agent_scope_id_for_task(Some(parent)))
+                .unwrap_or_else(|| crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
+        } else {
+            String::new()
+        };
+        let outcome = if task.sub_agent_def_id.as_deref()
+            == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+        {
+            self.send_internal_task_message(
+                &weles_sender_scope,
+                crate::agent::agent_identity::WELES_AGENT_ID,
+                &task.id,
+                task.session_id.as_deref(),
+                Some(task.runtime.as_str()),
+                &prompt,
+            )
+            .await
+        } else {
+            self.send_task_message(
                 &task.id,
                 task.thread_id.as_deref(),
                 task.session_id.as_deref(),
@@ -194,7 +218,8 @@ impl AgentEngine {
                 &prompt,
             )
             .await
-        {
+        };
+        match outcome {
             Ok(outcome) if outcome.interrupted_for_approval => Ok(()),
             Ok(outcome) => {
                 let now = now_millis();

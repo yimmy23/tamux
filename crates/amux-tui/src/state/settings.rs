@@ -264,6 +264,7 @@ impl SettingsState {
                 1 => "concierge_detail_level",
                 2 => "concierge_provider",
                 3 => "concierge_model",
+                4 => "concierge_reasoning_effort",
                 _ => "",
             },
             SettingsTab::Features => match self.field_cursor {
@@ -322,7 +323,7 @@ impl SettingsState {
             SettingsTab::Auth => 1,
             SettingsTab::Agent => 10,
             SettingsTab::SubAgents => 1,
-            SettingsTab::Concierge => 4,
+            SettingsTab::Concierge => 5,
             SettingsTab::Features => 14,
             SettingsTab::Advanced => 17,
             SettingsTab::Plugins => 1,

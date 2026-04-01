@@ -28,6 +28,7 @@ type GatewayActionKeys = "setGatewayStatus";
 export const DEFAULT_CONCIERGE_CONFIG: ConciergeConfig = {
   enabled: true,
   detail_level: "proactive_triage",
+  reasoning_effort: undefined,
   auto_cleanup_on_navigate: true,
 };
 
@@ -39,6 +40,7 @@ function isValidConciergeConfig(value: unknown): value is AgentState["conciergeC
   return (
     typeof record.enabled === "boolean"
     || typeof record.detail_level === "string"
+    || typeof record.reasoning_effort === "string"
     || typeof record.auto_cleanup_on_navigate === "boolean"
   );
 }

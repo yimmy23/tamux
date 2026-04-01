@@ -36,3 +36,29 @@ pub(super) async fn roundtrip(msg: ClientMessage) -> Result<DaemonMessage> {
         .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))??;
     Ok(resp)
 }
+
+pub(super) async fn roundtrip_async_until<T, F>(msg: ClientMessage, mut f: F) -> Result<T>
+where
+    F: FnMut(DaemonMessage) -> Option<Result<T>>,
+{
+    let mut framed = connect().await?;
+    framed
+        .send(ClientMessage::AgentDeclareAsyncCommandCapability {
+            capability: amux_protocol::AsyncCommandCapability {
+                version: 1,
+                supports_operation_acceptance: true,
+            },
+        })
+        .await?;
+    framed.send(msg).await?;
+
+    loop {
+        let resp = framed
+            .next()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))??;
+        if let Some(result) = f(resp) {
+            return result;
+        }
+    }
+}

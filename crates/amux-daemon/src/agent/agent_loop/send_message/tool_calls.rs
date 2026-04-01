@@ -319,7 +319,7 @@ impl<'a> SendMessageRunner<'a> {
                     pending_approval: None,
                 }
             } else {
-                execute_tool(
+                Box::pin(execute_tool(
                     tc,
                     self.engine,
                     &self.tid,
@@ -330,12 +330,12 @@ impl<'a> SendMessageRunner<'a> {
                     &self.engine.data_dir,
                     &self.engine.http_client,
                     Some(self.stream_cancel_token.clone()),
-                )
+                ))
                 .await
             }
         } else {
             self.consecutive_same_tool_calls = 1;
-            execute_tool(
+            Box::pin(execute_tool(
                 tc,
                 self.engine,
                 &self.tid,
@@ -346,7 +346,7 @@ impl<'a> SendMessageRunner<'a> {
                 &self.engine.data_dir,
                 &self.engine.http_client,
                 Some(self.stream_cancel_token.clone()),
-            )
+            ))
             .await
         };
         self.previous_tool_signature = Some(current_tool_signature);

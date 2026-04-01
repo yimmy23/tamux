@@ -33,6 +33,8 @@ tamux is a daemon-first terminal multiplexer purpose-built for long-running AI w
 ### Getting Started
 
 - [connection/setup.md](connection/setup.md) -- Connect tamux-mcp to Claude Code, Cursor, or any MCP client
+- [setup/install-plugins.md](setup/install-plugins.md) -- Install tamux runtime plugins and verify daemon registration
+- [setup/install-skills.md](setup/install-skills.md) -- Import community skills and verify local skill availability
 
 ### Operating tamux
 
@@ -55,6 +57,8 @@ tamux is a daemon-first terminal multiplexer purpose-built for long-running AI w
 | I want to...                              | Read this                                                      |
 | ----------------------------------------- | -------------------------------------------------------------- |
 | Connect my agent to tamux                 | [connection/setup.md](connection/setup.md)                     |
+| Install a tamux runtime plugin            | [setup/install-plugins.md](setup/install-plugins.md)           |
+| Import a community skill                  | [setup/install-skills.md](setup/install-skills.md)             |
 | Run shell commands                        | [operating/terminals.md](operating/terminals.md)               |
 | Browse the web or scrape pages            | [operating/browser.md](operating/browser.md)                   |
 | Queue background work                     | [operating/tasks.md](operating/tasks.md)                       |

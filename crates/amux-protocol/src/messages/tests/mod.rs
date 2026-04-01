@@ -6,6 +6,7 @@ use tokio_util::codec::{Decoder, Encoder};
 #[test]
 fn agent_provider_validation_bincode_roundtrip() {
     let msg = DaemonMessage::AgentProviderValidation {
+        operation_id: None,
         provider_id: "openrouter".to_string(),
         valid: true,
         error: None,
@@ -15,11 +16,13 @@ fn agent_provider_validation_bincode_roundtrip() {
     let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
     match decoded {
         DaemonMessage::AgentProviderValidation {
+            operation_id,
             provider_id,
             valid,
             error,
             models_json,
         } => {
+            assert!(operation_id.is_none());
             assert_eq!(provider_id, "openrouter");
             assert!(valid);
             assert!(error.is_none());
@@ -32,6 +35,7 @@ fn agent_provider_validation_bincode_roundtrip() {
 #[test]
 fn agent_provider_validation_codec_roundtrip() {
     let msg = DaemonMessage::AgentProviderValidation {
+        operation_id: Some("op-provider-1".to_string()),
         provider_id: "openrouter".to_string(),
         valid: true,
         error: None,
@@ -44,17 +48,116 @@ fn agent_provider_validation_codec_roundtrip() {
     let decoded = client_codec.decode(&mut buf).unwrap().unwrap();
     match decoded {
         DaemonMessage::AgentProviderValidation {
+            operation_id,
             provider_id,
             valid,
             error,
             models_json,
         } => {
+            assert_eq!(operation_id.as_deref(), Some("op-provider-1"));
             assert_eq!(provider_id, "openrouter");
             assert!(valid);
             assert!(error.is_none());
             assert!(models_json.is_none());
         }
         other => panic!("decoded wrong variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_provider_validation_with_operation_id() {
+    let msg = DaemonMessage::AgentProviderValidation {
+        operation_id: Some("op-provider-1".to_string()),
+        provider_id: "openrouter".to_string(),
+        valid: false,
+        error: Some("invalid api key".to_string()),
+        models_json: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentProviderValidation {
+            operation_id,
+            provider_id,
+            valid,
+            error,
+            ..
+        } => {
+            assert_eq!(operation_id.as_deref(), Some("op-provider-1"));
+            assert_eq!(provider_id, "openrouter");
+            assert!(!valid);
+            assert_eq!(error.as_deref(), Some("invalid api key"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_models_response_with_operation_id() {
+    let msg = DaemonMessage::AgentModelsResponse {
+        operation_id: Some("op-models-1".to_string()),
+        models_json: r#"[{"id":"gpt-5.4","label":"GPT-5.4"}]"#.to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentModelsResponse {
+            operation_id,
+            models_json,
+        } => {
+            assert_eq!(operation_id.as_deref(), Some("op-models-1"));
+            assert!(models_json.contains("gpt-5.4"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_generated_tool_result_with_operation_id() {
+    let msg = DaemonMessage::AgentGeneratedToolResult {
+        operation_id: Some("op-tool-1".to_string()),
+        tool_name: None,
+        result_json: r#"{"id":"generated_echo","status":"new"}"#.to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentGeneratedToolResult {
+            operation_id,
+            tool_name,
+            result_json,
+        } => {
+            assert_eq!(operation_id.as_deref(), Some("op-tool-1"));
+            assert!(tool_name.is_none());
+            assert!(result_json.contains("generated_echo"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_divergent_session_started_with_operation_id() {
+    let msg = DaemonMessage::AgentDivergentSessionStarted {
+        operation_id: Some("op-divergent-1".to_string()),
+        session_json: serde_json::json!({
+            "session_id": "div-123",
+            "status": "started",
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentDivergentSessionStarted {
+            operation_id,
+            session_json,
+        } => {
+            assert_eq!(operation_id.as_deref(), Some("op-divergent-1"));
+            let payload: serde_json::Value = serde_json::from_str(&session_json).unwrap();
+            assert_eq!(payload["session_id"], "div-123");
+            assert_eq!(payload["status"], "started");
+        }
+        other => panic!("unexpected variant: {:?}", other),
     }
 }
 
@@ -229,6 +332,109 @@ fn daemon_message_roundtrips_subsystem_metrics_response() {
         decoded,
         DaemonMessage::AgentSubsystemMetrics { .. }
     ));
+}
+
+#[test]
+fn daemon_message_roundtrips_plugin_api_call_result_with_operation_id() {
+    let msg = DaemonMessage::PluginApiCallResult {
+        operation_id: Some("op-plugin-1".to_string()),
+        plugin_name: "api-test".to_string(),
+        endpoint_name: "slow".to_string(),
+        success: false,
+        result: "timed out".to_string(),
+        error_type: Some("timeout".to_string()),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::PluginApiCallResult { operation_id, .. } => {
+            assert_eq!(operation_id.as_deref(), Some("op-plugin-1"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_skill_import_result_with_operation_id() {
+    let msg = DaemonMessage::SkillImportResult {
+        operation_id: Some("op-skill-import-1".to_string()),
+        success: true,
+        message: "Imported community skill 'test-skill' as draft.".to_string(),
+        variant_id: Some("variant-1".to_string()),
+        scan_verdict: Some("warn".to_string()),
+        findings_count: 0,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SkillImportResult { operation_id, .. } => {
+            assert_eq!(operation_id.as_deref(), Some("op-skill-import-1"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_skill_publish_result_with_operation_id() {
+    let msg = DaemonMessage::SkillPublishResult {
+        operation_id: Some("op-skill-publish-1".to_string()),
+        success: true,
+        message: "Published skill 'publish-test'.".to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SkillPublishResult { operation_id, .. } => {
+            assert_eq!(operation_id.as_deref(), Some("op-skill-publish-1"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_explanation_with_operation_id() {
+    let msg = DaemonMessage::AgentExplanation {
+        operation_id: Some("op-explain-1".to_string()),
+        explanation_json: r#"{"action_id":"missing-action","source":"fallback"}"#.to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentExplanation {
+            operation_id,
+            explanation_json,
+        } => {
+            assert_eq!(operation_id.as_deref(), Some("op-explain-1"));
+            assert!(explanation_json.contains("missing-action"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_plugin_oauth_complete_with_operation_id() {
+    let msg = DaemonMessage::PluginOAuthComplete {
+        operation_id: Some("op-oauth-1".to_string()),
+        name: "oauth-test".to_string(),
+        success: true,
+        error: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::PluginOAuthComplete {
+            operation_id,
+            name,
+            success,
+            error,
+        } => {
+            assert_eq!(operation_id.as_deref(), Some("op-oauth-1"));
+            assert_eq!(name, "oauth-test");
+            assert!(success);
+            assert!(error.is_none());
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
 }
 
 fn sample_skill_variant() -> SkillVariantPublic {

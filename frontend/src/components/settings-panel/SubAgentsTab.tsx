@@ -13,10 +13,10 @@ type SubAgentForm = {
     enabled: boolean;
     showAdvanced: boolean;
     tool_whitelist: string;
-  tool_blacklist: string;
-  context_budget_tokens: string;
-  max_duration_secs: string;
-  reasoning_effort: string;
+    tool_blacklist: string;
+    context_budget_tokens: string;
+    max_duration_secs: string;
+    reasoning_effort: string;
 };
 
 const ROLE_PRESETS = [
@@ -61,10 +61,10 @@ const emptyForm: SubAgentForm = {
     enabled: true,
     showAdvanced: false,
     tool_whitelist: "",
-  tool_blacklist: "",
-  context_budget_tokens: "",
-  max_duration_secs: "",
-  reasoning_effort: "",
+    tool_blacklist: "",
+    context_budget_tokens: "",
+    max_duration_secs: "",
+    reasoning_effort: "",
 };
 
 export function SubAgentsTab() {
@@ -79,6 +79,7 @@ export function SubAgentsTab() {
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [form, setForm] = useState<SubAgentForm>(emptyForm);
+    const selectableProviders = providerAuthStates.filter((provider) => provider.authenticated);
 
     useEffect(() => {
         refreshSubAgents();
@@ -173,89 +174,89 @@ export function SubAgentsTab() {
                         (() => {
                             const capabilities = getSubAgentCapabilities(sa);
                             return (
-                        <div key={sa.id} style={{
-                            border: "1px solid rgba(255,255,255,0.06)",
-                            background: "rgba(18, 33, 47, 0.5)",
-                            padding: "8px 12px",
-                        }}>
-                            <div style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: 8,
-                            }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-                                    <span style={{
-                                        width: 8, height: 8, borderRadius: "50%",
-                                        background: sa.enabled ? "#4ade80" : "#6b7280",
-                                        flexShrink: 0,
-                                    }} />
-                                     <span style={{ fontSize: 12, fontWeight: 600 }}>{sa.name}</span>
-                                     {capabilities.isProtected && (
-                                         <span style={{
-                                             fontSize: 10,
-                                             color: "#fbbf24",
-                                             background: "rgba(251,191,36,0.12)",
-                                             padding: "1px 6px",
-                                             borderRadius: 3,
-                                         }}>
-                                             Built-in
-                                         </span>
-                                     )}
-                                     <span style={{
-                                         fontSize: 10,
-                                         color: "var(--text-secondary)",
-                                        background: "rgba(255,255,255,0.05)",
-                                        padding: "1px 6px",
-                                        borderRadius: 3,
+                                <div key={sa.id} style={{
+                                    border: "1px solid rgba(255,255,255,0.06)",
+                                    background: "rgba(18, 33, 47, 0.5)",
+                                    padding: "8px 12px",
+                                }}>
+                                    <div style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        gap: 8,
                                     }}>
-                                        {providerName(sa.provider)} / {sa.model}
-                                    </span>
-                                     {sa.reasoning_effort && (
-                                         <span style={{
-                                             fontSize: 10,
-                                             color: "var(--text-secondary)",
-                                             background: "rgba(255,255,255,0.05)",
-                                             padding: "1px 6px",
-                                             borderRadius: 3,
-                                         }}>
-                                             effort: {sa.reasoning_effort}
-                                         </span>
-                                     )}
-                                     {sa.role && (
-                                         <span style={{
-                                             fontSize: 10,
-                                            color: "var(--accent)",
-                                            background: "rgba(97, 197, 255, 0.1)",
-                                            padding: "1px 6px",
-                                            borderRadius: 3,
-                                        }}>
-                                            {sa.role}
-                                        </span>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                                            <span style={{
+                                                width: 8, height: 8, borderRadius: "50%",
+                                                background: sa.enabled ? "#4ade80" : "#6b7280",
+                                                flexShrink: 0,
+                                            }} />
+                                            <span style={{ fontSize: 12, fontWeight: 600 }}>{sa.name}</span>
+                                            {capabilities.isProtected && (
+                                                <span style={{
+                                                    fontSize: 10,
+                                                    color: "#fbbf24",
+                                                    background: "rgba(251,191,36,0.12)",
+                                                    padding: "1px 6px",
+                                                    borderRadius: 3,
+                                                }}>
+                                                    Built-in
+                                                </span>
+                                            )}
+                                            <span style={{
+                                                fontSize: 10,
+                                                color: "var(--text-secondary)",
+                                                background: "rgba(255,255,255,0.05)",
+                                                padding: "1px 6px",
+                                                borderRadius: 3,
+                                            }}>
+                                                {providerName(sa.provider)} / {sa.model}
+                                            </span>
+                                            {sa.reasoning_effort && (
+                                                <span style={{
+                                                    fontSize: 10,
+                                                    color: "var(--text-secondary)",
+                                                    background: "rgba(255,255,255,0.05)",
+                                                    padding: "1px 6px",
+                                                    borderRadius: 3,
+                                                }}>
+                                                    effort: {sa.reasoning_effort}
+                                                </span>
+                                            )}
+                                            {sa.role && (
+                                                <span style={{
+                                                    fontSize: 10,
+                                                    color: "var(--accent)",
+                                                    background: "rgba(97, 197, 255, 0.1)",
+                                                    padding: "1px 6px",
+                                                    borderRadius: 3,
+                                                }}>
+                                                    {sa.role}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 4 }}>
+                                            {capabilities.canToggle && (
+                                                <button onClick={() => handleToggle(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
+                                                    {sa.enabled ? "Disable" : "Enable"}
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleEdit(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
+                                                Edit
+                                            </button>
+                                            {capabilities.canDelete && (
+                                                <button onClick={() => handleDelete(sa.id)} style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}>
+                                                    Delete
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {capabilities.isProtected && capabilities.protectedReason && (
+                                        <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 8 }}>
+                                            {capabilities.protectedReason}
+                                        </div>
                                     )}
                                 </div>
-                                 <div style={{ display: "flex", gap: 4 }}>
-                                     {capabilities.canToggle && (
-                                         <button onClick={() => handleToggle(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
-                                             {sa.enabled ? "Disable" : "Enable"}
-                                         </button>
-                                     )}
-                                     <button onClick={() => handleEdit(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
-                                         Edit
-                                     </button>
-                                     {capabilities.canDelete && (
-                                         <button onClick={() => handleDelete(sa.id)} style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}>
-                                             Delete
-                                         </button>
-                                     )}
-                                 </div>
-                             </div>
-                             {capabilities.isProtected && capabilities.protectedReason && (
-                                 <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 8 }}>
-                                     {capabilities.protectedReason}
-                                 </div>
-                             )}
-                         </div>
                             );
                         })()
                     ))}
@@ -285,9 +286,9 @@ export function SubAgentsTab() {
                                 style={{ ...inputStyle, width: 220 }}
                             >
                                 <option value="">Select provider...</option>
-                                {providerAuthStates.map((p) => (
-                                    <option key={p.provider_id} value={p.provider_id} disabled={!p.authenticated}>
-                                        {p.provider_name}{!p.authenticated ? " (no key)" : ""}
+                                {selectableProviders.map((p) => (
+                                    <option key={p.provider_id} value={p.provider_id}>
+                                        {p.provider_name}
                                     </option>
                                 ))}
                             </select>
@@ -330,7 +331,7 @@ export function SubAgentsTab() {
                                 onChange={(e) => setForm({ ...form, reasoning_effort: e.target.value })}
                                 style={{ ...inputStyle, width: 220 }}
                             >
-                                <option value="">Inherit default</option>
+                                <option value="">None</option>
                                 <option value="minimal">Minimal</option>
                                 <option value="low">Low</option>
                                 <option value="medium">Medium</option>

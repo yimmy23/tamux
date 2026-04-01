@@ -345,6 +345,82 @@ fn done_event_persists_final_reasoning_into_chat_message() {
 }
 
 #[test]
+fn internal_dm_thread_created_does_not_hijack_active_thread() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "dm:svarog:weles".to_string(),
+        title: "Internal DM · Swarog ↔ WELES".to_string(),
+    });
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+}
+
+#[test]
+fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::ToolCall {
+        thread_id: "dm:svarog:weles".to_string(),
+        call_id: "internal-call".to_string(),
+        name: "message_agent".to_string(),
+        arguments: "{}".to_string(),
+        weles_review: None,
+    });
+    assert!(
+        model.chat.active_tool_calls().is_empty(),
+        "internal tool calls should not enter the visible running-tool tracker"
+    );
+
+    model.handle_client_event(ClientEvent::ToolCall {
+        thread_id: "thread-user".to_string(),
+        call_id: "user-call".to_string(),
+        name: "bash_command".to_string(),
+        arguments: "{\"command\":\"pwd\"}".to_string(),
+        weles_review: None,
+    });
+    assert_eq!(model.chat.active_tool_calls().len(), 1);
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "dm:svarog:weles".to_string(),
+        title: "Internal DM · Swarog ↔ WELES".to_string(),
+    });
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-user".to_string(),
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: None,
+        provider: None,
+        model: None,
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+    });
+
+    assert!(
+        model.chat.active_tool_calls().is_empty(),
+        "visible thread completion should still clear running tools"
+    );
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+}
+
+#[test]
 fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, mut daemon_rx) = unbounded_channel();

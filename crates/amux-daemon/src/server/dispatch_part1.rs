@@ -211,7 +211,10 @@ if matches!(
                         .history
                         .upsert_gateway_route_mode(
                             &update.channel_key,
-                            update.route_mode.as_str(),
+                            match update.route_mode {
+                                GatewayRouteMode::Rarog => "rarog",
+                                GatewayRouteMode::Swarog => "swarog",
+                            },
                             if update.updated_at_ms == 0 {
                                 current_time_ms()
                             } else {

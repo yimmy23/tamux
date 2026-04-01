@@ -1,4 +1,13 @@
+use super::agent_api::parse_config_set_response;
+use super::agent_bridge::handle_message_for_test as handle_bridge_message;
+use super::agent_bridge::initial_bridge_messages;
 use super::agent_protocol::AgentBridgeCommand;
+use super::skill_api::{
+    parse_skill_import_terminal_response, parse_skill_publish_terminal_response,
+};
+use amux_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+use futures::SinkExt;
+use tokio_util::codec::Framed;
 
 #[test]
 fn operator_profile_bridge_commands_deserialize() {
@@ -134,4 +143,112 @@ fn operator_profile_bridge_commands_deserialize_failures() {
         result.is_err(),
         "wrong type for `defer_until_unix_ms` should not deserialize"
     );
+}
+
+#[test]
+fn agent_bridge_declares_async_command_capability_on_connect() {
+    let messages = initial_bridge_messages();
+    assert_eq!(messages.len(), 2);
+    assert!(matches!(messages[0], ClientMessage::AgentSubscribe));
+    match &messages[1] {
+        ClientMessage::AgentDeclareAsyncCommandCapability { capability } => {
+            assert_eq!(capability.version, 1);
+            assert!(capability.supports_operation_acceptance);
+        }
+        other => panic!("expected async command capability declaration, got {other:?}"),
+    }
+}
+
+#[test]
+fn skill_import_terminal_response_ignores_operation_acceptance() {
+    let response = parse_skill_import_terminal_response(DaemonMessage::OperationAccepted {
+        operation_id: "op-skill-import-1".to_string(),
+        kind: "skill_import".to_string(),
+        dedup: None,
+        revision: 1,
+    });
+    assert!(response.is_none(), "operation acceptance is not terminal");
+}
+
+#[test]
+fn skill_import_terminal_response_extracts_result_payload() {
+    let response = parse_skill_import_terminal_response(DaemonMessage::SkillImportResult {
+        operation_id: Some("op-skill-import-1".to_string()),
+        success: true,
+        message: "Imported skill".to_string(),
+        variant_id: Some("variant-1".to_string()),
+        scan_verdict: Some("warn".to_string()),
+        findings_count: 0,
+    })
+    .expect("terminal response")
+    .expect("successful parse");
+
+    assert_eq!(
+        response,
+        (
+            true,
+            "Imported skill".to_string(),
+            Some("variant-1".to_string()),
+            Some("warn".to_string()),
+            0
+        )
+    );
+}
+
+#[test]
+fn skill_publish_terminal_response_ignores_operation_acceptance() {
+    let response = parse_skill_publish_terminal_response(DaemonMessage::OperationAccepted {
+        operation_id: "op-skill-publish-1".to_string(),
+        kind: "skill_publish".to_string(),
+        dedup: None,
+        revision: 1,
+    });
+    assert!(response.is_none(), "operation acceptance is not terminal");
+}
+
+#[test]
+fn skill_publish_terminal_response_extracts_result_payload() {
+    let response = parse_skill_publish_terminal_response(DaemonMessage::SkillPublishResult {
+        operation_id: Some("op-skill-publish-1".to_string()),
+        success: true,
+        message: "Published skill".to_string(),
+    })
+    .expect("terminal response")
+    .expect("successful parse");
+
+    assert_eq!(response, (true, "Published skill".to_string()));
+}
+
+#[test]
+fn config_set_response_accepts_operation_acceptance() {
+    parse_config_set_response(DaemonMessage::OperationAccepted {
+        operation_id: "op-config-set-1".to_string(),
+        kind: "config_set_item".to_string(),
+        dedup: None,
+        revision: 1,
+    })
+    .expect("operation acceptance should be treated as success");
+}
+
+#[tokio::test]
+async fn agent_bridge_ignores_operation_acceptance_messages() {
+    let (client_side, server_side) = tokio::io::duplex(1024);
+    let mut bridge = Framed::new(client_side, amux_protocol::AmuxCodec);
+    let mut daemon = Framed::new(server_side, DaemonCodec);
+
+    daemon
+        .send(DaemonMessage::OperationAccepted {
+            operation_id: "op-bridge-1".to_string(),
+            kind: "agent_set_sub_agent".to_string(),
+            dedup: None,
+            revision: 1,
+        })
+        .await
+        .expect("send operation acceptance");
+
+    let should_continue = handle_bridge_message(&mut bridge)
+        .await
+        .expect("operation acceptance should not fail bridge handling");
+
+    assert!(should_continue);
 }

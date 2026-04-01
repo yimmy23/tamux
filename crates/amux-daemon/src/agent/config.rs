@@ -40,6 +40,21 @@ impl Default for ConfigRuntimeProjection {
 const WELES_BUILTIN_ID: &str = super::agent_identity::WELES_BUILTIN_SUBAGENT_ID;
 const WELES_BUILTIN_NAME: &str = "WELES";
 const WELES_PROTECTED_REASON: &str = "Daemon-owned WELES registry entry";
+const DEFAULT_WELES_TOOL_WHITELIST: &[&str] = &[
+    "list_files",
+    "read_file",
+    "search_files",
+    "session_search",
+    "onecontext_search",
+    "update_todo",
+    "list_skills",
+    "semantic_query",
+    "read_skill",
+    "list_tasks",
+    "list_subagents",
+    "read_active_terminal_content",
+    "message_agent",
+];
 
 fn is_reserved_builtin_sub_agent_id(id: &str) -> bool {
     id.eq_ignore_ascii_case(WELES_BUILTIN_ID)
@@ -76,6 +91,13 @@ fn resolve_weles_reasoning_effort(overrides: &WelesBuiltinOverrides) -> String {
         .unwrap_or_else(|| "medium".to_string())
 }
 
+fn default_weles_tool_whitelist() -> Vec<String> {
+    DEFAULT_WELES_TOOL_WHITELIST
+        .iter()
+        .map(|tool| (*tool).to_string())
+        .collect()
+}
+
 fn resolve_main_agent_default(value: Option<String>, fallback: &str) -> String {
     value
         .filter(|candidate| !candidate.trim().is_empty())
@@ -93,7 +115,10 @@ fn sanitize_weles_operator_system_prompt(
     sanitized.filter(|value| value != inherited_system_prompt)
 }
 
-fn sanitize_weles_builtin_overrides_struct(overrides: &mut WelesBuiltinOverrides, inherited_system_prompt: &str) {
+fn sanitize_weles_builtin_overrides_struct(
+    overrides: &mut WelesBuiltinOverrides,
+    inherited_system_prompt: &str,
+) {
     if overrides
         .role
         .as_deref()
@@ -101,15 +126,18 @@ fn sanitize_weles_builtin_overrides_struct(overrides: &mut WelesBuiltinOverrides
     {
         overrides.role = None;
     }
-    overrides.system_prompt =
-        sanitize_weles_operator_system_prompt(overrides.system_prompt.take(), inherited_system_prompt);
+    overrides.system_prompt = sanitize_weles_operator_system_prompt(
+        overrides.system_prompt.take(),
+        inherited_system_prompt,
+    );
 }
 
 fn build_effective_weles_definition(config: &AgentConfig) -> SubAgentDefinition {
     let mut overrides = config.builtin_sub_agents.weles.clone();
     sanitize_weles_builtin_overrides_struct(&mut overrides, &config.system_prompt);
     let reasoning_effort = resolve_weles_reasoning_effort(&overrides);
-    let system_prompt = resolve_main_agent_default(overrides.system_prompt.take(), &config.system_prompt);
+    let system_prompt =
+        resolve_main_agent_default(overrides.system_prompt.take(), &config.system_prompt);
     SubAgentDefinition {
         id: WELES_BUILTIN_ID.to_string(),
         name: WELES_BUILTIN_NAME.to_string(),
@@ -120,7 +148,10 @@ fn build_effective_weles_definition(config: &AgentConfig) -> SubAgentDefinition 
             .clone()
             .or_else(|| Some("governance".to_string())),
         system_prompt: Some(system_prompt),
-        tool_whitelist: overrides.tool_whitelist.clone(),
+        tool_whitelist: overrides
+            .tool_whitelist
+            .clone()
+            .or_else(|| Some(default_weles_tool_whitelist())),
         tool_blacklist: overrides.tool_blacklist.clone(),
         context_budget_tokens: overrides.context_budget_tokens,
         max_duration_secs: overrides.max_duration_secs,
@@ -223,18 +254,19 @@ fn config_reconcile_failure_map(
     MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-fn apply_weles_allowed_overrides(
-    config: &mut AgentConfig,
-    def: &SubAgentDefinition,
-) -> Result<()> {
+fn apply_weles_allowed_overrides(config: &mut AgentConfig, def: &SubAgentDefinition) -> Result<()> {
     if !is_weles_builtin_target(def) {
-        return Err(protected_mutation_error("unexpected built-in sub-agent target"));
+        return Err(protected_mutation_error(
+            "unexpected built-in sub-agent target",
+        ));
     }
     if def.name != WELES_BUILTIN_NAME {
         return Err(protected_mutation_error("cannot change WELES name"));
     }
     if !def.enabled {
-        return Err(protected_mutation_error("cannot disable daemon-owned WELES"));
+        return Err(protected_mutation_error(
+            "cannot disable daemon-owned WELES",
+        ));
     }
     if !def.builtin || !def.immutable_identity || def.disable_allowed || def.delete_allowed {
         return Err(protected_mutation_error(
@@ -242,14 +274,16 @@ fn apply_weles_allowed_overrides(
         ));
     }
     if def.protected_reason.as_deref() != Some(WELES_PROTECTED_REASON) {
-        return Err(protected_mutation_error("cannot change WELES protected reason"));
+        return Err(protected_mutation_error(
+            "cannot change WELES protected reason",
+        ));
     }
 
     let inherited_provider = resolve_main_agent_default(None, &config.provider);
     let inherited_model = resolve_main_agent_default(None, &config.model);
     let inherited_role = Some("governance".to_string());
     let inherited_system_prompt = Some(resolve_main_agent_default(None, &config.system_prompt));
-    let inherited_tool_whitelist = None::<Vec<String>>;
+    let inherited_tool_whitelist = Some(default_weles_tool_whitelist());
     let inherited_tool_blacklist = None::<Vec<String>>;
     let inherited_context_budget_tokens = None::<u32>;
     let inherited_max_duration_secs = None::<u64>;
@@ -324,7 +358,9 @@ fn filter_user_sub_agents_and_collect_collisions(
     let mut filtered = Vec::new();
     let mut collisions = Vec::new();
     for def in &config.sub_agents {
-        if is_reserved_builtin_sub_agent_id(&def.id) || is_reserved_builtin_sub_agent_name(&def.name) {
+        if is_reserved_builtin_sub_agent_id(&def.id)
+            || is_reserved_builtin_sub_agent_name(&def.name)
+        {
             collisions.push(def.clone());
         } else {
             filtered.push(def.clone());
@@ -376,7 +412,8 @@ fn sanitize_weles_builtin_overrides(root: &mut serde_json::Map<String, Value>) {
     }
 
     if let Some(Value::String(system_prompt)) = weles.get_mut("system_prompt") {
-        let sanitized = crate::agent::weles_governance::strip_weles_internal_payload_markers(system_prompt);
+        let sanitized =
+            crate::agent::weles_governance::strip_weles_internal_payload_markers(system_prompt);
         *system_prompt = sanitized;
     }
 }
@@ -390,7 +427,8 @@ pub(in crate::agent) fn sanitize_weles_collisions_from_config(
 }
 
 pub(in crate::agent) fn config_to_items(config: &AgentConfig) -> Vec<(String, Value)> {
-    let mut value = serde_json::to_value(config).unwrap_or_else(|_| Value::Object(Default::default()));
+    let mut value =
+        serde_json::to_value(config).unwrap_or_else(|_| Value::Object(Default::default()));
     normalize_config_keys_to_snake_case(&mut value);
     sanitize_config_value(&mut value);
     let mut items = Vec::new();
@@ -1148,8 +1186,7 @@ impl AgentEngine {
 
     /// Upsert a sub-agent definition (matched by id).
     pub async fn set_sub_agent(&self, def: SubAgentDefinition) -> Result<()> {
-        if is_attempted_weles_builtin_edit(&def) || is_weles_builtin_update_shape(&def)
-        {
+        if is_attempted_weles_builtin_edit(&def) || is_weles_builtin_update_shape(&def) {
             {
                 let mut config = self.config.write().await;
                 apply_weles_allowed_overrides(&mut config, &def)?;

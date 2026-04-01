@@ -24,6 +24,31 @@ pub enum ThreadPickerTab {
     #[default]
     Swarog,
     Rarog,
+    Weles,
+    Internal,
+}
+
+impl ThreadPickerTab {
+    const ALL: [ThreadPickerTab; 4] = [
+        ThreadPickerTab::Swarog,
+        ThreadPickerTab::Rarog,
+        ThreadPickerTab::Weles,
+        ThreadPickerTab::Internal,
+    ];
+
+    pub fn prev(self) -> Self {
+        let index = Self::ALL.iter().position(|tab| *tab == self).unwrap_or(0);
+        if index == 0 {
+            Self::ALL[Self::ALL.len() - 1]
+        } else {
+            Self::ALL[index - 1]
+        }
+    }
+
+    pub fn next(self) -> Self {
+        let index = Self::ALL.iter().position(|tab| *tab == self).unwrap_or(0);
+        Self::ALL[(index + 1) % Self::ALL.len()]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -385,6 +410,14 @@ fn default_command_items() -> Vec<CommandItem> {
         CommandItem {
             command: "attach".into(),
             description: "Attach a file to the message".into(),
+        },
+        CommandItem {
+            command: "plugins install".into(),
+            description: "Seed plugin install command".into(),
+        },
+        CommandItem {
+            command: "skills install".into(),
+            description: "Seed community skill install command".into(),
         },
         CommandItem {
             command: "quit".into(),

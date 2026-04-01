@@ -1,5 +1,5 @@
 mod commands;
-mod events;
+pub(super) mod events;
 
 use amux_protocol::ClientMessage;
 use anyhow::Result;
@@ -13,10 +13,34 @@ fn emit_agent_event(json: &str) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn initial_bridge_messages() -> Vec<ClientMessage> {
+    vec![
+        ClientMessage::AgentSubscribe,
+        ClientMessage::AgentDeclareAsyncCommandCapability {
+            capability: amux_protocol::AsyncCommandCapability {
+                version: 1,
+                supports_operation_acceptance: true,
+            },
+        },
+    ]
+}
+
+#[cfg(test)]
+pub(super) async fn handle_message_for_test<T>(
+    framed: &mut tokio_util::codec::Framed<T, amux_protocol::AmuxCodec>,
+) -> Result<bool>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    events::handle_message(framed).await
+}
+
 pub async fn run_agent_bridge() -> Result<()> {
     let mut framed = connect().await?;
 
-    framed.send(ClientMessage::AgentSubscribe).await?;
+    for message in initial_bridge_messages() {
+        framed.send(message).await?;
+    }
     println!(r#"{{"type":"ready"}}"#);
 
     let mut stdin_lines = BufReader::new(tokio::io::stdin()).lines();

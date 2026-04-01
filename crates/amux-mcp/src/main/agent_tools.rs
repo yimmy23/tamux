@@ -267,6 +267,7 @@ pub(super) async fn tool_synthesize_tool(args: &Value) -> Result<Value> {
     .await?;
     match resp {
         DaemonMessage::AgentGeneratedToolResult {
+            operation_id: _,
             tool_name,
             result_json,
         } => Ok(serde_json::json!({
@@ -299,6 +300,7 @@ pub(super) async fn tool_run_generated_tool(args: &Value) -> Result<Value> {
     .await?;
     match resp {
         DaemonMessage::AgentGeneratedToolResult {
+            operation_id: _,
             tool_name,
             result_json,
         } => Ok(serde_json::json!({
@@ -326,6 +328,7 @@ pub(super) async fn tool_promote_generated_tool(args: &Value) -> Result<Value> {
     .await?;
     match resp {
         DaemonMessage::AgentGeneratedToolResult {
+            operation_id: _,
             tool_name,
             result_json,
         } => Ok(serde_json::json!({
@@ -353,6 +356,7 @@ pub(super) async fn tool_activate_generated_tool(args: &Value) -> Result<Value> 
     .await?;
     match resp {
         DaemonMessage::AgentGeneratedToolResult {
+            operation_id: _,
             tool_name,
             result_json,
         } => Ok(serde_json::json!({

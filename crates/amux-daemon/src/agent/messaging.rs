@@ -371,6 +371,37 @@ impl AgentEngine {
         .await
     }
 
+    pub(super) async fn send_internal_task_message(
+        &self,
+        sender: &str,
+        recipient: &str,
+        task_id: &str,
+        preferred_session_hint: Option<&str>,
+        backend_override: Option<&str>,
+        content: &str,
+    ) -> Result<SendMessageOutcome> {
+        let dm_thread_id = internal_dm_thread_id(sender, recipient);
+        let wrapped = wrap_internal_message(sender, recipient, content);
+        let outcome = Box::pin(self.send_message_inner(
+            Some(&dm_thread_id),
+            &wrapped,
+            Some(task_id),
+            preferred_session_hint,
+            backend_override,
+            None,
+            None,
+            false,
+        ))
+        .await?;
+        self.ensure_thread_identity(
+            &dm_thread_id,
+            &internal_dm_thread_title(sender, recipient),
+            false,
+        )
+        .await;
+        Ok(outcome)
+    }
+
     pub async fn send_direct_message(
         &self,
         target: &str,

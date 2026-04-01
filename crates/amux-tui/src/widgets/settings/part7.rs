@@ -130,6 +130,34 @@ fn render_concierge_tab<'a>(
         ]));
     }
 
+    // Field 4: concierge_reasoning_effort
+    {
+        let is_selected = settings.field_cursor() == 4;
+        let marker = if is_selected { "> " } else { "  " };
+        lines.push(Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled("Reasoning:    ", theme.fg_dim),
+            Span::styled(
+                concierge
+                    .reasoning_effort
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+        ]));
+    }
+
     lines
 }
 

@@ -3,16 +3,31 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
-use crate::providers::PROVIDERS;
+use crate::providers::{ProviderDef, PROVIDERS};
+use crate::state::auth::AuthState;
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
 use crate::theme::ThemeTokens;
+
+pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
+    PROVIDERS
+        .iter()
+        .filter(|provider| {
+            provider.id == "custom"
+                || auth
+                    .entries
+                    .iter()
+                    .any(|entry| entry.authenticated && entry.provider_id == provider.id)
+        })
+        .collect()
+}
 
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     modal: &ModalState,
     config: &ConfigState,
+    auth: &AuthState,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
@@ -36,8 +51,25 @@ pub fn render(
 
     let cursor = modal.picker_cursor();
     let active_provider = config.provider();
+    let providers = available_provider_defs(auth);
 
-    let list_items: Vec<ListItem> = PROVIDERS
+    if providers.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No authenticated providers. Configure one in Auth.")
+                .style(theme.fg_dim),
+            chunks[0],
+        );
+
+        let hints = Line::from(vec![
+            Span::raw(" "),
+            Span::styled("Esc", theme.fg_active),
+            Span::styled(" close", theme.fg_dim),
+        ]);
+        frame.render_widget(Paragraph::new(hints), chunks[1]);
+        return;
+    }
+
+    let list_items: Vec<ListItem> = providers
         .iter()
         .enumerate()
         .map(|(i, provider_def)| {
@@ -87,10 +119,32 @@ pub fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::auth::{AuthState, ProviderAuthEntry};
 
     #[test]
-    fn provider_list_has_21_entries() {
-        assert_eq!(PROVIDERS.len(), 21);
+    fn available_provider_defs_filters_to_authenticated_entries_plus_custom() {
+        let mut auth = AuthState::new();
+        auth.entries = vec![
+            ProviderAuthEntry {
+                provider_id: "openai".to_string(),
+                provider_name: "OpenAI".to_string(),
+                authenticated: true,
+                auth_source: "api_key".to_string(),
+                model: "gpt-5.4".to_string(),
+            },
+            ProviderAuthEntry {
+                provider_id: "groq".to_string(),
+                provider_name: "Groq".to_string(),
+                authenticated: false,
+                auth_source: "api_key".to_string(),
+                model: "llama".to_string(),
+            },
+        ];
+
+        let defs = available_provider_defs(&auth);
+        assert!(defs.iter().any(|provider| provider.id == "openai"));
+        assert!(defs.iter().any(|provider| provider.id == "custom"));
+        assert!(!defs.iter().any(|provider| provider.id == "groq"));
     }
 
     #[test]

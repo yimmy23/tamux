@@ -399,13 +399,28 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
-    assert_eq!(state.field_count(), 4);
+    assert_eq!(state.field_count(), 5);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
     assert_eq!(state.field_count(), 14);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
     assert_eq!(state.field_count(), 17);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
     assert_eq!(state.field_count(), 1);
+}
+
+#[test]
+fn current_field_name_concierge_tab_includes_reasoning_effort() {
+    let mut state = SettingsState::new();
+    state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
+    assert_eq!(state.current_field_name(), "concierge_enabled");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "concierge_detail_level");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "concierge_provider");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "concierge_model");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "concierge_reasoning_effort");
 }
 
 #[test]

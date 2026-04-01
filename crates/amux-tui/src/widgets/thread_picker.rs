@@ -10,6 +10,9 @@ use crate::state::modal::{ModalState, ThreadPickerTab};
 use crate::theme::ThemeTokens;
 
 const TAB_GAP: u16 = 1;
+const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
+const INTERNAL_DM_TITLE_PREFIX: &str = "Internal DM";
+const WELES_THREAD_TITLE: &str = "WELES";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThreadPickerHitTarget {
@@ -31,10 +34,12 @@ fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
     [chunks[0], chunks[1], chunks[2], chunks[3], chunks[4]]
 }
 
-fn tab_specs() -> [(ThreadPickerTab, String); 2] {
+fn tab_specs() -> [(ThreadPickerTab, String); 4] {
     [
         (ThreadPickerTab::Swarog, format!("[{AGENT_NAME_SWAROG}]")),
         (ThreadPickerTab::Rarog, format!("[{AGENT_NAME_RAROG}]")),
+        (ThreadPickerTab::Weles, "[Weles]".to_string()),
+        (ThreadPickerTab::Internal, "[Internal]".to_string()),
     ]
 }
 
@@ -54,6 +59,30 @@ pub(crate) fn is_rarog_thread(thread: &AgentThread) -> bool {
         || thread.title.starts_with("Heartbeat check:")
 }
 
+pub(crate) fn is_internal_thread(thread: &AgentThread) -> bool {
+    thread.id.starts_with(INTERNAL_DM_THREAD_PREFIX)
+        || thread.title.starts_with(INTERNAL_DM_TITLE_PREFIX)
+}
+
+pub(crate) fn is_weles_thread(thread: &AgentThread) -> bool {
+    !is_internal_thread(thread)
+        && (thread.title.contains(WELES_THREAD_TITLE)
+            || thread.messages.iter().any(|message| {
+                message.content.lines().any(|line| {
+                    let Some((marker, value)) = line.split_once(':') else {
+                        return false;
+                    };
+                    if marker.trim() != "Agent persona id" {
+                        return false;
+                    }
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "weles" | "governance" | "vitality"
+                    )
+                })
+            }))
+}
+
 pub(crate) fn thread_display_title(thread: &AgentThread) -> String {
     if thread.id == "concierge" || thread.title.eq_ignore_ascii_case("concierge") {
         AGENT_NAME_RAROG.to_string()
@@ -70,8 +99,12 @@ pub(crate) fn filtered_threads<'a>(
     chat.threads()
         .iter()
         .filter(|thread| match modal.thread_picker_tab() {
-            ThreadPickerTab::Swarog => !is_rarog_thread(thread),
+            ThreadPickerTab::Swarog => {
+                !is_rarog_thread(thread) && !is_internal_thread(thread) && !is_weles_thread(thread)
+            }
             ThreadPickerTab::Rarog => is_rarog_thread(thread),
+            ThreadPickerTab::Weles => is_weles_thread(thread),
+            ThreadPickerTab::Internal => is_internal_thread(thread),
         })
         .filter(|thread| thread_matches_query(thread, query))
         .collect()
@@ -419,6 +452,16 @@ mod tests {
                 title: "HEARTBEAT SYNTHESIS".into(),
                 ..Default::default()
             },
+            AgentThread {
+                id: "dm:rarog:swarog".into(),
+                title: "Internal DM · Rarog ↔ Svarog".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "weles-thread".into(),
+                title: "WELES governance review".into(),
+                ..Default::default()
+            },
         ]);
         let modal = ModalState::new();
 
@@ -455,6 +498,57 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "heartbeat-1");
+    }
+
+    #[test]
+    fn weles_tab_filters_weles_threads_without_internal_dms() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "regular-thread".into(),
+                title: "Regular work".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "weles-thread".into(),
+                title: "WELES governance review".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "dm:svarog:weles".into(),
+                title: "Internal DM · Svarog ↔ Weles".into(),
+                ..Default::default()
+            },
+        ]);
+        let mut modal = ModalState::new();
+        modal.set_thread_picker_tab(ThreadPickerTab::Weles);
+
+        let threads = filtered_threads(&chat, &modal);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "weles-thread");
+    }
+
+    #[test]
+    fn internal_tab_filters_internal_dm_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "regular-thread".into(),
+                title: "Regular work".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "dm:svarog:weles".into(),
+                title: "Internal DM · Svarog ↔ Weles".into(),
+                ..Default::default()
+            },
+        ]);
+        let mut modal = ModalState::new();
+        modal.set_thread_picker_tab(ThreadPickerTab::Internal);
+
+        let threads = filtered_threads(&chat, &modal);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "dm:svarog:weles");
     }
 
     #[test]

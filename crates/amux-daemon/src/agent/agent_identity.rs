@@ -149,6 +149,11 @@ pub(crate) fn is_weles_internal_scope(scope: &str) -> bool {
     )
 }
 
+pub(crate) fn is_weles_agent_scope(scope: &str) -> bool {
+    let normalized = scope.trim().to_ascii_lowercase();
+    normalized == WELES_AGENT_ID || is_weles_internal_scope(&normalized)
+}
+
 pub(super) fn internal_dm_thread_id(agent_a: &str, agent_b: &str) -> String {
     let mut ids = [
         canonical_agent_id(agent_a).to_string(),

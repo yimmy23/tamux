@@ -287,32 +287,23 @@ if matches!(
                         continue;
                     }
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| {
-                            capability.version >= 1
-                                && capability.supports_operation_acceptance
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_SYNTHESIZE_TOOL,
+                        Some(synthesize_tool_dedup_key(&agent, &request_json)),
+                    );
+
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
                         })
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_SYNTHESIZE_TOOL,
-                                Some(synthesize_tool_dedup_key(&agent, &request_json)),
-                            )
-                        });
+                        .await
+                        .ok();
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await
-                            .ok();
-                    }
-
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let agent = agent.clone();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::AgentWork);
@@ -335,6 +326,7 @@ if matches!(
                                 Ok(result_json) => {
                                     BackgroundOperationOutput::Completed(
                                         DaemonMessage::AgentGeneratedToolResult {
+                                            operation_id: result_operation_id.clone(),
                                             tool_name: None,
                                             result_json,
                                         },
@@ -362,6 +354,7 @@ if matches!(
                     Ok(result_json) => {
                         framed
                             .send(DaemonMessage::AgentGeneratedToolResult {
+                                operation_id: None,
                                 tool_name: Some(tool_name),
                                 result_json,
                             })
@@ -383,6 +376,7 @@ if matches!(
                         Ok(result_json) => {
                             framed
                                 .send(DaemonMessage::AgentGeneratedToolResult {
+                                    operation_id: None,
                                     tool_name: Some(tool_name),
                                     result_json,
                                 })
@@ -405,6 +399,7 @@ if matches!(
                         Ok(result_json) => {
                             framed
                                 .send(DaemonMessage::AgentGeneratedToolResult {
+                                    operation_id: None,
                                     tool_name: Some(tool_name),
                                     result_json,
                                 })

@@ -2,13 +2,23 @@ use super::*;
 
 impl TuiModel {
     pub(in crate::app) fn handle_delta_event(&mut self, thread_id: String, content: String) {
+        if Self::is_hidden_agent_thread(&thread_id, None) {
+            return;
+        }
         self.agent_activity = Some("writing".to_string());
+        self.anticipatory
+            .reduce(crate::state::AnticipatoryAction::Clear);
         self.chat
             .reduce(chat::ChatAction::Delta { thread_id, content });
     }
 
     pub(in crate::app) fn handle_reasoning_event(&mut self, thread_id: String, content: String) {
+        if Self::is_hidden_agent_thread(&thread_id, None) {
+            return;
+        }
         self.agent_activity = Some("reasoning".to_string());
+        self.anticipatory
+            .reduce(crate::state::AnticipatoryAction::Clear);
         self.chat
             .reduce(chat::ChatAction::Reasoning { thread_id, content });
     }
@@ -21,7 +31,12 @@ impl TuiModel {
         arguments: String,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
     ) {
+        if Self::is_hidden_agent_thread(&thread_id, None) {
+            return;
+        }
         self.agent_activity = Some(format!("⚙  {}", name));
+        self.anticipatory
+            .reduce(crate::state::AnticipatoryAction::Clear);
         self.chat.reduce(chat::ChatAction::ToolCall {
             thread_id,
             call_id,
@@ -40,7 +55,12 @@ impl TuiModel {
         is_error: bool,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
     ) {
+        if Self::is_hidden_agent_thread(&thread_id, None) {
+            return;
+        }
         self.agent_activity = Some(format!("⚙  {} ✓", name));
+        self.anticipatory
+            .reduce(crate::state::AnticipatoryAction::Clear);
         self.chat.reduce(chat::ChatAction::ToolResult {
             thread_id,
             call_id,
@@ -64,8 +84,13 @@ impl TuiModel {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
     ) {
+        if Self::is_hidden_agent_thread(&thread_id, None) {
+            return;
+        }
         self.agent_activity = None;
         self.pending_stop = false;
+        self.anticipatory
+            .reduce(crate::state::AnticipatoryAction::Clear);
         if self
             .input_notice
             .as_ref()

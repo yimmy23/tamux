@@ -84,7 +84,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         }
         modal::ModalKind::ProviderPicker => {
             let cursor = model.modal.picker_cursor();
-            if let Some(def) = providers::PROVIDERS.get(cursor) {
+            let provider_defs = widgets::provider_picker::available_provider_defs(&model.auth);
+            if let Some(def) = provider_defs.get(cursor) {
                 match model
                     .settings_picker_target
                     .unwrap_or(SettingsPickerTarget::Provider)
@@ -146,8 +147,12 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     }
                     SettingsPickerTarget::Model
                     | SettingsPickerTarget::SubAgentModel
-                    | SettingsPickerTarget::ConciergeModel => {}
+                    | SettingsPickerTarget::SubAgentReasoningEffort
+                    | SettingsPickerTarget::ConciergeModel
+                    | SettingsPickerTarget::ConciergeReasoningEffort => {}
                 }
+            } else {
+                model.status_line = "No authenticated providers available".to_string();
             }
             model.settings_picker_target = None;
             model.close_top_modal();
@@ -222,7 +227,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     }
                     SettingsPickerTarget::Provider
                     | SettingsPickerTarget::SubAgentProvider
-                    | SettingsPickerTarget::ConciergeProvider => {}
+                    | SettingsPickerTarget::SubAgentReasoningEffort
+                    | SettingsPickerTarget::ConciergeProvider
+                    | SettingsPickerTarget::ConciergeReasoningEffort => {}
                 }
             }
             model.settings_picker_target = None;
@@ -239,35 +246,70 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             }
         }
         modal::ModalKind::EffortPicker => {
-            let efforts = ["", "low", "medium", "high", "xhigh"];
+            let efforts = ["", "minimal", "low", "medium", "high", "xhigh"];
             let cursor = model.modal.picker_cursor();
             if let Some(&effort) = efforts.get(cursor) {
-                model
-                    .config
-                    .reduce(config::ConfigAction::SetReasoningEffort(effort.to_string()));
-                if let Ok(value_json) =
-                    serde_json::to_string(&serde_json::Value::String(effort.to_string()))
-                {
-                    model.send_daemon_command(DaemonCommand::SetConfigItem {
-                        key_path: "/reasoning_effort".to_string(),
-                        value_json: value_json.clone(),
-                    });
-                    model.send_daemon_command(DaemonCommand::SetConfigItem {
-                        key_path: format!("/providers/{}/reasoning_effort", model.config.provider),
-                        value_json: value_json.clone(),
-                    });
-                    model.send_daemon_command(DaemonCommand::SetConfigItem {
-                        key_path: format!("/{}/reasoning_effort", model.config.provider),
-                        value_json,
-                    });
+                match model.settings_picker_target {
+                    Some(SettingsPickerTarget::SubAgentReasoningEffort) => {
+                        if let Some(editor) = model.subagents.editor.as_mut() {
+                            editor.reasoning_effort = if effort.is_empty() {
+                                Some("none".to_string())
+                            } else {
+                                Some(effort.to_string())
+                            };
+                        }
+                        model.status_line = if effort.is_empty() {
+                            "Sub-agent effort: none".to_string()
+                        } else {
+                            format!("Sub-agent effort: {}", effort)
+                        };
+                    }
+                    Some(SettingsPickerTarget::ConciergeReasoningEffort) => {
+                        model.concierge.reasoning_effort = if effort.is_empty() {
+                            None
+                        } else {
+                            Some(effort.to_string())
+                        };
+                        model.send_concierge_config();
+                        model.status_line = if effort.is_empty() {
+                            "Rarog effort: none".to_string()
+                        } else {
+                            format!("Rarog effort: {}", effort)
+                        };
+                    }
+                    _ => {
+                        model
+                            .config
+                            .reduce(config::ConfigAction::SetReasoningEffort(effort.to_string()));
+                        if let Ok(value_json) =
+                            serde_json::to_string(&serde_json::Value::String(effort.to_string()))
+                        {
+                            model.send_daemon_command(DaemonCommand::SetConfigItem {
+                                key_path: "/reasoning_effort".to_string(),
+                                value_json: value_json.clone(),
+                            });
+                            model.send_daemon_command(DaemonCommand::SetConfigItem {
+                                key_path: format!(
+                                    "/providers/{}/reasoning_effort",
+                                    model.config.provider
+                                ),
+                                value_json: value_json.clone(),
+                            });
+                            model.send_daemon_command(DaemonCommand::SetConfigItem {
+                                key_path: format!("/{}/reasoning_effort", model.config.provider),
+                                value_json,
+                            });
+                        }
+                        model.status_line = if effort.is_empty() {
+                            "Effort: none".to_string()
+                        } else {
+                            format!("Effort: {}", effort)
+                        };
+                        model.save_settings();
+                    }
                 }
-                model.status_line = if effort.is_empty() {
-                    "Effort: off".to_string()
-                } else {
-                    format!("Effort: {}", effort)
-                };
-                model.save_settings();
             }
+            model.settings_picker_target = None;
             model.close_top_modal();
         }
         modal::ModalKind::WhatsAppLink => {}

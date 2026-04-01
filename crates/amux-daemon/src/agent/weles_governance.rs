@@ -428,6 +428,54 @@ pub(crate) fn guarded_fallback_decision(
     }
 }
 
+pub(crate) fn internal_runtime_decision(
+    classification: &WelesToolClassification,
+    security_level: SecurityLevel,
+) -> WelesExecutionDecision {
+    if matches!(classification.class, WelesGovernanceClass::RejectBypass) {
+        let mut decision = bypass_decision(classification, security_level);
+        if !decision.review.reasons.iter().any(|reason| {
+            reason == "daemon-owned WELES internal scope skips recursive governance review"
+        }) {
+            decision.review.reasons.push(
+                "daemon-owned WELES internal scope skips recursive governance review".to_string(),
+            );
+        }
+        return decision;
+    }
+
+    let mut reasons = classification.reasons.clone();
+    reasons.push("daemon-owned WELES internal scope skips recursive governance review".to_string());
+    let yolo = matches!(security_level, SecurityLevel::Yolo)
+        && is_suspicious_classification(classification);
+    let verdict = if yolo {
+        super::types::WelesVerdict::FlagOnly
+    } else {
+        super::types::WelesVerdict::Block
+    };
+    let block_message = if yolo {
+        None
+    } else {
+        Some(format!(
+            "Blocked by WELES governance: {}",
+            reasons.join("; ")
+        ))
+    };
+
+    WelesExecutionDecision {
+        class: classification.class,
+        should_execute: yolo,
+        review: super::types::WelesReviewMeta {
+            weles_reviewed: true,
+            verdict,
+            reasons,
+            audit_id: Some(format!("weles_{}", uuid::Uuid::new_v4())),
+            security_override_mode: if yolo { Some("yolo".to_string()) } else { None },
+        },
+        block_message,
+    }
+}
+
 pub(crate) fn build_weles_runtime_review_message(
     classification: &WelesToolClassification,
     security_level: SecurityLevel,

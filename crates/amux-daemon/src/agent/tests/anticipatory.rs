@@ -1,4 +1,6 @@
 use super::*;
+use crate::session_manager::SessionManager;
+use tempfile::tempdir;
 
 fn sample_task(id: &str, thread_id: Option<&str>, goal_run_id: Option<&str>) -> AgentTask {
     AgentTask {
@@ -154,4 +156,29 @@ fn goal_attention_priority_prefers_exact_goal_match() {
 
     assert_eq!(goal_attention_priority(&exact, &attention), 2);
     assert_eq!(goal_attention_priority(&thread_only, &attention), 1);
+}
+
+#[tokio::test]
+async fn anticipatory_tick_ignores_weles_owned_stuck_tasks() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.stuck_detection = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut weles_task = sample_task("task-weles", Some("thread-weles"), None);
+    weles_task.title = "WELES".to_string();
+    weles_task.status = TaskStatus::Blocked;
+    weles_task.sub_agent_def_id = Some("weles_builtin".to_string());
+    weles_task.blocked_reason = Some("waiting for lane availability: daemon-main".to_string());
+    weles_task.started_at = Some(1);
+
+    engine.tasks.lock().await.push_back(weles_task);
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine.anticipatory.read().await.items.is_empty(),
+        "WELES-owned blocked tasks should not surface as anticipatory hints"
+    );
 }

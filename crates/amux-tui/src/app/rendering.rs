@@ -363,6 +363,7 @@ impl TuiModel {
                         overlay_area,
                         &self.modal,
                         &self.config,
+                        &self.auth,
                         &self.theme,
                     );
                 }

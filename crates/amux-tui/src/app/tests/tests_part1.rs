@@ -76,6 +76,27 @@
     }
 
     #[test]
+    fn anticipatory_banner_is_suppressed_while_concierge_welcome_is_active() {
+        let mut model = build_model();
+        model
+            .anticipatory
+            .reduce(crate::state::AnticipatoryAction::Replace(vec![crate::wire::AnticipatoryItem {
+                id: "digest-1".to_string(),
+                ..Default::default()
+            }]));
+        model.concierge.reduce(crate::state::ConciergeAction::WelcomeReceived {
+            content: "Welcome back".to_string(),
+            actions: vec![crate::state::ConciergeActionVm {
+                label: "Continue".to_string(),
+                action_type: "continue_session".to_string(),
+                thread_id: Some("thread-1".to_string()),
+            }],
+        });
+
+        assert_eq!(model.anticipatory_banner_height(), 0);
+    }
+
+    #[test]
     fn local_landing_full_render_does_not_panic_at_width_100() {
         let mut model = build_model();
         model.width = 100;

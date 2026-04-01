@@ -1,4 +1,5 @@
 import type { WelesReviewMeta } from "../../lib/agentTools";
+import { buildHydratedRemoteThread } from "../../lib/agentStore";
 import {
   buildToolReviewPresentation,
   mergeToolReviewMeta,
@@ -53,3 +54,40 @@ expect(Boolean(degradedPresentation?.reasonText.includes("WELES unavailable")), 
 const mergedReview = mergeToolReviewMeta(blockedReview, flaggedReview);
 expect(mergedReview?.verdict === "flag_only", "later tool result review should replace earlier call review");
 expect(mergedReview?.security_override_mode === "yolo", "merged review should keep override context");
+
+const internalThread = buildHydratedRemoteThread(
+  {
+    id: "dm:svarog:weles",
+    title: "Internal DM · Swarog ↔ WELES",
+    messages: [
+      {
+        role: "assistant",
+        content: '{"verdict":"allow","reasons":["Security level is lowest"]}',
+        timestamp: 1,
+      },
+    ],
+  },
+  "Svarog",
+);
+expect(internalThread === null, "internal daemon threads should not hydrate into visible frontend chat state");
+
+const visibleThread = buildHydratedRemoteThread(
+  {
+    id: "thread-user-1",
+    title: "Regular Conversation",
+    messages: [
+      {
+        role: "tool",
+        content: "Managed command requires approval before execution.",
+        tool_name: "bash_command",
+        tool_call_id: "call-1",
+        tool_status: "error",
+        weles_review: flaggedReview,
+        timestamp: 2,
+      },
+    ],
+  },
+  "Svarog",
+);
+expect(visibleThread?.thread.title === "Regular Conversation", "non-internal threads should still hydrate normally");
+expect(visibleThread?.messages[0]?.welesReview?.verdict === "flag_only", "visible threads should retain weles metadata on tool rows");

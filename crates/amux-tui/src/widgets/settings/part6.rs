@@ -102,6 +102,17 @@ fn render_subagents_tab<'a>(
         lines.push(field_line(
             matches!(
                 editor.field,
+                crate::state::subagents::SubAgentEditorField::ReasoningEffort
+            ),
+            "Reasoning",
+            editor
+                .reasoning_effort
+                .clone()
+                .unwrap_or_else(|| "None".to_string()),
+        ));
+        lines.push(field_line(
+            matches!(
+                editor.field,
                 crate::state::subagents::SubAgentEditorField::Role
             ),
             "Role",

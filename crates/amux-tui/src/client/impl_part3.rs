@@ -47,12 +47,18 @@ impl DaemonClient {
                     .send(ClientEvent::WhatsAppLinkDisconnected { reason })
                     .await;
             }
-            DaemonMessage::AgentExplanation { explanation_json } => {
+            DaemonMessage::AgentExplanation {
+                operation_id: _,
+                explanation_json,
+            } => {
                 let payload = serde_json::from_str::<serde_json::Value>(&explanation_json)
                     .unwrap_or_else(|_| serde_json::json!({}));
                 let _ = event_tx.send(ClientEvent::AgentExplanation(payload)).await;
             }
-            DaemonMessage::AgentDivergentSessionStarted { session_json } => {
+            DaemonMessage::AgentDivergentSessionStarted {
+                operation_id: _,
+                session_json,
+            } => {
                 let payload = serde_json::from_str::<serde_json::Value>(&session_json)
                     .unwrap_or_else(|_| serde_json::json!({}));
                 let _ = event_tx

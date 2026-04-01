@@ -246,7 +246,9 @@ impl ConciergeEngine {
 
 pub(crate) fn fast_concierge_provider_config(config: &ProviderConfig) -> ProviderConfig {
     let mut fast = config.clone();
-    fast.reasoning_effort = "off".to_string();
+    if fast.reasoning_effort.trim().is_empty() {
+        fast.reasoning_effort = "off".to_string();
+    }
     fast
 }
 
@@ -269,7 +271,15 @@ pub(crate) fn resolve_concierge_provider(config: &AgentConfig) -> Result<Provide
         .provider
         .as_deref()
         .unwrap_or(&config.provider);
-    resolve_provider_config_for(config, provider_id, config.concierge.model.as_deref())
+    let mut resolved =
+        resolve_provider_config_for(config, provider_id, config.concierge.model.as_deref())?;
+    resolved.reasoning_effort = config
+        .concierge
+        .reasoning_effort
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "off".to_string());
+    Ok(resolved)
 }
 
 fn strip_trailing_actions(content: &str) -> String {

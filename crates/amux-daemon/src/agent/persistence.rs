@@ -13,7 +13,8 @@ pub(super) fn sanitize_task_for_external_view(task: &mut AgentTask) {
         == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
     {
         if let Some(prompt) = task.override_system_prompt.as_deref() {
-            let sanitized = crate::agent::weles_governance::strip_weles_internal_payload_markers(prompt);
+            let sanitized =
+                crate::agent::weles_governance::strip_weles_internal_payload_markers(prompt);
             task.override_system_prompt = if sanitized.trim().is_empty() {
                 None
             } else {
@@ -56,10 +57,12 @@ async fn restore_weles_runtime_context(engine: &AgentEngine, task: &mut AgentTas
         tracing::warn!(task_id = %task.id, "failed to parse persisted WELES runtime context");
         return;
     };
-    let Some(internal_payload) = crate::agent::weles_governance::build_weles_internal_override_payload(
-        scope,
-        &inspection_context,
-    ) else {
+    let Some(internal_payload) =
+        crate::agent::weles_governance::build_weles_internal_override_payload(
+            scope,
+            &inspection_context,
+        )
+    else {
         tracing::warn!(task_id = %task.id, "failed to rebuild WELES runtime payload from persisted context");
         return;
     };
@@ -87,7 +90,9 @@ impl AgentEngine {
                     Ok((cfg, collisions)) => {
                         self.persist_sanitized_config(cfg, collisions).await;
                     }
-                    Err(error) => tracing::warn!("failed to load agent config from sqlite: {error}"),
+                    Err(error) => {
+                        tracing::warn!("failed to load agent config from sqlite: {error}")
+                    }
                 }
             }
             Ok(_) => {}

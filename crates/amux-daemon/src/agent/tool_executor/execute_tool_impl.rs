@@ -1,15 +1,16 @@
-pub async fn execute_tool(
-    tool_call: &ToolCall,
-    agent: &AgentEngine,
-    thread_id: &str,
-    task_id: Option<&str>,
-    session_manager: &Arc<SessionManager>,
+pub fn execute_tool<'a>(
+    tool_call: &'a ToolCall,
+    agent: &'a AgentEngine,
+    thread_id: &'a str,
+    task_id: Option<&'a str>,
+    session_manager: &'a Arc<SessionManager>,
     session_id: Option<SessionId>,
-    event_tx: &broadcast::Sender<AgentEvent>,
-    agent_data_dir: &std::path::Path,
-    http_client: &reqwest::Client,
+    event_tx: &'a broadcast::Sender<AgentEvent>,
+    agent_data_dir: &'a std::path::Path,
+    http_client: &'a reqwest::Client,
     cancel_token: Option<CancellationToken>,
-) -> ToolResult {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ToolResult> + Send + 'a>> {
+    Box::pin(async move {
     let redacted_arguments = scrub_sensitive(&tool_call.function.arguments);
     tracing::info!(
         tool = %tool_call.function.name,
@@ -46,10 +47,18 @@ pub async fn execute_tool(
             &args,
         )
     };
+    let active_scope_id = crate::agent::agent_identity::current_agent_scope_id();
     let current_task = if let Some(task_id) = task_id {
         agent.list_tasks().await.into_iter().find(|task| task.id == task_id)
     } else {
         None
+    };
+    let trusted_weles_internal_task = if let Some(task) = current_task.as_ref() {
+        task.sub_agent_def_id.as_deref()
+            == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+            && agent.trusted_weles_tasks.read().await.contains(&task.id)
+    } else {
+        false
     };
     let planner_required_before_governance = if !thread_id.trim().is_empty() && task_id.is_none() {
         agent.planner_required_for_thread(thread_id).await
@@ -62,6 +71,10 @@ pub async fn execute_tool(
         &classification,
     ) {
         crate::agent::weles_governance::direct_allow_decision(classification.class)
+    } else if crate::agent::agent_identity::is_weles_agent_scope(&active_scope_id) {
+        crate::agent::weles_governance::internal_runtime_decision(&classification, security_level)
+    } else if trusted_weles_internal_task {
+        crate::agent::weles_governance::internal_runtime_decision(&classification, security_level)
     } else {
         let config = agent.config.read().await;
         if !crate::agent::weles_governance::review_available(&config) {
@@ -80,10 +93,12 @@ pub async fn execute_tool(
             )
             .await
             {
-                Ok(weles_task) => match agent
-                    .send_task_message(
+                Ok(weles_task) => {
+                    match agent
+                    .send_internal_task_message(
+                        &active_scope_id,
+                        crate::agent::agent_identity::WELES_AGENT_ID,
                         &weles_task.id,
-                        Some(thread_id),
                         None,
                         Some("daemon"),
                         &crate::agent::weles_governance::build_weles_runtime_review_message(
@@ -124,7 +139,8 @@ pub async fn execute_tool(
                         &classification,
                         security_level,
                     ),
-                },
+                }
+                }
                 Err(_) => crate::agent::weles_governance::guarded_fallback_decision(
                     &classification,
                     security_level,
@@ -534,4 +550,5 @@ pub async fn execute_tool(
             }
         }
     }
+    })
 }

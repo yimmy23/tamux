@@ -91,14 +91,23 @@ pub async fn send_config_get() -> Result<serde_json::Value> {
 }
 
 pub async fn send_config_set(key_path: String, value_json: String) -> Result<()> {
-    match roundtrip(ClientMessage::AgentSetConfigItem {
-        key_path,
-        value_json,
-    })
-    .await?
-    {
-        DaemonMessage::AgentConfigResponse { .. } => Ok(()),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+    parse_config_set_response(
+        roundtrip(ClientMessage::AgentSetConfigItem {
+            key_path,
+            value_json,
+        })
+        .await?,
+    )
+}
+
+pub(crate) fn parse_config_set_response(msg: DaemonMessage) -> Result<()> {
+    match msg {
+        DaemonMessage::OperationAccepted { .. } | DaemonMessage::AgentConfigResponse { .. } => {
+            Ok(())
+        }
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
         other => anyhow::bail!("unexpected response: {other:?}"),
     }
 }

@@ -174,6 +174,9 @@ impl TuiModel {
                         crate::state::subagents::SubAgentEditorField::Model => {
                             self.open_subagent_model_picker();
                         }
+                        crate::state::subagents::SubAgentEditorField::ReasoningEffort => {
+                            self.open_subagent_effort_picker();
+                        }
                         crate::state::subagents::SubAgentEditorField::Role => {
                             let current = self
                                 .subagents

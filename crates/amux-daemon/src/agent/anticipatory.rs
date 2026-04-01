@@ -373,7 +373,7 @@ impl AgentEngine {
                         | TaskStatus::AwaitingApproval
                         | TaskStatus::Blocked
                         | TaskStatus::FailedAnalyzing
-                )
+                ) && !crate::agent::concierge::is_user_hidden_task(task)
             })
             .max_by(|left, right| {
                 let left_priority = task_attention_priority(left, &attention);

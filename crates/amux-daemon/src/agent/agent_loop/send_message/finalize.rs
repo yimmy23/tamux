@@ -51,7 +51,7 @@ impl<'a> SendMessageRunner<'a> {
                 response_id,
                 upstream_thread_id,
             }) => {
-                self.handle_tool_calls_chunk(
+                Box::pin(self.handle_tool_calls_chunk(
                     llm_started_at,
                     first_token_at,
                     effective_transport_for_turn,
@@ -64,7 +64,7 @@ impl<'a> SendMessageRunner<'a> {
                     output_tokens,
                     response_id,
                     upstream_thread_id,
-                )
+                ))
                 .await
             }
             _ => {

@@ -752,6 +752,27 @@ async fn list_sub_agents_always_includes_weles_builtin_with_main_defaults() {
     assert_eq!(weles.model, "gpt-5.4-mini");
     assert_eq!(weles.system_prompt.as_deref(), Some("Main agent prompt"));
     assert_eq!(weles.reasoning_effort.as_deref(), Some("medium"));
+    assert_eq!(
+        weles.tool_whitelist.as_deref(),
+        Some(
+            &[
+                "list_files".to_string(),
+                "read_file".to_string(),
+                "search_files".to_string(),
+                "session_search".to_string(),
+                "onecontext_search".to_string(),
+                "update_todo".to_string(),
+                "list_skills".to_string(),
+                "semantic_query".to_string(),
+                "read_skill".to_string(),
+                "list_tasks".to_string(),
+                "list_subagents".to_string(),
+                "read_active_terminal_content".to_string(),
+                "message_agent".to_string(),
+            ][..]
+        )
+    );
+    assert_eq!(weles.tool_blacklist, None);
     assert!(weles.enabled);
     assert!(weles.builtin);
     assert!(weles.immutable_identity);
@@ -1108,7 +1129,26 @@ async fn set_sub_agent_clears_optional_weles_overrides_when_reverted_to_defaults
         .find(|entry| entry.id == "weles_builtin")
         .expect("missing builtin weles entry");
     assert_eq!(effective.role.as_deref(), Some("governance"));
-    assert_eq!(effective.tool_whitelist, None);
+    assert_eq!(
+        effective.tool_whitelist.as_deref(),
+        Some(
+            &[
+                "list_files".to_string(),
+                "read_file".to_string(),
+                "search_files".to_string(),
+                "session_search".to_string(),
+                "onecontext_search".to_string(),
+                "update_todo".to_string(),
+                "list_skills".to_string(),
+                "semantic_query".to_string(),
+                "read_skill".to_string(),
+                "list_tasks".to_string(),
+                "list_subagents".to_string(),
+                "read_active_terminal_content".to_string(),
+                "message_agent".to_string(),
+            ][..]
+        )
+    );
     assert_eq!(effective.tool_blacklist, None);
     assert_eq!(effective.context_budget_tokens, None);
     assert_eq!(effective.max_duration_secs, None);
@@ -1148,7 +1188,9 @@ async fn set_sub_agent_sanitizes_in_memory_weles_system_prompt_overrides() {
         .expect("weles system prompt override should be stored");
 
     assert_eq!(prompt, "Operator WELES suffix");
-    assert!(crate::agent::weles_governance::parse_weles_internal_override_payload(prompt).is_none());
+    assert!(
+        crate::agent::weles_governance::parse_weles_internal_override_payload(prompt).is_none()
+    );
     assert!(!prompt.contains(crate::agent::weles_governance::WELES_SCOPE_MARKER));
     assert!(!prompt.contains(crate::agent::weles_governance::WELES_BYPASS_MARKER));
     assert!(!prompt.contains(crate::agent::weles_governance::WELES_CONTEXT_MARKER));
@@ -1322,7 +1364,10 @@ async fn hydrate_durably_cleans_weles_collisions_from_raw_config() {
     let stored = engine.get_config().await;
     assert_eq!(stored.sub_agents.len(), 1);
     assert_eq!(stored.sub_agents[0].id, "reviewer");
-    assert_eq!(persisted_sub_agent_ids(&engine).await, vec!["reviewer".to_string()]);
+    assert_eq!(
+        persisted_sub_agent_ids(&engine).await,
+        vec!["reviewer".to_string()]
+    );
     assert_eq!(weles_collision_audit_count(&engine).await, 2);
 }
 
@@ -1339,7 +1384,10 @@ async fn persist_config_durably_cleans_stale_weles_collisions() {
     let stored = engine.get_config().await;
     assert_eq!(stored.sub_agents.len(), 1);
     assert_eq!(stored.sub_agents[0].id, "reviewer");
-    assert_eq!(persisted_sub_agent_ids(&engine).await, vec!["reviewer".to_string()]);
+    assert_eq!(
+        persisted_sub_agent_ids(&engine).await,
+        vec!["reviewer".to_string()]
+    );
     assert_eq!(weles_collision_audit_count(&engine).await, 2);
 
     engine.persist_config().await;
@@ -1361,7 +1409,10 @@ async fn set_config_item_json_durably_cleans_stale_weles_collisions() {
 
     assert_eq!(updated.sub_agents.len(), 1);
     assert_eq!(updated.sub_agents[0].id, "reviewer");
-    assert_eq!(persisted_sub_agent_ids(&engine).await, vec!["reviewer".to_string()]);
+    assert_eq!(
+        persisted_sub_agent_ids(&engine).await,
+        vec!["reviewer".to_string()]
+    );
     assert_eq!(weles_collision_audit_count(&engine).await, 2);
 
     engine

@@ -7,6 +7,7 @@ impl TuiModel {
     ) {
         let threads = threads
             .into_iter()
+            .filter(|thread| !crate::wire::is_weles_thread(thread))
             .map(conversion::convert_thread)
             .collect();
         self.chat
@@ -14,18 +15,31 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_thread_detail_event(&mut self, thread: crate::wire::AgentThread) {
+        if crate::wire::is_weles_thread(&thread) {
+            return;
+        }
+        self.anticipatory
+            .reduce(crate::state::AnticipatoryAction::Clear);
         let thread_id = thread.id.clone();
+        let should_select_thread = self.chat.active_thread_id().is_none();
         if self.chat.active_thread_id() == Some(thread_id.as_str()) {
             self.clear_chat_drag_selection();
         }
         self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
             conversion::convert_thread(thread),
         ));
+        if should_select_thread {
+            self.chat
+                .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
+        }
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
     }
 
     pub(in crate::app) fn handle_thread_created_event(&mut self, thread_id: String, title: String) {
+        if Self::is_hidden_agent_thread(&thread_id, Some(title.as_str())) {
+            return;
+        }
         self.chat
             .reduce(chat::ChatAction::ThreadCreated { thread_id, title });
     }

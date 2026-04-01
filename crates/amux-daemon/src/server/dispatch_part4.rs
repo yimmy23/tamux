@@ -289,40 +289,26 @@ if matches!(
                             continue;
                         }
 
-                        let operation = async_command_capability
-                            .as_ref()
-                            .filter(|capability| {
-                                capability.version >= 1
-                                    && capability.supports_operation_acceptance
-                            })
-                            .map(|_| {
-                                operation_registry().accept_operation(
-                                    OPERATION_KIND_CONFIG_SET_ITEM,
-                                    Some(config_set_item_dedup_key(
-                                        &agent,
-                                        &key_path,
-                                        &value_json,
-                                    )),
-                                )
-                            });
+                        let operation = operation_registry().accept_operation(
+                            OPERATION_KIND_CONFIG_SET_ITEM,
+                            Some(config_set_item_dedup_key(&agent, &key_path, &value_json)),
+                        );
 
-                        if let Some(operation) = operation.as_ref() {
-                            framed
-                                .send(DaemonMessage::OperationAccepted {
-                                    operation_id: operation.operation_id.clone(),
-                                    kind: operation.kind.clone(),
-                                    dedup: operation.dedup.clone(),
-                                    revision: operation.revision,
-                                })
-                                .await?;
-                        }
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
 
                         let agent = agent.clone();
                         let background_daemon_tx =
                             background_daemon_queues.sender(BackgroundSubsystem::ConfigReconcile);
                         spawn_background_side_effect(
                             BackgroundSubsystem::ConfigReconcile,
-                            operation.map(|record| record.operation_id),
+                            Some(operation.operation_id.clone()),
                             background_daemon_tx,
                             &mut background_daemon_pending,
                             async move {
@@ -358,40 +344,30 @@ if matches!(
 
                             agent.persist_prepared_provider_model_json(merged).await;
 
-                            let operation = async_command_capability
-                                .as_ref()
-                                .filter(|capability| {
-                                    capability.version >= 1
-                                        && capability.supports_operation_acceptance
-                                })
-                                .map(|_| {
-                                    operation_registry().accept_operation(
-                                        OPERATION_KIND_SET_PROVIDER_MODEL,
-                                        Some(set_provider_model_dedup_key(
-                                            &agent,
-                                            &provider_id,
-                                            &model,
-                                        )),
-                                    )
-                                });
+                            let operation = operation_registry().accept_operation(
+                                OPERATION_KIND_SET_PROVIDER_MODEL,
+                                Some(set_provider_model_dedup_key(
+                                    &agent,
+                                    &provider_id,
+                                    &model,
+                                )),
+                            );
 
-                            if let Some(operation) = operation.as_ref() {
-                                framed
-                                    .send(DaemonMessage::OperationAccepted {
-                                        operation_id: operation.operation_id.clone(),
-                                        kind: operation.kind.clone(),
-                                        dedup: operation.dedup.clone(),
-                                        revision: operation.revision,
-                                    })
-                                    .await?;
-                            }
+                            framed
+                                .send(DaemonMessage::OperationAccepted {
+                                    operation_id: operation.operation_id.clone(),
+                                    kind: operation.kind.clone(),
+                                    dedup: operation.dedup.clone(),
+                                    revision: operation.revision,
+                                })
+                                .await?;
 
                             let agent = agent.clone();
                             let background_daemon_tx = background_daemon_queues
                                 .sender(BackgroundSubsystem::ConfigReconcile);
                             spawn_background_side_effect(
                                 BackgroundSubsystem::ConfigReconcile,
-                                operation.map(|record| record.operation_id),
+                                Some(operation.operation_id.clone()),
                                 background_daemon_tx,
                                 &mut background_daemon_pending,
                                 async move {
@@ -433,28 +409,22 @@ if matches!(
                         continue;
                     }
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_FETCH_MODELS,
-                                Some(fetch_models_dedup_key(&agent, &provider_id)),
-                            )
-                        });
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_FETCH_MODELS,
+                        Some(fetch_models_dedup_key(&agent, &provider_id)),
+                    );
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await?;
-                    }
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
+                        })
+                        .await?;
 
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::ProviderIo);
                     spawn_background_operation(
@@ -473,7 +443,10 @@ if matches!(
                             let daemon_msg = match result {
                                 Ok(models) => {
                                     let json = serde_json::to_string(&models).unwrap_or_default();
-                                    DaemonMessage::AgentModelsResponse { models_json: json }
+                                    DaemonMessage::AgentModelsResponse {
+                                        operation_id: result_operation_id.clone(),
+                                        models_json: json,
+                                    }
                                 }
                                 Err(e) => DaemonMessage::AgentError {
                                     message: e.to_string(),
@@ -538,7 +511,6 @@ if matches!(
                 }
 
                 ClientMessage::AgentDeclareAsyncCommandCapability { capability } => {
-                    async_command_capability = Some(capability.clone());
                     framed
                         .send(DaemonMessage::AgentAsyncCommandCapabilityAck { capability })
                         .await?;

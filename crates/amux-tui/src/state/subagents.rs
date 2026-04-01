@@ -5,6 +5,7 @@ pub enum SubAgentEditorField {
     Name,
     Provider,
     Model,
+    ReasoningEffort,
     Role,
     SystemPrompt,
     Save,
@@ -12,10 +13,11 @@ pub enum SubAgentEditorField {
 }
 
 impl SubAgentEditorField {
-    pub const ALL: [SubAgentEditorField; 7] = [
+    pub const ALL: [SubAgentEditorField; 8] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::ReasoningEffort,
         SubAgentEditorField::Role,
         SubAgentEditorField::SystemPrompt,
         SubAgentEditorField::Save,

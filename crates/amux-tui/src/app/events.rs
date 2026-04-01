@@ -7,6 +7,15 @@ mod events_status;
 mod events_tasks;
 
 impl TuiModel {
+    fn is_hidden_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
+        let normalized_id = thread_id.trim().to_ascii_lowercase();
+        let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
+        normalized_id.starts_with("dm:")
+            || normalized_title.starts_with("internal dm")
+            || normalized_title == "weles"
+            || normalized_title.starts_with("weles ")
+    }
+
     pub fn pump_daemon_events(&mut self) {
         while let Ok(event) = self.daemon_events_rx.try_recv() {
             self.handle_client_event(event);

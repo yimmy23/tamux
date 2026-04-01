@@ -15,7 +15,9 @@ pub(super) fn default_security_index(tier: &str) -> usize {
 
 pub(super) fn tier_shows_step(tier: &str, step: &str) -> bool {
     match step {
-        "model" | "data_dir" => matches!(tier, "familiar" | "power_user" | "expert"),
+        "model" | "data_dir" | "advanced_agents" => {
+            matches!(tier, "familiar" | "power_user" | "expert")
+        }
         _ => false,
     }
 }

@@ -88,6 +88,37 @@ pub struct AgentThread {
     pub total_output_tokens: u64,
 }
 
+const PERSONA_ID_MARKER: &str = "Agent persona id:";
+const WELES_AGENT_ID: &str = "weles";
+const WELES_GOVERNANCE_SCOPE: &str = "governance";
+const WELES_VITALITY_SCOPE: &str = "vitality";
+
+fn extract_persona_id(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let (marker, value) = line.split_once(':')?;
+        if marker.trim() != PERSONA_ID_MARKER.trim_end_matches(':') {
+            return None;
+        }
+        let normalized = value.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized)
+        }
+    })
+}
+
+pub fn is_weles_thread(thread: &AgentThread) -> bool {
+    thread.messages.iter().any(|message| {
+        extract_persona_id(&message.content).is_some_and(|persona_id| {
+            matches!(
+                persona_id.as_str(),
+                WELES_AGENT_ID | WELES_GOVERNANCE_SCOPE | WELES_VITALITY_SCOPE
+            )
+        })
+    })
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {

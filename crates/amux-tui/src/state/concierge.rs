@@ -6,6 +6,7 @@ pub struct ConciergeState {
     pub detail_level: String,
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub auto_cleanup_on_navigate: bool,
     pub loading: bool,
     pub welcome_content: Option<String>,
@@ -28,6 +29,7 @@ impl ConciergeState {
             detail_level: "proactive_triage".into(),
             provider: None,
             model: None,
+            reasoning_effort: None,
             auto_cleanup_on_navigate: true,
             loading: false,
             welcome_content: None,
@@ -45,6 +47,7 @@ pub enum ConciergeAction {
         detail_level: String,
         provider: Option<String>,
         model: Option<String>,
+        reasoning_effort: Option<String>,
         auto_cleanup_on_navigate: bool,
     },
     WelcomeLoading(bool),
@@ -79,12 +82,14 @@ impl ConciergeState {
                 detail_level,
                 provider,
                 model,
+                reasoning_effort,
                 auto_cleanup_on_navigate,
             } => {
                 self.enabled = enabled;
                 self.detail_level = detail_level;
                 self.provider = provider;
                 self.model = model;
+                self.reasoning_effort = reasoning_effort;
                 self.auto_cleanup_on_navigate = auto_cleanup_on_navigate;
                 if !enabled {
                     self.loading = false;

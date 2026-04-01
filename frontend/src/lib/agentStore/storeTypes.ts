@@ -22,6 +22,7 @@ export interface ConciergeConfig {
   detail_level: string;
   provider?: string;
   model?: string;
+  reasoning_effort?: string;
   auto_cleanup_on_navigate: boolean;
 }
 

@@ -94,6 +94,7 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
     config.assistant_id = "assistant-root".to_string();
     config.concierge.provider = Some("alibaba-coding-plan".to_string());
     config.concierge.model = Some("qwen3.5-plus".to_string());
+    config.concierge.reasoning_effort = Some("high".to_string());
     config.providers.insert(
         "alibaba-coding-plan".to_string(),
         ProviderConfig {
@@ -115,14 +116,26 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
     assert_eq!(resolved.base_url, shared.base_url);
     assert_eq!(resolved.model, shared.model);
     assert_eq!(resolved.api_key, shared.api_key);
-    assert_eq!(resolved.reasoning_effort, shared.reasoning_effort);
+    assert_eq!(resolved.reasoning_effort, "high");
     assert_eq!(resolved.assistant_id, shared.assistant_id);
     assert_eq!(resolved.context_window_tokens, shared.context_window_tokens);
     assert_eq!(resolved.api_transport, shared.api_transport);
 }
 
 #[test]
-fn concierge_fast_profile_disables_reasoning_without_touching_model() {
+fn resolve_concierge_provider_defaults_reasoning_effort_to_off() {
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = "https://api.openai.com/v1".to_string();
+    config.model = "gpt-5.4".to_string();
+    config.reasoning_effort = "high".to_string();
+
+    let resolved = resolve_concierge_provider(&config).expect("concierge provider should resolve");
+    assert_eq!(resolved.reasoning_effort, "off");
+}
+
+#[test]
+fn concierge_fast_profile_preserves_selected_reasoning_without_touching_model() {
     let base = ProviderConfig {
         base_url: "https://api.openai.com/v1".to_string(),
         model: "gpt-5.4-mini".to_string(),
@@ -137,7 +150,7 @@ fn concierge_fast_profile_disables_reasoning_without_touching_model() {
 
     let fast = fast_concierge_provider_config(&base);
 
-    assert_eq!(fast.reasoning_effort, "off");
+    assert_eq!(fast.reasoning_effort, "high");
     assert_eq!(fast.model, base.model);
     assert_eq!(fast.base_url, base.base_url);
     assert_eq!(fast.api_transport, base.api_transport);

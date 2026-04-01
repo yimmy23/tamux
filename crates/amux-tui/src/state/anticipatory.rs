@@ -3,6 +3,7 @@ use crate::wire::AnticipatoryItem;
 #[derive(Debug, Clone)]
 pub enum AnticipatoryAction {
     Replace(Vec<AnticipatoryItem>),
+    Clear,
 }
 
 pub struct AnticipatoryState {
@@ -17,6 +18,7 @@ impl AnticipatoryState {
     pub fn reduce(&mut self, action: AnticipatoryAction) {
         match action {
             AnticipatoryAction::Replace(items) => self.items = items,
+            AnticipatoryAction::Clear => self.items.clear(),
         }
     }
 

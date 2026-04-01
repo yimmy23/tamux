@@ -210,6 +210,12 @@ pub(super) async fn print_summary_and_choose_action(
             println!("  Gateway:   {gw} configured");
         }
     }
+    if let Some(ref concierge) = summary.concierge {
+        println!("  Rarog:    {concierge}");
+    }
+    if let Some(ref weles) = summary.weles {
+        println!("  WELES:    {weles}");
+    }
     println!();
     let launch_items = post_setup_choices();
     let launch_idx = select_list("What would you like to run now?", &launch_items, false, 0)?

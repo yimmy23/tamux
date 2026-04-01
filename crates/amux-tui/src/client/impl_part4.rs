@@ -1,4 +1,13 @@
 impl DaemonClient {
+    fn is_hidden_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
+        let normalized_id = thread_id.unwrap_or_default().trim().to_ascii_lowercase();
+        let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
+        normalized_id.starts_with("dm:")
+            || normalized_title.starts_with("internal dm")
+            || normalized_title == "weles"
+            || normalized_title.starts_with("weles ")
+    }
+
     fn parse_weles_review(event: &Value) -> Option<crate::client::WelesReviewMetaVm> {
         let review = event.get("weles_review")?;
         let verdict = review.get("verdict").and_then(Value::as_str)?.to_string();
@@ -32,41 +41,62 @@ impl DaemonClient {
 
         match kind {
             "thread_created" => {
+                let title = get_string(&event, "title")
+                    .unwrap_or_else(|| "New Conversation".to_string());
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), Some(title.as_str())) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::ThreadCreated {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
-                        title: get_string(&event, "title")
-                            .unwrap_or_else(|| "New Conversation".to_string()),
+                        thread_id,
+                        title,
                     })
                     .await;
             }
             "thread_reload_required" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::ThreadReloadRequired {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        thread_id,
                     })
                     .await;
             }
             "delta" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::Delta {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        thread_id,
                         content: get_string(&event, "content").unwrap_or_default(),
                     })
                     .await;
             }
             "reasoning" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::Reasoning {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        thread_id,
                         content: get_string(&event, "content").unwrap_or_default(),
                     })
                     .await;
             }
             "tool_call" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::ToolCall {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        thread_id,
                         call_id: get_string(&event, "call_id").unwrap_or_default(),
                         name: get_string(&event, "name").unwrap_or_default(),
                         arguments: get_string_lossy(&event, "arguments"),
@@ -75,9 +105,13 @@ impl DaemonClient {
                     .await;
             }
             "tool_result" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::ToolResult {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        thread_id,
                         call_id: get_string(&event, "call_id").unwrap_or_default(),
                         name: get_string(&event, "name").unwrap_or_default(),
                         content: get_string_lossy(&event, "content"),
@@ -90,9 +124,13 @@ impl DaemonClient {
                     .await;
             }
             "done" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
                 let _ = event_tx
                     .send(ClientEvent::Done {
-                        thread_id: get_string(&event, "thread_id").unwrap_or_default(),
+                        thread_id,
                         input_tokens: event
                             .get("input_tokens")
                             .and_then(Value::as_u64)

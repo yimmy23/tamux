@@ -6,7 +6,8 @@ fn sanitize_task_for_persistence(task: &AgentTask) -> AgentTask {
         == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
     {
         if let Some(prompt) = persisted.override_system_prompt.as_deref() {
-            let sanitized = crate::agent::weles_governance::strip_weles_internal_payload_markers(prompt);
+            let sanitized =
+                crate::agent::weles_governance::strip_weles_internal_payload_markers(prompt);
             persisted.override_system_prompt = if sanitized.trim().is_empty() {
                 None
             } else {
@@ -29,15 +30,11 @@ async fn persist_weles_runtime_context(engine: &AgentEngine, task: &AgentTask) {
     };
     let key = crate::agent::persistence::weles_runtime_context_key(&task.id);
 
-    let is_trusted = engine
-        .trusted_weles_tasks
-        .read()
-        .await
-        .contains(&task.id);
+    let is_trusted = engine.trusted_weles_tasks.read().await.contains(&task.id);
 
     if is_trusted {
         if let Some((_scope, _marker, inspection_context)) =
-        crate::agent::weles_governance::parse_weles_internal_override_payload(prompt)
+            crate::agent::weles_governance::parse_weles_internal_override_payload(prompt)
         {
             let value = match serde_json::to_string(&inspection_context) {
                 Ok(value) => value,

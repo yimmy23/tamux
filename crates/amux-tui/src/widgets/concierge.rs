@@ -52,17 +52,32 @@ pub fn render(
             "\u{28bf}", "\u{28fb}", "\u{28fd}", "\u{28fe}", "\u{28f7}", "\u{28ef}", "\u{28df}",
             "\u{287f}",
         ];
-        let spinner = spinner_frames[(std::time::SystemTime::now()
+        let status_frames = [
+            "working",
+            "grinding",
+            "hustling",
+            "thinking",
+            "planning",
+            "shipping",
+            "analyzing",
+            "crafting",
+            "building",
+            "designing",
+            "processing",
+            "computing",
+            "executing",
+        ];
+        let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_millis() as usize)
-            .unwrap_or(0)
-            / 120)
-            % spinner_frames.len()];
+            .unwrap_or(0);
+        let spinner = spinner_frames[(now / 120) % spinner_frames.len()];
+        let status = status_frames[(now / 2000) % status_frames.len()];
         lines.push(Line::from(vec![
-            Span::styled("  Concierge ", theme.accent_primary),
+            Span::styled("  Rarog ", theme.accent_primary),
             Span::styled(spinner, theme.accent_secondary),
             Span::raw(" "),
-            Span::styled("working\u{2026}", theme.fg_dim),
+            Span::styled(format!("{}\u{2026}", status), theme.fg_dim),
         ]));
     } else if has_actions {
         // Action buttons row.

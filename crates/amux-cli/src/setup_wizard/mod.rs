@@ -16,6 +16,7 @@ use futures::{SinkExt, StreamExt};
 use std::io::{self, Write};
 use tokio_util::codec::Framed;
 
+mod agents;
 mod flow;
 mod ipc;
 mod steps;
@@ -29,6 +30,7 @@ mod whatsapp;
 pub use flow::{needs_setup_via_ipc, run_setup_wizard};
 pub use types::PostSetupAction;
 
+use agents::*;
 use ipc::*;
 use steps::*;
 use terminal_ui::*;

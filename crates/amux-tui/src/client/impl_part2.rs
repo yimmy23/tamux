@@ -156,7 +156,10 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }
             }
-            DaemonMessage::AgentModelsResponse { models_json } => {
+            DaemonMessage::AgentModelsResponse {
+                operation_id: _,
+                models_json,
+            } => {
                 match serde_json::from_str::<Vec<FetchedModel>>(&models_json) {
                     Ok(models) => {
                         let _ = event_tx.send(ClientEvent::ModelsFetched(models)).await;
@@ -238,6 +241,7 @@ impl DaemonClient {
                     .await;
             }
             DaemonMessage::AgentProviderValidation {
+                operation_id: _,
                 provider_id,
                 valid,
                 error,
@@ -408,6 +412,7 @@ impl DaemonClient {
                     .await;
             }
             DaemonMessage::PluginOAuthComplete {
+                operation_id: _,
                 name,
                 success,
                 error,

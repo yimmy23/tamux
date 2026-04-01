@@ -36,6 +36,7 @@ if matches!(
                         if v.status != "proven" && v.status != "canonical" {
                             framed
                                 .send(DaemonMessage::SkillPublishResult {
+                                    operation_id: None,
                                     success: false,
                                     message: format!(
                                         "Only proven or canonical skills can be published; '{}' is {}.",
@@ -64,31 +65,22 @@ if matches!(
                                 continue;
                             }
 
-                            let operation = async_command_capability
-                                .as_ref()
-                                .filter(|capability| {
-                                    capability.version >= 1
-                                        && capability.supports_operation_acceptance
+                            let operation = operation_registry().accept_operation(
+                                OPERATION_KIND_SKILL_PUBLISH,
+                                Some(skill_publish_dedup_key(&agent, &identifier)),
+                            );
+
+                            framed
+                                .send(DaemonMessage::OperationAccepted {
+                                    operation_id: operation.operation_id.clone(),
+                                    kind: operation.kind.clone(),
+                                    dedup: operation.dedup.clone(),
+                                    revision: operation.revision,
                                 })
-                                .map(|_| {
-                                    operation_registry().accept_operation(
-                                        OPERATION_KIND_SKILL_PUBLISH,
-                                        Some(skill_publish_dedup_key(&agent, &identifier)),
-                                    )
-                                });
+                                .await?;
 
-                            if let Some(operation) = operation.as_ref() {
-                                framed
-                                    .send(DaemonMessage::OperationAccepted {
-                                        operation_id: operation.operation_id.clone(),
-                                        kind: operation.kind.clone(),
-                                        dedup: operation.dedup.clone(),
-                                        revision: operation.revision,
-                                    })
-                                    .await?;
-                            }
-
-                            let operation_id = operation.map(|record| record.operation_id);
+                            let operation_id = Some(operation.operation_id.clone());
+                            let result_operation_id = operation_id.clone();
                             let skill_root = agent.history.data_dir().to_path_buf();
                             let machine_id = skill_root.to_string_lossy().to_string();
                             let background_daemon_tx =
@@ -111,12 +103,14 @@ if matches!(
                                             match client.publish_skill(&tarball, &metadata).await {
                                                 Ok(()) => BackgroundOperationOutput::Completed(
                                                     DaemonMessage::SkillPublishResult {
+                                                        operation_id: result_operation_id.clone(),
                                                         success: true,
                                                         message: format!("Published skill '{}'.", v.skill_name),
                                                     },
                                                 ),
                                                 Err(e) => BackgroundOperationOutput::Failed(
                                                     DaemonMessage::SkillPublishResult {
+                                                        operation_id: result_operation_id.clone(),
                                                         success: false,
                                                         message: format!("community skill publish failed: {e}"),
                                                     },
@@ -125,6 +119,7 @@ if matches!(
                                         }
                                         Err(e) => BackgroundOperationOutput::Failed(
                                             DaemonMessage::SkillPublishResult {
+                                                operation_id: result_operation_id.clone(),
                                                 success: false,
                                                 message: format!("failed to prepare skill publish: {e}"),
                                             },
@@ -136,6 +131,7 @@ if matches!(
                     } else {
                         framed
                             .send(DaemonMessage::SkillPublishResult {
+                                operation_id: None,
                                 success: false,
                                 message: format!("Skill not found: {identifier}"),
                             })
@@ -311,29 +307,19 @@ if matches!(
 
                     match plugin_manager.start_oauth_flow_for_plugin(&name).await {
                         Ok(mut flow_state) => {
-                            let operation = async_command_capability
-                                .as_ref()
-                                .filter(|capability| {
-                                    capability.version >= 1
-                                        && capability.supports_operation_acceptance
-                                })
-                                .map(|_| {
-                                    operation_registry().accept_operation(
-                                        OPERATION_KIND_PLUGIN_OAUTH_START,
-                                        Some(plugin_oauth_start_dedup_key(&agent, &name)),
-                                    )
-                                });
+                            let operation = operation_registry().accept_operation(
+                                OPERATION_KIND_PLUGIN_OAUTH_START,
+                                Some(plugin_oauth_start_dedup_key(&agent, &name)),
+                            );
 
-                            if let Some(operation) = operation.as_ref() {
-                                framed
-                                    .send(DaemonMessage::OperationAccepted {
-                                        operation_id: operation.operation_id.clone(),
-                                        kind: operation.kind.clone(),
-                                        dedup: operation.dedup.clone(),
-                                        revision: operation.revision,
-                                    })
-                                    .await?;
-                            }
+                            framed
+                                .send(DaemonMessage::OperationAccepted {
+                                    operation_id: operation.operation_id.clone(),
+                                    kind: operation.kind.clone(),
+                                    dedup: operation.dedup.clone(),
+                                    revision: operation.revision,
+                                })
+                                .await?;
 
                             // Send the auth URL to the requesting client immediately
                             let auth_url = flow_state.auth_url.clone();
@@ -344,7 +330,8 @@ if matches!(
                                 })
                                 .await?;
 
-                            let operation_id = operation.map(|record| record.operation_id);
+                            let operation_id = Some(operation.operation_id.clone());
+                            let result_operation_id = operation_id.clone();
                             let plugin_manager = plugin_manager.clone();
                             let background_daemon_tx =
                                 background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
@@ -360,6 +347,7 @@ if matches!(
                                     {
                                         Ok(()) => BackgroundOperationOutput::Completed(
                                             DaemonMessage::PluginOAuthComplete {
+                                                operation_id: result_operation_id.clone(),
                                                 name,
                                                 success: true,
                                                 error: None,
@@ -369,6 +357,7 @@ if matches!(
                                             tracing::warn!(plugin = %name, error = %e, "OAuth2 flow failed");
                                             BackgroundOperationOutput::Failed(
                                                 DaemonMessage::PluginOAuthComplete {
+                                                    operation_id: result_operation_id.clone(),
                                                     name,
                                                     success: false,
                                                     error: Some(e.to_string()),
@@ -383,6 +372,7 @@ if matches!(
                             tracing::warn!(plugin = %name, error = %e, "OAuth2 flow start failed");
                             framed
                                 .send(DaemonMessage::PluginOAuthComplete {
+                                    operation_id: None,
                                     name,
                                     success: false,
                                     error: Some(e.to_string()),
@@ -410,36 +400,27 @@ if matches!(
 
                     let params_json: serde_json::Value = serde_json::from_str(&params)
                         .unwrap_or(serde_json::Value::Object(Default::default()));
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| {
-                            capability.version >= 1
-                                && capability.supports_operation_acceptance
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_PLUGIN_API_CALL,
+                        Some(plugin_api_call_dedup_key(
+                            &agent,
+                            &plugin_name,
+                            &endpoint_name,
+                            &params_json,
+                        )),
+                    );
+
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
                         })
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_PLUGIN_API_CALL,
-                                Some(plugin_api_call_dedup_key(
-                                    &agent,
-                                    &plugin_name,
-                                    &endpoint_name,
-                                    &params_json,
-                                )),
-                            )
-                        });
+                        .await?;
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await?;
-                    }
-
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let plugin_manager = plugin_manager.clone();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
@@ -454,6 +435,7 @@ if matches!(
                                 tokio::time::sleep(delay).await;
                                 return BackgroundOperationOutput::Failed(
                                     DaemonMessage::PluginApiCallResult {
+                                        operation_id: result_operation_id.clone(),
                                         plugin_name,
                                         endpoint_name,
                                         success: false,
@@ -469,6 +451,7 @@ if matches!(
                             {
                                 Ok(result_text) => BackgroundOperationOutput::Completed(
                                     DaemonMessage::PluginApiCallResult {
+                                        operation_id: result_operation_id.clone(),
                                         plugin_name,
                                         endpoint_name,
                                         success: true,
@@ -504,6 +487,7 @@ if matches!(
                                     };
                                     BackgroundOperationOutput::Failed(
                                         DaemonMessage::PluginApiCallResult {
+                                            operation_id: result_operation_id.clone(),
                                             plugin_name,
                                             endpoint_name,
                                             success: false,
@@ -530,28 +514,22 @@ if matches!(
                         continue;
                     }
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_EXPLAIN_ACTION,
-                                Some(explain_action_dedup_key(&agent, &action_id, step_index)),
-                            )
-                        });
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_EXPLAIN_ACTION,
+                        Some(explain_action_dedup_key(&agent, &action_id, step_index)),
+                    );
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await?;
-                    }
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
+                        })
+                        .await?;
 
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let agent = agent.clone();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::AgentWork);
@@ -564,6 +542,7 @@ if matches!(
                             let explanation = agent.handle_explain_action(&action_id, step_index).await;
                             let json = serde_json::to_string(&explanation).unwrap_or_default();
                             BackgroundOperationOutput::Completed(DaemonMessage::AgentExplanation {
+                                operation_id: result_operation_id,
                                 explanation_json: json,
                             })
                         },
@@ -607,36 +586,27 @@ if matches!(
                         })
                         .filter(|v| v.len() >= 2);
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| {
-                            capability.version >= 1
-                                && capability.supports_operation_acceptance
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_START_DIVERGENT_SESSION,
+                        Some(start_divergent_session_dedup_key(
+                            &agent,
+                            &problem_statement,
+                            &thread_id,
+                            goal_run_id.as_deref(),
+                        )),
+                    );
+
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
                         })
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_START_DIVERGENT_SESSION,
-                                Some(start_divergent_session_dedup_key(
-                                    &agent,
-                                    &problem_statement,
-                                    &thread_id,
-                                    goal_run_id.as_deref(),
-                                )),
-                            )
-                        });
+                        .await?;
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await?;
-                    }
-
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let agent = agent.clone();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::AgentWork);
@@ -662,6 +632,7 @@ if matches!(
                                     });
                                     BackgroundOperationOutput::Completed(
                                         DaemonMessage::AgentDivergentSessionStarted {
+                                            operation_id: result_operation_id.clone(),
                                             session_json: serde_json::to_string(&result)
                                                 .unwrap_or_default(),
                                         },

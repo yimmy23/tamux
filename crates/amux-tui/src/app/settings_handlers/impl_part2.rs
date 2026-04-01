@@ -56,16 +56,8 @@ impl TuiModel {
             } else {
                 existing_name.unwrap_or_else(|| editor.name.trim().to_string())
             };
-            let provider = if editor.identity_is_mutable() {
-                editor.provider.clone()
-            } else {
-                existing_provider.unwrap_or_else(|| editor.provider.clone())
-            };
-            let model = if editor.identity_is_mutable() {
-                editor.model.clone()
-            } else {
-                existing_model.unwrap_or_else(|| editor.model.clone())
-            };
+            let provider = existing_provider.unwrap_or_else(|| editor.provider.clone());
+            let model = existing_model.unwrap_or_else(|| editor.model.clone());
             obj.insert("name".to_string(), serde_json::Value::String(name));
             obj.insert("provider".to_string(), serde_json::Value::String(provider));
             obj.insert("model".to_string(), serde_json::Value::String(model));
@@ -204,30 +196,18 @@ impl TuiModel {
     }
 
     fn open_subagent_provider_picker(&mut self) {
-        if self
-            .subagents
-            .editor
-            .as_ref()
-            .is_some_and(|editor| !editor.identity_is_mutable())
-        {
-            self.status_line = "This sub-agent identity cannot be changed".to_string();
-            return;
-        }
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentProvider);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
-        self.modal
-            .set_picker_item_count(providers::PROVIDERS.len().max(1));
+        self.modal.set_picker_item_count(
+            widgets::provider_picker::available_provider_defs(&self.auth).len(),
+        );
     }
 
     fn open_subagent_model_picker(&mut self) {
         let Some(editor) = self.subagents.editor.as_ref() else {
             return;
         };
-        if !editor.identity_is_mutable() {
-            self.status_line = "This sub-agent identity cannot be changed".to_string();
-            return;
-        }
         let models = self.subagent_known_models_for(&editor.provider);
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models.clone()));
@@ -238,12 +218,20 @@ impl TuiModel {
         self.modal.set_picker_item_count(count);
     }
 
+    fn open_subagent_effort_picker(&mut self) {
+        self.settings_picker_target = Some(SettingsPickerTarget::SubAgentReasoningEffort);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
+        self.modal.set_picker_item_count(6);
+    }
+
     pub(super) fn send_concierge_config(&mut self) {
         let config = serde_json::json!({
             "enabled": self.concierge.enabled,
             "detail_level": self.concierge.detail_level,
             "provider": self.concierge.provider,
             "model": self.concierge.model,
+            "reasoning_effort": self.concierge.reasoning_effort,
             "auto_cleanup_on_navigate": self.concierge.auto_cleanup_on_navigate,
         });
         self.send_daemon_command(DaemonCommand::SetConciergeConfig(config.to_string()));

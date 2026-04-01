@@ -1,7 +1,7 @@
 use amux_protocol::{ClientMessage, DaemonMessage};
 use anyhow::Result;
 
-use super::connection::roundtrip;
+use super::connection::{roundtrip, roundtrip_async_until};
 
 pub async fn send_skill_list(
     status: Option<String>,
@@ -80,22 +80,38 @@ pub async fn send_skill_import(
             .unwrap_or(false)
     };
 
-    match roundtrip(ClientMessage::SkillImport {
-        source: source.to_string(),
-        force,
-        publisher_verified,
-    })
-    .await?
-    {
+    roundtrip_async_until(
+        ClientMessage::SkillImport {
+            source: source.to_string(),
+            force,
+            publisher_verified,
+        },
+        parse_skill_import_terminal_response,
+    )
+    .await
+}
+
+pub(super) fn parse_skill_import_terminal_response(
+    msg: DaemonMessage,
+) -> Option<Result<(bool, String, Option<String>, Option<String>, u32)>> {
+    match msg {
+        DaemonMessage::OperationAccepted { .. } => None,
         DaemonMessage::SkillImportResult {
+            operation_id: _,
             success,
             message,
             variant_id,
             scan_verdict,
             findings_count,
-        } => Ok((success, message, variant_id, scan_verdict, findings_count)),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
-        other => anyhow::bail!("unexpected response: {other:?}"),
+        } => Some(Ok((
+            success,
+            message,
+            variant_id,
+            scan_verdict,
+            findings_count,
+        ))),
+        DaemonMessage::Error { message } => Some(Err(anyhow::anyhow!("daemon error: {message}"))),
+        other => Some(Err(anyhow::anyhow!("unexpected response: {other:?}"))),
     }
 }
 
@@ -122,13 +138,26 @@ pub async fn send_skill_export(
 }
 
 pub async fn send_skill_publish(identifier: &str) -> Result<(bool, String)> {
-    match roundtrip(ClientMessage::SkillPublish {
-        identifier: identifier.to_string(),
-    })
-    .await?
-    {
-        DaemonMessage::SkillPublishResult { success, message } => Ok((success, message)),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
-        other => anyhow::bail!("unexpected response: {other:?}"),
+    roundtrip_async_until(
+        ClientMessage::SkillPublish {
+            identifier: identifier.to_string(),
+        },
+        parse_skill_publish_terminal_response,
+    )
+    .await
+}
+
+pub(super) fn parse_skill_publish_terminal_response(
+    msg: DaemonMessage,
+) -> Option<Result<(bool, String)>> {
+    match msg {
+        DaemonMessage::OperationAccepted { .. } => None,
+        DaemonMessage::SkillPublishResult {
+            operation_id: _,
+            success,
+            message,
+        } => Some(Ok((success, message))),
+        DaemonMessage::Error { message } => Some(Err(anyhow::anyhow!("daemon error: {message}"))),
+        other => Some(Err(anyhow::anyhow!("unexpected response: {other:?}"))),
     }
 }

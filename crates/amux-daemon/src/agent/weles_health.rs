@@ -14,10 +14,7 @@ fn protected_weles_integrity_reason(definition: &SubAgentDefinition) -> Option<S
     None
 }
 
-fn should_emit_weles_health_update(
-    previous: &WelesHealthStatus,
-    next: &WelesHealthStatus,
-) -> bool {
+fn should_emit_weles_health_update(previous: &WelesHealthStatus, next: &WelesHealthStatus) -> bool {
     previous.state != next.state || previous.reason != next.reason
 }
 

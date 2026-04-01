@@ -354,6 +354,26 @@ fn rarog_tab_uses_rarog_label() {
 }
 
 #[test]
+fn concierge_tab_renders_reasoning_effort_field() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Concierge,
+    ));
+    let mut concierge = crate::state::concierge::ConciergeState::new();
+    concierge.reasoning_effort = Some("xhigh".to_string());
+
+    let lines = render_concierge_tab(&settings, &concierge, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Reasoning"));
+    assert!(text.contains("xhigh"));
+}
+
+#[test]
 fn protected_weles_row_hides_delete_and_disable_actions() {
     let mut settings = SettingsState::new();
     settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
@@ -422,4 +442,50 @@ fn protected_weles_row_hides_delete_and_disable_actions() {
         !text.contains("[Disable]"),
         "protected WELES row should hide disable action: {text}"
     );
+}
+
+#[test]
+fn subagent_editor_renders_reasoning_effort_field() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::SubAgents,
+    ));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let mut subagents = SubAgentsState::new();
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        Some("weles_builtin".to_string()),
+        1,
+        "openai".to_string(),
+        "gpt-5.4-mini".to_string(),
+    );
+    editor.name = "WELES".to_string();
+    editor.reasoning_effort = Some("medium".to_string());
+    editor.field = crate::state::subagents::SubAgentEditorField::ReasoningEffort;
+    subagents.editor = Some(editor);
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Reasoning"));
+    assert!(text.contains("medium"));
 }

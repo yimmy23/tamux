@@ -271,36 +271,27 @@ if matches!(
                         continue;
                     }
 
-                    let operation = async_command_capability
-                        .as_ref()
-                        .filter(|capability| {
-                            capability.version >= 1
-                                && capability.supports_operation_acceptance
+                    let operation = operation_registry().accept_operation(
+                        OPERATION_KIND_SKILL_IMPORT,
+                        Some(skill_import_dedup_key(
+                            &agent,
+                            &source,
+                            force,
+                            publisher_verified,
+                        )),
+                    );
+
+                    framed
+                        .send(DaemonMessage::OperationAccepted {
+                            operation_id: operation.operation_id.clone(),
+                            kind: operation.kind.clone(),
+                            dedup: operation.dedup.clone(),
+                            revision: operation.revision,
                         })
-                        .map(|_| {
-                            operation_registry().accept_operation(
-                                OPERATION_KIND_SKILL_IMPORT,
-                                Some(skill_import_dedup_key(
-                                    &agent,
-                                    &source,
-                                    force,
-                                    publisher_verified,
-                                )),
-                            )
-                        });
+                        .await?;
 
-                    if let Some(operation) = operation.as_ref() {
-                        framed
-                            .send(DaemonMessage::OperationAccepted {
-                                operation_id: operation.operation_id.clone(),
-                                kind: operation.kind.clone(),
-                                dedup: operation.dedup.clone(),
-                                revision: operation.revision,
-                            })
-                            .await?;
-                    }
-
-                    let operation_id = operation.map(|record| record.operation_id);
+                    let operation_id = Some(operation.operation_id.clone());
+                    let result_operation_id = operation_id.clone();
                     let history = agent.history.clone();
                     let skills_root = agent.history.data_dir().to_path_buf();
                     let background_daemon_tx =
@@ -371,6 +362,7 @@ if matches!(
                                         scan_verdict,
                                     }) => BackgroundOperationOutput::Completed(
                                         DaemonMessage::SkillImportResult {
+                                            operation_id: result_operation_id.clone(),
                                             success: true,
                                             message: format!(
                                                 "Imported community skill '{skill_name}' as draft."
@@ -385,6 +377,7 @@ if matches!(
                                         findings_count,
                                     }) => BackgroundOperationOutput::Failed(
                                         DaemonMessage::SkillImportResult {
+                                            operation_id: result_operation_id.clone(),
                                             success: false,
                                             message: report_summary,
                                             variant_id: None,
@@ -397,6 +390,7 @@ if matches!(
                                         findings_count,
                                     }) => BackgroundOperationOutput::Failed(
                                         DaemonMessage::SkillImportResult {
+                                            operation_id: result_operation_id.clone(),
                                             success: false,
                                             message: report_summary,
                                             variant_id: None,
@@ -406,6 +400,7 @@ if matches!(
                                     ),
                                     Err(e) => BackgroundOperationOutput::Failed(
                                         DaemonMessage::SkillImportResult {
+                                            operation_id: result_operation_id.clone(),
                                             success: false,
                                             message: format!("community skill import failed: {e}"),
                                             variant_id: None,
@@ -416,6 +411,7 @@ if matches!(
                                 },
                                 Err(e) => BackgroundOperationOutput::Failed(
                                     DaemonMessage::SkillImportResult {
+                                        operation_id: result_operation_id.clone(),
                                         success: false,
                                         message: format!("community skill fetch failed: {e}"),
                                         variant_id: None,

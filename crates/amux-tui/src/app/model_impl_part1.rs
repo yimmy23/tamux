@@ -158,7 +158,10 @@ impl TuiModel {
     }
 
     fn anticipatory_banner_height(&self) -> u16 {
-        if self.anticipatory.has_items() {
+        if self.anticipatory.has_items()
+            && !self.concierge.loading
+            && !self.concierge.has_active_welcome()
+        {
             8
         } else {
             0

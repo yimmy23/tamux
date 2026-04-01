@@ -72,6 +72,10 @@ impl TuiModel {
                     .get("model")
                     .and_then(|value| value.as_str())
                     .map(str::to_string),
+                reasoning_effort: raw
+                    .get("reasoning_effort")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
                 auto_cleanup_on_navigate: raw
                     .get("auto_cleanup_on_navigate")
                     .and_then(|value| value.as_bool())

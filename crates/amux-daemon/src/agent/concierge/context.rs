@@ -109,7 +109,7 @@ impl ConciergeEngine {
                 matches!(
                     task.status,
                     TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked
-                )
+                ) && !is_user_hidden_task(task)
             })
             .count();
 
@@ -121,9 +121,24 @@ impl ConciergeEngine {
     }
 }
 
+pub(crate) fn is_user_hidden_task(task: &AgentTask) -> bool {
+    task.sub_agent_def_id.as_deref()
+        == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+}
+
+pub(crate) fn is_user_visible_thread(thread: &AgentThread) -> bool {
+    thread.messages.iter().any(|message| {
+        crate::agent::agent_identity::is_weles_agent_scope(
+            &crate::agent::agent_identity::extract_persona_id(Some(&message.content))
+                .unwrap_or_default(),
+        )
+    })
+}
+
 fn include_thread_in_concierge_context(thread: &AgentThread) -> bool {
     thread.id != CONCIERGE_THREAD_ID
         && !is_heartbeat_thread(thread)
+        && !is_user_visible_thread(thread)
         && thread
             .messages
             .iter()
@@ -160,7 +175,7 @@ where
             matches!(
                 task.status,
                 TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::Blocked
-            )
+            ) && !is_user_hidden_task(task)
         })
         .collect();
     let total = unresolved.len();

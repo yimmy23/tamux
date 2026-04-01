@@ -88,6 +88,15 @@ export type RemoteAgentThreadRecord = {
   total_output_tokens?: number | null;
 };
 
+export function isHiddenAgentThread(thread: Pick<RemoteAgentThreadRecord, "id" | "title">): boolean {
+  const id = typeof thread.id === "string" ? thread.id.trim().toLowerCase() : "";
+  const title = typeof thread.title === "string" ? thread.title.trim().toLowerCase() : "";
+  return id.startsWith("dm:")
+    || title.startsWith("internal dm")
+    || title === "weles"
+    || title.startsWith("weles ");
+}
+
 type AgentDbApi = {
   dbCreateThread?: (thread: AgentDbThreadRecord) => Promise<boolean>;
   dbDeleteThread?: (id: string) => Promise<boolean>;
@@ -199,6 +208,10 @@ export function buildHydratedRemoteThread(
   messages: AgentMessage[];
 } | null {
   if (typeof thread.id !== "string" || !thread.id.trim()) {
+    return null;
+  }
+
+  if (isHiddenAgentThread(thread)) {
     return null;
   }
 

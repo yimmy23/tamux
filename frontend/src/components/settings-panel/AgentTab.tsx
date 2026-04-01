@@ -30,7 +30,7 @@ export function AgentTab({
         }
     };
 
-    const providerOptions: { id: AgentProviderId; label: string }[] = [
+    const allProviderOptions: { id: AgentProviderId; label: string }[] = [
         { id: "featherless", label: "Featherless" },
         { id: "openai", label: "OpenAI / ChatGPT" },
         { id: "github-copilot", label: "GitHub Copilot" },
@@ -53,6 +53,12 @@ export function AgentTab({
         { id: "opencode-zen", label: "OpenCode Zen" },
         { id: "custom", label: "Custom" },
     ];
+    const providerOptions = allProviderOptions.filter((provider) =>
+        provider.id === "custom"
+        || providerAuthStates.some(
+            (state) => state.authenticated && state.provider_id === provider.id,
+        ),
+    );
 
     const providerConfig = settings[settings.active_provider] as AgentProviderConfig;
     const providerDef = getProviderDefinition(settings.active_provider);
@@ -185,7 +191,7 @@ export function AgentTab({
                     background: providerAuthenticated ? "#4ade80" : "#6b7280",
                 }} />
                 <span style={{ fontSize: 12, fontWeight: 600 }}>
-                    {PRIMARY_AGENT_NAME}: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
+                    {PRIMARY_AGENT_NAME}: {allProviderOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
                 </span>
                 <span style={{
                     fontSize: 10,
@@ -266,7 +272,7 @@ export function AgentTab({
                     </SettingRow>
 
                     <div style={{ marginTop: 6, marginBottom: 6, fontSize: 11, color: "var(--text-secondary)" }}>
-                        {providerOptions.find((provider) => provider.id === settings.active_provider)?.label}
+                        {allProviderOptions.find((provider) => provider.id === settings.active_provider)?.label}
                     </div>
 
                     {showUrlEditor ? (

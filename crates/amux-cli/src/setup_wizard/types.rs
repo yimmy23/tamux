@@ -75,4 +75,6 @@ pub(super) struct SetupSummary {
     pub web_search: Option<String>,
     pub gateway: Option<String>,
     pub whatsapp_linked: bool,
+    pub concierge: Option<String>,
+    pub weles: Option<String>,
 }
