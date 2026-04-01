@@ -139,6 +139,8 @@ use self::types::*;
 pub(crate) use config::canonicalize_weles_client_update;
 #[allow(unused_imports)]
 pub use engine::*;
+#[cfg(test)]
+pub(crate) use provider_auth_store::provider_auth_test_env_lock;
 pub use task_prompt::load_config_from_history;
 pub(crate) use whatsapp_link::{
     clear_persisted_provider_state, load_persisted_provider_state, merge_persisted_state_update,

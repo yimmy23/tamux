@@ -410,20 +410,13 @@
         crate::agent::openai_codex_auth::clear_openai_codex_auth_test_state();
     }
 
-    fn server_openai_codex_auth_test_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     fn parse_json(raw: &str) -> serde_json::Value {
         serde_json::from_str(raw).expect("json payload should decode")
     }
 
     #[tokio::test]
     async fn openai_codex_auth_status_request_returns_status_payload() {
-        let _lock = server_openai_codex_auth_test_lock();
+        let _lock = crate::agent::provider_auth_test_env_lock();
         let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
         let _env_guard =
             EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
@@ -450,7 +443,7 @@
 
     #[tokio::test]
     async fn openai_codex_auth_login_request_returns_login_payload() {
-        let _lock = server_openai_codex_auth_test_lock();
+        let _lock = crate::agent::provider_auth_test_env_lock();
         let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
         let _env_guard =
             EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
@@ -481,8 +474,40 @@
     }
 
     #[tokio::test]
+    async fn openai_codex_auth_login_request_helper_failure_returns_login_result_payload() {
+        let _lock = crate::agent::provider_auth_test_env_lock();
+        let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
+        let _env_guard =
+            EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
+        prepare_server_openai_codex_auth_test(temp_dir.path());
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", temp_dir.path());
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentLoginOpenAICodex)
+            .await
+            .expect("send auth login request");
+
+        let login = match conn.recv().await {
+            DaemonMessage::AgentOpenAICodexAuthLoginResult { result_json } => {
+                parse_json(&result_json)
+            }
+            other => panic!("expected AgentOpenAICodexAuthLoginResult, got {other:?}"),
+        };
+        assert_eq!(login.get("status").and_then(|v| v.as_str()), Some("error"));
+        assert_eq!(login.get("available").and_then(|v| v.as_bool()), Some(false));
+        assert_eq!(
+            login.get("error").and_then(|v| v.as_str()),
+            Some("OpenAI authentication failed. Please try signing in again.")
+        );
+
+        conn.shutdown().await;
+        crate::agent::openai_codex_auth::clear_openai_codex_auth_test_state();
+    }
+
+    #[tokio::test]
     async fn openai_codex_auth_login_request_replies_immediately_without_operation_accepted() {
-        let _lock = server_openai_codex_auth_test_lock();
+        let _lock = crate::agent::provider_auth_test_env_lock();
         let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
         let _env_guard =
             EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
@@ -508,7 +533,7 @@
 
     #[tokio::test]
     async fn openai_codex_auth_logout_request_returns_logout_payload() {
-        let _lock = server_openai_codex_auth_test_lock();
+        let _lock = crate::agent::provider_auth_test_env_lock();
         let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
         let _env_guard =
             EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
@@ -533,8 +558,38 @@
     }
 
     #[tokio::test]
+    async fn openai_codex_auth_logout_helper_failure_returns_sanitized_error_payload() {
+        let _lock = crate::agent::provider_auth_test_env_lock();
+        let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
+        let _env_guard =
+            EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
+        prepare_server_openai_codex_auth_test(temp_dir.path());
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", temp_dir.path());
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentLogoutOpenAICodex)
+            .await
+            .expect("send auth logout request");
+
+        match conn.recv().await {
+            DaemonMessage::AgentOpenAICodexAuthLogoutResult { ok, error } => {
+                assert!(!ok);
+                assert_eq!(
+                    error.as_deref(),
+                    Some("OpenAI authentication failed. Please try signing in again.")
+                );
+            }
+            other => panic!("expected AgentOpenAICodexAuthLogoutResult, got {other:?}"),
+        }
+
+        conn.shutdown().await;
+        crate::agent::openai_codex_auth::clear_openai_codex_auth_test_state();
+    }
+
+    #[tokio::test]
     async fn openai_codex_auth_logout_during_pending_clears_pending_state() {
-        let _lock = server_openai_codex_auth_test_lock();
+        let _lock = crate::agent::provider_auth_test_env_lock();
         let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
         let _env_guard =
             EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);
@@ -579,7 +634,7 @@
 
     #[tokio::test]
     async fn openai_codex_auth_login_after_error_returns_fresh_pending_payload() {
-        let _lock = server_openai_codex_auth_test_lock();
+        let _lock = crate::agent::provider_auth_test_env_lock();
         let temp_dir = tempfile::tempdir().expect("tempdir should succeed");
         let _env_guard =
             EnvGuard::new(&["TAMUX_PROVIDER_AUTH_DB_PATH", "TAMUX_CODEX_CLI_AUTH_PATH"]);

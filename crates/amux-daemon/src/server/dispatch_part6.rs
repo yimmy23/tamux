@@ -514,12 +514,18 @@ if matches!(
                                 })
                                 .await?;
                         }
-                        Err(error) => {
+                        Err(_) => {
+                            let result_json = serde_json::to_string(&serde_json::json!({
+                                "available": false,
+                                "authMode": "chatgpt_subscription",
+                                "source": "tamux-daemon",
+                                "error": "OpenAI authentication failed. Please try signing in again.",
+                                "status": "error"
+                            }))
+                            .unwrap_or_else(|_| "{}".to_string());
                             framed
-                                .send(DaemonMessage::AgentError {
-                                    message: format!(
-                                        "failed to begin OpenAI Codex auth login: {error}"
-                                    ),
+                                .send(DaemonMessage::AgentOpenAICodexAuthLoginResult {
+                                    result_json,
                                 })
                                 .await?;
                         }
@@ -540,7 +546,26 @@ if matches!(
                             framed
                                 .send(DaemonMessage::AgentOpenAICodexAuthLogoutResult {
                                     ok: false,
-                                    error: Some(error.to_string()),
+                                    error: Some(
+                                        if error.to_string().to_ascii_lowercase().contains("timed out") {
+                                            "OpenAI authentication timed out. Please try again."
+                                                .to_string()
+                                        } else if error
+                                            .to_string()
+                                            .to_ascii_lowercase()
+                                            .contains("persist")
+                                            || error
+                                                .to_string()
+                                                .to_ascii_lowercase()
+                                                .contains("save")
+                                        {
+                                            "OpenAI authentication could not be saved. Please try again."
+                                                .to_string()
+                                        } else {
+                                            "OpenAI authentication failed. Please try signing in again."
+                                                .to_string()
+                                        },
+                                    ),
                                 })
                                 .await?;
                         }
