@@ -238,15 +238,15 @@ where
                 .send(ClientMessage::AgentGetProviderAuthStates)
                 .await?;
         }
-        AgentBridgeCommand::OpenAICodexAuthStatus => {
+        AgentBridgeCommand::GetOpenAICodexAuthStatus => {
             framed
                 .send(ClientMessage::AgentGetOpenAICodexAuthStatus)
                 .await?;
         }
-        AgentBridgeCommand::OpenAICodexAuthLogin => {
+        AgentBridgeCommand::LoginOpenAICodex => {
             framed.send(ClientMessage::AgentLoginOpenAICodex).await?;
         }
-        AgentBridgeCommand::OpenAICodexAuthLogout => {
+        AgentBridgeCommand::LogoutOpenAICodex => {
             framed.send(ClientMessage::AgentLogoutOpenAICodex).await?;
         }
         AgentBridgeCommand::SetSubAgent { sub_agent_json } => {
@@ -480,24 +480,35 @@ mod tests {
             .expect("codec should decode client message")
     }
 
+    async fn assert_emitted_client_message(line: &str, expected: ClientMessage) {
+        let message = emitted_client_message(line).await;
+        assert_eq!(std::mem::discriminant(&message), std::mem::discriminant(&expected));
+    }
+
     #[tokio::test]
     async fn openai_codex_auth_status_command_maps_to_client_message() {
-        let message = emitted_client_message(r#"{"type":"openai-codex-auth-status"}"#).await;
-
-        assert!(matches!(message, ClientMessage::AgentGetOpenAICodexAuthStatus));
+        assert_emitted_client_message(
+            r#"{"type":"openai-codex-auth-status"}"#,
+            ClientMessage::AgentGetOpenAICodexAuthStatus,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn openai_codex_auth_login_command_maps_to_client_message() {
-        let message = emitted_client_message(r#"{"type":"openai-codex-auth-login"}"#).await;
-
-        assert!(matches!(message, ClientMessage::AgentLoginOpenAICodex));
+        assert_emitted_client_message(
+            r#"{"type":"openai-codex-auth-login"}"#,
+            ClientMessage::AgentLoginOpenAICodex,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn openai_codex_auth_logout_command_maps_to_client_message() {
-        let message = emitted_client_message(r#"{"type":"openai-codex-auth-logout"}"#).await;
-
-        assert!(matches!(message, ClientMessage::AgentLogoutOpenAICodex));
+        assert_emitted_client_message(
+            r#"{"type":"openai-codex-auth-logout"}"#,
+            ClientMessage::AgentLogoutOpenAICodex,
+        )
+        .await;
     }
 }

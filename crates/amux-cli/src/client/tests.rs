@@ -147,26 +147,22 @@ fn operator_profile_bridge_commands_deserialize_failures() {
 
 #[test]
 fn agent_protocol_codex_auth_bridge_commands_deserialize() {
-    let cmd: AgentBridgeCommand = serde_json::from_str(r#"{"type":"openai-codex-auth-status"}"#)
-        .expect("openai-codex-auth-status must deserialize");
-    assert!(
-        matches!(cmd, AgentBridgeCommand::OpenAICodexAuthStatus),
-        "expected OpenAICodexAuthStatus"
-    );
+    fn parse(json: &str) -> AgentBridgeCommand {
+        serde_json::from_str(json).expect("codex auth command must deserialize")
+    }
 
-    let cmd: AgentBridgeCommand = serde_json::from_str(r#"{"type":"openai-codex-auth-login"}"#)
-        .expect("openai-codex-auth-login must deserialize");
-    assert!(
-        matches!(cmd, AgentBridgeCommand::OpenAICodexAuthLogin),
-        "expected OpenAICodexAuthLogin"
-    );
-
-    let cmd: AgentBridgeCommand = serde_json::from_str(r#"{"type":"openai-codex-auth-logout"}"#)
-        .expect("openai-codex-auth-logout must deserialize");
-    assert!(
-        matches!(cmd, AgentBridgeCommand::OpenAICodexAuthLogout),
-        "expected OpenAICodexAuthLogout"
-    );
+    assert!(matches!(
+        parse(r#"{"type":"openai-codex-auth-status"}"#),
+        AgentBridgeCommand::GetOpenAICodexAuthStatus
+    ));
+    assert!(matches!(
+        parse(r#"{"type":"openai-codex-auth-login"}"#),
+        AgentBridgeCommand::LoginOpenAICodex
+    ));
+    assert!(matches!(
+        parse(r#"{"type":"openai-codex-auth-logout"}"#),
+        AgentBridgeCommand::LogoutOpenAICodex
+    ));
 }
 
 #[test]
