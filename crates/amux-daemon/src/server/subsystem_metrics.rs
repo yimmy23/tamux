@@ -137,7 +137,9 @@ impl BackgroundSubsystemMetrics {
             return;
         };
 
-        let elapsed_ms = state.started_at.map(|started_at| started_at.elapsed().as_millis() as u64);
+        let elapsed_ms = state
+            .started_at
+            .map(|started_at| started_at.elapsed().as_millis() as u64);
 
         let mut metrics = self
             .per_subsystem
@@ -194,9 +196,10 @@ fn subsystem_for_operation_kind(kind: &str) -> Option<BackgroundSubsystem> {
         OPERATION_KIND_EXPLAIN_ACTION
         | OPERATION_KIND_SYNTHESIZE_TOOL
         | OPERATION_KIND_START_DIVERGENT_SESSION => Some(BackgroundSubsystem::AgentWork),
-        OPERATION_KIND_CONFIG_SET_ITEM | OPERATION_KIND_SET_PROVIDER_MODEL => {
-            Some(BackgroundSubsystem::ConfigReconcile)
-        }
+        OPERATION_KIND_CONFIG_SET_ITEM
+        | OPERATION_KIND_SET_PROVIDER_MODEL
+        | OPERATION_KIND_SET_SUB_AGENT
+        | OPERATION_KIND_REMOVE_SUB_AGENT => Some(BackgroundSubsystem::ConfigReconcile),
         _ => None,
     }
 }

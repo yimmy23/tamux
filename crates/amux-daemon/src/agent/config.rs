@@ -851,7 +851,7 @@ impl AgentEngine {
         self.persist_prepared_config_item_json(key_path, &value, merged.clone())
             .await?;
         self.reconcile_config_runtime_after_commit().await?;
-        Ok(merged)
+        Ok(self.get_config().await)
     }
 
     pub async fn prepare_config_item_json(
@@ -883,13 +883,7 @@ impl AgentEngine {
 
         let mut merged = merged;
         let collisions = sanitize_weles_collisions_from_config(&mut merged);
-        sanitize_weles_builtin_overrides_struct(
-            &mut merged.builtin_sub_agents.weles,
-            &merged.system_prompt,
-        );
-        *self.config.write().await = merged;
-        self.config_notify.notify_waiters();
-        self.report_weles_collisions_once(&collisions).await;
+        self.persist_sanitized_config(merged, collisions).await;
 
         let mut projection = self.config_runtime_projection.lock().await;
         projection.desired_revision = projection.desired_revision.saturating_add(1);
@@ -978,7 +972,7 @@ impl AgentEngine {
         self.persist_prepared_provider_model_json(updated.clone())
             .await;
         self.reconcile_config_runtime_after_commit().await?;
-        Ok(updated)
+        Ok(self.get_config().await)
     }
 
     pub async fn persist_prepared_provider_model_json(&self, merged: AgentConfig) {

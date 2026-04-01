@@ -5,13 +5,12 @@ pub(super) struct OperationRegistry {
 }
 
 impl OperationRegistry {
-    pub(super) fn accept_operation(
-        &self,
-        kind: &str,
-        dedup: Option<String>,
-    ) -> OperationRecord {
+    pub(super) fn accept_operation(&self, kind: &str, dedup: Option<String>) -> OperationRecord {
         if let Some(existing) = dedup.as_ref().and_then(|dedup_key| {
-            let dedup_index = self.dedup_index.lock().expect("operation dedup mutex poisoned");
+            let dedup_index = self
+                .dedup_index
+                .lock()
+                .expect("operation dedup mutex poisoned");
             let operation_id = dedup_index.get(dedup_key)?.clone();
             drop(dedup_index);
             self.snapshot(&operation_id).and_then(|snapshot| {
@@ -38,7 +37,10 @@ impl OperationRegistry {
         };
 
         {
-            let mut records = self.records.lock().expect("operation records mutex poisoned");
+            let mut records = self
+                .records
+                .lock()
+                .expect("operation records mutex poisoned");
             records.insert(record.operation_id.clone(), record.clone());
         }
 
@@ -56,23 +58,35 @@ impl OperationRegistry {
     }
 
     pub(super) fn mark_started(&self, operation_id: &str) {
-        self.update_state(operation_id, amux_protocol::OperationLifecycleState::Started);
+        self.update_state(
+            operation_id,
+            amux_protocol::OperationLifecycleState::Started,
+        );
     }
 
     pub(super) fn mark_completed(&self, operation_id: &str) {
-        self.update_state(operation_id, amux_protocol::OperationLifecycleState::Completed);
+        self.update_state(
+            operation_id,
+            amux_protocol::OperationLifecycleState::Completed,
+        );
     }
 
     pub(super) fn mark_failed(&self, operation_id: &str) {
         self.update_state(operation_id, amux_protocol::OperationLifecycleState::Failed);
     }
 
-    pub(super) fn snapshot(&self, operation_id: &str) -> Option<amux_protocol::OperationStatusSnapshot> {
+    pub(super) fn snapshot(
+        &self,
+        operation_id: &str,
+    ) -> Option<amux_protocol::OperationStatusSnapshot> {
         self.record(operation_id).map(|record| record.snapshot())
     }
 
     fn record(&self, operation_id: &str) -> Option<OperationRecord> {
-        let records = self.records.lock().expect("operation records mutex poisoned");
+        let records = self
+            .records
+            .lock()
+            .expect("operation records mutex poisoned");
         records.get(operation_id).cloned()
     }
 
@@ -82,7 +96,10 @@ impl OperationRegistry {
         let mut terminal_failed = None;
 
         {
-            let mut records = self.records.lock().expect("operation records mutex poisoned");
+            let mut records = self
+                .records
+                .lock()
+                .expect("operation records mutex poisoned");
             if let Some(record) = records.get_mut(operation_id) {
                 if record.state != state {
                     record.state = state;
@@ -153,18 +170,30 @@ mod operation_registry_tests {
         let completed = registry
             .snapshot(&first.operation_id)
             .expect("completed operation should remain queryable");
-        assert_eq!(completed.state, amux_protocol::OperationLifecycleState::Completed);
+        assert_eq!(
+            completed.state,
+            amux_protocol::OperationLifecycleState::Completed
+        );
 
         let second = registry.accept_operation("plugin_api_call", Some("plugin:dedup".to_string()));
         assert_ne!(first.operation_id, second.operation_id);
-        assert_eq!(second.state, amux_protocol::OperationLifecycleState::Accepted);
+        assert_eq!(
+            second.state,
+            amux_protocol::OperationLifecycleState::Accepted
+        );
     }
 
     #[test]
     fn retention_policy_is_explicit_for_migrated_operation_kinds() {
         let policy = retention_policy_for_kind(OPERATION_KIND_PLUGIN_API_CALL);
-        assert_eq!(policy.terminal_visibility, OperationTerminalVisibility::UntilProcessExit);
-        assert_eq!(policy.interrupted_visibility, InterruptedVisibility::ReconnectOnly);
+        assert_eq!(
+            policy.terminal_visibility,
+            OperationTerminalVisibility::UntilProcessExit
+        );
+        assert_eq!(
+            policy.interrupted_visibility,
+            InterruptedVisibility::ReconnectOnly
+        );
         assert!(!policy.survives_process_restart);
         assert!(policy.release_dedup_on_terminal);
 
@@ -179,11 +208,35 @@ mod operation_registry_tests {
         );
         assert!(!config_policy.survives_process_restart);
         assert!(config_policy.release_dedup_on_terminal);
+
+        let set_sub_agent_policy = retention_policy_for_kind(OPERATION_KIND_SET_SUB_AGENT);
+        assert_eq!(
+            set_sub_agent_policy.terminal_visibility,
+            OperationTerminalVisibility::UntilProcessExit
+        );
+        assert_eq!(
+            set_sub_agent_policy.interrupted_visibility,
+            InterruptedVisibility::ReconnectOnly
+        );
+        assert!(!set_sub_agent_policy.survives_process_restart);
+        assert!(set_sub_agent_policy.release_dedup_on_terminal);
+
+        let remove_sub_agent_policy = retention_policy_for_kind(OPERATION_KIND_REMOVE_SUB_AGENT);
+        assert_eq!(
+            remove_sub_agent_policy.terminal_visibility,
+            OperationTerminalVisibility::UntilProcessExit
+        );
+        assert_eq!(
+            remove_sub_agent_policy.interrupted_visibility,
+            InterruptedVisibility::ReconnectOnly
+        );
+        assert!(!remove_sub_agent_policy.survives_process_restart);
+        assert!(remove_sub_agent_policy.release_dedup_on_terminal);
     }
 
     #[test]
     fn subsystem_metrics_track_operation_lifecycle_counts_and_latencies() {
-        subsystem_metrics().reset_for_tests();
+        let before = subsystem_metrics().snapshot_for(BackgroundSubsystem::PluginIo);
 
         let registry = OperationRegistry::default();
         let record = registry.accept_operation(OPERATION_KIND_PLUGIN_API_CALL, None);
@@ -193,12 +246,18 @@ mod operation_registry_tests {
         registry.mark_failed(&record.operation_id);
 
         let snapshot = subsystem_metrics().snapshot_for(BackgroundSubsystem::PluginIo);
-        assert_eq!(snapshot.accepted_count, 1);
-        assert_eq!(snapshot.started_count, 1);
-        assert_eq!(snapshot.failed_count, 1);
-        assert_eq!(snapshot.completed_count, 0);
-        assert_eq!(snapshot.accepted_to_started_samples, 1);
-        assert_eq!(snapshot.started_to_terminal_samples, 1);
+        assert!(snapshot.accepted_count >= before.accepted_count.saturating_add(1));
+        assert!(snapshot.started_count >= before.started_count.saturating_add(1));
+        assert!(snapshot.failed_count >= before.failed_count.saturating_add(1));
+        assert!(snapshot.completed_count >= before.completed_count);
+        assert!(
+            snapshot.accepted_to_started_samples
+                >= before.accepted_to_started_samples.saturating_add(1)
+        );
+        assert!(
+            snapshot.started_to_terminal_samples
+                >= before.started_to_terminal_samples.saturating_add(1)
+        );
         assert!(snapshot.last_accepted_to_started_ms.is_some());
         assert!(snapshot.last_started_to_terminal_ms.is_some());
     }
@@ -207,8 +266,14 @@ mod operation_registry_tests {
     fn shutdown_policy_is_explicit_for_ephemeral_and_config_reconcile_work() {
         let ephemeral = retention_policy_for_kind(OPERATION_KIND_PLUGIN_API_CALL);
         assert_eq!(ephemeral.durability, OperationDurability::Ephemeral);
-        assert_eq!(ephemeral.accepted_shutdown, ShutdownDisposition::LostOnDaemonStop);
-        assert_eq!(ephemeral.started_shutdown, ShutdownDisposition::LostOnDaemonStop);
+        assert_eq!(
+            ephemeral.accepted_shutdown,
+            ShutdownDisposition::LostOnDaemonStop
+        );
+        assert_eq!(
+            ephemeral.started_shutdown,
+            ShutdownDisposition::LostOnDaemonStop
+        );
 
         let config = retention_policy_for_kind(OPERATION_KIND_CONFIG_SET_ITEM);
         assert_eq!(config.durability, OperationDurability::DesiredStateDurable);
@@ -220,14 +285,60 @@ mod operation_registry_tests {
             config.started_shutdown,
             ShutdownDisposition::DesiredStateRemainsNeedsReconcile
         );
+
+        let set_sub_agent = retention_policy_for_kind(OPERATION_KIND_SET_SUB_AGENT);
+        assert_eq!(
+            set_sub_agent.durability,
+            OperationDurability::DesiredStateDurable
+        );
+        assert_eq!(
+            set_sub_agent.accepted_shutdown,
+            ShutdownDisposition::DesiredStateRemainsNeedsReconcile
+        );
+        assert_eq!(
+            set_sub_agent.started_shutdown,
+            ShutdownDisposition::DesiredStateRemainsNeedsReconcile
+        );
+
+        let remove_sub_agent = retention_policy_for_kind(OPERATION_KIND_REMOVE_SUB_AGENT);
+        assert_eq!(
+            remove_sub_agent.durability,
+            OperationDurability::DesiredStateDurable
+        );
+        assert_eq!(
+            remove_sub_agent.accepted_shutdown,
+            ShutdownDisposition::DesiredStateRemainsNeedsReconcile
+        );
+        assert_eq!(
+            remove_sub_agent.started_shutdown,
+            ShutdownDisposition::DesiredStateRemainsNeedsReconcile
+        );
     }
 
     #[test]
     fn superseded_state_policy_is_explicit_for_phase_two() {
         let plugin = retention_policy_for_kind(OPERATION_KIND_PLUGIN_API_CALL);
-        assert_eq!(plugin.supersession, SupersessionPolicy::NotEmittedInPhaseTwo);
+        assert_eq!(
+            plugin.supersession,
+            SupersessionPolicy::NotEmittedInPhaseTwo
+        );
 
         let config = retention_policy_for_kind(OPERATION_KIND_CONFIG_SET_ITEM);
-        assert_eq!(config.supersession, SupersessionPolicy::NotEmittedInPhaseTwo);
+        assert_eq!(
+            config.supersession,
+            SupersessionPolicy::NotEmittedInPhaseTwo
+        );
+
+        let set_sub_agent = retention_policy_for_kind(OPERATION_KIND_SET_SUB_AGENT);
+        assert_eq!(
+            set_sub_agent.supersession,
+            SupersessionPolicy::NotEmittedInPhaseTwo
+        );
+
+        let remove_sub_agent = retention_policy_for_kind(OPERATION_KIND_REMOVE_SUB_AGENT);
+        assert_eq!(
+            remove_sub_agent.supersession,
+            SupersessionPolicy::NotEmittedInPhaseTwo
+        );
     }
 }

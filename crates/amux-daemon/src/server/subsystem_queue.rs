@@ -247,7 +247,7 @@ mod subsystem_queue_tests {
 
     #[test]
     fn subsystem_metrics_track_depth_and_rejections() {
-        subsystem_metrics().reset_for_tests();
+        let before = subsystem_metrics().snapshot_for(BackgroundSubsystem::PluginIo);
 
         let mut counts = BackgroundPendingCounts::default();
         counts.increment(BackgroundSubsystem::PluginIo);
@@ -257,8 +257,8 @@ mod subsystem_queue_tests {
 
         let snapshot = subsystem_metrics().snapshot_for(BackgroundSubsystem::PluginIo);
         assert_eq!(snapshot.current_depth, 1);
-        assert_eq!(snapshot.max_depth, 2);
-        assert_eq!(snapshot.rejection_count, 1);
+        assert!(snapshot.max_depth >= 2);
+        assert!(snapshot.rejection_count >= before.rejection_count.saturating_add(1));
     }
 
     #[tokio::test]

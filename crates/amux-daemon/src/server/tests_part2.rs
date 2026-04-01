@@ -107,6 +107,30 @@
         spawn_test_connection_with_config(AgentConfig::default()).await
     }
 
+    fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
+        SubAgentDefinition {
+            id: id.to_string(),
+            name: name.to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("specialist".to_string()),
+            system_prompt: Some("Handle delegated work.".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: None,
+            created_at: 1_712_000_010,
+        }
+    }
+
     async fn declare_async_command_capability(conn: &mut TestConnection) {
         conn.framed
             .send(ClientMessage::AgentDeclareAsyncCommandCapability {
@@ -3118,6 +3142,167 @@
             }
             other => panic!("expected AgentSubAgentUpdated, got {other:?}"),
         }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn agent_set_sub_agent_async_request_returns_operation_acceptance() {
+        let mut conn = spawn_test_connection().await;
+        declare_async_command_capability(&mut conn).await;
+
+        let weles = conn
+            .agent
+            .list_sub_agents()
+            .await
+            .into_iter()
+            .find(|entry| entry.id == "weles_builtin")
+            .expect("missing builtin weles entry");
+        let mut updated = weles;
+        updated.reasoning_effort = Some("high".to_string());
+
+        conn.framed
+            .send(ClientMessage::AgentSetSubAgent {
+                sub_agent_json: serde_json::to_string(&updated).expect("serialize subagent"),
+            })
+            .await
+            .expect("send set subagent");
+
+        let operation_id = match conn.recv_with_timeout(Duration::from_millis(250)).await {
+            DaemonMessage::OperationAccepted { operation_id, kind, .. } => {
+                assert_eq!(kind, "set_sub_agent");
+                operation_id
+            }
+            other => panic!("expected set-subagent operation acceptance, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while set-subagent is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv_with_timeout(Duration::from_millis(250)).await {
+                    DaemonMessage::Pong => return true,
+                    DaemonMessage::AgentSubAgentUpdated { .. } => continue,
+                    other => panic!(
+                        "expected Pong while set-subagent runs in background, got {other:?}"
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        assert!(pong_received, "ping should not be blocked behind set-subagent");
+
+        conn.framed
+            .send(ClientMessage::AgentGetOperationStatus { operation_id })
+            .await
+            .expect("query set-subagent operation status");
+
+        match conn.recv_with_timeout(Duration::from_secs(1)).await {
+            DaemonMessage::OperationStatus { snapshot } => {
+                assert_eq!(snapshot.kind, "set_sub_agent");
+                assert!(matches!(
+                    snapshot.state,
+                    amux_protocol::OperationLifecycleState::Accepted
+                        | amux_protocol::OperationLifecycleState::Started
+                ));
+            }
+            other => panic!("expected set-subagent status snapshot, got {other:?}"),
+        }
+
+        match conn.recv_with_timeout(Duration::from_secs(1)).await {
+            DaemonMessage::AgentSubAgentUpdated { sub_agent_json } => {
+                let returned: SubAgentDefinition =
+                    serde_json::from_str(&sub_agent_json).expect("parse returned subagent json");
+                assert_eq!(returned.id, "weles_builtin");
+                assert_eq!(returned.reasoning_effort.as_deref(), Some("high"));
+            }
+            other => panic!("expected set-subagent result, got {other:?}"),
+        }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn agent_remove_sub_agent_async_request_returns_operation_acceptance() {
+        let mut conn = spawn_test_connection().await;
+        declare_async_command_capability(&mut conn).await;
+
+        let removable = test_user_sub_agent("reviewer_async_remove", "Reviewer Async Remove");
+        conn.agent
+            .set_sub_agent(removable)
+            .await
+            .expect("seed removable subagent");
+
+        conn.framed
+            .send(ClientMessage::AgentRemoveSubAgent {
+                sub_agent_id: "reviewer_async_remove".to_string(),
+            })
+            .await
+            .expect("send remove subagent");
+
+        let operation_id = match conn.recv_with_timeout(Duration::from_millis(250)).await {
+            DaemonMessage::OperationAccepted { operation_id, kind, .. } => {
+                assert_eq!(kind, "remove_sub_agent");
+                operation_id
+            }
+            other => panic!("expected remove-subagent operation acceptance, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while remove-subagent is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv_with_timeout(Duration::from_millis(250)).await {
+                    DaemonMessage::Pong => return true,
+                    DaemonMessage::AgentSubAgentRemoved { .. } => continue,
+                    other => panic!(
+                        "expected Pong while remove-subagent runs in background, got {other:?}"
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        assert!(pong_received, "ping should not be blocked behind remove-subagent");
+
+        conn.framed
+            .send(ClientMessage::AgentGetOperationStatus { operation_id })
+            .await
+            .expect("query remove-subagent operation status");
+
+        match conn.recv_with_timeout(Duration::from_secs(1)).await {
+            DaemonMessage::OperationStatus { snapshot } => {
+                assert_eq!(snapshot.kind, "remove_sub_agent");
+                assert!(matches!(
+                    snapshot.state,
+                    amux_protocol::OperationLifecycleState::Accepted
+                        | amux_protocol::OperationLifecycleState::Started
+                ));
+            }
+            other => panic!("expected remove-subagent status snapshot, got {other:?}"),
+        }
+
+        match conn.recv_with_timeout(Duration::from_secs(1)).await {
+            DaemonMessage::AgentSubAgentRemoved { sub_agent_id } => {
+                assert_eq!(sub_agent_id, "reviewer_async_remove");
+            }
+            other => panic!("expected remove-subagent result, got {other:?}"),
+        }
+
+        assert!(conn
+            .agent
+            .get_sub_agent("reviewer_async_remove")
+            .await
+            .is_none());
 
         conn.shutdown().await;
     }

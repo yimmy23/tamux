@@ -16,6 +16,8 @@ pub(super) const OPERATION_KIND_SYNTHESIZE_TOOL: &str = "synthesize_tool";
 pub(super) const OPERATION_KIND_START_DIVERGENT_SESSION: &str = "start_divergent_session";
 pub(super) const OPERATION_KIND_CONFIG_SET_ITEM: &str = "config_set_item";
 pub(super) const OPERATION_KIND_SET_PROVIDER_MODEL: &str = "set_provider_model";
+pub(super) const OPERATION_KIND_SET_SUB_AGENT: &str = "set_sub_agent";
+pub(super) const OPERATION_KIND_REMOVE_SUB_AGENT: &str = "remove_sub_agent";
 
 #[derive(Debug, Clone)]
 pub(super) struct OperationRecord {
@@ -173,6 +175,31 @@ pub(super) fn set_provider_model_dedup_key(
 ) -> String {
     format!(
         "{OPERATION_KIND_SET_PROVIDER_MODEL}:{provider_id}:{model}:{:p}",
+        Arc::as_ptr(agent)
+    )
+}
+
+pub(super) fn set_sub_agent_dedup_key(
+    agent: &Arc<crate::agent::AgentEngine>,
+    sub_agent_id: &str,
+    sub_agent_json: &str,
+) -> String {
+    let mut hasher = DefaultHasher::new();
+    sub_agent_id.hash(&mut hasher);
+    sub_agent_json.hash(&mut hasher);
+    let request_hash = hasher.finish();
+    format!(
+        "{OPERATION_KIND_SET_SUB_AGENT}:{request_hash:x}:{:p}",
+        Arc::as_ptr(agent)
+    )
+}
+
+pub(super) fn remove_sub_agent_dedup_key(
+    agent: &Arc<crate::agent::AgentEngine>,
+    sub_agent_id: &str,
+) -> String {
+    format!(
+        "{OPERATION_KIND_REMOVE_SUB_AGENT}:{sub_agent_id}:{:p}",
         Arc::as_ptr(agent)
     )
 }

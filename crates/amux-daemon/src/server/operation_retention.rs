@@ -61,9 +61,10 @@ const DESIRED_STATE_DURABLE_POLICY: OperationRetentionPolicy = OperationRetentio
 
 pub(super) fn retention_policy_for_kind(kind: &str) -> OperationRetentionPolicy {
     match kind {
-        OPERATION_KIND_CONFIG_SET_ITEM | OPERATION_KIND_SET_PROVIDER_MODEL => {
-            DESIRED_STATE_DURABLE_POLICY
-        }
+        OPERATION_KIND_CONFIG_SET_ITEM
+        | OPERATION_KIND_SET_PROVIDER_MODEL
+        | OPERATION_KIND_SET_SUB_AGENT
+        | OPERATION_KIND_REMOVE_SUB_AGENT => DESIRED_STATE_DURABLE_POLICY,
         _ => IN_MEMORY_RECONNECT_ONLY_POLICY,
     }
 }
