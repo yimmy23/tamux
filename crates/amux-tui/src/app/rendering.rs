@@ -179,6 +179,7 @@ impl TuiModel {
                 &self.gateway_statuses,
                 &self.tier,
                 self.agent_activity.as_deref(),
+                self.weles_health.as_ref(),
                 &self.recent_actions,
             );
         } else {

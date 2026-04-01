@@ -110,7 +110,11 @@ pub(super) fn base_schema_sql() -> &'static str {
                 blocked_reason       TEXT,
                 awaiting_approval_id TEXT,
                 lane_id              TEXT,
-                last_error           TEXT
+                last_error           TEXT,
+                override_provider    TEXT,
+                override_model       TEXT,
+                override_system_prompt TEXT,
+                sub_agent_def_id     TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, priority, created_at DESC);
             CREATE TABLE IF NOT EXISTS agent_task_dependencies (

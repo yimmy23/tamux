@@ -66,6 +66,7 @@ export type RemoteAgentMessageRecord = {
   tool_call_id?: string | null;
   tool_arguments?: string | null;
   tool_status?: string | null;
+  weles_review?: AgentMessage["welesReview"] | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
   reasoning?: string | null;
@@ -180,6 +181,7 @@ export function buildHydratedRemoteMessage(
         || message.tool_status === "error"
         ? message.tool_status
         : undefined,
+    welesReview: message.weles_review ?? undefined,
     inputTokens: Number(message.input_tokens ?? 0),
     outputTokens: Number(message.output_tokens ?? 0),
     totalTokens: Number(message.input_tokens ?? 0) + Number(message.output_tokens ?? 0),
@@ -332,6 +334,7 @@ export function serializeMessage(message: AgentMessage): AgentDbMessageRecord {
       toolCallId: message.toolCallId ?? null,
       toolArguments: message.toolArguments ?? null,
       toolStatus: message.toolStatus ?? null,
+      welesReview: message.welesReview ?? null,
       api_transport: message.api_transport ?? null,
       responseId: message.responseId ?? null,
       reasoningTokens: message.reasoningTokens ?? null,
@@ -424,6 +427,7 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
     toolCallId: (metadata.toolCallId as string) ?? undefined,
     toolArguments: (metadata.toolArguments as string) ?? undefined,
     toolStatus: (metadata.toolStatus as AgentMessage["toolStatus"]) ?? undefined,
+    welesReview: (metadata.welesReview as AgentMessage["welesReview"]) ?? undefined,
     inputTokens: message.input_tokens ?? 0,
     outputTokens: message.output_tokens ?? 0,
     totalTokens: message.total_tokens ?? 0,

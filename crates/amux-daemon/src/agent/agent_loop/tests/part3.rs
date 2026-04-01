@@ -241,6 +241,7 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
             name: "read_file".to_string(),
             content: "ok\n".to_string(),
             is_error: false,
+            weles_review: None,
             pending_approval: None,
         },
     )];

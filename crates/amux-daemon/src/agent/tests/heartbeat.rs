@@ -1,5 +1,7 @@
 #[cfg(test)]
 use super::*;
+use tempfile::tempdir;
+use tokio::time::{timeout, Duration};
 
 // ── check_quiet_window pure function tests ─────────────────────────
 
@@ -367,4 +369,46 @@ fn priority_floor_never_below_point_one() {
     // Extreme dismissals and inaction with no recovery
     let result = compute_check_priority(1000, 1000, 1000, 0, 1.0, 0.0);
     assert!((result - 0.1).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn heartbeat_weles_health_marks_review_unavailable_as_degraded() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.extra.insert(
+        "weles_review_available".to_string(),
+        serde_json::Value::Bool(false),
+    );
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut events = engine.subscribe();
+
+    let status = engine.refresh_weles_health_from_heartbeat(1_234).await;
+
+    assert_eq!(status.state, WelesHealthState::Degraded);
+    assert_eq!(status.checked_at, 1_234);
+    assert!(status
+        .reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("review unavailable")));
+
+    let event = timeout(Duration::from_millis(250), events.recv())
+        .await
+        .expect("weles health event should arrive")
+        .expect("weles health event should deserialize");
+    match event {
+        AgentEvent::WelesHealthUpdate {
+            state,
+            reason,
+            checked_at,
+        } => {
+            assert_eq!(state, WelesHealthState::Degraded);
+            assert_eq!(checked_at, 1_234);
+            assert!(reason
+                .as_deref()
+                .is_some_and(|value| value.contains("review unavailable")));
+        }
+        other => panic!("expected weles health update, got {other:?}"),
+    }
 }

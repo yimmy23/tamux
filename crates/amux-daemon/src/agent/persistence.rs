@@ -2,6 +2,75 @@
 
 use super::*;
 
+const WELES_RUNTIME_CONTEXT_PREFIX: &str = "weles_runtime_context:";
+
+pub(super) fn weles_runtime_context_key(task_id: &str) -> String {
+    format!("{WELES_RUNTIME_CONTEXT_PREFIX}{task_id}")
+}
+
+pub(super) fn sanitize_task_for_external_view(task: &mut AgentTask) {
+    if task.sub_agent_def_id.as_deref()
+        == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    {
+        if let Some(prompt) = task.override_system_prompt.as_deref() {
+            let sanitized = crate::agent::weles_governance::strip_weles_internal_payload_markers(prompt);
+            task.override_system_prompt = if sanitized.trim().is_empty() {
+                None
+            } else {
+                Some(sanitized)
+            };
+        }
+    }
+}
+
+async fn restore_weles_runtime_context(engine: &AgentEngine, task: &mut AgentTask) {
+    if task.sub_agent_def_id.as_deref()
+        != Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    {
+        return;
+    }
+
+    let Some(prompt) = task.override_system_prompt.as_deref() else {
+        return;
+    };
+    if crate::agent::weles_governance::parse_weles_internal_override_payload(prompt).is_some() {
+        return;
+    }
+
+    let scope = if prompt.contains("Your current internal scope is vitality.") {
+        Some(crate::agent::agent_identity::WELES_VITALITY_SCOPE)
+    } else if prompt.contains("Your current internal scope is governance.") {
+        Some(crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE)
+    } else {
+        None
+    };
+    let Some(scope) = scope else {
+        return;
+    };
+
+    let key = weles_runtime_context_key(&task.id);
+    let Ok(Some(raw_context)) = engine.history.get_consolidation_state(&key).await else {
+        return;
+    };
+    let Ok(inspection_context) = serde_json::from_str::<serde_json::Value>(&raw_context) else {
+        tracing::warn!(task_id = %task.id, "failed to parse persisted WELES runtime context");
+        return;
+    };
+    let Some(internal_payload) = crate::agent::weles_governance::build_weles_internal_override_payload(
+        scope,
+        &inspection_context,
+    ) else {
+        tracing::warn!(task_id = %task.id, "failed to rebuild WELES runtime payload from persisted context");
+        return;
+    };
+    task.override_system_prompt = Some(format!("{prompt}\n\n{internal_payload}"));
+    engine
+        .trusted_weles_tasks
+        .write()
+        .await
+        .insert(task.id.clone());
+}
+
 mod save;
 
 impl AgentEngine {
@@ -13,10 +82,14 @@ impl AgentEngine {
     pub async fn hydrate(&self) -> Result<()> {
         // Load config from SQLite-backed config items.
         match self.history.list_agent_config_items().await {
-            Ok(items) if !items.is_empty() => match super::config::load_config_from_items(items) {
-                Ok(cfg) => *self.config.write().await = cfg,
-                Err(error) => tracing::warn!("failed to load agent config from sqlite: {error}"),
-            },
+            Ok(items) if !items.is_empty() => {
+                match super::config::load_config_from_items_with_weles_cleanup(items) {
+                    Ok((cfg, collisions)) => {
+                        self.persist_sanitized_config(cfg, collisions).await;
+                    }
+                    Err(error) => tracing::warn!("failed to load agent config from sqlite: {error}"),
+                }
+            }
             Ok(_) => {}
             Err(error) => tracing::warn!("failed to read agent config items from sqlite: {error}"),
         }
@@ -53,6 +126,7 @@ impl AgentEngine {
                                 tool_name: metadata.tool_name,
                                 tool_arguments: metadata.tool_arguments,
                                 tool_status: metadata.tool_status,
+                                weles_review: metadata.weles_review,
                                 input_tokens: message.input_tokens.unwrap_or(0) as u64,
                                 output_tokens: message.output_tokens.unwrap_or(0) as u64,
                                 provider: message.provider,
@@ -94,6 +168,8 @@ impl AgentEngine {
         match self.history.list_agent_tasks().await {
             Ok(mut tasks) if !tasks.is_empty() => {
                 for task in &mut tasks {
+                    sanitize_task_for_external_view(task);
+                    restore_weles_runtime_context(self, task).await;
                     if task.status == TaskStatus::InProgress {
                         task.status = TaskStatus::Queued;
                         task.started_at = None;
@@ -118,6 +194,8 @@ impl AgentEngine {
                             if let Ok(mut tasks) = serde_json::from_str::<VecDeque<AgentTask>>(&raw)
                             {
                                 for task in tasks.iter_mut() {
+                                    sanitize_task_for_external_view(task);
+                                    restore_weles_runtime_context(self, task).await;
                                     if task.status == TaskStatus::InProgress {
                                         task.status = TaskStatus::Queued;
                                         task.started_at = None;

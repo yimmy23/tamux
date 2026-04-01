@@ -58,6 +58,7 @@ impl TuiModel {
             cancelled_thread_id: None,
             ignore_pending_concierge_welcome: false,
             gateway_statuses: Vec::new(),
+            weles_health: None,
             recent_actions: Vec::new(),
             chat_drag_anchor: None,
             chat_drag_current: None,
@@ -415,5 +416,4 @@ impl TuiModel {
         }
         self.modal.reduce(modal::ModalAction::Pop);
     }
-
 }

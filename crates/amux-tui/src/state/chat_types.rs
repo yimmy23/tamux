@@ -19,6 +19,7 @@ pub struct AgentMessage {
     pub tool_arguments: Option<String>,
     pub tool_call_id: Option<String>,
     pub tool_status: Option<String>,
+    pub weles_review: Option<WelesReviewMetaVm>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub tps: Option<f64>,
@@ -29,6 +30,8 @@ pub struct AgentMessage {
     pub actions: Vec<MessageAction>,
     pub is_concierge_welcome: bool,
 }
+
+pub type WelesReviewMetaVm = crate::client::WelesReviewMetaVm;
 
 #[derive(Debug, Clone, Default)]
 pub struct MessageAction {
@@ -96,6 +99,7 @@ pub struct ToolCallVm {
     pub status: ToolCallStatus,
     pub result: Option<String>,
     pub is_error: bool,
+    pub weles_review: Option<WelesReviewMetaVm>,
     pub started_at: u64,
 }
 
@@ -138,6 +142,7 @@ pub enum ChatAction {
         call_id: String,
         name: String,
         args: String,
+        weles_review: Option<WelesReviewMetaVm>,
     },
     ToolResult {
         thread_id: String,
@@ -145,6 +150,7 @@ pub enum ChatAction {
         name: String,
         content: String,
         is_error: bool,
+        weles_review: Option<WelesReviewMetaVm>,
     },
     TurnDone {
         thread_id: String,

@@ -19,6 +19,7 @@ impl TuiModel {
         call_id: String,
         name: String,
         arguments: String,
+        weles_review: Option<crate::client::WelesReviewMetaVm>,
     ) {
         self.agent_activity = Some(format!("⚙  {}", name));
         self.chat.reduce(chat::ChatAction::ToolCall {
@@ -26,6 +27,7 @@ impl TuiModel {
             call_id,
             name,
             args: arguments,
+            weles_review,
         });
     }
 
@@ -36,6 +38,7 @@ impl TuiModel {
         name: String,
         content: String,
         is_error: bool,
+        weles_review: Option<crate::client::WelesReviewMetaVm>,
     ) {
         self.agent_activity = Some(format!("⚙  {} ✓", name));
         self.chat.reduce(chat::ChatAction::ToolResult {
@@ -44,6 +47,7 @@ impl TuiModel {
             name,
             content,
             is_error,
+            weles_review,
         });
     }
 
@@ -212,6 +216,14 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_error_event(&mut self, message: String) {
+        let should_refresh_subagents = {
+            let lowercase = message.to_ascii_lowercase();
+            lowercase.contains("sub-agent")
+                || lowercase.contains("subagent")
+                || lowercase.contains("protected mutation")
+                || lowercase.contains("reserved built-in")
+                || lowercase.contains("weles")
+        };
         let busy = self.assistant_busy();
         if busy {
             self.chat.reduce(chat::ChatAction::ForceStopStreaming);
@@ -233,6 +245,9 @@ impl TuiModel {
             }
         } else {
             self.status_line = "Error recorded. Press Ctrl+E for details".to_string();
+        }
+        if should_refresh_subagents {
+            self.send_daemon_command(DaemonCommand::ListSubAgents);
         }
     }
 
@@ -318,6 +333,39 @@ impl TuiModel {
                 120,
                 false,
             );
+        }
+    }
+
+    pub(in crate::app) fn handle_weles_health_update_event(
+        &mut self,
+        state: String,
+        reason: Option<String>,
+        checked_at: u64,
+    ) {
+        let degraded = state.eq_ignore_ascii_case("degraded");
+        self.weles_health = Some(crate::client::WelesHealthVm {
+            state,
+            reason: reason.clone(),
+            checked_at,
+        });
+        if degraded {
+            let detail = reason
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "daemon vitality checks require attention".to_string());
+            self.status_line = format!("WELES degraded: {detail}");
+            let thread_id = self
+                .chat
+                .active_thread_id()
+                .map(str::to_string)
+                .unwrap_or_else(|| "local-weles-health".to_string());
+            self.chat.reduce(chat::ChatAction::AppendMessage {
+                thread_id,
+                message: chat::AgentMessage {
+                    role: chat::MessageRole::System,
+                    content: format!("WELES degraded\n\n{detail}"),
+                    ..Default::default()
+                },
+            });
         }
     }
 

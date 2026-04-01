@@ -280,6 +280,129 @@ fn tool_message_with_content_renders_compact() {
 }
 
 #[test]
+fn tool_message_blocked_and_flagged_render_distinct_markers() {
+    let blocked_msg = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("bash_command".into()),
+        tool_status: Some("error".into()),
+        weles_review: Some(crate::state::chat::WelesReviewMetaVm {
+            weles_reviewed: true,
+            verdict: "block".into(),
+            reasons: vec!["network access requested".into()],
+            security_override_mode: None,
+            audit_id: Some("audit-block-1".into()),
+        }),
+        ..Default::default()
+    };
+    let flagged_msg = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("bash_command".into()),
+        tool_status: Some("done".into()),
+        weles_review: Some(crate::state::chat::WelesReviewMetaVm {
+            weles_reviewed: true,
+            verdict: "flag_only".into(),
+            reasons: vec!["shell-based Python bypass".into()],
+            security_override_mode: Some("yolo".into()),
+            audit_id: Some("audit-flag-1".into()),
+        }),
+        ..Default::default()
+    };
+
+    let blocked_lines = message_to_lines(
+        &blocked_msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &empty_tools(),
+    );
+    let flagged_lines = message_to_lines(
+        &flagged_msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &empty_tools(),
+    );
+
+    let blocked_plain = blocked_lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    let flagged_plain = flagged_lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(
+        blocked_plain.contains("blocked"),
+        "expected blocked marker, got: {blocked_plain}"
+    );
+    assert!(
+        flagged_plain.contains("flagged"),
+        "expected flagged marker, got: {flagged_plain}"
+    );
+}
+
+#[test]
+fn tool_message_expanded_shows_weles_rationale_and_degraded_state() {
+    let msg = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("bash_command".into()),
+        tool_status: Some("done".into()),
+        tool_arguments: Some("python -c 'print(1)'".into()),
+        content: "ok".into(),
+        weles_review: Some(crate::state::chat::WelesReviewMetaVm {
+            weles_reviewed: false,
+            verdict: "flag_only".into(),
+            reasons: vec!["WELES unavailable; policy downgraded under yolo".into()],
+            security_override_mode: Some("yolo".into()),
+            audit_id: Some("audit-degraded-1".into()),
+        }),
+        ..Default::default()
+    };
+    let mut exp_tools = empty_tools();
+    exp_tools.insert(0);
+
+    let lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &exp_tools,
+    );
+    let plain = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        plain.contains("degraded"),
+        "expected degraded marker, got: {plain}"
+    );
+    assert!(
+        plain.contains("yolo"),
+        "expected yolo override marker, got: {plain}"
+    );
+    assert!(
+        plain.contains("WELES unavailable"),
+        "expected rationale in expanded tool view, got: {plain}"
+    );
+}
+
+#[test]
 fn reasoning_before_content() {
     let msg = AgentMessage {
         role: MessageRole::Assistant,

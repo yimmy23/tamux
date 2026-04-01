@@ -112,6 +112,7 @@ impl AgentEngine {
                 tool_name: None,
                 tool_arguments: None,
                 tool_status: None,
+                weles_review: None,
                 input_tokens,
                 output_tokens,
                 provider,

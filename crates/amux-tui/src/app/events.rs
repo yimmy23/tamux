@@ -254,8 +254,9 @@ impl TuiModel {
                 call_id,
                 name,
                 arguments,
+                weles_review,
             } => {
-                self.handle_tool_call_event(thread_id, call_id, name, arguments);
+                self.handle_tool_call_event(thread_id, call_id, name, arguments, weles_review);
             }
             ClientEvent::ToolResult {
                 thread_id,
@@ -263,8 +264,16 @@ impl TuiModel {
                 name,
                 content,
                 is_error,
+                weles_review,
             } => {
-                self.handle_tool_result_event(thread_id, call_id, name, content, is_error);
+                self.handle_tool_result_event(
+                    thread_id,
+                    call_id,
+                    name,
+                    content,
+                    is_error,
+                    weles_review,
+                );
             }
             ClientEvent::Done {
                 thread_id,
@@ -426,6 +435,13 @@ impl TuiModel {
                 details,
             } => {
                 self.handle_workflow_notice_event(kind, message, details);
+            }
+            ClientEvent::WelesHealthUpdate {
+                state,
+                reason,
+                checked_at,
+            } => {
+                self.handle_weles_health_update_event(state, reason, checked_at);
             }
             ClientEvent::StatusDiagnostics {
                 operator_profile_sync_state,

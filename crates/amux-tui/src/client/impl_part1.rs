@@ -269,6 +269,7 @@ impl DaemonClient {
             | DaemonMessage::AgentOperatorProfileProgress { .. }
             | DaemonMessage::AgentOperatorProfileSummary { .. }
             | DaemonMessage::AgentOperatorProfileSessionCompleted { .. }
+            | DaemonMessage::AgentError { .. }
             | DaemonMessage::GatewayBootstrap { .. }
             | DaemonMessage::GatewaySendRequest { .. }
             | DaemonMessage::GatewayReloadCommand { .. }

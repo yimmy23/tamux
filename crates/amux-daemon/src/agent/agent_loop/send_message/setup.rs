@@ -1,4 +1,5 @@
 use super::*;
+use amux_protocol::SecurityLevel;
 
 impl<'a> SendMessageRunner<'a> {
     pub(super) async fn initialize(
@@ -61,6 +62,7 @@ impl<'a> SendMessageRunner<'a> {
                             p.clone(),
                             t.override_model.clone(),
                             t.override_system_prompt.clone(),
+                            t.sub_agent_def_id.clone(),
                         )
                     })
                 })
@@ -68,11 +70,11 @@ impl<'a> SendMessageRunner<'a> {
         };
         let active_provider_id = task_provider_override
             .as_ref()
-            .map(|(provider_id, _, _)| provider_id.as_str())
+            .map(|(provider_id, _, _, _)| provider_id.as_str())
             .unwrap_or(config.provider.as_str())
             .to_string();
         let provider_config =
-            match if let Some((ref sub_provider, ref sub_model, _)) = task_provider_override {
+            match if let Some((ref sub_provider, ref sub_model, _, _)) = task_provider_override {
                 let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
                 if let Some(model) = sub_model {
                     pc.model = model.clone();
@@ -122,7 +124,7 @@ impl<'a> SendMessageRunner<'a> {
         let agent_scope_id = current_agent_scope_id();
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
-        let base_prompt = if let Some((_, _, Some(ref override_prompt))) = task_provider_override {
+        let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override {
             format!("{}\n\n{}", override_prompt, config.system_prompt)
         } else {
             config.system_prompt.clone()
@@ -194,6 +196,18 @@ impl<'a> SendMessageRunner<'a> {
                 task_type,
             )
         };
+        let weles_runtime_override = current_task_snapshot.as_ref().and_then(|task| {
+            (task.sub_agent_def_id.as_deref()
+                == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID))
+                .then_some(task)
+                .and_then(|task| {
+                    task.override_system_prompt.as_deref().and_then(|override_prompt| {
+                        crate::agent::weles_governance::parse_weles_internal_override_payload(
+                            override_prompt,
+                        )
+                    })
+                })
+        });
         let runtime_context_query = select_runtime_context_query(
             current_task_snapshot.as_ref().and_then(|task| {
                 task.goal_step_title
@@ -224,24 +238,80 @@ impl<'a> SendMessageRunner<'a> {
             runtime_context_query.as_deref(),
         )
         .await;
-        let mut system_prompt = build_system_prompt(
-            &config,
-            &base_prompt,
-            &memory,
-            &memory_paths,
-            &agent_scope_id,
-            &config.sub_agents,
-            operator_model_summary.as_deref(),
-            operational_context.as_deref(),
-            causal_guidance.as_deref(),
-            learned_patterns.as_deref(),
-            None,
-            runtime_continuity.continuity_summary.as_deref(),
-            runtime_continuity.negative_constraints_context.as_deref(),
-        );
+        let sub_agents = engine.list_sub_agents().await;
+        let mut system_prompt = if let Some((scope, _marker, inspection_context)) =
+            weles_runtime_override.as_ref()
+        {
+            let tool_name = inspection_context
+                .get("tool_name")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let tool_args = inspection_context
+                .get("tool_args")
+                .unwrap_or(&serde_json::Value::Null);
+            let security_level = match inspection_context
+                .get("security_level")
+                .and_then(|value| value.as_str())
+                .unwrap_or("moderate")
+            {
+                "highest" => SecurityLevel::Highest,
+                "lowest" => SecurityLevel::Lowest,
+                "yolo" => SecurityLevel::Yolo,
+                _ => SecurityLevel::Moderate,
+            };
+            let suspicion_reasons = inspection_context
+                .get("suspicion_reasons")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let task_health_signals = inspection_context.get("task_health_signals");
+            let mut prompt = build_weles_governance_runtime_prompt(
+                &config,
+                tool_name,
+                tool_args,
+                security_level,
+                &suspicion_reasons,
+                current_task_snapshot.as_ref(),
+                task_health_signals,
+            );
+            if scope == crate::agent::agent_identity::WELES_VITALITY_SCOPE {
+                prompt.push_str("\n\n## WELES Vitality Mode\n- This run is an internal vitality/self-health check.");
+            }
+            prompt
+        } else {
+            build_system_prompt(
+                &config,
+                &base_prompt,
+                &memory,
+                &memory_paths,
+                &agent_scope_id,
+                &sub_agents,
+                operator_model_summary.as_deref(),
+                operational_context.as_deref(),
+                causal_guidance.as_deref(),
+                learned_patterns.as_deref(),
+                None,
+                runtime_continuity.continuity_summary.as_deref(),
+                runtime_continuity.negative_constraints_context.as_deref(),
+            )
+        };
         let runtime_agent_name = task_provider_override
             .as_ref()
-            .and_then(|(_, _, prompt)| extract_persona_name(prompt.as_deref()))
+            .and_then(|(_, _, prompt, sub_agent_def_id)| {
+                if sub_agent_def_id.as_deref()
+                    == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+                {
+                    Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string())
+                } else {
+                    extract_persona_name(prompt.as_deref())
+                }
+            })
             .unwrap_or_else(|| MAIN_AGENT_NAME.to_string());
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&build_runtime_identity_prompt(

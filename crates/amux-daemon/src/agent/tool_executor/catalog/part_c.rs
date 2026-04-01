@@ -104,6 +104,19 @@ fn add_available_tools_part_c(
 
     // Terminal pane tools
     tools.push(tool_def(
+        "python_execute",
+        "Execute Python code directly in a daemon-native subprocess without going through a shell. Use this instead of shell-launched Python when you need Python execution.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "code": { "type": "string", "description": "Python source code to execute" },
+                "cwd": { "type": "string", "description": "Optional working directory" },
+                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 30, max: 600)" }
+            },
+            "required": ["code"]
+        }),
+    ));
+    tools.push(tool_def(
         "list_terminals",
         "List all open terminal panes with their IDs and names.",
         serde_json::json!({"type":"object","properties":{}}),

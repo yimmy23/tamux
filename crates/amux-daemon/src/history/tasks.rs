@@ -77,8 +77,8 @@ impl HistoryStore {
 
         transaction.execute(
             "INSERT OR REPLACE INTO agent_tasks \
-             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
+             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)",
             params![
                 &task.id,
                 &task.title,
@@ -112,6 +112,10 @@ impl HistoryStore {
                 &task.awaiting_approval_id,
                 &task.lane_id,
                 &task.last_error,
+                &task.override_provider,
+                &task.override_model,
+                &task.override_system_prompt,
+                &task.sub_agent_def_id,
             ],
         )?;
 
@@ -200,7 +204,7 @@ impl HistoryStore {
         }
 
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error \
+            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id \
              FROM agent_tasks \
              ORDER BY CASE status \
                  WHEN 'in_progress' THEN 0 \
@@ -266,10 +270,10 @@ impl HistoryStore {
                 success_criteria: None,
                 max_duration_secs: None,
                 supervisor_config: None,
-                override_provider: None,
-                override_model: None,
-                override_system_prompt: None,
-                sub_agent_def_id: None,
+                override_provider: row.get(32)?,
+                override_model: row.get(33)?,
+                override_system_prompt: row.get(34)?,
+                sub_agent_def_id: row.get(35)?,
             })
         })?;
 

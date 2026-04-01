@@ -1,354 +1,425 @@
-    #[test]
-    fn settings_handles_empty_state() {
-        let settings = SettingsState::new();
-        let config = ConfigState::new();
-        let _theme = ThemeTokens::default();
-        assert_eq!(settings.active_tab(), SettingsTab::Auth);
-        assert_eq!(config.model(), "gpt-5.4");
-    }
+#[test]
+fn settings_handles_empty_state() {
+    let settings = SettingsState::new();
+    let config = ConfigState::new();
+    let _theme = ThemeTokens::default();
+    assert_eq!(settings.active_tab(), SettingsTab::Auth);
+    assert_eq!(config.model(), "gpt-5.4");
+}
 
-    #[test]
-    fn settings_api_key_is_masked() {
-        let masked = mask_api_key("sk-abcdefgh12345678abcd");
-        assert!(!masked.contains("abcdefgh"));
-        assert!(masked.contains("\u{2022}"));
-    }
+#[test]
+fn settings_api_key_is_masked() {
+    let masked = mask_api_key("sk-abcdefgh12345678abcd");
+    assert!(!masked.contains("abcdefgh"));
+    assert!(masked.contains("\u{2022}"));
+}
 
-    #[test]
-    fn mask_api_key_short_returns_dots() {
+#[test]
+fn mask_api_key_short_returns_dots() {
+    assert_eq!(
+        mask_api_key("short"),
+        "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+    );
+}
+
+#[test]
+fn mask_api_key_empty_returns_not_set() {
+    assert_eq!(mask_api_key(""), "(not set)");
+}
+
+#[test]
+fn tab_hit_test_uses_rendered_label_positions() {
+    let area = Rect::new(10, 3, 80, 1);
+    let visible = visible_tabs(area, active_tab_index(SettingsTab::Concierge));
+    assert!(visible.iter().any(|tab| tab.tab == SettingsTab::Concierge));
+    for tab in visible {
         assert_eq!(
-            mask_api_key("short"),
-            "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"
+            tab_hit_test(area, SettingsTab::Concierge, tab.start_x),
+            Some(tab.tab)
         );
     }
+}
 
-    #[test]
-    fn mask_api_key_empty_returns_not_set() {
-        assert_eq!(mask_api_key(""), "(not set)");
-    }
+#[test]
+fn gateway_tab_mentions_whatsapp_qr_linking_instructions() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Gateway,
+    ));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("Allowed Contacts accepts comma or newline separated phone numbers."),
+        "Gateway tab should explain how to enter the WhatsApp allowlist"
+    );
+}
 
-    #[test]
-    fn tab_hit_test_uses_rendered_label_positions() {
-        let area = Rect::new(10, 3, 80, 1);
-        let visible = visible_tabs(area, active_tab_index(SettingsTab::Concierge));
-        assert!(visible.iter().any(|tab| tab.tab == SettingsTab::Concierge));
-        for tab in visible {
-            assert_eq!(
-                tab_hit_test(area, SettingsTab::Concierge, tab.start_x),
-                Some(tab.tab)
-            );
-        }
-    }
+#[test]
+fn gateway_tab_shows_allowlist_requirement_before_linking() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Gateway,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
 
-    #[test]
-    fn settings_tab_bar_uses_swarog_and_rarog_labels() {
-        let area = Rect::new(0, 0, 120, 1);
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Concierge,
-        ));
-        let tabs = visible_tabs(area, active_tab_index(SettingsTab::Concierge));
-        let line = render_tabs_line(&tabs, &settings, &ThemeTokens::default());
-        let text = line.to_string();
+    let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-        assert!(text.contains("Svar"));
-        assert!(text.contains("Rar"));
-        assert!(!text.contains("Con"));
-        assert!(!text.contains("Prov"));
-        let auth_idx = text.find("Auth").expect("auth tab should be visible");
-        let swar_idx = text.find("Svar").expect("svarog tab should be visible");
-        let rar_idx = text.find("Rar").expect("rarog tab should be visible");
-        assert!(auth_idx < swar_idx && swar_idx < rar_idx);
-    }
+    assert!(text.contains("> Link Device  [Enter]  (requires allowed contacts)"));
+    assert!(text.contains("Add at least one allowed phone number before QR linking."));
+}
 
-    #[test]
-    fn gateway_tab_mentions_whatsapp_qr_linking_instructions() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Gateway,
-        ));
-        let config = ConfigState::new();
-        let modal = ModalState::new();
-        let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            text.contains("Allowed Contacts accepts comma or newline separated phone numbers."),
-            "Gateway tab should explain how to enter the WhatsApp allowlist"
-        );
-    }
+#[test]
+fn settings_tab_bar_uses_swarog_and_rarog_labels() {
+    let area = Rect::new(0, 0, 120, 1);
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Concierge,
+    ));
+    let tabs = visible_tabs(area, active_tab_index(SettingsTab::Concierge));
+    let line = render_tabs_line(&tabs, &settings, &ThemeTokens::default());
+    let text = line.to_string();
 
-    #[test]
-    fn gateway_tab_shows_allowlist_requirement_before_linking() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Gateway,
-        ));
-        settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
-        let config = ConfigState::new();
-        let modal = ModalState::new();
+    assert!(text.contains("Svar"));
+    assert!(text.contains("Rar"));
+    assert!(!text.contains("Con"));
+    assert!(!text.contains("Prov"));
+    let auth_idx = text.find("Auth").expect("auth tab should be visible");
+    let swar_idx = text.find("Svar").expect("svarog tab should be visible");
+    let rar_idx = text.find("Rar").expect("rarog tab should be visible");
+    assert!(auth_idx < swar_idx && swar_idx < rar_idx);
+}
 
-        let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn gateway_tab_contains_selectable_link_device_row() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Gateway,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("> Link Device"));
+}
 
-        assert!(text.contains("> Link Device  [Enter]  (requires allowed contacts)"));
-        assert!(text.contains("Add at least one allowed phone number before QR linking."));
-    }
+#[test]
+fn gateway_tab_shows_connected_whatsapp_status_and_split_actions() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Gateway,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
+    let mut config = ConfigState::new();
+    config.whatsapp_allowed_contacts = "+48663977535".to_string();
+    let mut modal = ModalState::new();
+    modal.set_whatsapp_link_connected(Some("+48663977535".to_string()));
 
-    #[test]
-    fn gateway_tab_contains_selectable_link_device_row() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Gateway,
-        ));
-        settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
-        let config = ConfigState::new();
-        let modal = ModalState::new();
-        let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("> Link Device"));
-    }
+    let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn gateway_tab_shows_connected_whatsapp_status_and_split_actions() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Gateway,
-        ));
-        settings.reduce(crate::state::settings::SettingsAction::NavigateField(12));
-        let mut config = ConfigState::new();
-        config.whatsapp_allowed_contacts = "+48663977535".to_string();
-        let mut modal = ModalState::new();
-        modal.set_whatsapp_link_connected(Some("+48663977535".to_string()));
+    assert!(text.contains("> Link Status"));
+    assert!(text.contains("Re-link Device"));
+    assert!(text.contains("Linked: +48663977535"));
+    assert!(text.contains("Only allowed numbers will be forwarded and can receive replies."));
+}
 
-        let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn gateway_tab_renders_whatsapp_allowlist_as_textarea_when_editing() {
+    let mut settings = SettingsState::new();
+    settings.start_editing("whatsapp_allowed_contacts", "+15551234567\n+15557654321");
+    let mut config = ConfigState::new();
+    config.whatsapp_allowed_contacts = "+15551234567\n+15557654321".to_string();
+    let modal = ModalState::new();
 
-        assert!(text.contains("> Link Status"));
-        assert!(text.contains("Re-link Device"));
-        assert!(text.contains("Linked: +48663977535"));
-        assert!(text.contains("Only allowed numbers will be forwarded and can receive replies."));
-    }
+    let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn gateway_tab_renders_whatsapp_allowlist_as_textarea_when_editing() {
-        let mut settings = SettingsState::new();
-        settings.start_editing("whatsapp_allowed_contacts", "+15551234567\n+15557654321");
-        let mut config = ConfigState::new();
-        config.whatsapp_allowed_contacts = "+15551234567\n+15557654321".to_string();
-        let modal = ModalState::new();
+    assert!(text.contains("Allowed Contacts [Ctrl+Enter: save, Esc: cancel]"));
+    assert!(text.contains("+15551234567"));
+    assert!(text.contains("+15557654321"));
+    assert!(text.contains("╭"));
+    assert!(text.contains("╰"));
+}
 
-        let lines = render_gateway_tab(&settings, &config, &modal, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn custom_provider_model_field_invites_inline_edit() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Provider,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
+    let mut config = ConfigState::new();
+    config.provider = "custom".to_string();
+    config.model = "my-model".to_string();
 
-        assert!(text.contains("Allowed Contacts [Ctrl+Enter: save, Esc: cancel]"));
-        assert!(text.contains("+15551234567"));
-        assert!(text.contains("+15557654321"));
-        assert!(text.contains("╭"));
-        assert!(text.contains("╰"));
-    }
+    let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn custom_provider_model_field_invites_inline_edit() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Provider,
-        ));
-        settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
-        let mut config = ConfigState::new();
-        config.provider = "custom".to_string();
-        config.model = "my-model".to_string();
+    assert!(text.contains("> Model           my-model [Enter: edit]"));
+    assert!(!text.contains("> Model           my-model [Enter: pick]"));
+}
 
-        let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn custom_provider_model_row_shows_active_edit_buffer() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Provider,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
+    settings.start_editing("custom_model_entry", "my-model");
+    let mut config = ConfigState::new();
+    config.provider = "custom".to_string();
+    config.model = "my-model".to_string();
 
-        assert!(text.contains("> Model           my-model [Enter: edit]"));
-        assert!(!text.contains("> Model           my-model [Enter: pick]"));
-    }
+    let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn custom_provider_model_row_shows_active_edit_buffer() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Provider,
-        ));
-        settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
-        settings.start_editing("custom_model_entry", "my-model");
-        let mut config = ConfigState::new();
-        config.provider = "custom".to_string();
-        config.model = "my-model".to_string();
+    assert!(text.contains("> Model           my-model█"));
+    assert!(!text.contains("> Provider        custom█"));
+}
 
-        let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn subagent_editor_shows_live_name_edit_buffer() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::SubAgents,
+    ));
+    settings.start_editing("subagent_name", "Draft Name");
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let mut subagents = SubAgentsState::new();
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        0,
+        "openai".to_string(),
+        "gpt-5.4".to_string(),
+    );
+    editor.name = "Old Name".to_string();
+    editor.field = crate::state::subagents::SubAgentEditorField::Name;
+    subagents.editor = Some(editor);
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
 
-        assert!(text.contains("> Model           my-model█"));
-        assert!(!text.contains("> Provider        custom█"));
-    }
+    let lines = render_tab_content(
+        80,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn provider_tab_mentions_swarog() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Provider,
-        ));
-        let config = ConfigState::new();
+    assert!(text.contains("Draft Name█"));
+    assert!(!text.contains("Old Name"));
+}
 
-        let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn provider_tab_mentions_swarog() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Provider,
+    ));
+    let config = ConfigState::new();
 
-        assert!(text.contains("Svarog"));
-    }
+    let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn agent_tab_uses_swarog_label() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Agent,
-        ));
-        let config = ConfigState::new();
+    assert!(text.contains("Svarog"));
+}
 
-        let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn agent_tab_uses_swarog_label() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Agent,
+    ));
+    let config = ConfigState::new();
 
-        assert!(text.contains("Svarog"));
-    }
+    let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn agent_tab_includes_provider_controls() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Agent,
-        ));
-        let config = ConfigState::new();
+    assert!(text.contains("Svarog"));
+}
 
-        let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn agent_tab_includes_provider_controls() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Agent,
+    ));
+    let config = ConfigState::new();
 
-        assert!(text.contains("Svarog Provider"));
-        assert!(text.contains("Provider"));
-        assert!(text.contains("System Prompt"));
-    }
+    let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn agent_tab_shows_fixed_swarog_name() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Agent,
-        ));
-        let config = ConfigState::new();
+    assert!(text.contains("Svarog Provider"));
+    assert!(text.contains("Provider"));
+    assert!(text.contains("System Prompt"));
+}
 
-        let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn agent_tab_shows_fixed_swarog_name() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Agent,
+    ));
+    let config = ConfigState::new();
 
-        assert!(text.contains("Svarog"));
-        assert!(!text.contains("Agent Name"));
-        assert!(!text.contains("Svarog Name [Enter: edit]"));
-    }
+    let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn rarog_tab_uses_rarog_label() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::Concierge,
-        ));
-        let concierge = crate::state::concierge::ConciergeState::new();
+    assert!(text.contains("Svarog"));
+    assert!(!text.contains("Agent Name"));
+    assert!(!text.contains("Svarog Name [Enter: edit]"));
+}
 
-        let lines = render_concierge_tab(&settings, &concierge, &ThemeTokens::default());
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn rarog_tab_uses_rarog_label() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Concierge,
+    ));
+    let concierge = crate::state::concierge::ConciergeState::new();
 
-        assert!(text.contains("Rarog"));
-        assert!(!text.contains("Concierge"));
-    }
+    let lines = render_concierge_tab(&settings, &concierge, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    #[test]
-    fn subagent_editor_shows_live_name_edit_buffer() {
-        let mut settings = SettingsState::new();
-        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
-            SettingsTab::SubAgents,
-        ));
-        settings.start_editing("subagent_name", "Draft Name");
-        let config = ConfigState::new();
-        let modal = ModalState::new();
-        let auth = crate::state::auth::AuthState::new();
-        let mut subagents = SubAgentsState::new();
-        let mut editor = crate::state::subagents::SubAgentEditorState::new(
-            None,
-            0,
-            "openai".to_string(),
-            "gpt-5.4".to_string(),
-        );
-        editor.name = "Old Name".to_string();
-        editor.field = crate::state::subagents::SubAgentEditorField::Name;
-        subagents.editor = Some(editor);
-        let concierge = crate::state::concierge::ConciergeState::new();
-        let tier = crate::state::tier::TierState::from_tier("power_user");
-        let plugin_settings = crate::state::settings::PluginSettingsState::new();
+    assert!(text.contains("Rarog"));
+    assert!(!text.contains("Concierge"));
+}
 
-        let lines = render_tab_content(
-            80,
-            &settings,
-            &config,
-            &modal,
-            &auth,
-            &subagents,
-            &concierge,
-            &tier,
-            &plugin_settings,
-            &ThemeTokens::default(),
-        );
-        let text = lines
-            .iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
+#[test]
+fn protected_weles_row_hides_delete_and_disable_actions() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::SubAgents,
+    ));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let mut subagents = SubAgentsState::new();
+    subagents
+        .entries
+        .push(crate::state::subagents::SubAgentEntry {
+            id: "weles_builtin".to_string(),
+            name: "WELES".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("testing".to_string()),
+            enabled: true,
+            builtin: true,
+            immutable_identity: true,
+            disable_allowed: false,
+            delete_allowed: false,
+            protected_reason: Some("Daemon-owned governance agent".to_string()),
+            reasoning_effort: Some("medium".to_string()),
+            raw_json: Some(serde_json::json!({ "id": "weles_builtin" })),
+        });
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
 
-        assert!(text.contains("Draft Name█"));
-        assert!(!text.contains("Old Name"));
-    }
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        text.contains("[built-in]"),
+        "expected protected marker, got: {text}"
+    );
+    assert!(
+        text.contains("[Locked]"),
+        "expected locked action label, got: {text}"
+    );
+    assert!(
+        text.contains("[Protected]"),
+        "expected protected action label, got: {text}"
+    );
+    assert!(
+        !text.contains("[Delete]"),
+        "protected WELES row should hide delete action: {text}"
+    );
+    assert!(
+        !text.contains("[Disable]"),
+        "protected WELES row should hide disable action: {text}"
+    );
+}

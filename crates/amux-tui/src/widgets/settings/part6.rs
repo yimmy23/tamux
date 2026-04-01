@@ -278,10 +278,19 @@ fn render_subagents_tab<'a>(
                 .as_deref()
                 .map(|r| format!(" [{}]", r))
                 .unwrap_or_default();
+            let protection_str = if entry.builtin { " [built-in]" } else { "" };
             let edit_label = "[Edit]";
-            let delete_label = "[Delete]";
+            let delete_label = if entry.delete_allowed {
+                "[Delete]"
+            } else {
+                "[Protected]"
+            };
             let toggle_label = if entry.enabled {
-                "[Disable]"
+                if entry.disable_allowed {
+                    "[Disable]"
+                } else {
+                    "[Locked]"
+                }
             } else {
                 "[Enable]"
             };
@@ -291,7 +300,8 @@ fn render_subagents_tab<'a>(
                 + format!(" ({}/{})", entry.provider, entry.model)
                     .chars()
                     .count()
-                + role_str.chars().count();
+                + role_str.chars().count()
+                + protection_str.chars().count();
             let actions_width = edit_label.chars().count()
                 + 1
                 + delete_label.chars().count()
@@ -326,6 +336,7 @@ fn render_subagents_tab<'a>(
                     theme.fg_dim,
                 ),
                 Span::styled(role_str, Style::default().fg(Color::Cyan)),
+                Span::styled(protection_str.to_string(), theme.accent_secondary),
                 Span::raw(spacer),
                 Span::styled(
                     edit_label,

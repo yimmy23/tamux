@@ -25,6 +25,10 @@ pub(super) fn apply_schema_migrations(connection: &Connection) -> rusqlite::Resu
         "runtime",
         "TEXT NOT NULL DEFAULT 'daemon'",
     )?;
+    ensure_column(connection, "agent_tasks", "override_provider", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "override_model", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "override_system_prompt", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "sub_agent_def_id", "TEXT")?;
     ensure_column(connection, "goal_runs", "client_request_id", "TEXT")?;
     ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
     ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;

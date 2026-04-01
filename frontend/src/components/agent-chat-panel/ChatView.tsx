@@ -4,6 +4,9 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AgentMessage, AgentThread, AgentTodoItem } from "../../lib/agentStore";
+import type { WelesReviewMeta } from "../../lib/agentTools";
+import { buildToolReviewPresentation, mergeToolReviewMeta } from "./toolReviewPresentation";
+import { buildWelesHealthPresentation, type WelesHealthState } from "./welesHealthPresentation";
 import { inputStyle } from "./shared";
 
 export function ChatView({
@@ -23,6 +26,7 @@ export function ChatView({
     onUpdateReasoningEffort,
     canStartGoalRun,
     onStartGoalRun,
+    welesHealth,
 }: {
     messages: AgentMessage[];
     todos: AgentTodoItem[];
@@ -40,6 +44,7 @@ export function ChatView({
     onUpdateReasoningEffort: (value: string) => void;
     canStartGoalRun: boolean;
     onStartGoalRun: (text: string) => Promise<boolean>;
+    welesHealth?: WelesHealthState | null;
 }) {
     const [searchQuery, setSearchQuery] = useState("");
     const [todoExpanded, setTodoExpanded] = useState(true);
@@ -69,6 +74,7 @@ export function ChatView({
             status: "requested" | "executing" | "done" | "error";
             resultContent: string;
             createdAt: number;
+            welesReview?: WelesReviewMeta;
         };
 
         const items: Array<{ type: "message"; message: AgentMessage } | { type: "tool"; group: ToolGroup }> = [];
@@ -92,6 +98,7 @@ export function ChatView({
                     status: message.toolStatus || (message.content ? "done" : "requested"),
                     resultContent: message.content || "",
                     createdAt: message.createdAt,
+                    welesReview: message.welesReview,
                 };
                 groups.set(groupKey, initialGroup);
                 items.push({ type: "tool", group: initialGroup });
@@ -106,6 +113,7 @@ export function ChatView({
                 existing.status = "done";
             }
             if (message.content) existing.resultContent = message.content;
+            existing.welesReview = mergeToolReviewMeta(existing.welesReview, message.welesReview);
             existing.createdAt = Math.min(existing.createdAt, message.createdAt);
         }
 
@@ -175,6 +183,11 @@ export function ChatView({
         [todos],
     );
 
+    const welesHealthPresentation = useMemo(
+        () => buildWelesHealthPresentation(welesHealth),
+        [welesHealth],
+    );
+
     return (
         <>
             <div
@@ -196,6 +209,27 @@ export function ChatView({
                         style={{ ...inputStyle, minWidth: 220 }}
                     />
                 </div>
+
+                {welesHealthPresentation && (
+                    <div
+                        style={{
+                            border: "1px solid color-mix(in srgb, var(--warning) 55%, var(--border))",
+                            background: "color-mix(in srgb, var(--warning) 10%, var(--bg-secondary))",
+                            borderRadius: "var(--radius-lg)",
+                            padding: "var(--space-3)",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "var(--space-1)",
+                        }}
+                    >
+                        <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--warning)" }}>
+                            {welesHealthPresentation.title}
+                        </div>
+                        <div style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
+                            {welesHealthPresentation.detail}
+                        </div>
+                    </div>
+                )}
 
                 {filteredDisplayItems.length === 0 && (
                     <div className="amux-empty-state">
@@ -651,18 +685,31 @@ function MarkdownContent({ content }: { content: string }) {
 function ToolEventRow({
     group,
 }: {
-    group: {
-        key: string;
-        toolCallId: string;
-        toolName: string;
-        toolArguments: string;
-        status: "requested" | "executing" | "done" | "error";
-        resultContent: string;
-    };
+        group: {
+            key: string;
+            toolCallId: string;
+            toolName: string;
+            toolArguments: string;
+            status: "requested" | "executing" | "done" | "error";
+            resultContent: string;
+            welesReview?: WelesReviewMeta;
+        };
 }) {
     const [collapsed, setCollapsed] = useState(true);
     const statusLabel = group.status.toUpperCase();
     const shortId = (group.toolCallId || group.key).slice(-8);
+    const reviewPresentation = buildToolReviewPresentation(group.welesReview);
+    const reviewToneStyle = reviewPresentation?.tone === "blocked"
+        ? {
+            color: "#FFB4B4",
+            borderColor: "rgba(255, 107, 107, 0.35)",
+            background: "rgba(109, 26, 26, 0.45)",
+        }
+        : {
+            color: "#FFE1A8",
+            borderColor: "rgba(255, 184, 77, 0.35)",
+            background: "rgba(88, 57, 8, 0.38)",
+        };
 
     return (
         <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)" }}>
@@ -688,6 +735,20 @@ function ToolEventRow({
                     {/* <span style={{ color: "#DE600A" }}>{"tool"}</span> */}
                     <span>{group.toolName}</span>
                     <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8 }}>
+                        {reviewPresentation && (
+                            <span
+                                style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    padding: "1px 6px",
+                                    border: "1px solid",
+                                    borderRadius: 999,
+                                    ...reviewToneStyle,
+                                }}
+                            >
+                                {reviewPresentation.badgeLabel}
+                            </span>
+                        )}
                         <span style={{ color: "#BA4400", fontSize: 11 }}>#{shortId}</span>
                         <span style={{ color: "#BA4400", fontSize: 11 }}>{statusLabel}</span>
                     </div>
@@ -696,6 +757,41 @@ function ToolEventRow({
 
             {!collapsed && (
                 <div style={{ marginLeft: 0, marginTop: 0, display: "grid", gap: 6 }}>
+                    {reviewPresentation && (
+                        <div
+                            style={{
+                                display: "grid",
+                                gap: 6,
+                                padding: 8,
+                                border: "1px solid",
+                                borderRadius: "var(--radius-sm)",
+                                ...reviewToneStyle,
+                            }}
+                        >
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700 }}>{reviewPresentation.badgeLabel}</span>
+                                {reviewPresentation.overrideLabel && (
+                                    <span style={{ fontSize: 10, border: "1px solid currentColor", borderRadius: 999, padding: "1px 6px" }}>
+                                        {reviewPresentation.overrideLabel}
+                                    </span>
+                                )}
+                                {reviewPresentation.degradedLabel && (
+                                    <span style={{ fontSize: 10, border: "1px solid currentColor", borderRadius: 999, padding: "1px 6px" }}>
+                                        {reviewPresentation.degradedLabel}
+                                    </span>
+                                )}
+                                {reviewPresentation.auditLabel && (
+                                    <span style={{ fontSize: 10, opacity: 0.85 }}>{reviewPresentation.auditLabel}</span>
+                                )}
+                            </div>
+                            {reviewPresentation.reasonText && (
+                                <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                                    {reviewPresentation.reasonText}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {group.toolArguments && (
                         <div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>args</div>

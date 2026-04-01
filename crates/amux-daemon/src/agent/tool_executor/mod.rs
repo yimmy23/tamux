@@ -68,6 +68,7 @@ include!("skills_and_search.rs");
 include!("workflow_fetch.rs");
 include!("setup_web.rs");
 include!("terminal_runtime.rs");
+include!("python_execute.rs");
 include!("managed_commands.rs");
 include!("terminal_alloc.rs");
 include!("subagents.rs");

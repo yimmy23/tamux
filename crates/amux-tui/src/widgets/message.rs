@@ -10,6 +10,76 @@ use markdown_table::{is_markdown_table_row, is_markdown_table_start, render_mark
 use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
 use crate::theme::ThemeTokens;
 
+fn format_weles_review_badge(
+    review: &crate::state::chat::WelesReviewMetaVm,
+    theme: &ThemeTokens,
+) -> (String, Style) {
+    match review.verdict.as_str() {
+        "block" => ("blocked".to_string(), theme.accent_danger),
+        "flag_only" => ("flagged".to_string(), theme.accent_secondary),
+        _ => ("reviewed".to_string(), theme.fg_dim),
+    }
+}
+
+fn render_weles_review_details(
+    review: &crate::state::chat::WelesReviewMetaVm,
+    theme: &ThemeTokens,
+    width: usize,
+    lines: &mut Vec<Line<'static>>,
+) {
+    let detail_width = width.max(1);
+    let (badge, badge_style) = format_weles_review_badge(review, theme);
+    let mut meta_spans = vec![
+        Span::styled("weles: ".to_string(), theme.fg_dim),
+        Span::styled(badge, badge_style),
+    ];
+
+    if let Some(mode) = review.security_override_mode.as_deref() {
+        if !mode.is_empty() {
+            meta_spans.push(Span::raw(" "));
+            meta_spans.push(Span::styled(
+                format!("override={mode}"),
+                theme.accent_secondary,
+            ));
+        }
+    }
+
+    if !review.weles_reviewed {
+        meta_spans.push(Span::raw(" "));
+        meta_spans.push(Span::styled("degraded", theme.accent_secondary));
+    }
+
+    if let Some(audit_id) = review.audit_id.as_deref() {
+        if !audit_id.is_empty() {
+            meta_spans.push(Span::raw(" "));
+            meta_spans.push(Span::styled(
+                format!(
+                    "#{}",
+                    audit_id
+                        .chars()
+                        .rev()
+                        .take(8)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect::<String>()
+                ),
+                theme.fg_dim,
+            ));
+        }
+    }
+    lines.push(Line::from(meta_spans));
+
+    for reason in &review.reasons {
+        for line in wrap_text(reason, detail_width) {
+            lines.push(Line::from(vec![
+                Span::styled("reason: ".to_string(), theme.fg_dim),
+                Span::styled(line, theme.fg_active),
+            ]));
+        }
+    }
+}
+
 /// Render markdown content into Lines using tui-markdown.
 /// Converts from ratatui_core types to ratatui types.
 pub(crate) fn render_markdown_pub(content: &str, width: usize) -> Vec<Line<'static>> {
@@ -211,18 +281,29 @@ fn render_compact(
         if let Some(name) = &msg.tool_name {
             let status = msg.tool_status.as_deref().unwrap_or("done");
             let (status_text, status_style) = format_tool_status(status, theme);
-            lines.push(Line::from(vec![
+            let mut header_spans = vec![
                 Span::styled("\u{2699}", theme.accent_assistant),
                 Span::raw("  "),
                 Span::styled(name.clone(), theme.fg_dim),
                 Span::raw(" "),
                 Span::styled(status_text, status_style),
-            ]));
+            ];
+
+            if let Some(review) = msg.weles_review.as_ref() {
+                let (badge, badge_style) = format_weles_review_badge(review, theme);
+                header_spans.push(Span::raw(" "));
+                header_spans.push(Span::styled(badge, badge_style));
+            }
+            lines.push(Line::from(header_spans));
 
             // Expanded tool details
             if expanded_tools.contains(&msg_index) {
                 let detail_indent = 4;
                 let detail_width = width.saturating_sub(detail_indent + 1);
+
+                if let Some(review) = msg.weles_review.as_ref() {
+                    render_weles_review_details(review, theme, detail_width, lines);
+                }
 
                 // Show arguments
                 if let Some(args) = &msg.tool_arguments {

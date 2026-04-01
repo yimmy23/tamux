@@ -7,6 +7,24 @@ async fn execute_spawn_subagent(
     preferred_session_id: Option<SessionId>,
     event_tx: &broadcast::Sender<AgentEvent>,
 ) -> Result<String> {
+    fn contains_hidden_weles_fields(args: &serde_json::Value) -> bool {
+        [
+            "weles_internal_scope",
+            "weles_tool_name",
+            "weles_tool_args",
+            "weles_security_level",
+            "weles_suspicion_reasons",
+        ]
+        .iter()
+        .any(|key| args.get(key).is_some())
+    }
+
+    if contains_hidden_weles_fields(args) {
+        anyhow::bail!(
+            "daemon-owned WELES governance fields are unavailable to normal spawn_subagent callers"
+        );
+    }
+
     let title = args
         .get("title")
         .and_then(|value| value.as_str())
@@ -121,10 +139,11 @@ async fn execute_spawn_subagent(
 
     // Look up a matching SubAgentDefinition by title/name and apply overrides.
     {
-        let config = agent.config.read().await;
+        let effective_sub_agents = agent.list_sub_agents().await;
         let title_lower = title.to_lowercase();
-        let matched_def = config.sub_agents.iter().find(|sa| {
+        let matched_def = effective_sub_agents.iter().find(|sa| {
             sa.enabled
+                && sa.id != crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID
                 && (sa.name.to_lowercase() == title_lower
                     || sa.role.as_deref().map(|r| r.to_lowercase()) == Some(title_lower.clone()))
         });
@@ -133,6 +152,7 @@ async fn execute_spawn_subagent(
             subagent.override_model = Some(def.model.clone());
             subagent.override_system_prompt = def.system_prompt.clone();
             subagent.sub_agent_def_id = Some(def.id.clone());
+
             if def.tool_whitelist.is_some() {
                 subagent.tool_whitelist = def.tool_whitelist.clone();
             }
@@ -163,7 +183,19 @@ async fn execute_spawn_subagent(
             .await;
     }
 
-    let persona_prompt = build_spawned_persona_prompt(&subagent.id);
+    let persona_prompt = if subagent.sub_agent_def_id.as_deref()
+        == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    {
+        let scope = subagent
+            .override_system_prompt
+            .as_deref()
+            .and_then(crate::agent::weles_governance::parse_weles_internal_override_payload)
+            .map(|(scope, _, _)| scope)
+            .unwrap_or_else(|| crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE.to_string());
+        crate::agent::agent_identity::build_weles_persona_prompt(&scope)
+    } else {
+        build_spawned_persona_prompt(&subagent.id)
+    };
     subagent.override_system_prompt = Some(match subagent.override_system_prompt.take() {
         Some(existing) if !existing.trim().is_empty() => {
             format!("{persona_prompt}\n\n{existing}")
@@ -175,6 +207,10 @@ async fn execute_spawn_subagent(
         if let Some(existing) = tasks.iter_mut().find(|t| t.id == subagent.id) {
             *existing = subagent.clone();
         }
+    }
+    {
+        let mut trusted = agent.trusted_weles_tasks.write().await;
+        trusted.insert(subagent.id.clone());
     }
     agent.persist_tasks().await;
 
@@ -193,6 +229,123 @@ async fn execute_spawn_subagent(
         "Spawned subagent {} with runtime {}.{}{}{def_suffix}",
         subagent.id, runtime, lane_suffix, persona_suffix
     ))
+}
+
+pub(in crate::agent) async fn spawn_weles_internal_subagent(
+    agent: &AgentEngine,
+    thread_id: &str,
+    parent_task_id: Option<&str>,
+    scope: &str,
+    tool_name: &str,
+    tool_args: &serde_json::Value,
+    security_level: SecurityLevel,
+    suspicion_reasons: &[String],
+) -> Result<crate::agent::types::AgentTask> {
+    if !crate::agent::agent_identity::is_weles_internal_scope(scope) {
+        anyhow::bail!("invalid WELES internal scope: {scope}");
+    }
+
+    let title = "WELES".to_string();
+    let description = match scope {
+        crate::agent::agent_identity::WELES_VITALITY_SCOPE => {
+            "Internal vitality/self-health review".to_string()
+        }
+        _ => format!("Internal governance review for {tool_name}"),
+    };
+    let task_snapshot = if let Some(current_task_id) = parent_task_id {
+        let tasks = agent.tasks.lock().await;
+        tasks.iter().find(|task| task.id == current_task_id).cloned()
+    } else {
+        None
+    };
+    let effective_sub_agents = agent.list_sub_agents().await;
+    let def = effective_sub_agents
+        .iter()
+        .find(|sa| sa.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+        .cloned()
+            .ok_or_else(|| anyhow::anyhow!("missing daemon-owned WELES definition"))?;
+    let task_health_signals = crate::agent::weles_governance::build_task_health_signals(
+        task_snapshot.as_ref(),
+    );
+
+    let inspection_context = serde_json::json!({
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+        "security_level": match security_level {
+            SecurityLevel::Highest => "highest",
+            SecurityLevel::Moderate => "moderate",
+            SecurityLevel::Lowest => "lowest",
+            SecurityLevel::Yolo => "yolo",
+        },
+        "suspicion_reasons": suspicion_reasons,
+        "task_health_signals": task_health_signals,
+    });
+    let internal_payload = crate::agent::weles_governance::build_weles_internal_override_payload(
+        scope,
+        &inspection_context,
+    )
+    .ok_or_else(|| anyhow::anyhow!("failed to build WELES internal payload"))?;
+    let mut subagent = agent
+        .enqueue_task(
+            title,
+            description,
+            "high",
+            None,
+            task_snapshot.as_ref().and_then(|task| task.session_id.clone()),
+            Vec::new(),
+            None,
+            "subagent",
+            task_snapshot
+                .as_ref()
+                .and_then(|task| task.goal_run_id.clone()),
+            parent_task_id.map(ToOwned::to_owned),
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    subagent.override_provider = Some(def.provider.clone());
+    subagent.override_model = Some(def.model.clone());
+    subagent.sub_agent_def_id = Some(def.id.clone());
+    subagent.override_system_prompt = Some(format!(
+        "{}\n\n{}",
+        crate::agent::agent_identity::build_weles_persona_prompt(scope),
+        internal_payload
+    ));
+    if def.tool_whitelist.is_some() {
+        subagent.tool_whitelist = def.tool_whitelist.clone();
+    }
+    if def.tool_blacklist.is_some() {
+        subagent.tool_blacklist = def.tool_blacklist.clone();
+    }
+    if def.context_budget_tokens.is_some() {
+        subagent.context_budget_tokens = def.context_budget_tokens;
+    }
+    if def.max_duration_secs.is_some() {
+        subagent.max_duration_secs = def.max_duration_secs;
+    }
+    if def.supervisor_config.is_some() {
+        subagent.supervisor_config = def.supervisor_config.clone();
+    }
+
+    {
+        let mut tasks = agent.tasks.lock().await;
+        if let Some(existing) = tasks.iter_mut().find(|t| t.id == subagent.id) {
+            *existing = subagent.clone();
+        }
+    }
+    {
+        let mut trusted = agent.trusted_weles_tasks.write().await;
+        trusted.insert(subagent.id.clone());
+    }
+    agent.persist_tasks().await;
+
+    if let Some(parent_task_id) = parent_task_id {
+        agent
+            .register_subagent_collaboration(parent_task_id, &subagent)
+            .await;
+    }
+
+    Ok(subagent)
 }
 
 async fn execute_route_to_specialist(
@@ -386,4 +539,3 @@ async fn execute_message_agent(
     }))
     .unwrap_or_else(|_| "{}".to_string()))
 }
-

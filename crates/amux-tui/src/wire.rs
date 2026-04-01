@@ -2,6 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WelesReviewMetaVm {
+    #[serde(default)]
+    pub weles_reviewed: bool,
+    #[serde(default)]
+    pub verdict: String,
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    #[serde(default)]
+    pub audit_id: Option<String>,
+    #[serde(default)]
+    pub security_override_mode: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
@@ -33,6 +47,8 @@ pub struct AgentMessage {
     pub tool_call_id: Option<String>,
     #[serde(default)]
     pub tool_status: Option<String>,
+    #[serde(default)]
+    pub weles_review: Option<WelesReviewMetaVm>,
 
     #[serde(default)]
     pub input_tokens: u64,

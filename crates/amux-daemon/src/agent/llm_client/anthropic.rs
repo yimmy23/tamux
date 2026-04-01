@@ -258,16 +258,18 @@ async fn parse_anthropic_sse(
                         let tool_calls: Vec<ToolCall> = pending_tool_calls
                             .drain(..)
                             .enumerate()
-                            .map(|(index, tc)| ToolCall {
-                                id: if tc.id.trim().is_empty() {
-                                    synthesize_tool_call_id("anthropic", index, &tc.name)
-                                } else {
-                                    tc.id
-                                },
-                                function: ToolFunction {
-                                    name: tc.name,
-                                    arguments: tc.arguments,
-                                },
+                            .map(|(index, tc)| {
+                                ToolCall::with_default_weles_review(
+                                    if tc.id.trim().is_empty() {
+                                        synthesize_tool_call_id("anthropic", index, &tc.name)
+                                    } else {
+                                        tc.id
+                                    },
+                                    ToolFunction {
+                                        name: tc.name,
+                                        arguments: tc.arguments,
+                                    },
+                                )
                             })
                             .collect();
                         let _ = tx
@@ -327,4 +329,3 @@ async fn parse_anthropic_sse(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-

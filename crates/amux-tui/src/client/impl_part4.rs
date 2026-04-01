@@ -1,4 +1,30 @@
 impl DaemonClient {
+    fn parse_weles_review(event: &Value) -> Option<crate::client::WelesReviewMetaVm> {
+        let review = event.get("weles_review")?;
+        let verdict = review.get("verdict").and_then(Value::as_str)?.to_string();
+        let reasons = review
+            .get("reasons")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Some(crate::client::WelesReviewMetaVm {
+            weles_reviewed: review
+                .get("weles_reviewed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            verdict,
+            reasons,
+            audit_id: get_string(review, "audit_id"),
+            security_override_mode: get_string(review, "security_override_mode"),
+        })
+    }
+
     async fn dispatch_agent_event(event: Value, event_tx: &mpsc::Sender<ClientEvent>) {
         let Some(kind) = event.get("type").and_then(Value::as_str) else {
             return;
@@ -44,6 +70,7 @@ impl DaemonClient {
                         call_id: get_string(&event, "call_id").unwrap_or_default(),
                         name: get_string(&event, "name").unwrap_or_default(),
                         arguments: get_string_lossy(&event, "arguments"),
+                        weles_review: Self::parse_weles_review(&event),
                     })
                     .await;
             }
@@ -58,6 +85,7 @@ impl DaemonClient {
                             .get("is_error")
                             .and_then(Value::as_bool)
                             .unwrap_or(false),
+                        weles_review: Self::parse_weles_review(&event),
                     })
                     .await;
             }
@@ -96,6 +124,19 @@ impl DaemonClient {
                         kind: get_string(&event, "kind").unwrap_or_default(),
                         message: get_string(&event, "message").unwrap_or_default(),
                         details: get_string(&event, "details"),
+                    })
+                    .await;
+            }
+            "weles_health_update" => {
+                let _ = event_tx
+                    .send(ClientEvent::WelesHealthUpdate {
+                        state: get_string(&event, "state")
+                            .unwrap_or_else(|| "healthy".to_string()),
+                        reason: get_string(&event, "reason"),
+                        checked_at: event
+                            .get("checked_at")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
                     })
                     .await;
             }

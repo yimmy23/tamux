@@ -145,12 +145,31 @@ if matches!(
                 }
 
                 ClientMessage::AgentSetSubAgent { sub_agent_json } => {
-                    match serde_json::from_str(&sub_agent_json) {
-                        Ok(def) => {
-                            agent.set_sub_agent(def).await;
-                            framed
-                                .send(DaemonMessage::AgentSubAgentUpdated { sub_agent_json })
-                                .await?;
+                    match serde_json::from_str::<crate::agent::types::SubAgentDefinition>(&sub_agent_json) {
+                        Ok(mut def) => {
+                            crate::agent::canonicalize_weles_client_update(&mut def);
+                            let requested_sub_agent_id = def.id.clone();
+                            match agent.set_sub_agent(def).await {
+                                Ok(()) => {
+                                    let updated_sub_agent_json = agent
+                                        .get_sub_agent(&requested_sub_agent_id)
+                                        .await
+                                        .and_then(|entry| serde_json::to_string(&entry).ok())
+                                        .unwrap_or(sub_agent_json.clone());
+                                    framed
+                                        .send(DaemonMessage::AgentSubAgentUpdated {
+                                            sub_agent_json: updated_sub_agent_json,
+                                        })
+                                        .await?;
+                                }
+                                Err(e) => {
+                                    framed
+                                        .send(DaemonMessage::AgentError {
+                                            message: format!("Invalid sub-agent mutation: {e}"),
+                                        })
+                                        .await?;
+                                }
+                            }
                         }
                         Err(e) => {
                             framed
@@ -163,10 +182,20 @@ if matches!(
                 }
 
                 ClientMessage::AgentRemoveSubAgent { sub_agent_id } => {
-                    agent.remove_sub_agent(&sub_agent_id).await;
-                    framed
-                        .send(DaemonMessage::AgentSubAgentRemoved { sub_agent_id })
-                        .await?;
+                    match agent.remove_sub_agent(&sub_agent_id).await {
+                        Ok(_) => {
+                            framed
+                                .send(DaemonMessage::AgentSubAgentRemoved { sub_agent_id })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("Invalid sub-agent mutation: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
                 }
 
                 ClientMessage::AgentListSubAgents => {

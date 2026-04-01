@@ -106,6 +106,7 @@ impl<'a> SendMessageRunner<'a> {
                 call_id: tc.id.clone(),
                 name: tc.function.name.clone(),
                 arguments: tc.function.arguments.clone(),
+                weles_review: tc.weles_review.clone(),
             });
 
             if self.handle_tool_filter_denial(tc).await {
@@ -233,6 +234,7 @@ impl<'a> SendMessageRunner<'a> {
                 tool_name: None,
                 tool_arguments: None,
                 tool_status: None,
+                weles_review: None,
                 input_tokens: input_tokens.unwrap_or(0),
                 output_tokens: output_tokens.unwrap_or(0),
                 provider: Some(self.config.provider.clone()),
@@ -262,6 +264,7 @@ impl<'a> SendMessageRunner<'a> {
             name: tc.function.name.clone(),
             content: denied_content.clone(),
             is_error: true,
+            weles_review: tc.weles_review.clone(),
         });
         let mut threads = self.engine.threads.write().await;
         if let Some(thread) = threads.get_mut(&self.tid) {
@@ -275,6 +278,7 @@ impl<'a> SendMessageRunner<'a> {
                 tool_name: Some(tc.function.name.clone()),
                 tool_arguments: Some(tc.function.arguments.clone()),
                 tool_status: Some("error".to_string()),
+                weles_review: tc.weles_review.clone(),
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -311,6 +315,7 @@ impl<'a> SendMessageRunner<'a> {
                     name: tc.function.name.clone(),
                     content: "Repeated identical tool call suppressed because the agent appears stuck. Inspect current state or continue with a different action instead of repeating the same tool input.".to_string(),
                     is_error: true,
+                    weles_review: tc.weles_review.clone(),
                     pending_approval: None,
                 }
             } else {

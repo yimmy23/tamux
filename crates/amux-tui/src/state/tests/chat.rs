@@ -163,6 +163,7 @@ fn tool_call_tracks_running_tool() {
         call_id: "c1".into(),
         name: "bash_command".into(),
         args: "ls".into(),
+        weles_review: None,
     });
     assert_eq!(state.active_tool_calls().len(), 1);
     assert_eq!(state.active_tool_calls()[0].status, ToolCallStatus::Running);
@@ -180,6 +181,7 @@ fn tool_result_updates_status() {
         call_id: "c1".into(),
         name: "bash_command".into(),
         args: "ls".into(),
+        weles_review: None,
     });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
@@ -187,8 +189,57 @@ fn tool_result_updates_status() {
         name: "bash_command".into(),
         content: "file.txt".into(),
         is_error: false,
+        weles_review: None,
     });
     assert_eq!(state.active_tool_calls()[0].status, ToolCallStatus::Done);
+}
+
+#[test]
+fn tool_messages_store_weles_review_metadata() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    let review = WelesReviewMetaVm {
+        weles_reviewed: true,
+        verdict: "allow".into(),
+        reasons: vec!["operator approved".into()],
+        audit_id: Some("audit-1".into()),
+        security_override_mode: Some("yolo".into()),
+    };
+
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "c1".into(),
+        name: "bash_command".into(),
+        args: "ls".into(),
+        weles_review: Some(review.clone()),
+    });
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "c1".into(),
+        name: "bash_command".into(),
+        content: "file.txt".into(),
+        is_error: false,
+        weles_review: Some(review.clone()),
+    });
+
+    let thread = state.active_thread().expect("thread should exist");
+    let tool_message = thread
+        .messages
+        .iter()
+        .find(|message| message.tool_call_id.as_deref() == Some("c1"))
+        .expect("tool message should exist");
+
+    let stored = tool_message
+        .weles_review
+        .as_ref()
+        .expect("weles review should be stored on tool message");
+    assert!(stored.weles_reviewed);
+    assert_eq!(stored.verdict, "allow");
+    assert_eq!(stored.audit_id.as_deref(), Some("audit-1"));
+    assert_eq!(stored.security_override_mode.as_deref(), Some("yolo"));
 }
 
 #[test]

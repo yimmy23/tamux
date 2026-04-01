@@ -23,16 +23,18 @@ fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<ToolCall> {
     entries.sort_by_key(|(idx, _)| *idx);
     entries
         .into_iter()
-        .map(|(idx, tc)| ToolCall {
-            id: if tc.id.trim().is_empty() {
-                synthesize_tool_call_id("openai", idx as usize, &tc.name)
-            } else {
-                tc.id
-            },
-            function: ToolFunction {
-                name: tc.name,
-                arguments: tc.arguments,
-            },
+        .map(|(idx, tc)| {
+            ToolCall::with_default_weles_review(
+                if tc.id.trim().is_empty() {
+                    synthesize_tool_call_id("openai", idx as usize, &tc.name)
+                } else {
+                    tc.id
+                },
+                ToolFunction {
+                    name: tc.name,
+                    arguments: tc.arguments,
+                },
+            )
         })
         .collect()
 }
@@ -243,4 +245,3 @@ pub async fn validate_provider_connection(
 
     Ok(None)
 }
-

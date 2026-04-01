@@ -453,6 +453,8 @@ impl AgentEngine {
             tracing::warn!("failed to persist heartbeat history: {e}");
         }
 
+        self.refresh_weles_health_from_heartbeat(now).await;
+
         // --- Phase 6: Broadcast to clients (per D-11, D-13, D-14, BEAT-03, BEAT-04) ---
         // Build composite explanation from digest items per D-01.
         let digest_explanation = if digest_items.is_empty() {

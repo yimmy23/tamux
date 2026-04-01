@@ -288,7 +288,11 @@ fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
     lines
 }
 
-fn agent_status_line(activity: Option<&str>, tier: &str) -> Line<'static> {
+fn agent_status_line(
+    activity: Option<&str>,
+    tier: &str,
+    weles_health: Option<&crate::client::WelesHealthVm>,
+) -> Line<'static> {
     let status_span = match activity {
         Some("thinking" | "reasoning" | "writing") => {
             Span::styled("\u{25CF} Thinking", Style::default().fg(Color::Yellow))
@@ -325,6 +329,12 @@ fn agent_status_line(activity: Option<&str>, tier: &str) -> Line<'static> {
             Style::default().fg(Color::DarkGray),
         ));
     }
+    if weles_health.is_some_and(|health| health.state.eq_ignore_ascii_case("degraded")) {
+        spans.push(Span::styled(
+            "  [WELES degraded]".to_string(),
+            Style::default().fg(Color::LightYellow),
+        ));
+    }
     Line::from(spans)
 }
 
@@ -339,6 +349,7 @@ pub fn render(
     gateway_statuses: &[GatewayStatusVm],
     tier: &TierState,
     agent_activity: Option<&str>,
+    weles_health: Option<&crate::client::WelesHealthVm>,
     recent_actions: &[RecentActionVm],
 ) {
     if area.height < 3 {
@@ -373,7 +384,11 @@ pub fn render(
 
     // Agent status line at the very top
     frame.render_widget(
-        Paragraph::new(agent_status_line(agent_activity, &tier.current_tier)),
+        Paragraph::new(agent_status_line(
+            agent_activity,
+            &tier.current_tier,
+            weles_health,
+        )),
         chunks[0],
     );
 

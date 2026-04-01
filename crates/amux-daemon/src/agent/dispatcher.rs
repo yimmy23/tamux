@@ -183,9 +183,8 @@ impl AgentEngine {
     }
 
     async fn execute_dispatched_task(&self, task: AgentTask) -> Result<()> {
-        let sub_agents = self.config.read().await.sub_agents.clone();
         let mut prompt = build_task_prompt(&task);
-        task_prompt::append_sub_agent_registry(&mut prompt, &sub_agents);
+        task_prompt::append_effective_sub_agent_registry(self, &mut prompt).await;
         match self
             .send_task_message(
                 &task.id,

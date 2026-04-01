@@ -232,6 +232,8 @@ pub struct TuiModel {
     // Gateway connection statuses received from daemon
     pub gateway_statuses: Vec<chat::GatewayStatusVm>,
 
+    pub weles_health: Option<crate::client::WelesHealthVm>,
+
     // Recent autonomous actions from heartbeat digests (shown in sidebar)
     pub recent_actions: Vec<RecentActionVm>,
 

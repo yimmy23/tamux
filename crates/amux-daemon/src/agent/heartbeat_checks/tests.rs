@@ -133,6 +133,12 @@ async fn make_test_engine(
         whatsapp_link: Arc::new(super::whatsapp_link::WhatsAppLinkRuntime::new()),
         external_runners: RwLock::new(HashMap::new()),
         subagent_runtime: RwLock::new(HashMap::new()),
+        trusted_weles_tasks: RwLock::new(HashSet::new()),
+        weles_health: RwLock::new(WelesHealthStatus {
+            state: WelesHealthState::Healthy,
+            reason: None,
+            checked_at: 0,
+        }),
         stream_cancellations: Mutex::new(HashMap::new()),
         stream_generation: AtomicU64::new(1),
         active_operator_sessions: RwLock::new(HashMap::new()),

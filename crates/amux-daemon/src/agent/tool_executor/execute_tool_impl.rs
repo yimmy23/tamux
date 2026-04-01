@@ -33,12 +33,136 @@ pub async fn execute_tool(
                 name: tool_call.function.name.clone(),
                 content: error,
                 is_error: true,
+                weles_review: tool_call.weles_review.clone(),
                 pending_approval: None,
             };
         }
     };
+    let security_level = {
+        let config = agent.config.read().await;
+        crate::agent::weles_governance::security_level_for_tool_call(
+            &config,
+            tool_call.function.name.as_str(),
+            &args,
+        )
+    };
+    let current_task = if let Some(task_id) = task_id {
+        agent.list_tasks().await.into_iter().find(|task| task.id == task_id)
+    } else {
+        None
+    };
+    let planner_required_before_governance = if !thread_id.trim().is_empty() && task_id.is_none() {
+        agent.planner_required_for_thread(thread_id).await
+    } else {
+        false
+    };
+    let classification =
+        crate::agent::weles_governance::classify_tool_call(tool_call.function.name.as_str(), &args);
+    let governance_decision = if !crate::agent::weles_governance::should_guard_classification(
+        &classification,
+    ) {
+        crate::agent::weles_governance::direct_allow_decision(classification.class)
+    } else {
+        let config = agent.config.read().await;
+        if !crate::agent::weles_governance::review_available(&config) {
+            crate::agent::weles_governance::guarded_fallback_decision(&classification, security_level)
+        } else {
+            drop(config);
+            match spawn_weles_internal_subagent(
+                agent,
+                thread_id,
+                task_id,
+                crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
+                tool_call.function.name.as_str(),
+                &args,
+                security_level,
+                &classification.reasons,
+            )
+            .await
+            {
+                Ok(weles_task) => match agent
+                    .send_task_message(
+                        &weles_task.id,
+                        Some(thread_id),
+                        None,
+                        Some("daemon"),
+                        &crate::agent::weles_governance::build_weles_runtime_review_message(
+                            &classification,
+                            security_level,
+                        ),
+                    )
+                    .await
+                {
+                    Ok(outcome) => {
+                        let response = agent
+                            .latest_assistant_message_text(&outcome.thread_id)
+                            .await
+                            .unwrap_or_default();
+                        if let Some(runtime_review) =
+                            crate::agent::weles_governance::parse_weles_runtime_review_response(
+                                &response,
+                            )
+                        {
+                            let runtime_review = crate::agent::weles_governance::normalize_runtime_verdict_for_classification(
+                                &classification,
+                                security_level,
+                                runtime_review,
+                            );
+                            crate::agent::weles_governance::reviewed_runtime_decision(
+                                &classification,
+                                security_level,
+                                runtime_review,
+                            )
+                        } else {
+                            crate::agent::weles_governance::guarded_fallback_decision(
+                                &classification,
+                                security_level,
+                            )
+                        }
+                    }
+                    Err(_) => crate::agent::weles_governance::guarded_fallback_decision(
+                        &classification,
+                        security_level,
+                    ),
+                },
+                Err(_) => crate::agent::weles_governance::guarded_fallback_decision(
+                    &classification,
+                    security_level,
+                ),
+            }
+        }
+    };
+    if !governance_decision.should_execute {
+        return ToolResult {
+            tool_call_id: tool_call.id.clone(),
+            name: tool_call.function.name.clone(),
+            content: governance_decision.block_message.unwrap_or_else(|| {
+                "Blocked by WELES governance before tool execution.".to_string()
+            }),
+            is_error: true,
+            weles_review: Some(governance_decision.review),
+            pending_approval: None,
+        };
+    }
+    let mut runtime_args = args.clone();
+    if matches!(
+        governance_decision.class,
+        crate::agent::weles_governance::WelesGovernanceClass::RejectBypass
+    ) && matches!(security_level, SecurityLevel::Yolo)
+    {
+        if let serde_json::Value::Object(ref mut map) = runtime_args {
+            map.insert(
+                "security_level".to_string(),
+                serde_json::Value::String("moderate".to_string()),
+            );
+            map.insert(
+                "__weles_force_headless".to_string(),
+                serde_json::Value::Bool(true),
+            );
+        }
+    }
     let (dispatch_tool_name, dispatch_args) =
-        normalize_tool_dispatch(tool_call.function.name.as_str(), &args);
+        normalize_tool_dispatch(tool_call.function.name.as_str(), &runtime_args);
 
     if !thread_id.trim().is_empty()
         && matches!(
@@ -46,15 +170,16 @@ pub async fn execute_tool(
             "bash_command" | "execute_managed_command" | "enqueue_task" | "spawn_subagent"
         )
         && agent.get_todos(thread_id).await.is_empty()
-        && (task_id.is_some() || agent.planner_required_for_thread(thread_id).await)
+        && (task_id.is_some() || planner_required_before_governance)
     {
-        return ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            name: tool_call.function.name.clone(),
-            content: "Plan required: call update_todo first so tamux can track the live execution plan before running commands or spawning tasks.".to_string(),
-            is_error: true,
-            pending_approval: None,
-        };
+            return ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content: "Plan required: call update_todo first so tamux can track the live execution plan before running commands or spawning tasks.".to_string(),
+                is_error: true,
+                weles_review: Some(governance_decision.review.clone()),
+                pending_approval: None,
+            };
     }
 
     // UNCR-02: Pre-execution confidence warning for Safety-domain tools.
@@ -94,7 +219,7 @@ pub async fn execute_tool(
         "read_active_terminal_content" => execute_read_terminal(&args, session_manager).await,
         "run_terminal_command" => {
             match execute_run_terminal_command(
-                &args,
+                &dispatch_args,
                 agent,
                 session_manager,
                 session_id,
@@ -113,7 +238,7 @@ pub async fn execute_tool(
         }
         "execute_managed_command" => {
             match execute_managed_command(
-                &args,
+                &dispatch_args,
                 agent,
                 session_manager,
                 session_id,
@@ -192,7 +317,7 @@ pub async fn execute_tool(
         // Daemon-native tools
         "bash_command" => {
             match execute_bash_command(
-                &args,
+                &dispatch_args,
                 agent,
                 session_manager,
                 session_id,
@@ -208,6 +333,10 @@ pub async fn execute_tool(
                 }
                 Err(error) => Err(error),
             }
+        }
+        "python_execute" => {
+            execute_python_execute(&dispatch_args, session_manager, session_id, cancel_token.clone())
+                .await
         }
         "list_files" => execute_list_files(&args, session_manager, session_id).await,
         "read_file" => execute_read_file(&args).await,
@@ -326,6 +455,7 @@ pub async fn execute_tool(
                         name: tool_call.function.name.clone(),
                         content: "Error: missing 'plugin_name' argument".to_string(),
                         is_error: true,
+                        weles_review: Some(governance_decision.review.clone()),
                         pending_approval: None,
                     }
                 }
@@ -338,6 +468,7 @@ pub async fn execute_tool(
                         name: tool_call.function.name.clone(),
                         content: "Error: missing 'endpoint_name' argument".to_string(),
                         is_error: true,
+                        weles_review: Some(governance_decision.review.clone()),
                         pending_approval: None,
                     }
                 }
@@ -386,6 +517,7 @@ pub async fn execute_tool(
                 name: tool_call.function.name.clone(),
                 content,
                 is_error: false,
+                weles_review: Some(governance_decision.review.clone()),
                 pending_approval,
             }
         }
@@ -397,9 +529,9 @@ pub async fn execute_tool(
                 name: tool_call.function.name.clone(),
                 content,
                 is_error: true,
+                weles_review: Some(governance_decision.review),
                 pending_approval: None,
             }
         }
     }
 }
-

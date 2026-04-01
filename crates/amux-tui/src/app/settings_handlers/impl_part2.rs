@@ -16,23 +16,102 @@ impl TuiModel {
             return;
         }
 
-        let id = editor.id.unwrap_or_else(|| {
+        let id = editor.id.clone().unwrap_or_else(|| {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
             format!("subagent-{now}")
         });
-        let raw = serde_json::json!({
-            "id": id,
-            "name": editor.name.trim(),
-            "provider": editor.provider,
-            "model": editor.model,
-            "role": if editor.role.trim().is_empty() { serde_json::Value::Null } else { serde_json::Value::String(editor.role.trim().to_string()) },
-            "system_prompt": if editor.system_prompt.trim().is_empty() { serde_json::Value::Null } else { serde_json::Value::String(editor.system_prompt.trim().to_string()) },
-            "enabled": editor.enabled,
-            "created_at": editor.created_at,
-        });
+        let mut raw = editor
+            .raw_json
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let role = if editor.role.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(editor.role.trim().to_string())
+        };
+        let system_prompt = if editor.system_prompt.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(editor.system_prompt.trim().to_string())
+        };
+        let existing_name = raw
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let existing_provider = raw
+            .get("provider")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let existing_model = raw
+            .get("model")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        if let Some(obj) = raw.as_object_mut() {
+            obj.insert("id".to_string(), serde_json::Value::String(id));
+            let name = if editor.identity_is_mutable() {
+                editor.name.trim().to_string()
+            } else {
+                existing_name.unwrap_or_else(|| editor.name.trim().to_string())
+            };
+            let provider = if editor.identity_is_mutable() {
+                editor.provider.clone()
+            } else {
+                existing_provider.unwrap_or_else(|| editor.provider.clone())
+            };
+            let model = if editor.identity_is_mutable() {
+                editor.model.clone()
+            } else {
+                existing_model.unwrap_or_else(|| editor.model.clone())
+            };
+            obj.insert("name".to_string(), serde_json::Value::String(name));
+            obj.insert("provider".to_string(), serde_json::Value::String(provider));
+            obj.insert("model".to_string(), serde_json::Value::String(model));
+            obj.insert("role".to_string(), role);
+            obj.insert("system_prompt".to_string(), system_prompt);
+            obj.insert(
+                "enabled".to_string(),
+                serde_json::Value::Bool(editor.enabled),
+            );
+            obj.insert(
+                "builtin".to_string(),
+                serde_json::Value::Bool(editor.builtin),
+            );
+            obj.insert(
+                "immutable_identity".to_string(),
+                serde_json::Value::Bool(editor.immutable_identity),
+            );
+            obj.insert(
+                "disable_allowed".to_string(),
+                serde_json::Value::Bool(editor.disable_allowed),
+            );
+            obj.insert(
+                "delete_allowed".to_string(),
+                serde_json::Value::Bool(editor.delete_allowed),
+            );
+            obj.insert(
+                "protected_reason".to_string(),
+                editor
+                    .protected_reason
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert(
+                "reasoning_effort".to_string(),
+                editor
+                    .reasoning_effort
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert(
+                "created_at".to_string(),
+                serde_json::Value::Number(editor.created_at.into()),
+            );
+        }
         self.send_daemon_command(DaemonCommand::SetSubAgent(raw.to_string()));
 
         let optimistic = crate::state::SubAgentEntry {
@@ -61,6 +140,30 @@ impl TuiModel {
                 .and_then(|v| v.as_str())
                 .map(ToString::to_string),
             enabled: raw.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+            builtin: raw
+                .get("builtin")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            immutable_identity: raw
+                .get("immutable_identity")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            disable_allowed: raw
+                .get("disable_allowed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            delete_allowed: raw
+                .get("delete_allowed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            protected_reason: raw
+                .get("protected_reason")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            reasoning_effort: raw
+                .get("reasoning_effort")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
             raw_json: Some(raw),
         };
         if self
@@ -101,6 +204,15 @@ impl TuiModel {
     }
 
     fn open_subagent_provider_picker(&mut self) {
+        if self
+            .subagents
+            .editor
+            .as_ref()
+            .is_some_and(|editor| !editor.identity_is_mutable())
+        {
+            self.status_line = "This sub-agent identity cannot be changed".to_string();
+            return;
+        }
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentProvider);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
@@ -112,6 +224,10 @@ impl TuiModel {
         let Some(editor) = self.subagents.editor.as_ref() else {
             return;
         };
+        if !editor.identity_is_mutable() {
+            self.status_line = "This sub-agent identity cannot be changed".to_string();
+            return;
+        }
         let models = self.subagent_known_models_for(&editor.provider);
         self.config
             .reduce(config::ConfigAction::ModelsFetched(models.clone()));
@@ -341,6 +457,10 @@ impl TuiModel {
             }
             2 => {
                 if let Some(entry) = self.subagents.entries.get(self.subagents.selected) {
+                    if !entry.delete_allowed {
+                        self.status_line = "This sub-agent cannot be deleted".to_string();
+                        return;
+                    }
                     self.send_daemon_command(DaemonCommand::RemoveSubAgent(entry.id.clone()));
                     self.subagents
                         .reduce(crate::state::subagents::SubAgentsAction::Removed(
@@ -350,6 +470,10 @@ impl TuiModel {
             }
             3 => {
                 if let Some(entry) = self.subagents.entries.get(self.subagents.selected) {
+                    if entry.enabled && !entry.disable_allowed {
+                        self.status_line = "This sub-agent cannot be disabled".to_string();
+                        return;
+                    }
                     if let Some(ref raw) = entry.raw_json {
                         let mut updated = raw.clone();
                         if let Some(obj) = updated.as_object_mut() {
@@ -370,5 +494,4 @@ impl TuiModel {
             _ => {}
         }
     }
-
 }

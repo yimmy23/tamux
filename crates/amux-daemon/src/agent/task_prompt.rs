@@ -145,6 +145,14 @@ pub(super) fn append_sub_agent_registry(prompt: &mut String, sub_agents: &[SubAg
     }
 }
 
+pub(super) async fn append_effective_sub_agent_registry(
+    engine: &crate::agent::AgentEngine,
+    prompt: &mut String,
+) {
+    let sub_agents = engine.list_sub_agents().await;
+    append_sub_agent_registry(prompt, &sub_agents);
+}
+
 pub(super) async fn resolve_preferred_session_id(
     session_manager: &Arc<crate::session_manager::SessionManager>,
     session_hint: Option<&str>,

@@ -347,24 +347,7 @@ export function TasksView({ onOpenThreadView }: TasksViewProps) {
         setThreadDaemonId(localThreadId, remoteThread.id);
 
         for (const message of remoteThread.messages ?? []) {
-            const hydrated = buildHydratedRemoteMessage(localThreadId, message);
-            addMessage(localThreadId, {
-                role: hydrated.role,
-                content: hydrated.content,
-                provider: hydrated.provider,
-                model: hydrated.model,
-                toolCalls: hydrated.toolCalls,
-                toolName: hydrated.toolName,
-                toolCallId: hydrated.toolCallId,
-                toolArguments: hydrated.toolArguments,
-                toolStatus: hydrated.toolStatus,
-                inputTokens: hydrated.inputTokens,
-                outputTokens: hydrated.outputTokens,
-                totalTokens: hydrated.totalTokens,
-                reasoning: hydrated.reasoning,
-                isCompactionSummary: false,
-                isStreaming: false,
-            });
+            addMessage(localThreadId, buildHydratedRemoteMessage(localThreadId, message));
         }
 
         const todos = await fetchThreadTodos(remoteThread.id).catch(() => []);

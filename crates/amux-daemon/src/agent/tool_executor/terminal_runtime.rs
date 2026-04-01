@@ -126,6 +126,14 @@ async fn execute_bash_command(
 
 fn should_use_managed_execution(args: &serde_json::Value) -> bool {
     if args
+        .get("__weles_force_headless")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    if args
         .get("session")
         .and_then(|value| value.as_str())
         .map(str::trim)
@@ -372,4 +380,3 @@ async fn execute_headless_shell_command(
         ))
     }
 }
-

@@ -150,6 +150,16 @@ impl TuiModel {
                     };
                     match field {
                         crate::state::subagents::SubAgentEditorField::Name => {
+                            if self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .is_some_and(|editor| !editor.identity_is_mutable())
+                            {
+                                self.status_line =
+                                    "This sub-agent identity cannot be changed".to_string();
+                                return true;
+                            }
                             let current = self
                                 .subagents
                                 .editor
@@ -288,5 +298,4 @@ impl TuiModel {
             }
         }
     }
-
 }

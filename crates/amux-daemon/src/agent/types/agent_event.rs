@@ -14,6 +14,8 @@ pub enum AgentEvent {
         call_id: String,
         name: String,
         arguments: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weles_review: Option<WelesReviewMeta>,
     },
     ToolResult {
         thread_id: String,
@@ -21,6 +23,8 @@ pub enum AgentEvent {
         name: String,
         content: String,
         is_error: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weles_review: Option<WelesReviewMeta>,
     },
     Done {
         thread_id: String,
@@ -82,6 +86,12 @@ pub enum AgentEvent {
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<String>,
+    },
+    WelesHealthUpdate {
+        state: WelesHealthState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        checked_at: u64,
     },
     RetryStatus {
         thread_id: String,
@@ -294,4 +304,3 @@ pub enum AgentEvent {
 // ---------------------------------------------------------------------------
 // Threads & messages
 // ---------------------------------------------------------------------------
-

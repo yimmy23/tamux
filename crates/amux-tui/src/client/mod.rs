@@ -23,6 +23,22 @@ use crate::wire::{
 use tokio::net::UnixStream;
 
 #[derive(Debug, Clone)]
+pub struct WelesReviewMetaVm {
+    pub weles_reviewed: bool,
+    pub verdict: String,
+    pub reasons: Vec<String>,
+    pub audit_id: Option<String>,
+    pub security_override_mode: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WelesHealthVm {
+    pub state: String,
+    pub reason: Option<String>,
+    pub checked_at: u64,
+}
+
+#[derive(Debug, Clone)]
 pub enum ClientEvent {
     Connected,
     Disconnected,
@@ -142,6 +158,7 @@ pub enum ClientEvent {
         call_id: String,
         name: String,
         arguments: String,
+        weles_review: Option<WelesReviewMetaVm>,
     },
     ToolResult {
         thread_id: String,
@@ -149,6 +166,7 @@ pub enum ClientEvent {
         name: String,
         content: String,
         is_error: bool,
+        weles_review: Option<WelesReviewMetaVm>,
     },
     Done {
         thread_id: String,
@@ -165,6 +183,11 @@ pub enum ClientEvent {
         kind: String,
         message: String,
         details: Option<String>,
+    },
+    WelesHealthUpdate {
+        state: String,
+        reason: Option<String>,
+        checked_at: u64,
     },
     RetryStatus {
         thread_id: String,

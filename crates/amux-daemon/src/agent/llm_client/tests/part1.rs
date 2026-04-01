@@ -266,11 +266,13 @@
                         name: "tool_a".to_string(),
                         arguments: "{}".to_string(),
                     },
+                    weles_review: None,
                 }]),
                 tool_call_id: None,
                 tool_name: None,
                 tool_arguments: None,
                 tool_status: None,
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -289,6 +291,7 @@
                 tool_name: Some("tool_a".to_string()),
                 tool_arguments: Some("{}".to_string()),
                 tool_status: Some("done".to_string()),
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -309,11 +312,13 @@
                         name: "tool_b".to_string(),
                         arguments: "{}".to_string(),
                     },
+                    weles_review: None,
                 }]),
                 tool_call_id: None,
                 tool_name: None,
                 tool_arguments: None,
                 tool_status: None,
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -332,6 +337,7 @@
                 tool_name: Some("tool_b".to_string()),
                 tool_arguments: Some("{}".to_string()),
                 tool_status: Some("done".to_string()),
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -350,4 +356,3 @@
             .count();
         assert_eq!(tool_results, 2);
     }
-

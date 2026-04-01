@@ -113,6 +113,8 @@ pub struct AgentEngine {
     /// External agent runners for openclaw/hermes backends.
     pub external_runners: RwLock<HashMap<String, external_runner::ExternalAgentRunner>>,
     pub(super) subagent_runtime: RwLock<HashMap<String, SubagentRuntimeStats>>,
+    pub(super) trusted_weles_tasks: RwLock<HashSet<String>>,
+    pub(super) weles_health: RwLock<WelesHealthStatus>,
     /// Active cancellation tokens per thread for stop-stream behavior.
     pub stream_cancellations: Mutex<HashMap<String, StreamCancellationEntry>>,
     pub stream_generation: AtomicU64,
@@ -263,6 +265,12 @@ impl AgentEngine {
             gateway_injected_messages: Mutex::new(VecDeque::new()),
             external_runners: RwLock::new(runners),
             subagent_runtime: RwLock::new(HashMap::new()),
+            trusted_weles_tasks: RwLock::new(HashSet::new()),
+            weles_health: RwLock::new(WelesHealthStatus {
+                state: WelesHealthState::Healthy,
+                reason: None,
+                checked_at: 0,
+            }),
             stream_cancellations: Mutex::new(HashMap::new()),
             stream_generation: AtomicU64::new(1),
             active_operator_sessions: RwLock::new(HashMap::new()),

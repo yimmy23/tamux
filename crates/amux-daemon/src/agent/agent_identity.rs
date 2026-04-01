@@ -33,6 +33,9 @@ pub(super) const ROD_AGENT_ID: &str = "rod";
 pub(super) const ROD_AGENT_NAME: &str = "Rod";
 pub(super) const WELES_AGENT_ID: &str = "weles";
 pub(super) const WELES_AGENT_NAME: &str = "Weles";
+pub(crate) const WELES_BUILTIN_SUBAGENT_ID: &str = "weles_builtin";
+pub(crate) const WELES_GOVERNANCE_SCOPE: &str = "governance";
+pub(crate) const WELES_VITALITY_SCOPE: &str = "vitality";
 
 struct PersonaSeed {
     id: &'static str,
@@ -138,6 +141,14 @@ pub(super) fn is_main_agent_scope(alias: &str) -> bool {
     canonical_agent_id(alias) == MAIN_AGENT_ID
 }
 
+pub(crate) fn is_weles_internal_scope(scope: &str) -> bool {
+    let normalized = scope.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        WELES_GOVERNANCE_SCOPE | WELES_VITALITY_SCOPE
+    )
+}
+
 pub(super) fn internal_dm_thread_id(agent_a: &str, agent_b: &str) -> String {
     let mut ids = [
         canonical_agent_id(agent_a).to_string(),
@@ -177,6 +188,15 @@ pub(super) fn build_spawned_persona_prompt(seed: &str) -> String {
         persona.name,
         persona.id,
         persona.guidance,
+        MAIN_AGENT_NAME,
+        CONCIERGE_AGENT_NAME,
+        MAIN_AGENT_NAME,
+    )
+}
+
+pub(crate) fn build_weles_persona_prompt(scope: &str) -> String {
+    format!(
+        "{PERSONA_MARKER} {WELES_AGENT_NAME}\n{PERSONA_ID_MARKER} {WELES_AGENT_ID}\nYou are {WELES_AGENT_NAME} ({WELES_AGENT_ID}) operating as the daemon-owned WELES subagent.\nYour current internal scope is {scope}.\nYou exist to inspect risky execution paths and preserve daemon governance guarantees.\n{} is the main agent. {} is {}'s concierge. Do not impersonate either of them, and keep your reporting concrete.",
         MAIN_AGENT_NAME,
         CONCIERGE_AGENT_NAME,
         MAIN_AGENT_NAME,

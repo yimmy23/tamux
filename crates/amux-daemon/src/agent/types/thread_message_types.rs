@@ -38,6 +38,8 @@ pub struct AgentMessage {
     pub tool_arguments: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weles_review: Option<WelesReviewMeta>,
     #[serde(default)]
     pub input_tokens: u64,
     #[serde(default)]
@@ -70,6 +72,7 @@ impl AgentMessage {
             tool_name: None,
             tool_arguments: None,
             tool_status: None,
+            weles_review: None,
             input_tokens: 0,
             output_tokens: 0,
             provider: None,
@@ -99,6 +102,24 @@ pub enum MessageRole {
 pub struct ToolCall {
     pub id: String,
     pub function: ToolFunction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weles_review: Option<WelesReviewMeta>,
+}
+
+impl ToolCall {
+    pub fn with_default_weles_review(id: String, function: ToolFunction) -> Self {
+        Self {
+            id,
+            function,
+            weles_review: Some(WelesReviewMeta {
+                weles_reviewed: false,
+                verdict: WelesVerdict::Allow,
+                reasons: vec!["governance_not_run".to_string()],
+                audit_id: None,
+                security_override_mode: None,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +134,8 @@ pub struct ToolResult {
     pub name: String,
     pub content: String,
     pub is_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weles_review: Option<WelesReviewMeta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_approval: Option<ToolPendingApproval>,
 }
@@ -143,4 +166,3 @@ pub struct ToolFunctionDef {
     pub description: String,
     pub parameters: serde_json::Value,
 }
-

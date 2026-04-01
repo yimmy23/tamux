@@ -283,7 +283,14 @@ impl AgentEngine {
         let sessions = self.session_manager.list().await;
         let mut tasks = self.tasks.lock().await;
         let changed = refresh_task_queue_state(&mut tasks, now_millis(), &sessions);
-        let snapshot = tasks.iter().cloned().collect();
+        let snapshot = tasks
+            .iter()
+            .cloned()
+            .map(|mut task| {
+                crate::agent::persistence::sanitize_task_for_external_view(&mut task);
+                task
+            })
+            .collect();
         drop(tasks);
 
         if !changed.is_empty() {

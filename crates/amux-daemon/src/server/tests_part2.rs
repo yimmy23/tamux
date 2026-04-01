@@ -24,6 +24,8 @@
         }
     }
 
+    use crate::agent::types::SubAgentDefinition;
+
     struct TestConnection {
         framed: Framed<DuplexStream, AmuxCodec>,
         task: JoinHandle<anyhow::Result<()>>,
@@ -3063,6 +3065,138 @@
         let gw = gw_guard.as_ref().expect("gateway state should exist");
         assert!(gw.last_response_at.contains_key("Slack:C123"));
         drop(gw_guard);
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn agent_set_sub_agent_returns_canonical_weles_payload_after_update() {
+        let mut conn = spawn_test_connection().await;
+
+        let weles = conn
+            .agent
+            .list_sub_agents()
+            .await
+            .into_iter()
+            .find(|entry| entry.id == "weles_builtin")
+            .expect("missing builtin weles entry");
+        let mut updated = weles.clone();
+        updated.reasoning_effort = Some("high".to_string());
+
+        conn.framed
+            .send(ClientMessage::AgentSetSubAgent {
+                sub_agent_json: serde_json::to_string(&updated).expect("serialize subagent"),
+            })
+            .await
+            .expect("send set subagent");
+
+        match conn.recv().await {
+            DaemonMessage::AgentSubAgentUpdated { sub_agent_json } => {
+                let returned: SubAgentDefinition =
+                    serde_json::from_str(&sub_agent_json).expect("parse returned subagent json");
+                assert_eq!(returned.id, "weles_builtin");
+                assert_eq!(returned.name, "WELES");
+                assert!(returned.builtin);
+                assert!(returned.immutable_identity);
+                assert!(!returned.disable_allowed);
+                assert!(!returned.delete_allowed);
+                assert_eq!(returned.reasoning_effort.as_deref(), Some("high"));
+
+                let effective = conn
+                    .agent
+                    .list_sub_agents()
+                    .await
+                    .into_iter()
+                    .find(|entry| entry.id == "weles_builtin")
+                    .expect("missing persisted builtin weles entry");
+                assert_eq!(returned.id, effective.id);
+                assert_eq!(returned.name, effective.name);
+                assert_eq!(returned.provider, effective.provider);
+                assert_eq!(returned.model, effective.model);
+                assert_eq!(returned.system_prompt, effective.system_prompt);
+                assert_eq!(returned.reasoning_effort, effective.reasoning_effort);
+            }
+            other => panic!("expected AgentSubAgentUpdated, got {other:?}"),
+        }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn agent_set_sub_agent_config_accepts_minimal_weles_payload_via_server_canonicalization() {
+        let mut conn = spawn_test_connection().await;
+
+        let mut config = conn.agent.get_config().await;
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.system_prompt = "Main prompt".to_string();
+        conn.agent.set_config(config).await;
+
+        let minimal = SubAgentDefinition {
+            id: "weles_builtin".to_string(),
+            name: "WELES".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet".to_string(),
+            role: Some("governance".to_string()),
+            system_prompt: Some("Escalated WELES prompt".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: Some("high".to_string()),
+            created_at: 0,
+        };
+
+        conn.framed
+            .send(ClientMessage::AgentSetSubAgent {
+                sub_agent_json: serde_json::to_string(&minimal).expect("serialize subagent"),
+            })
+            .await
+            .expect("send set subagent");
+
+        match conn.recv().await {
+            DaemonMessage::AgentSubAgentUpdated { sub_agent_json } => {
+                let returned: SubAgentDefinition =
+                    serde_json::from_str(&sub_agent_json).expect("parse returned subagent json");
+                assert_eq!(returned.id, "weles_builtin");
+                assert_eq!(returned.name, "WELES");
+                assert!(returned.builtin);
+                assert!(returned.immutable_identity);
+                assert!(!returned.disable_allowed);
+                assert!(!returned.delete_allowed);
+                assert_eq!(
+                    returned.protected_reason.as_deref(),
+                    Some("Daemon-owned WELES registry entry")
+                );
+                assert_eq!(returned.provider, "anthropic");
+                assert_eq!(returned.model, "claude-sonnet");
+                assert_eq!(
+                    returned.system_prompt.as_deref(),
+                    Some("Escalated WELES prompt")
+                );
+                assert_eq!(returned.reasoning_effort.as_deref(), Some("high"));
+            }
+            other => panic!("expected AgentSubAgentUpdated, got {other:?}"),
+        }
+
+        let stored = conn.agent.get_config().await;
+        assert_eq!(stored.builtin_sub_agents.weles.provider.as_deref(), Some("anthropic"));
+        assert_eq!(stored.builtin_sub_agents.weles.model.as_deref(), Some("claude-sonnet"));
+        assert_eq!(
+            stored.builtin_sub_agents.weles.system_prompt.as_deref(),
+            Some("Escalated WELES prompt")
+        );
+        assert_eq!(
+            stored.builtin_sub_agents.weles.reasoning_effort.as_deref(),
+            Some("high")
+        );
 
         conn.shutdown().await;
     }

@@ -342,4 +342,3 @@ fn default_max_task_retries() -> u32 {
 fn default_task_runtime() -> String {
     "daemon".into()
 }
-

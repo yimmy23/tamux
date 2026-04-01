@@ -7,6 +7,7 @@ pub(super) struct ParsedMessageMetadata {
     pub tool_name: Option<String>,
     pub tool_arguments: Option<String>,
     pub tool_status: Option<String>,
+    pub weles_review: Option<WelesReviewMeta>,
     pub api_transport: Option<ApiTransport>,
     pub response_id: Option<String>,
 }
@@ -38,12 +39,17 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         .as_ref()
         .and_then(|value| value.get("api_transport"))
         .and_then(|value| serde_json::from_value::<ApiTransport>(value.clone()).ok());
+    let weles_review = metadata
+        .as_ref()
+        .and_then(|value| value.get("weles_review"))
+        .and_then(|value| serde_json::from_value::<WelesReviewMeta>(value.clone()).ok());
 
     ParsedMessageMetadata {
         tool_call_id: get_str("tool_call_id"),
         tool_name: get_str("tool_name"),
         tool_arguments: get_str("tool_arguments"),
         tool_status: get_str("tool_status"),
+        weles_review,
         api_transport,
         response_id: get_str("response_id"),
     }
@@ -86,6 +92,7 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "toolCallId": message.tool_call_id,
         "toolArguments": message.tool_arguments,
         "toolStatus": message.tool_status,
+        "weles_review": message.weles_review,
         "api_transport": message.api_transport,
         "response_id": message.response_id,
     }))

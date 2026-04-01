@@ -1,5 +1,71 @@
 use super::*;
 
+fn sanitize_task_for_persistence(task: &AgentTask) -> AgentTask {
+    let mut persisted = task.clone();
+    if persisted.sub_agent_def_id.as_deref()
+        == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    {
+        if let Some(prompt) = persisted.override_system_prompt.as_deref() {
+            let sanitized = crate::agent::weles_governance::strip_weles_internal_payload_markers(prompt);
+            persisted.override_system_prompt = if sanitized.trim().is_empty() {
+                None
+            } else {
+                Some(sanitized)
+            };
+        }
+    }
+    persisted
+}
+
+async fn persist_weles_runtime_context(engine: &AgentEngine, task: &AgentTask) {
+    if task.sub_agent_def_id.as_deref()
+        != Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    {
+        return;
+    }
+
+    let Some(prompt) = task.override_system_prompt.as_deref() else {
+        return;
+    };
+    let key = crate::agent::persistence::weles_runtime_context_key(&task.id);
+
+    let is_trusted = engine
+        .trusted_weles_tasks
+        .read()
+        .await
+        .contains(&task.id);
+
+    if is_trusted {
+        if let Some((_scope, _marker, inspection_context)) =
+        crate::agent::weles_governance::parse_weles_internal_override_payload(prompt)
+        {
+            let value = match serde_json::to_string(&inspection_context) {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::warn!(task_id = %task.id, "failed to serialize WELES runtime context: {error}");
+                    return;
+                }
+            };
+            if let Err(error) = engine
+                .history
+                .set_consolidation_state(&key, &value, now_millis())
+                .await
+            {
+                tracing::warn!(task_id = %task.id, "failed to persist WELES runtime context: {error}");
+            }
+            return;
+        }
+    }
+
+    if let Err(error) = engine
+        .history
+        .set_consolidation_state(&key, "", now_millis())
+        .await
+    {
+        tracing::warn!(task_id = %task.id, "failed to clear WELES runtime context: {error}");
+    }
+}
+
 impl AgentEngine {
     async fn persist_thread_snapshot(&self, thread: &AgentThread) {
         let thread_row = amux_protocol::AgentDbThread {
@@ -98,11 +164,18 @@ impl AgentEngine {
         let mut tasks = self.tasks.lock().await;
         for task in tasks.iter_mut() {
             task.logs.truncate(MAX_TASK_LOGS);
-            if let Err(e) = self.history.upsert_agent_task(task).await {
+            persist_weles_runtime_context(self, task).await;
+            let persisted = sanitize_task_for_persistence(task);
+            if let Err(e) = self.history.upsert_agent_task(&persisted).await {
                 tracing::warn!(task_id = %task.id, "failed to persist task to sqlite: {e}");
             }
         }
-        if let Err(e) = persist_json(&self.data_dir.join("tasks.json"), &*tasks).await {
+        let persisted_tasks = tasks
+            .iter()
+            .map(sanitize_task_for_persistence)
+            .collect::<VecDeque<_>>();
+        drop(tasks);
+        if let Err(e) = persist_json(&self.data_dir.join("tasks.json"), &persisted_tasks).await {
             tracing::warn!("failed to persist tasks: {e}");
         }
     }
@@ -130,15 +203,7 @@ impl AgentEngine {
 
     pub(in crate::agent) async fn persist_config(&self) {
         let config = self.config.read().await.clone();
-        let mut value = serde_json::to_value(&config)
-            .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
-        super::config::normalize_config_keys_to_snake_case(&mut value);
-        super::config::sanitize_config_value(&mut value);
-        let mut items = Vec::new();
-        super::config::flatten_config_value_to_items(&value, "", &mut items);
-        if let Err(error) = self.history.replace_agent_config_items(&items).await {
-            tracing::warn!("failed to persist config to sqlite: {error}");
-        }
+        self.store_config_snapshot(config).await;
     }
 
     pub(in crate::agent) async fn persist_heuristic_store(&self) {

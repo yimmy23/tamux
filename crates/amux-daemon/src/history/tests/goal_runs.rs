@@ -45,6 +45,9 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
         let has_session = table_has_column(conn, "agent_tasks", "session_id")?;
         let has_scheduled = table_has_column(conn, "agent_tasks", "scheduled_at")?;
         let has_goal_run = table_has_column(conn, "agent_tasks", "goal_run_id")?;
+        let has_override_provider = table_has_column(conn, "agent_tasks", "override_provider")?;
+        let has_override_prompt = table_has_column(conn, "agent_tasks", "override_system_prompt")?;
+        let has_sub_agent_def = table_has_column(conn, "agent_tasks", "sub_agent_def_id")?;
         let index_name: Option<String> = conn
             .query_row(
                 "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run'",
@@ -52,13 +55,24 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
                 |row| row.get(0),
             )
             .optional()?;
-        Ok((has_session, has_scheduled, has_goal_run, index_name))
+        Ok((
+            has_session,
+            has_scheduled,
+            has_goal_run,
+            has_override_provider,
+            has_override_prompt,
+            has_sub_agent_def,
+            index_name,
+        ))
     }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
     assert!(has_cols.0);
     assert!(has_cols.1);
     assert!(has_cols.2);
-    assert_eq!(has_cols.3.as_deref(), Some("idx_agent_tasks_goal_run"));
+    assert!(has_cols.3);
+    assert!(has_cols.4);
+    assert!(has_cols.5);
+    assert_eq!(has_cols.6.as_deref(), Some("idx_agent_tasks_goal_run"));
 
     fs::remove_dir_all(root)?;
     Ok(())

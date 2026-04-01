@@ -1,4 +1,4 @@
-import type { ToolCall } from "../agentTools";
+import type { ToolCall, WelesReviewMeta } from "../agentTools";
 import type { PaneId, SurfaceId, WorkspaceId } from "../types";
 
 export interface AgentThread {
@@ -112,6 +112,12 @@ export interface SubAgentDefinition {
     intervention_level?: string;
   };
   enabled: boolean;
+  builtin?: boolean;
+  immutable_identity?: boolean;
+  disable_allowed?: boolean;
+  delete_allowed?: boolean;
+  protected_reason?: string;
+  reasoning_effort?: string;
   created_at: number;
 }
 
@@ -164,6 +170,7 @@ export interface AgentMessage {
   toolCallId?: string;
   toolArguments?: string;
   toolStatus?: "requested" | "executing" | "done" | "error";
+  welesReview?: WelesReviewMeta;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -175,6 +182,12 @@ export interface AgentMessage {
   tps?: number;
   isCompactionSummary: boolean;
   isStreaming?: boolean;
+}
+
+export interface WelesHealthState {
+  state: string;
+  reason?: string;
+  checkedAt: number;
 }
 
 export type AgentTodoStatus = "pending" | "in_progress" | "completed" | "blocked";

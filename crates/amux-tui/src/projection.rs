@@ -102,6 +102,7 @@ pub enum ClientEvent {
         call_id: String,
         name: String,
         arguments: String,
+        weles_review: Option<crate::client::WelesReviewMetaVm>,
     },
     ToolResult {
         thread_id: String,
@@ -109,6 +110,7 @@ pub enum ClientEvent {
         name: String,
         content: String,
         is_error: bool,
+        weles_review: Option<crate::client::WelesReviewMetaVm>,
     },
     Done {
         thread_id: String,
@@ -303,11 +305,13 @@ impl DaemonProjection {
                 call_id,
                 name,
                 arguments,
+                weles_review,
             } => vec![AppAction::Chat(ChatAction::ToolCall {
                 thread_id,
                 call_id,
                 name,
                 args: arguments,
+                weles_review,
             })],
             ClientEvent::ToolResult {
                 thread_id,
@@ -315,12 +319,14 @@ impl DaemonProjection {
                 name,
                 content,
                 is_error,
+                weles_review,
             } => vec![AppAction::Chat(ChatAction::ToolResult {
                 thread_id,
                 call_id,
                 name,
                 content,
                 is_error,
+                weles_review,
             })],
             ClientEvent::Done {
                 thread_id,
@@ -428,6 +434,7 @@ mod tests {
             call_id: "c1".into(),
             name: "bash".into(),
             arguments: "ls -la".into(),
+            weles_review: None,
         });
         match &actions[0] {
             AppAction::Chat(ChatAction::ToolCall { args, .. }) => {

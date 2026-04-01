@@ -293,9 +293,17 @@ fn subagent_row_action_offsets(
     entry: &crate::state::subagents::SubAgentEntry,
 ) -> (u16, u16, u16, u16, u16) {
     let edit_label = "[Edit]";
-    let delete_label = "[Delete]";
+    let delete_label = if entry.delete_allowed {
+        "[Delete]"
+    } else {
+        "[Protected]"
+    };
     let toggle_label = if entry.enabled {
-        "[Disable]"
+        if entry.disable_allowed {
+            "[Disable]"
+        } else {
+            "[Locked]"
+        }
     } else {
         "[Enable]"
     };

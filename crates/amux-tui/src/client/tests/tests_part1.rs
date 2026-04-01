@@ -71,3 +71,56 @@
             other => panic!("expected done event, got {:?}", other),
         }
     }
+
+    #[tokio::test]
+    async fn daemon_agent_error_is_forwarded_to_client_error_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        let should_continue = DaemonClient::handle_daemon_message(
+            DaemonMessage::AgentError {
+                message: "protected mutation: cannot change WELES name".to_string(),
+            },
+            &event_tx,
+        )
+        .await;
+
+        assert!(should_continue);
+        match event_rx.recv().await.expect("expected error event") {
+            ClientEvent::Error(message) => {
+                assert_eq!(message, "protected mutation: cannot change WELES name");
+            }
+            other => panic!("expected error event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn weles_health_update_event_parses_degraded_payload() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "weles_health_update",
+                "state": "degraded",
+                "reason": "WELES review unavailable for guarded actions",
+                "checked_at": 321
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match event_rx.recv().await.expect("expected weles health event") {
+            ClientEvent::WelesHealthUpdate {
+                state,
+                reason,
+                checked_at,
+            } => {
+                assert_eq!(state, "degraded");
+                assert_eq!(checked_at, 321);
+                assert_eq!(
+                    reason.as_deref(),
+                    Some("WELES review unavailable for guarded actions")
+                );
+            }
+            other => panic!("expected weles health update, got {:?}", other),
+        }
+    }

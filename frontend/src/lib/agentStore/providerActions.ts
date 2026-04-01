@@ -3,6 +3,37 @@ import { isValidProviderAuthStates } from "./history";
 import type { AgentState, AgentStoreGet, AgentStoreSet } from "./storeTypes";
 import type { ProviderAuthState, SubAgentDefinition } from "./types";
 
+export function getSubAgentCapabilities(definition: SubAgentDefinition) {
+  const isProtected = Boolean(definition.builtin || definition.immutable_identity);
+  return {
+    isProtected,
+    canToggle: Boolean(definition.disable_allowed ?? true),
+    canDelete: Boolean(definition.delete_allowed ?? true),
+    protectedReason: definition.protected_reason ?? (isProtected ? "Protected built-in sub-agent" : ""),
+  } as const;
+}
+
+export function sanitizeSubAgentUpdate(
+  existing: SubAgentDefinition | undefined,
+  definition: SubAgentDefinition,
+): SubAgentDefinition {
+  if (!existing || !getSubAgentCapabilities(existing).isProtected) {
+    return definition;
+  }
+
+  return {
+    ...definition,
+    id: existing.id,
+    name: existing.name,
+    enabled: existing.enabled,
+    builtin: existing.builtin,
+    immutable_identity: existing.immutable_identity,
+    disable_allowed: existing.disable_allowed,
+    delete_allowed: existing.delete_allowed,
+    protected_reason: existing.protected_reason,
+  };
+}
+
 type ProviderActionKeys =
   | "refreshProviderAuthStates"
   | "validateProvider"
@@ -93,6 +124,10 @@ export function createProviderActions(
       if (!bridge?.agentRemoveSubAgent) {
         return;
       }
+      const existing = get().subAgents.find((entry) => entry.id === id);
+      if (existing && !getSubAgentCapabilities(existing).canDelete) {
+        return;
+      }
       try {
         await bridge.agentRemoveSubAgent(id);
         await get().refreshSubAgents();
@@ -105,8 +140,10 @@ export function createProviderActions(
       if (!bridge?.agentSetSubAgent) {
         return;
       }
+      const existing = get().subAgents.find((entry) => entry.id === definition.id);
+      const sanitized = sanitizeSubAgentUpdate(existing, definition);
       try {
-        await bridge.agentSetSubAgent(JSON.stringify(definition));
+        await bridge.agentSetSubAgent(JSON.stringify(sanitized));
         await get().refreshSubAgents();
       } catch {
         // Ignore bridge failures and keep current UI state.

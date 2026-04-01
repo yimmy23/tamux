@@ -153,6 +153,9 @@ impl DaemonClient {
             DaemonMessage::Error { message } => {
                 let _ = event_tx.send(ClientEvent::Error(message)).await;
             }
+            DaemonMessage::AgentError { message } => {
+                let _ = event_tx.send(ClientEvent::Error(message)).await;
+            }
             _ => unreachable!("daemon message part3 should be exhaustive"),
         }
     }

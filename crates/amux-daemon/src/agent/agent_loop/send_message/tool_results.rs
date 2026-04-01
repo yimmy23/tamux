@@ -93,6 +93,7 @@ impl<'a> SendMessageRunner<'a> {
             name: tool_result_name.clone(),
             content: tool_result_content.clone(),
             is_error: result.is_error,
+            weles_review: result.weles_review.clone(),
         });
 
         {
@@ -108,6 +109,7 @@ impl<'a> SendMessageRunner<'a> {
                     tool_name: Some(tool_result_name),
                     tool_arguments: Some(tc.function.arguments.clone()),
                     tool_status: Some(tool_status.to_string()),
+                    weles_review: result.weles_review.clone(),
                     input_tokens: 0,
                     output_tokens: 0,
                     provider: None,

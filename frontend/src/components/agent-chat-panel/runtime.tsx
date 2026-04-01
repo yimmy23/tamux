@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { abortThreadStream, clearThreadAbortController, getEffectiveContextWindow, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
+import { abortThreadStream, buildHydratedRemoteThread, clearThreadAbortController, getEffectiveContextWindow, setThreadAbortController, useAgentStore } from "../../lib/agentStore";
 import type { AgentMessage, AgentThread, AgentTodoItem, AgentProviderConfig } from "../../lib/agentStore";
 import { prepareOpenAIRequest, sendChatCompletion } from "../../lib/agentClient";
 import type { AgentSettings } from "../../lib/agentStore";
@@ -23,6 +23,7 @@ import {
 import { AgentExecutionGraph } from "../AgentExecutionGraph";
 import { AITrainingView } from "./AITrainingView";
 import { ChatView } from "./ChatView";
+import type { WelesHealthState } from "../../lib/agentStore/types";
 import { CodingAgentsView } from "./CodingAgentsView";
 import { ContextView } from "./ContextView";
 import { SubagentsView } from "./SubagentsView";
@@ -96,6 +97,7 @@ type AgentChatPanelRuntimeValue = {
     canStartGoalRun: boolean;
     startGoalRunFromPrompt: (text: string) => Promise<boolean>;
     tabItems: Array<{ id: AgentChatPanelView; label: string; count: number | null }>;
+    welesHealth: WelesHealthState | null;
 };
 
 const AgentChatPanelRuntimeContext = createContext<AgentChatPanelRuntimeValue | null>(null);
@@ -149,6 +151,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
     const [daemonTodosByThread, setDaemonTodosByThread] = useState<Record<string, AgentTodoItem[]>>({});
     const [goalRunsForTrace, setGoalRunsForTrace] = useState<GoalRun[]>([]);
     const [latestDivergentSessionId, setLatestDivergentSessionId] = useState<string | null>(null);
+    const [welesHealth, setWelesHealth] = useState<WelesHealthState | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -300,6 +303,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                         toolCallId: event.call_id,
                         toolArguments: event.arguments,
                         toolStatus: "requested",
+                        welesReview: event.weles_review || undefined,
                         inputTokens: 0,
                         outputTokens: 0,
                         totalTokens: 0,
@@ -315,6 +319,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                         toolName: event.name,
                         toolCallId: event.call_id,
                         toolStatus: event.is_error ? "error" : "done",
+                        welesReview: event.weles_review || undefined,
                         inputTokens: 0,
                         outputTokens: 0,
                         totalTokens: 0,
@@ -598,6 +603,17 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                     }
                     break;
                 }
+                case "weles_health_update": {
+                    const state = typeof event.state === "string" ? event.state : "healthy";
+                    const reason = typeof event.reason === "string" ? event.reason : undefined;
+                    const checkedAt = typeof event.checked_at === "number" ? event.checked_at : Date.now();
+                    const nextHealth = { state, reason, checkedAt };
+                    setWelesHealth(nextHealth);
+                    if (state === "degraded") {
+                        appendDaemonSystemMessage(`WELES degraded\n\n${reason || "Daemon vitality checks require attention."}`);
+                    }
+                    break;
+                }
                 case "agent-divergent-session-started": {
                     const payload = normalizeBridgePayload(event);
                     if (payload?.ok === false && typeof payload?.error === "string") {
@@ -872,18 +888,21 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         if (!localThreadId) return;
 
         const remoteThread = await amux.agentGetThread(daemonThreadId).catch(() => null) as any;
-        if (!remoteThread?.thread) return;
+        const hydrated = buildHydratedRemoteThread(
+            (remoteThread ?? {}) as any,
+            remoteThread?.agent_name ?? "assistant",
+        );
+        if (!hydrated) return;
 
         const reloadedThread = {
-            ...remoteThread.thread,
+            ...hydrated.thread,
+            id: localThreadId,
             daemonThreadId,
         } as AgentThread;
-        const reloadedMessages = (Array.isArray(remoteThread.messages) ? remoteThread.messages : []).map(
-            (message: any) => ({
-                ...message,
-                threadId: localThreadId,
-            }),
-        ) as AgentMessage[];
+        const reloadedMessages = hydrated.messages.map((message) => ({
+            ...message,
+            threadId: localThreadId,
+        })) as AgentMessage[];
 
         useAgentStore.setState((state) => ({
             threads: state.threads.map((thread) => thread.id === localThreadId ? reloadedThread : thread),
@@ -1159,6 +1178,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                                 toolName: m.toolName,
                                 toolArguments: m.toolArguments,
                                 toolStatus: m.toolStatus,
+                                weles_review: m.welesReview,
                             }) : null,
                         }));
                     }
@@ -1407,6 +1427,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                                     toolCallId: toolCall.id,
                                     toolArguments: toolCall.function.arguments,
                                     toolStatus: "requested",
+                                    welesReview: toolCall.weles_review,
                                     inputTokens: 0,
                                     outputTokens: 0,
                                     totalTokens: 0,
@@ -1431,6 +1452,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
                                     toolCallId: result.toolCallId,
                                     toolArguments: toolCall.function.arguments,
                                     toolStatus: result.content.startsWith("Error:") ? "error" : "done",
+                                    welesReview: result.weles_review ?? toolCall.weles_review,
                                     inputTokens: 0,
                                     outputTokens: 0,
                                     totalTokens: 0,
@@ -1660,6 +1682,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         canStartGoalRun: goalRunSupportAvailable(),
         startGoalRunFromPrompt,
         tabItems,
+        welesHealth,
     }), [
         togglePanel,
         activeWorkspace,
@@ -1703,6 +1726,7 @@ export function AgentChatPanelProvider({ children }: { children?: React.ReactNod
         tabItems,
         goalRunsForTrace,
         latestDivergentSessionId,
+        welesHealth,
     ]);
 
     if (!open) {
@@ -1912,6 +1936,7 @@ export function AgentChatPanelChatSurface() {
             onUpdateReasoningEffort={(v) => runtime.updateAgentSetting("reasoning_effort", v as AgentSettings["reasoning_effort"])}
             canStartGoalRun={runtime.canStartGoalRun}
             onStartGoalRun={runtime.startGoalRunFromPrompt}
+            welesHealth={runtime.welesHealth}
         />
     );
 }

@@ -158,6 +158,7 @@ impl ChatState {
                 call_id,
                 name,
                 args,
+                weles_review,
             } => {
                 self.pinned_message_top = None;
                 self.retry_status = None;
@@ -199,6 +200,7 @@ impl ChatState {
                         tool_call_id: Some(call_id.clone()),
                         tool_arguments: Some(args),
                         tool_status: Some("running".to_string()),
+                        weles_review: weles_review.clone(),
                         ..Default::default()
                     });
                 }
@@ -211,6 +213,7 @@ impl ChatState {
                     status: ToolCallStatus::Running,
                     result: None,
                     is_error: false,
+                    weles_review,
                     started_at: 0,
                 });
             }
@@ -221,6 +224,7 @@ impl ChatState {
                 name: _,
                 content,
                 is_error,
+                weles_review,
             } => {
                 self.pinned_message_top = None;
                 self.retry_status = None;
@@ -237,6 +241,7 @@ impl ChatState {
                     };
                     tc.result = Some(content.clone());
                     tc.is_error = is_error;
+                    tc.weles_review = weles_review.clone();
                 }
 
                 // Update the TOOL message in the thread
@@ -249,6 +254,7 @@ impl ChatState {
                         } else {
                             "done".to_string()
                         });
+                        msg.weles_review = weles_review;
                         msg.content = content;
                     }
                 }

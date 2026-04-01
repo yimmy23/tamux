@@ -335,6 +335,13 @@ impl TuiModel {
             .unwrap_or("")
             .to_string();
         editor.enabled = entry.enabled;
+        editor.builtin = entry.builtin;
+        editor.immutable_identity = entry.immutable_identity;
+        editor.disable_allowed = entry.disable_allowed;
+        editor.delete_allowed = entry.delete_allowed;
+        editor.protected_reason = entry.protected_reason.clone();
+        editor.reasoning_effort = entry.reasoning_effort.clone();
+        editor.raw_json = Some(raw);
         editor.previous_role_preset = editor
             .role_preset_index()
             .and_then(|index| crate::state::subagents::SUBAGENT_ROLE_PRESETS.get(index))
@@ -347,5 +354,4 @@ impl TuiModel {
         self.subagents.editor = None;
         self.settings.reduce(SettingsAction::CancelEdit);
     }
-
 }

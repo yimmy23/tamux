@@ -255,6 +255,29 @@ fn operator_profile_progress_requests_next_question() {
 }
 
 #[test]
+fn weles_health_update_surfaces_degraded_status() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::WelesHealthUpdate {
+        state: "degraded".to_string(),
+        reason: Some("WELES review unavailable for guarded actions".to_string()),
+        checked_at: 77,
+    });
+
+    assert_eq!(
+        model
+            .weles_health
+            .as_ref()
+            .map(|health| health.state.as_str()),
+        Some("degraded")
+    );
+    assert!(
+        model.status_line.contains("WELES degraded"),
+        "status line should mention degraded WELES health"
+    );
+}
+
+#[test]
 fn models_fetched_updates_picker_count_for_open_model_picker() {
     let mut model = make_model();
     model
@@ -319,4 +342,45 @@ fn done_event_persists_final_reasoning_into_chat_message() {
         .last()
         .expect("assistant message should exist");
     assert_eq!(last.reasoning.as_deref(), Some("Final reasoning summary"));
+}
+
+#[test]
+fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (daemon_tx, mut daemon_rx) = unbounded_channel();
+    let mut model = TuiModel::new(event_rx, daemon_tx);
+    model.subagents.entries = vec![crate::state::SubAgentEntry {
+        id: "weles_builtin".to_string(),
+        name: "Legacy WELES".to_string(),
+        provider: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: None,
+        raw_json: Some(serde_json::json!({
+            "id": "weles_builtin",
+            "name": "Legacy WELES"
+        })),
+    }];
+
+    model.handle_client_event(ClientEvent::Error(
+        "protected mutation: reserved built-in sub-agent".to_string(),
+    ));
+
+    assert_eq!(
+        model.subagents.entries.len(),
+        1,
+        "stale optimistic entry remains until refresh arrives"
+    );
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("subagent error should request authoritative refresh"),
+        DaemonCommand::ListSubAgents
+    ));
 }

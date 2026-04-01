@@ -34,6 +34,13 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
         tool_arguments: m.tool_arguments,
         tool_call_id: m.tool_call_id,
         tool_status: m.tool_status,
+        weles_review: m.weles_review.map(|review| chat::WelesReviewMetaVm {
+            weles_reviewed: review.weles_reviewed,
+            verdict: review.verdict,
+            reasons: review.reasons,
+            audit_id: review.audit_id,
+            security_override_mode: review.security_override_mode,
+        }),
         input_tokens: m.input_tokens,
         output_tokens: m.output_tokens,
         tps: m.tps,

@@ -32,17 +32,29 @@ import {
   executeSplitPane,
 } from "./workspaceActions";
 
+function withWelesReview(call: ToolCall, result: ToolResult): ToolResult {
+  return {
+    ...result,
+    weles_review: result.weles_review ?? call.weles_review,
+  };
+}
+
 export async function executeTool(call: ToolCall): Promise<ToolResult> {
   const name = call.function.name;
   let args: Record<string, any>;
   try {
     args = JSON.parse(call.function.arguments);
   } catch {
-    return { toolCallId: call.id, name, content: "Error: Invalid JSON arguments" };
+    return withWelesReview(call, {
+      toolCallId: call.id,
+      name,
+      content: "Error: Invalid JSON arguments",
+    });
   }
 
   try {
-    switch (name) {
+    const result = await (async (): Promise<ToolResult> => {
+      switch (name) {
       case "send_slack_message":
         return await executeGatewayMessage(call.id, name, "slack", args.channel, args.message);
       case "send_discord_message":
@@ -112,12 +124,22 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       default: {
         const pluginResult = await executePluginAssistantTool(call, args);
         if (pluginResult) {
-          return pluginResult;
+          return withWelesReview(call, pluginResult);
         }
-        return { toolCallId: call.id, name, content: `Error: Unknown tool '${name}'` };
+        return withWelesReview(call, {
+          toolCallId: call.id,
+          name,
+          content: `Error: Unknown tool '${name}'`,
+        });
       }
-    }
+      }
+    })();
+    return withWelesReview(call, result);
   } catch (error: any) {
-    return { toolCallId: call.id, name, content: `Error: ${error.message || String(error)}` };
+    return withWelesReview(call, {
+      toolCallId: call.id,
+      name,
+      content: `Error: ${error.message || String(error)}`,
+    });
   }
 }

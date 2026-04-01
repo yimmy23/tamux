@@ -89,6 +89,13 @@ pub struct SubAgentEditorState {
     pub role: String,
     pub system_prompt: String,
     pub enabled: bool,
+    pub builtin: bool,
+    pub immutable_identity: bool,
+    pub disable_allowed: bool,
+    pub delete_allowed: bool,
+    pub protected_reason: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub raw_json: Option<serde_json::Value>,
     pub field: SubAgentEditorField,
     pub previous_role_preset: Option<String>,
 }
@@ -104,9 +111,20 @@ impl SubAgentEditorState {
             role: String::new(),
             system_prompt: String::new(),
             enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: None,
+            raw_json: None,
             field: SubAgentEditorField::Name,
             previous_role_preset: None,
         }
+    }
+
+    pub fn identity_is_mutable(&self) -> bool {
+        self.id.is_none() || !self.immutable_identity
     }
 
     pub fn role_preset_index(&self) -> Option<usize> {
@@ -145,6 +163,12 @@ pub struct SubAgentEntry {
     pub model: String,
     pub role: Option<String>,
     pub enabled: bool,
+    pub builtin: bool,
+    pub immutable_identity: bool,
+    pub disable_allowed: bool,
+    pub delete_allowed: bool,
+    pub protected_reason: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub raw_json: Option<serde_json::Value>,
 }
 

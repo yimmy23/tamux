@@ -11,11 +11,13 @@
                         name: "list_sessions".to_string(),
                         arguments: "{}".to_string(),
                     },
+                    weles_review: None,
                 }]),
                 tool_call_id: None,
                 tool_name: None,
                 tool_arguments: None,
                 tool_status: None,
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -34,6 +36,7 @@
                 tool_name: Some("list_sessions".to_string()),
                 tool_arguments: Some("{}".to_string()),
                 tool_status: Some("done".to_string()),
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: None,
@@ -351,4 +354,3 @@
         assert_eq!(diagnostics.class, "temporary_upstream");
         assert!(diagnostics.diagnostics.to_string().contains("503"));
     }
-

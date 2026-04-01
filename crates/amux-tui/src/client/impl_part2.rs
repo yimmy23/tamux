@@ -264,6 +264,27 @@ impl DaemonClient {
                             model: v.get("model")?.as_str()?.to_string(),
                             role: v.get("role").and_then(|s| s.as_str()).map(String::from),
                             enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
+                            builtin: v.get("builtin").and_then(|b| b.as_bool()).unwrap_or(false),
+                            immutable_identity: v
+                                .get("immutable_identity")
+                                .and_then(|b| b.as_bool())
+                                .unwrap_or(false),
+                            disable_allowed: v
+                                .get("disable_allowed")
+                                .and_then(|b| b.as_bool())
+                                .unwrap_or(true),
+                            delete_allowed: v
+                                .get("delete_allowed")
+                                .and_then(|b| b.as_bool())
+                                .unwrap_or(true),
+                            protected_reason: v
+                                .get("protected_reason")
+                                .and_then(|s| s.as_str())
+                                .map(String::from),
+                            reasoning_effort: v
+                                .get("reasoning_effort")
+                                .and_then(|s| s.as_str())
+                                .map(String::from),
                             raw_json: Some(v.clone()),
                         })
                     })
@@ -296,6 +317,27 @@ impl DaemonClient {
                         .to_string(),
                     role: v.get("role").and_then(|s| s.as_str()).map(String::from),
                     enabled: v.get("enabled").and_then(|b| b.as_bool()).unwrap_or(true),
+                    builtin: v.get("builtin").and_then(|b| b.as_bool()).unwrap_or(false),
+                    immutable_identity: v
+                        .get("immutable_identity")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false),
+                    disable_allowed: v
+                        .get("disable_allowed")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(true),
+                    delete_allowed: v
+                        .get("delete_allowed")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(true),
+                    protected_reason: v
+                        .get("protected_reason")
+                        .and_then(|s| s.as_str())
+                        .map(String::from),
+                    reasoning_effort: v
+                        .get("reasoning_effort")
+                        .and_then(|s| s.as_str())
+                        .map(String::from),
                     raw_json: Some(v),
                 };
                 let _ = event_tx.send(ClientEvent::SubAgentUpdated(entry)).await;

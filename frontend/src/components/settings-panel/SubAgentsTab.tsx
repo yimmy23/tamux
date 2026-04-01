@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAgentStore } from "../../lib/agentStore";
 import type { SubAgentDefinition, AgentProviderId } from "../../lib/agentStore";
+import { getSubAgentCapabilities } from "../../lib/agentStore/providerActions";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle, addBtnStyle } from "./shared";
 
 type SubAgentForm = {
@@ -12,9 +13,10 @@ type SubAgentForm = {
     enabled: boolean;
     showAdvanced: boolean;
     tool_whitelist: string;
-    tool_blacklist: string;
-    context_budget_tokens: string;
-    max_duration_secs: string;
+  tool_blacklist: string;
+  context_budget_tokens: string;
+  max_duration_secs: string;
+  reasoning_effort: string;
 };
 
 const ROLE_PRESETS = [
@@ -59,9 +61,10 @@ const emptyForm: SubAgentForm = {
     enabled: true,
     showAdvanced: false,
     tool_whitelist: "",
-    tool_blacklist: "",
-    context_budget_tokens: "",
-    max_duration_secs: "",
+  tool_blacklist: "",
+  context_budget_tokens: "",
+  max_duration_secs: "",
+  reasoning_effort: "",
 };
 
 export function SubAgentsTab() {
@@ -94,6 +97,7 @@ export function SubAgentsTab() {
             tool_blacklist: form.tool_blacklist ? form.tool_blacklist.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
             context_budget_tokens: form.context_budget_tokens ? Number(form.context_budget_tokens) : undefined,
             max_duration_secs: form.max_duration_secs ? Number(form.max_duration_secs) : undefined,
+            reasoning_effort: form.reasoning_effort || undefined,
         };
 
         if (editingId) {
@@ -125,6 +129,7 @@ export function SubAgentsTab() {
             tool_blacklist: sa.tool_blacklist?.join(", ") || "",
             context_budget_tokens: sa.context_budget_tokens ? String(sa.context_budget_tokens) : "",
             max_duration_secs: sa.max_duration_secs ? String(sa.max_duration_secs) : "",
+            reasoning_effort: sa.reasoning_effort || "",
         });
         setEditingId(sa.id);
         setShowForm(true);
@@ -165,6 +170,9 @@ export function SubAgentsTab() {
 
                 <div style={{ display: "grid", gap: 2, marginBottom: 12 }}>
                     {subAgents.map((sa) => (
+                        (() => {
+                            const capabilities = getSubAgentCapabilities(sa);
+                            return (
                         <div key={sa.id} style={{
                             border: "1px solid rgba(255,255,255,0.06)",
                             background: "rgba(18, 33, 47, 0.5)",
@@ -182,19 +190,41 @@ export function SubAgentsTab() {
                                         background: sa.enabled ? "#4ade80" : "#6b7280",
                                         flexShrink: 0,
                                     }} />
-                                    <span style={{ fontSize: 12, fontWeight: 600 }}>{sa.name}</span>
-                                    <span style={{
-                                        fontSize: 10,
-                                        color: "var(--text-secondary)",
+                                     <span style={{ fontSize: 12, fontWeight: 600 }}>{sa.name}</span>
+                                     {capabilities.isProtected && (
+                                         <span style={{
+                                             fontSize: 10,
+                                             color: "#fbbf24",
+                                             background: "rgba(251,191,36,0.12)",
+                                             padding: "1px 6px",
+                                             borderRadius: 3,
+                                         }}>
+                                             Built-in
+                                         </span>
+                                     )}
+                                     <span style={{
+                                         fontSize: 10,
+                                         color: "var(--text-secondary)",
                                         background: "rgba(255,255,255,0.05)",
                                         padding: "1px 6px",
                                         borderRadius: 3,
                                     }}>
                                         {providerName(sa.provider)} / {sa.model}
                                     </span>
-                                    {sa.role && (
-                                        <span style={{
-                                            fontSize: 10,
+                                     {sa.reasoning_effort && (
+                                         <span style={{
+                                             fontSize: 10,
+                                             color: "var(--text-secondary)",
+                                             background: "rgba(255,255,255,0.05)",
+                                             padding: "1px 6px",
+                                             borderRadius: 3,
+                                         }}>
+                                             effort: {sa.reasoning_effort}
+                                         </span>
+                                     )}
+                                     {sa.role && (
+                                         <span style={{
+                                             fontSize: 10,
                                             color: "var(--accent)",
                                             background: "rgba(97, 197, 255, 0.1)",
                                             padding: "1px 6px",
@@ -204,19 +234,30 @@ export function SubAgentsTab() {
                                         </span>
                                     )}
                                 </div>
-                                <div style={{ display: "flex", gap: 4 }}>
-                                    <button onClick={() => handleToggle(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
-                                        {sa.enabled ? "Disable" : "Enable"}
-                                    </button>
-                                    <button onClick={() => handleEdit(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
-                                        Edit
-                                    </button>
-                                    <button onClick={() => handleDelete(sa.id)} style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}>
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                                 <div style={{ display: "flex", gap: 4 }}>
+                                     {capabilities.canToggle && (
+                                         <button onClick={() => handleToggle(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
+                                             {sa.enabled ? "Disable" : "Enable"}
+                                         </button>
+                                     )}
+                                     <button onClick={() => handleEdit(sa)} style={{ ...smallBtnStyle, fontSize: 10 }}>
+                                         Edit
+                                     </button>
+                                     {capabilities.canDelete && (
+                                         <button onClick={() => handleDelete(sa.id)} style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}>
+                                             Delete
+                                         </button>
+                                     )}
+                                 </div>
+                             </div>
+                             {capabilities.isProtected && capabilities.protectedReason && (
+                                 <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 8 }}>
+                                     {capabilities.protectedReason}
+                                 </div>
+                             )}
+                         </div>
+                            );
+                        })()
                     ))}
                 </div>
 
@@ -282,6 +323,20 @@ export function SubAgentsTab() {
                                 rows={3}
                                 style={{ ...inputStyle, width: 220, resize: "vertical" }}
                             />
+                        </SettingRow>
+                        <SettingRow label="Reasoning Effort">
+                            <select
+                                value={form.reasoning_effort}
+                                onChange={(e) => setForm({ ...form, reasoning_effort: e.target.value })}
+                                style={{ ...inputStyle, width: 220 }}
+                            >
+                                <option value="">Inherit default</option>
+                                <option value="minimal">Minimal</option>
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                                <option value="xhigh">Extra High</option>
+                            </select>
                         </SettingRow>
                         <div style={{ marginTop: 6 }}>
                             <button

@@ -132,6 +132,9 @@ pub struct AgentConfig {
     /// Registry of named sub-agents for orchestration dispatch.
     #[serde(default)]
     pub sub_agents: Vec<SubAgentDefinition>,
+    /// Daemon-owned built-in subagent overrides kept separate from user subagents.
+    #[serde(default)]
+    pub builtin_sub_agents: BuiltinSubAgentOverrides,
     /// Concierge agent configuration.
     #[serde(default)]
     pub concierge: ConciergeConfig,
@@ -192,6 +195,36 @@ pub struct AgentConfig {
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BuiltinSubAgentOverrides {
+    #[serde(default)]
+    pub weles: WelesBuiltinOverrides,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WelesBuiltinOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_whitelist: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_blacklist: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_budget_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_duration_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supervisor_config: Option<SupervisorConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -356,4 +389,3 @@ impl Default for ToolSynthesisSandboxConfig {
         }
     }
 }
-

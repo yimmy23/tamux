@@ -16,14 +16,14 @@ impl AgentEngine {
         msg: &gateway::IncomingMessage,
         response_text: &str,
     ) -> ToolResult {
-        let auto_tool = ToolCall {
-            id: format!("{tool_id_prefix}_{}", uuid::Uuid::new_v4()),
-            function: ToolFunction {
+        let auto_tool = ToolCall::with_default_weles_review(
+            format!("{tool_id_prefix}_{}", uuid::Uuid::new_v4()),
+            ToolFunction {
                 name: reply_tool_name.to_string(),
                 arguments: gateway_reply_args(&msg.platform, &msg.channel, response_text)
                     .to_string(),
             },
-        };
+        );
         let tool_result = Box::pin(tool_executor::execute_tool(
             &auto_tool,
             self,
@@ -47,14 +47,14 @@ impl AgentEngine {
     ) {
         let fallback_text =
             "I’m still processing your message and hit a timeout. Please send it again, or use !new to start a fresh session.";
-        let fallback_tool = ToolCall {
-            id: format!("gateway_timeout_{}", uuid::Uuid::new_v4()),
-            function: ToolFunction {
+        let fallback_tool = ToolCall::with_default_weles_review(
+            format!("gateway_timeout_{}", uuid::Uuid::new_v4()),
+            ToolFunction {
                 name: reply_tool_name.to_string(),
                 arguments: gateway_reply_args(&msg.platform, &msg.channel, fallback_text)
                     .to_string(),
             },
-        };
+        );
         let tool_result = Box::pin(tool_executor::execute_tool(
             &fallback_tool,
             self,
@@ -334,14 +334,14 @@ impl AgentEngine {
                 "gateway: agent forgot to call send tool, auto-sending response"
             );
 
-            let auto_tool = ToolCall {
-                id: format!("auto_{}", uuid::Uuid::new_v4()),
-                function: ToolFunction {
+            let auto_tool = ToolCall::with_default_weles_review(
+                format!("auto_{}", uuid::Uuid::new_v4()),
+                ToolFunction {
                     name: reply_tool_name.to_string(),
                     arguments: gateway_reply_args(&msg.platform, &msg.channel, &response_text)
                         .to_string(),
                 },
-            };
+            );
 
             let _ = Box::pin(tool_executor::execute_tool(
                 &auto_tool,

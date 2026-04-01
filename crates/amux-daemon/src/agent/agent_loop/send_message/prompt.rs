@@ -21,13 +21,14 @@ impl<'a> SendMessageRunner<'a> {
 
         let memory = self.engine.current_memory_snapshot().await;
         let causal_guidance = self.engine.build_causal_guidance_summary().await;
+        let sub_agents = self.engine.list_sub_agents().await;
         self.system_prompt = build_system_prompt(
             &self.config,
             &self.base_prompt,
             &memory,
             &self.memory_paths,
             &self.agent_scope_id,
-            &self.config.sub_agents,
+            &sub_agents,
             self.operator_model_summary.as_deref(),
             self.operational_context.as_deref(),
             causal_guidance.as_deref(),

@@ -239,6 +239,29 @@ pub(super) fn build_runtime_identity_prompt(
     )
 }
 
+pub(crate) fn build_weles_governance_runtime_prompt(
+    config: &AgentConfig,
+    tool_name: &str,
+    tool_args: &serde_json::Value,
+    security_level: amux_protocol::SecurityLevel,
+    suspicion_reasons: &[String],
+    task: Option<&AgentTask>,
+    task_health_signals: Option<&serde_json::Value>,
+) -> String {
+    let mut prompt = super::weles_governance::build_weles_governance_prompt(
+        config,
+        tool_name,
+        tool_args,
+        security_level,
+        suspicion_reasons,
+        task,
+        task_health_signals,
+    );
+    prompt.push_str("\n\n");
+    prompt.push_str(&super::weles_governance::build_weles_governance_identity_prompt());
+    prompt
+}
+
 pub(super) fn build_concierge_runtime_identity_prompt(provider_id: &str, model_id: &str) -> String {
     build_runtime_identity_prompt(CONCIERGE_AGENT_NAME, provider_id, model_id)
 }

@@ -365,6 +365,7 @@
                     name: "summary".to_string(),
                     arguments: alias_args.to_string(),
                 },
+                weles_review: None,
             },
             &engine,
             "thread-summary",
@@ -385,6 +386,7 @@
                     name: "semantic_query".to_string(),
                     arguments: semantic_args.to_string(),
                 },
+                weles_review: None,
             },
             &engine,
             "thread-semantic",
@@ -473,4 +475,3 @@
         );
         assert!(result.contains("No OneContext matches for \"timeout policy\""));
     }
-

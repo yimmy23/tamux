@@ -173,6 +173,7 @@ impl Default for AgentConfig {
             gateway: GatewayConfig::default(),
             agent_backend: AgentBackend::default(),
             sub_agents: Vec::new(),
+            builtin_sub_agents: BuiltinSubAgentOverrides::default(),
             concierge: ConciergeConfig::default(),
             anticipatory: AnticipatoryConfig::default(),
             operator_model: OperatorModelConfig::default(),
@@ -240,6 +241,18 @@ pub struct SubAgentDefinition {
     pub supervisor_config: Option<SupervisorConfig>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub builtin: bool,
+    #[serde(default)]
+    pub immutable_identity: bool,
+    #[serde(default = "default_sub_agent_disable_allowed")]
+    pub disable_allowed: bool,
+    #[serde(default = "default_sub_agent_delete_allowed")]
+    pub delete_allowed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -381,6 +394,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_sub_agent_disable_allowed() -> bool {
+    true
+}
+
+fn default_sub_agent_delete_allowed() -> bool {
+    true
+}
+
 impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
@@ -473,4 +494,3 @@ pub struct AnticipatoryItem {
     pub created_at: u64,
     pub updated_at: u64,
 }
-

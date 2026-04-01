@@ -224,6 +224,7 @@ impl ConciergeEngine {
                 tool_name: None,
                 tool_arguments: None,
                 tool_status: None,
+                weles_review: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 provider: Some("concierge".into()),
