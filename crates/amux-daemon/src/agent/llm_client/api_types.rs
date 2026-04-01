@@ -1,3 +1,10 @@
+pub(crate) use super::openai_codex_auth::{
+    begin_openai_codex_auth_login, clear_openai_codex_auth_test_state,
+    import_codex_cli_auth_if_present,
+    read_stored_openai_codex_auth, reset_openai_codex_auth_runtime_for_tests,
+    write_stored_openai_codex_auth,
+};
+
 fn classify_http_failure(
     status: reqwest::StatusCode,
     provider: &str,
@@ -212,13 +219,6 @@ impl Stream for CompletionStream {
     }
 }
 
-fn codex_cli_auth_path() -> Option<std::path::PathBuf> {
-    if let Some(path) = std::env::var_os("TAMUX_CODEX_CLI_AUTH_PATH") {
-        return Some(std::path::PathBuf::from(path));
-    }
-    dirs::home_dir().map(|home| home.join(".codex").join("auth.json"))
-}
-
 fn decode_jwt_payload(access_token: &str) -> Option<serde_json::Value> {
     let payload = access_token.split('.').nth(1)?;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -227,7 +227,7 @@ fn decode_jwt_payload(access_token: &str) -> Option<serde_json::Value> {
     serde_json::from_slice::<serde_json::Value>(&decoded).ok()
 }
 
-fn extract_openai_codex_account_id(access_token: &str) -> Option<String> {
+pub(crate) fn extract_openai_codex_account_id(access_token: &str) -> Option<String> {
     decode_jwt_payload(access_token)?
         .get("https://api.openai.com/auth")
         .and_then(|value| value.get("chatgpt_account_id"))
@@ -235,65 +235,15 @@ fn extract_openai_codex_account_id(access_token: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn extract_jwt_expiry(access_token: &str) -> Option<i64> {
+pub(crate) fn extract_jwt_expiry(access_token: &str) -> Option<i64> {
     decode_jwt_payload(access_token)?
         .get("exp")
         .and_then(|value| value.as_i64())
         .map(|seconds| seconds.saturating_mul(1000))
 }
 
-fn read_stored_openai_codex_auth() -> Option<StoredOpenAICodexAuth> {
-    let value =
-        super::provider_auth_store::load_provider_auth_state("openai", "chatgpt_subscription")
-            .ok()??;
-    let parsed: StoredOpenAICodexAuth = serde_json::from_value(value).ok()?;
-    if parsed.access_token.trim().is_empty() || parsed.refresh_token.trim().is_empty() {
-        return None;
-    }
-    Some(parsed)
-}
-
-fn write_stored_openai_codex_auth(auth: &StoredOpenAICodexAuth) -> Result<()> {
-    super::provider_auth_store::save_provider_auth_state(
-        "openai",
-        "chatgpt_subscription",
-        &serde_json::to_value(auth)?,
-    )
-}
-
-fn import_codex_cli_auth_if_present() -> Option<StoredOpenAICodexAuth> {
-    if let Some(existing) = read_stored_openai_codex_auth() {
-        return Some(existing);
-    }
-
-    let path = codex_cli_auth_path()?;
-    let raw = std::fs::read_to_string(path).ok()?;
-    let parsed: CodexCliAuthFile = serde_json::from_str(&raw).ok()?;
-    let tokens = parsed.tokens?;
-    let access_token = tokens.access_token?;
-    let refresh_token = tokens.refresh_token?;
-    let account_id = extract_openai_codex_account_id(&access_token)?;
-    let expires_at = extract_jwt_expiry(&access_token)?;
-    let now = now_millis() as i64;
-    let imported = StoredOpenAICodexAuth {
-        provider: Some("openai-codex".to_string()),
-        auth_mode: Some("chatgpt_subscription".to_string()),
-        access_token,
-        refresh_token,
-        account_id: Some(account_id),
-        expires_at: Some(expires_at),
-        source: Some("codex_import".to_string()),
-        updated_at: Some(now),
-        created_at: Some(now),
-    };
-    let _ = write_stored_openai_codex_auth(&imported);
-    read_stored_openai_codex_auth().or(Some(imported))
-}
-
 pub(crate) fn has_openai_chatgpt_subscription_auth() -> bool {
-    read_stored_openai_codex_auth()
-        .or_else(import_codex_cli_auth_if_present)
-        .is_some()
+    super::openai_codex_auth::has_openai_chatgpt_subscription_auth()
 }
 
 async fn refresh_openai_codex_auth(
@@ -379,4 +329,3 @@ async fn resolve_openai_codex_request_auth(
         account_id,
     }))
 }
-

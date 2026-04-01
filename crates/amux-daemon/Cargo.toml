@@ -58,6 +58,7 @@ wa-rs-tokio-transport = "0.2.0"
 wa-rs-ureq-http = "0.2.0"
 async-trait = "0.1.89"
 qrcode = "0.14"
+ureq = { version = "3", features = ["json"] }
 
 [target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }

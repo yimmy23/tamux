@@ -1,4 +1,3 @@
-
 use anyhow::{Context, Result};
 use base64::Engine;
 use futures::Stream;
@@ -180,27 +179,27 @@ impl std::error::Error for RateLimitError {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct StoredOpenAICodexAuth {
-    provider: Option<String>,
-    auth_mode: Option<String>,
-    access_token: String,
-    refresh_token: String,
-    account_id: Option<String>,
-    expires_at: Option<i64>,
-    source: Option<String>,
-    updated_at: Option<i64>,
-    created_at: Option<i64>,
+pub(crate) struct StoredOpenAICodexAuth {
+    pub(crate) provider: Option<String>,
+    pub(crate) auth_mode: Option<String>,
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: String,
+    pub(crate) account_id: Option<String>,
+    pub(crate) expires_at: Option<i64>,
+    pub(crate) source: Option<String>,
+    pub(crate) updated_at: Option<i64>,
+    pub(crate) created_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
-struct CodexCliAuthFile {
-    tokens: Option<CodexCliTokens>,
+pub(crate) struct CodexCliAuthFile {
+    pub(crate) tokens: Option<CodexCliTokens>,
 }
 
 #[derive(Debug, Deserialize)]
-struct CodexCliTokens {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
+pub(crate) struct CodexCliTokens {
+    pub(crate) access_token: Option<String>,
+    pub(crate) refresh_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -230,4 +229,3 @@ fn raw_upstream_message(body_text: &str) -> String {
         })
         .unwrap_or_else(|| summarize_upstream_body(body_text))
 }
-

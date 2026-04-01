@@ -46,6 +46,7 @@ mod memory_flush;
 mod messaging;
 mod metadata;
 mod notifications;
+pub(crate) mod openai_codex_auth;
 mod operational_context;
 mod operator_model;
 mod orchestrator_policy;
