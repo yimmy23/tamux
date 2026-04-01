@@ -1,8 +1,9 @@
 use crate::agent::openai_codex_auth::{
     complete_openai_codex_auth_flow_with_result_for_tests,
     complete_openai_codex_auth_with_code_for_tests, logout_openai_codex_auth,
-    current_pending_openai_codex_flow_id_for_tests, mark_openai_codex_auth_timeout_for_tests,
-    openai_codex_auth_status, tombstone_present_for_tests, OpenAICodexExchange,
+    current_pending_openai_codex_flow_id_for_tests, has_openai_chatgpt_subscription_auth,
+    mark_openai_codex_auth_timeout_for_tests, openai_codex_auth_status,
+    tombstone_present_for_tests, OpenAICodexExchange,
 };
 use crate::agent::types::{AgentConfig, ApiTransport, ProviderConfig};
 use crate::agent::AgentEngine;
@@ -35,6 +36,8 @@ struct TestExchange {
     result: std::result::Result<StoredOpenAICodexAuth, String>,
 }
 
+const CODEX_CLI_AUTH_FIXTURE_JSON: &str = r#"{"tokens":{"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn0sImV4cCI6NDEwMjQ0NDgwMH0.signature","refresh_token":"refresh-token"}}"#;
+
 impl OpenAICodexExchange for TestExchange {
     fn exchange_authorization_code(
         &self,
@@ -60,6 +63,10 @@ fn stored_auth_fixture() -> StoredOpenAICodexAuth {
         updated_at: Some(4_102_444_800_000),
         created_at: Some(4_102_444_800_000),
     }
+}
+
+fn write_codex_cli_auth_fixture(path: &std::path::Path) {
+    std::fs::write(path, CODEX_CLI_AUTH_FIXTURE_JSON).expect("write codex auth fixture");
 }
 
 #[test]
@@ -233,11 +240,7 @@ fn logout_tombstone_blocks_codex_import() {
     let codex_auth_path = temp_dir.path().join("codex-auth.json");
     std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
     clear_openai_codex_auth_test_state();
-    std::fs::write(
-        &codex_auth_path,
-        r#"{"tokens":{"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn0sImV4cCI6NDEwMjQ0NDgwMH0.signature","refresh_token":"refresh-token"}}"#,
-    )
-    .expect("write codex auth fixture");
+    write_codex_cli_auth_fixture(&codex_auth_path);
 
     logout_openai_codex_auth().expect("logout should succeed");
     assert!(tombstone_present_for_tests());
@@ -246,6 +249,28 @@ fn logout_tombstone_blocks_codex_import() {
     reset_openai_codex_auth_runtime_for_tests();
     assert!(tombstone_present_for_tests());
     assert!(import_codex_cli_auth_if_present().expect("import should not error").is_none());
+}
+
+#[test]
+fn helper_reports_available_when_only_codex_cli_auth_exists() {
+    let _lock = provider_auth_store::provider_auth_test_env_lock();
+    let temp_dir = tempdir().expect("tempdir should succeed");
+    let _env_guard = EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
+    let codex_auth_path = temp_dir.path().join("codex-auth.json");
+    std::env::set_var(
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        temp_dir.path().join("provider-auth.db"),
+    );
+    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
+    clear_openai_codex_auth_test_state();
+    write_codex_cli_auth_fixture(&codex_auth_path);
+
+    assert!(read_stored_openai_codex_auth().is_none());
+    assert!(has_openai_chatgpt_subscription_auth());
+    assert!(read_stored_openai_codex_auth().is_some());
 }
 
 #[test]
@@ -388,11 +413,7 @@ fn status_refresh_reports_import_persistence_failure() {
     );
     std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
     clear_openai_codex_auth_test_state();
-    std::fs::write(
-        &codex_auth_path,
-        r#"{"tokens":{"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdC0xIn0sImV4cCI6NDEwMjQ0NDgwMH0.signature","refresh_token":"refresh-token"}}"#,
-    )
-    .expect("write codex auth fixture");
+    write_codex_cli_auth_fixture(&codex_auth_path);
 
     let status = openai_codex_auth_status(true);
 
@@ -473,6 +494,55 @@ async fn provider_auth_states_respect_codex_helper_state() {
         .find(|state| state.provider_id == "openai")
         .expect("openai state should exist");
     assert!(!logged_out.authenticated);
+}
+
+#[tokio::test]
+async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
+    let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+    let _guard = EnvGuard::new(&[
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        "TAMUX_CODEX_CLI_AUTH_PATH",
+    ]);
+    let root = tempdir().unwrap();
+    let codex_auth_path = root.path().join("codex-auth.json");
+    std::env::set_var(
+        "TAMUX_PROVIDER_AUTH_DB_PATH",
+        root.path().join("provider-auth.db"),
+    );
+    std::env::set_var("TAMUX_CODEX_CLI_AUTH_PATH", &codex_auth_path);
+    clear_openai_codex_auth_test_state();
+    write_codex_cli_auth_fixture(&codex_auth_path);
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.auth_source = AuthSource::ChatgptSubscription;
+    config.providers.insert(
+        "openai".to_string(),
+        ProviderConfig {
+            base_url: "https://api.openai.com/v1".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ChatgptSubscription,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        },
+    );
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    assert!(read_stored_openai_codex_auth().is_none());
+    let openai = engine
+        .get_provider_auth_states()
+        .await
+        .into_iter()
+        .find(|state| state.provider_id == "openai")
+        .expect("openai state should exist");
+
+    assert!(openai.authenticated);
+    assert!(read_stored_openai_codex_auth().is_some());
 }
 
 #[test]

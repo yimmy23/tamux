@@ -124,6 +124,10 @@ fn metadata_from_auth(auth: &StoredOpenAICodexAuth) -> OpenAICodexAuthStatus {
     }
 }
 
+fn metadata_available(status: &OpenAICodexAuthStatus) -> bool {
+    status.available
+}
+
 fn pending_status(pending: &PendingOpenAICodexAuth) -> OpenAICodexAuthStatus {
     OpenAICodexAuthStatus {
         available: false,
@@ -177,7 +181,7 @@ pub(crate) use storage::{
 };
 
 pub(crate) fn has_openai_chatgpt_subscription_auth() -> bool {
-    openai_codex_auth_status(false).available
+    metadata_available(&openai_codex_auth_status(true))
 }
 
 pub(crate) fn openai_codex_auth_status(refresh_from_import: bool) -> OpenAICodexAuthStatus {
@@ -243,5 +247,5 @@ pub(crate) fn logout_openai_codex_auth() -> Result<()> {
 }
 
 pub(crate) fn provider_auth_state_authenticated() -> bool {
-    openai_codex_auth_status(false).available
+    has_openai_chatgpt_subscription_auth()
 }
