@@ -6,17 +6,6 @@ use tokio_util::codec::Framed;
 use super::emit_agent_event;
 use crate::client::agent_protocol::AgentBridgeCommand;
 
-fn openai_codex_auth_client_message(command: &AgentBridgeCommand) -> Option<ClientMessage> {
-    match command {
-        AgentBridgeCommand::OpenAICodexAuthStatus => {
-            Some(ClientMessage::AgentGetOpenAICodexAuthStatus)
-        }
-        AgentBridgeCommand::OpenAICodexAuthLogin => Some(ClientMessage::AgentLoginOpenAICodex),
-        AgentBridgeCommand::OpenAICodexAuthLogout => Some(ClientMessage::AgentLogoutOpenAICodex),
-        _ => None,
-    }
-}
-
 pub(super) async fn handle_line<T>(framed: &mut Framed<T, AmuxCodec>, line: &str) -> Result<bool>
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -30,11 +19,6 @@ where
             return Ok(true);
         }
     };
-
-    if let Some(message) = openai_codex_auth_client_message(&command) {
-        framed.send(message).await?;
-        return Ok(true);
-    }
 
     match command {
         AgentBridgeCommand::SendMessage {
@@ -254,6 +238,17 @@ where
                 .send(ClientMessage::AgentGetProviderAuthStates)
                 .await?;
         }
+        AgentBridgeCommand::OpenAICodexAuthStatus => {
+            framed
+                .send(ClientMessage::AgentGetOpenAICodexAuthStatus)
+                .await?;
+        }
+        AgentBridgeCommand::OpenAICodexAuthLogin => {
+            framed.send(ClientMessage::AgentLoginOpenAICodex).await?;
+        }
+        AgentBridgeCommand::OpenAICodexAuthLogout => {
+            framed.send(ClientMessage::AgentLogoutOpenAICodex).await?;
+        }
         AgentBridgeCommand::SetSubAgent { sub_agent_json } => {
             framed
                 .send(ClientMessage::AgentSetSubAgent { sub_agent_json })
@@ -455,11 +450,6 @@ where
                 .send(ClientMessage::AgentGetDivergentSession { session_id })
                 .await?;
         }
-        AgentBridgeCommand::OpenAICodexAuthStatus
-        | AgentBridgeCommand::OpenAICodexAuthLogin
-        | AgentBridgeCommand::OpenAICodexAuthLogout => {
-            unreachable!("codex auth commands are handled before the main match")
-        }
         AgentBridgeCommand::Shutdown => {
             framed.send(ClientMessage::AgentUnsubscribe).await?;
             return Ok(false);
@@ -471,30 +461,42 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::openai_codex_auth_client_message;
-    use amux_protocol::ClientMessage;
-    use crate::client::agent_protocol::AgentBridgeCommand;
+    use super::handle_line;
+    use amux_protocol::{AmuxCodec, ClientMessage, DaemonCodec};
+    use futures::StreamExt;
+    use tokio_util::codec::Framed;
 
-    #[test]
-    fn openai_codex_auth_status_command_maps_to_client_message() {
-        let message = openai_codex_auth_client_message(&AgentBridgeCommand::OpenAICodexAuthStatus)
-            .expect("status command should map to a client message");
+    async fn emitted_client_message(line: &str) -> ClientMessage {
+        let (client_side, server_side) = tokio::io::duplex(1024);
+        let mut bridge = Framed::new(client_side, AmuxCodec);
+        let mut daemon = Framed::new(server_side, DaemonCodec);
+
+        let (handle_result, message_result) = tokio::join!(handle_line(&mut bridge, line), daemon.next());
+
+        assert!(handle_result.expect("bridge command should be handled"));
+
+        message_result
+            .expect("expected outbound client message")
+            .expect("codec should decode client message")
+    }
+
+    #[tokio::test]
+    async fn openai_codex_auth_status_command_maps_to_client_message() {
+        let message = emitted_client_message(r#"{"type":"openai-codex-auth-status"}"#).await;
 
         assert!(matches!(message, ClientMessage::AgentGetOpenAICodexAuthStatus));
     }
 
-    #[test]
-    fn openai_codex_auth_login_command_maps_to_client_message() {
-        let message = openai_codex_auth_client_message(&AgentBridgeCommand::OpenAICodexAuthLogin)
-            .expect("login command should map to a client message");
+    #[tokio::test]
+    async fn openai_codex_auth_login_command_maps_to_client_message() {
+        let message = emitted_client_message(r#"{"type":"openai-codex-auth-login"}"#).await;
 
         assert!(matches!(message, ClientMessage::AgentLoginOpenAICodex));
     }
 
-    #[test]
-    fn openai_codex_auth_logout_command_maps_to_client_message() {
-        let message = openai_codex_auth_client_message(&AgentBridgeCommand::OpenAICodexAuthLogout)
-            .expect("logout command should map to a client message");
+    #[tokio::test]
+    async fn openai_codex_auth_logout_command_maps_to_client_message() {
+        let message = emitted_client_message(r#"{"type":"openai-codex-auth-logout"}"#).await;
 
         assert!(matches!(message, ClientMessage::AgentLogoutOpenAICodex));
     }
