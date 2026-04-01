@@ -94,9 +94,6 @@ pub enum DaemonMessage {
     AgentGeneratedToolResult { #[serde(default)] operation_id: Option<String>, #[serde(default)] tool_name: Option<String>, result_json: String },
     AgentProviderValidation { #[serde(default)] operation_id: Option<String>, provider_id: String, valid: bool, #[serde(default)] error: Option<String>, #[serde(default)] models_json: Option<String> },
     AgentProviderAuthStates { states_json: String },
-    AgentOpenAICodexAuthStatus { status_json: String },
-    AgentOpenAICodexAuthLoginResult { result_json: String },
-    AgentOpenAICodexAuthLogoutResult { ok: bool, #[serde(default)] error: Option<String> },
     AgentSubAgentList { sub_agents_json: String },
     AgentSubAgentUpdated { sub_agent_json: String },
     AgentSubAgentRemoved { sub_agent_id: String },
@@ -141,4 +138,7 @@ pub enum DaemonMessage {
     GatewaySendRequest { request: GatewaySendRequest },
     GatewayReloadCommand { command: GatewayReloadCommand },
     GatewayShutdownCommand { command: GatewayShutdownCommand },
+    AgentOpenAICodexAuthStatus { status_json: String },
+    AgentOpenAICodexAuthLoginResult { result_json: String },
+    AgentOpenAICodexAuthLogoutResult { ok: bool, #[serde(default)] error: Option<String> },
 }

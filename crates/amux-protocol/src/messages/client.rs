@@ -109,9 +109,6 @@ pub enum ClientMessage {
     AgentGetProviderAuthStates,
     AgentLoginProvider { provider_id: String, api_key: String, #[serde(default)] base_url: String },
     AgentLogoutProvider { provider_id: String },
-    AgentGetOpenAICodexAuthStatus,
-    AgentLoginOpenAICodex,
-    AgentLogoutOpenAICodex,
     AgentSetSubAgent { sub_agent_json: String },
     AgentRemoveSubAgent { sub_agent_id: String },
     AgentListSubAgents,
@@ -166,4 +163,7 @@ pub enum ClientMessage {
     GatewayRouteModeUpdate { update: GatewayRouteModeState },
     GatewaySendResult { result: GatewaySendResult },
     GatewayHealthUpdate { update: GatewayHealthState },
+    AgentGetOpenAICodexAuthStatus,
+    AgentLoginOpenAICodex,
+    AgentLogoutOpenAICodex,
 }

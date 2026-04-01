@@ -3,6 +3,12 @@ use crate::codec::{AmuxCodec, DaemonCodec};
 use bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 
+fn serialized_variant_index<T: serde::Serialize>(value: &T) -> u32 {
+    let bytes = bincode::serialize(value).unwrap();
+    let prefix: [u8; 4] = bytes[..4].try_into().unwrap();
+    u32::from_le_bytes(prefix)
+}
+
 #[test]
 fn agent_provider_validation_bincode_roundtrip() {
     let msg = DaemonMessage::AgentProviderValidation {
@@ -349,6 +355,28 @@ fn client_message_roundtrips_logout_openai_codex() {
 }
 
 #[test]
+fn client_message_keeps_openai_codex_variants_append_only_for_bincode() {
+    let existing_tail = serialized_variant_index(&ClientMessage::GatewayHealthUpdate {
+        update: GatewayHealthState {
+            platform: "slack".to_string(),
+            status: GatewayConnectionStatus::Connected,
+            last_success_at_ms: Some(1_710_000_000_000),
+            last_error_at_ms: None,
+            consecutive_failure_count: 0,
+            last_error: None,
+            current_backoff_secs: 0,
+        },
+    });
+    let status = serialized_variant_index(&ClientMessage::AgentGetOpenAICodexAuthStatus);
+    let login = serialized_variant_index(&ClientMessage::AgentLoginOpenAICodex);
+    let logout = serialized_variant_index(&ClientMessage::AgentLogoutOpenAICodex);
+
+    assert_eq!(status, existing_tail + 1);
+    assert_eq!(login, existing_tail + 2);
+    assert_eq!(logout, existing_tail + 3);
+}
+
+#[test]
 fn daemon_message_roundtrips_subsystem_metrics_response() {
     let msg = DaemonMessage::AgentSubsystemMetrics {
         metrics_json: r#"{"plugin_io":{"current_depth":1,"max_depth":2,"rejection_count":1,"accepted_count":3,"started_count":3,"completed_count":1,"failed_count":2,"accepted_to_started_samples":3,"started_to_terminal_samples":3,"last_accepted_to_started_ms":1,"last_started_to_terminal_ms":2}}"#.to_string(),
@@ -400,18 +428,45 @@ fn daemon_message_roundtrips_openai_codex_auth_login_result() {
 #[test]
 fn daemon_message_roundtrips_openai_codex_auth_logout_result() {
     let msg = DaemonMessage::AgentOpenAICodexAuthLogoutResult {
-        ok: true,
-        error: Some("token cache cleared".to_string()),
+        ok: false,
+        error: Some("no cached codex credentials found".to_string()),
     };
     let bytes = bincode::serialize(&msg).unwrap();
     let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
     match decoded {
         DaemonMessage::AgentOpenAICodexAuthLogoutResult { ok, error } => {
-            assert!(ok);
-            assert_eq!(error.as_deref(), Some("token cache cleared"));
+            assert!(!ok);
+            assert_eq!(error.as_deref(), Some("no cached codex credentials found"));
         }
         other => panic!("unexpected variant: {:?}", other),
     }
+}
+
+#[test]
+fn daemon_message_keeps_openai_codex_variants_append_only_for_bincode() {
+    let existing_tail = serialized_variant_index(&DaemonMessage::GatewayShutdownCommand {
+        command: GatewayShutdownCommand {
+            correlation_id: "shutdown-1".to_string(),
+            reason: Some("protocol compatibility check".to_string()),
+            requested_at_ms: 1_710_000_000_123,
+        },
+    });
+    let status = serialized_variant_index(&DaemonMessage::AgentOpenAICodexAuthStatus {
+        status_json: r#"{"provider":"openai_codex","state":"authenticated"}"#.to_string(),
+    });
+    let login = serialized_variant_index(&DaemonMessage::AgentOpenAICodexAuthLoginResult {
+        result_json:
+            r#"{"provider":"openai_codex","login_url":"https://auth.openai.example/device"}"#
+                .to_string(),
+    });
+    let logout = serialized_variant_index(&DaemonMessage::AgentOpenAICodexAuthLogoutResult {
+        ok: true,
+        error: None,
+    });
+
+    assert_eq!(status, existing_tail + 1);
+    assert_eq!(login, existing_tail + 2);
+    assert_eq!(logout, existing_tail + 3);
 }
 
 #[test]
