@@ -244,9 +244,8 @@ impl SettingsState {
                 _ => "",
             },
             SettingsTab::Agent => match self.field_cursor {
-                0 => "agent_name",
-                1 => "system_prompt",
-                2 => "backend",
+                0 => "system_prompt",
+                1 => "backend",
                 _ => "",
             },
             SettingsTab::SubAgents => match self.field_cursor {
@@ -314,7 +313,7 @@ impl SettingsState {
             SettingsTab::Chat => 22,
             SettingsTab::Gateway => 14,
             SettingsTab::Auth => 1,
-            SettingsTab::Agent => 3,
+            SettingsTab::Agent => 2,
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 4,
             SettingsTab::Features => 14,

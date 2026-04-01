@@ -353,13 +353,46 @@ if matches!(
                     action_id,
                     step_index,
                 } => {
-                    let explanation = agent.handle_explain_action(&action_id, step_index).await;
-                    let json = serde_json::to_string(&explanation).unwrap_or_default();
-                    framed
-                        .send(DaemonMessage::AgentExplanation {
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_EXPLAIN_ACTION,
+                                Some(explain_action_dedup_key(&agent, &action_id, step_index)),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
+                    }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let agent = agent.clone();
+                    let background_daemon_tx = background_daemon_tx.clone();
+                    background_daemon_pending = background_daemon_pending.saturating_add(1);
+                    tokio::spawn(async move {
+                        if let Some(operation_id) = operation_id.as_deref() {
+                            operation_registry().mark_started(operation_id);
+                        }
+
+                        let explanation = agent.handle_explain_action(&action_id, step_index).await;
+                        let json = serde_json::to_string(&explanation).unwrap_or_default();
+                        let _ = background_daemon_tx.send(DaemonMessage::AgentExplanation {
                             explanation_json: json,
-                        })
-                        .await?;
+                        });
+
+                        if let Some(operation_id) = operation_id.as_deref() {
+                            operation_registry().mark_completed(operation_id);
+                        }
+                    });
                 }
                 ClientMessage::AgentStartDivergentSession {
                     problem_statement,

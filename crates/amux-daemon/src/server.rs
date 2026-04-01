@@ -54,6 +54,8 @@ where
     let mut last_concierge_welcome_fingerprint: Option<String> = None;
     let mut async_command_capability: Option<amux_protocol::AsyncCommandCapability> = None;
     let mut agent_event_rx: Option<broadcast::Receiver<crate::agent::types::AgentEvent>> = None;
+    let (background_daemon_tx, mut background_daemon_rx) = mpsc::unbounded_channel();
+    let mut background_daemon_pending = 0usize;
     let mut whatsapp_link_rx: Option<
         broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>,
     > = None;

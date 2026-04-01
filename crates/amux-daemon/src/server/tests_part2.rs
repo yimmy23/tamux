@@ -505,6 +505,331 @@
     }
 
     #[tokio::test]
+    async fn provider_validation_async_request_does_not_block_ping() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake provider listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let accept_task = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("accept provider request");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let mut conn = spawn_test_connection().await;
+        declare_async_command_capability(&mut conn).await;
+
+        conn.framed
+            .send(ClientMessage::AgentValidateProvider {
+                provider_id: "openai".to_string(),
+                base_url: format!("http://{addr}"),
+                api_key: "test-key".to_string(),
+                auth_source: "api_key".to_string(),
+            })
+            .await
+            .expect("request provider validation");
+
+        let operation_id = match conn.recv().await {
+            DaemonMessage::OperationAccepted { operation_id, kind, .. } => {
+                assert_eq!(kind, "provider_validation");
+                operation_id
+            }
+            other => panic!("expected provider validation acceptance, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while provider validation is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::Pong => return true,
+                    other => panic!(
+                        "expected Pong while provider validation runs in background, got {other:?}"
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        assert!(
+            pong_received,
+            "ping should not be blocked behind provider validation"
+        );
+
+        conn.framed
+            .send(ClientMessage::AgentGetOperationStatus { operation_id })
+            .await
+            .expect("query provider validation status");
+
+        match conn.recv().await {
+            DaemonMessage::OperationStatus { snapshot } => {
+                assert_eq!(snapshot.kind, "provider_validation");
+                assert!(matches!(
+                    snapshot.state,
+                    amux_protocol::OperationLifecycleState::Accepted
+                        | amux_protocol::OperationLifecycleState::Started
+                ));
+            }
+            other => panic!("expected provider validation status snapshot, got {other:?}"),
+        }
+
+        accept_task.abort();
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn provider_validation_legacy_request_does_not_block_ping() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake provider listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let accept_task = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("accept provider request");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentValidateProvider {
+                provider_id: "openai".to_string(),
+                base_url: format!("http://{addr}"),
+                api_key: "test-key".to_string(),
+                auth_source: "api_key".to_string(),
+            })
+            .await
+            .expect("request provider validation");
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while provider validation is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::Pong => return true,
+                    DaemonMessage::OperationAccepted { .. } => {
+                        panic!("legacy client should not receive operation acceptance")
+                    }
+                    other => panic!(
+                        "expected Pong while legacy provider validation runs in background, got {other:?}"
+                    ),
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        assert!(
+            pong_received,
+            "ping should not be blocked for legacy provider validation"
+        );
+
+        accept_task.abort();
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn fetch_models_async_request_does_not_block_ping() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake models listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let accept_task = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("accept models request");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let mut conn = spawn_test_connection().await;
+        declare_async_command_capability(&mut conn).await;
+
+        conn.framed
+            .send(ClientMessage::AgentFetchModels {
+                provider_id: "openai".to_string(),
+                base_url: format!("http://{addr}"),
+                api_key: "test-key".to_string(),
+            })
+            .await
+            .expect("request models fetch");
+
+        let operation_id = match conn.recv().await {
+            DaemonMessage::OperationAccepted { operation_id, kind, .. } => {
+                assert_eq!(kind, "fetch_models");
+                operation_id
+            }
+            other => panic!("expected fetch-models acceptance, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while models fetch is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::Pong => return true,
+                    other => {
+                        panic!(
+                            "expected Pong while fetch-models runs in background, got {other:?}"
+                        )
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        assert!(pong_received, "ping should not be blocked behind fetch-models");
+
+        conn.framed
+            .send(ClientMessage::AgentGetOperationStatus { operation_id })
+            .await
+            .expect("query fetch-models status");
+
+        match conn.recv().await {
+            DaemonMessage::OperationStatus { snapshot } => {
+                assert_eq!(snapshot.kind, "fetch_models");
+                assert!(matches!(
+                    snapshot.state,
+                    amux_protocol::OperationLifecycleState::Accepted
+                        | amux_protocol::OperationLifecycleState::Started
+                ));
+            }
+            other => panic!("expected fetch-models status snapshot, got {other:?}"),
+        }
+
+        accept_task.abort();
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn fetch_models_legacy_request_does_not_block_ping() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fake models listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let accept_task = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("accept models request");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentFetchModels {
+                provider_id: "openai".to_string(),
+                base_url: format!("http://{addr}"),
+                api_key: "test-key".to_string(),
+            })
+            .await
+            .expect("request models fetch");
+        conn.framed
+            .send(ClientMessage::Ping)
+            .await
+            .expect("send ping while models fetch is active");
+
+        let pong_received = timeout(Duration::from_millis(250), async {
+            loop {
+                match conn.recv().await {
+                    DaemonMessage::Pong => return true,
+                    DaemonMessage::OperationAccepted { .. } => {
+                        panic!("legacy client should not receive operation acceptance")
+                    }
+                    other => {
+                        panic!(
+                            "expected Pong while legacy fetch-models runs in background, got {other:?}"
+                        )
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+        assert!(
+            pong_received,
+            "ping should not be blocked for legacy fetch-models"
+        );
+
+        accept_task.abort();
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn explain_action_async_request_returns_operation_acceptance() {
+        let mut conn = spawn_test_connection().await;
+        declare_async_command_capability(&mut conn).await;
+
+        conn.framed
+            .send(ClientMessage::AgentExplainAction {
+                action_id: "missing-action".to_string(),
+                step_index: None,
+            })
+            .await
+            .expect("request explain action");
+
+        let operation_id = match conn.recv().await {
+            DaemonMessage::OperationAccepted { operation_id, kind, .. } => {
+                assert_eq!(kind, "explain_action");
+                operation_id
+            }
+            other => panic!("expected explain-action acceptance, got {other:?}"),
+        };
+
+        conn.framed
+            .send(ClientMessage::AgentGetOperationStatus { operation_id })
+            .await
+            .expect("query explain-action status");
+
+        match conn.recv().await {
+            DaemonMessage::OperationStatus { snapshot } => {
+                assert_eq!(snapshot.kind, "explain_action");
+                assert!(matches!(
+                    snapshot.state,
+                    amux_protocol::OperationLifecycleState::Accepted
+                        | amux_protocol::OperationLifecycleState::Started
+                        | amux_protocol::OperationLifecycleState::Completed
+                ));
+            }
+            other => panic!("expected explain-action status snapshot, got {other:?}"),
+        }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn explain_action_legacy_request_returns_explanation_payload() {
+        let mut conn = spawn_test_connection().await;
+
+        conn.framed
+            .send(ClientMessage::AgentExplainAction {
+                action_id: "missing-action".to_string(),
+                step_index: None,
+            })
+            .await
+            .expect("request explain action");
+
+        match conn.recv().await {
+            DaemonMessage::AgentExplanation { explanation_json } => {
+                let payload: serde_json::Value =
+                    serde_json::from_str(&explanation_json).expect("valid explanation payload");
+                assert_eq!(payload["action_id"], "missing-action");
+                assert_eq!(payload["source"], "fallback");
+            }
+            DaemonMessage::OperationAccepted { .. } => {
+                panic!("legacy client should not receive explain-action acceptance")
+            }
+            other => panic!("expected explain-action payload, got {other:?}"),
+        }
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn gateway_send_results_complete_waiters_and_update_last_response_state() {
         let mut config = AgentConfig::default();
         config.gateway.enabled = true;

@@ -151,7 +151,7 @@ pub enum ClientMessage {
     AgentDeferOperatorProfileQuestion { session_id: String, question_id: String, #[serde(default)] defer_until_unix_ms: Option<u64> },
     AgentGetOperatorProfileSummary,
     AgentSetOperatorProfileConsent { consent_key: String, granted: bool },
-    AgentExplainAction { action_id: String, #[serde(default, skip_serializing_if = "Option::is_none")] step_index: Option<usize> },
+    AgentExplainAction { action_id: String, #[serde(default)] step_index: Option<usize> },
     GatewayRegister { registration: GatewayRegistration },
     GatewayAck { ack: GatewayAck },
     GatewayIncomingEvent { event: GatewayIncomingEvent },

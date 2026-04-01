@@ -359,7 +359,7 @@ export function deserializeThread(thread: AgentDbThreadRecord): AgentThread {
     workspaceId: thread.workspace_id,
     surfaceId: thread.surface_id,
     paneId: thread.pane_id,
-    agent_name: thread.agent_name ?? "assistant",
+    agent_name: thread.agent_name ?? "Swarog",
     title: thread.title,
     createdAt: thread.created_at,
     updatedAt: thread.updated_at,

@@ -2,9 +2,12 @@ fn render_streaming_markdown(content: &str, width: usize) -> Vec<Line<'static>> 
     super::message::render_markdown_pub(content, width)
 }
 
+use std::path::Path;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ToolFileChip {
     pub path: String,
+    pub label: String,
     pub tool_name: String,
 }
 
@@ -30,9 +33,20 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
         .or_else(|| value.get("file_path"))
         .and_then(|value| value.as_str())?
         .to_string();
+    let label = if tool_name == "read_file" {
+        Path::new(&path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(path.as_str())
+            .to_string()
+    } else {
+        path.clone()
+    };
 
     Some(ToolFileChip {
         path,
+        label,
         tool_name: tool_name.to_string(),
     })
 }
@@ -48,7 +62,7 @@ pub(crate) fn append_tool_file_chip(
 
     line.spans.push(Span::raw(" "));
     line.spans
-        .push(Span::styled(format!("[{}]", chip.path), theme.accent_primary));
+        .push(Span::styled(format!("[{}]", chip.label), theme.accent_primary));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

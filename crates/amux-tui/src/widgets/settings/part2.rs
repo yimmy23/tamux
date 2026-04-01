@@ -39,7 +39,6 @@ fn single_line_edit_layout(settings: &SettingsState, field: &str) -> Option<(usi
         },
         SettingsTab::Auth => None,
         SettingsTab::Agent => match field {
-            "agent_name" => Some((4, 19)),
             _ => None,
         },
         SettingsTab::SubAgents => None,
@@ -164,17 +163,15 @@ fn settings_row_hit(
             {
                 let prompt_lines = settings.edit_buffer().lines().count().max(1);
                 match row {
-                    4 => Some((0, None)),
-                    5..=6 => Some((1, None)),
-                    r if r <= 8 + prompt_lines => Some((1, None)),
-                    r if r == 9 + prompt_lines => Some((2, None)),
+                    5..=6 => Some((0, None)),
+                    r if r <= 8 + prompt_lines => Some((0, None)),
+                    r if r == 9 + prompt_lines => Some((1, None)),
                     _ => None,
                 }
             } else {
                 match row {
-                    4 => Some((0, None)),
-                    5 => Some((1, None)),
-                    6 => Some((2, None)),
+                    5 => Some((0, None)),
+                    6 => Some((1, None)),
                     _ => None,
                 }
             }

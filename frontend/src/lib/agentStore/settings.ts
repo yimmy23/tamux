@@ -104,7 +104,7 @@ export interface AgentSettings {
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   enabled: false,
-  agent_name: "assistant",
+  agent_name: "Swarog",
   handler: "/agent",
   additionalHandlers: [],
   system_prompt: "You are Swarog - The Smith (He is a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:\n- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).\n- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).\n- Personality: Strict but fair; an accessible \"doer\" who ensures this through perfect tools.) operating in tamux, an agentic terminal multiplexer assistant. You can execute terminal commands, check system resources, and send messages to connected chat platforms (Slack, Discord, Telegram, WhatsApp) via the gateway. Use your tools proactively when the user asks you to perform actions. Be concise and direct.",
@@ -315,6 +315,7 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
   return {
     ...DEFAULT_AGENT_SETTINGS,
     ...source,
+    agent_name: DEFAULT_AGENT_SETTINGS.agent_name,
     active_provider,
     agent_backend: normalizeAgentBackend(source.agent_backend),
     featherless: providerConfigFromRaw("featherless", source),

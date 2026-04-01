@@ -175,8 +175,8 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     { id: "terminal", label: "Execution" },
     { id: "behavior", label: "Operator" },
     { id: "auth", label: "Auth" },
-    { id: "agent", label: "Agent" },
-    { id: "concierge", label: "Concierge" },
+    { id: "agent", label: "Swarog" },
+    { id: "concierge", label: "Rarog" },
     { id: "subagents", label: "Sub-Agents" },
     { id: "gateway", label: "Gateway" },
     { id: "keyboard", label: "Bindings" },
@@ -250,7 +250,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
             <SettingsMetric label="Theme" value={settings.themeName} />
-            <SettingsMetric label="Provider" value={agentSettings.active_provider} />
+            <SettingsMetric label="Swarog Provider" value={agentSettings.active_provider} />
             <SettingsMetric label="Approvals" value={String(approvals.filter((entry) => entry.status === "pending").length)} />
             <SettingsMetric label="Snapshots" value={String(snapshots.length)} />
           </div>

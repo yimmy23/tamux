@@ -41,6 +41,22 @@
     }
 
     #[test]
+    fn settings_tab_bar_uses_swarog_and_rarog_labels() {
+        let area = Rect::new(0, 0, 120, 1);
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Concierge,
+        ));
+        let tabs = visible_tabs(area, active_tab_index(SettingsTab::Concierge));
+        let line = render_tabs_line(&tabs, &settings, &ThemeTokens::default());
+        let text = line.to_string();
+
+        assert!(text.contains("Swar"));
+        assert!(text.contains("Rar"));
+        assert!(!text.contains("Con"));
+    }
+
+    #[test]
     fn gateway_tab_mentions_whatsapp_qr_linking_instructions() {
         let mut settings = SettingsState::new();
         settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
@@ -189,6 +205,62 @@
 
         assert!(text.contains("> Model           my-model█"));
         assert!(!text.contains("> Provider        custom█"));
+    }
+
+    #[test]
+    fn provider_tab_mentions_swarog() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Provider,
+        ));
+        let config = ConfigState::new();
+
+        let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Swarog"));
+    }
+
+    #[test]
+    fn agent_tab_uses_swarog_label() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Agent,
+        ));
+        let config = ConfigState::new();
+
+        let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Swarog"));
+    }
+
+    #[test]
+    fn agent_tab_shows_fixed_swarog_name() {
+        let mut settings = SettingsState::new();
+        settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+            SettingsTab::Agent,
+        ));
+        let config = ConfigState::new();
+
+        let lines = render_agent_tab(&settings, &config, &ThemeTokens::default());
+        let text = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Swarog"));
+        assert!(!text.contains("Agent Name"));
+        assert!(!text.contains("Swarog Name [Enter: edit]"));
     }
 
     #[test]

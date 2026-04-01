@@ -25,7 +25,7 @@ export function ConciergeSection() {
     const selectedLevel = DETAIL_LEVELS.find((l) => l.value === config.detail_level) || DETAIL_LEVELS[1];
 
     return (
-        <Section title="Concierge">
+        <Section title="Rarog">
             <SettingRow label="Enabled">
                 <button
                     onClick={() => update({ ...config, enabled: !config.enabled })}
@@ -54,7 +54,7 @@ export function ConciergeSection() {
                     onChange={(e) => update({ ...config, provider: e.target.value || undefined, model: undefined })}
                     style={{ ...inputStyle, width: 180 }}
                 >
-                    <option value="">Use main agent</option>
+                    <option value="">Use Swarog defaults</option>
                     {providerAuthStates.map((p) => (
                         <option key={p.provider_id} value={p.provider_id}>
                             {p.provider_name}{p.authenticated ? "" : " (no key)"}
@@ -73,7 +73,7 @@ export function ConciergeSection() {
             )}
             {!config.provider && (
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", padding: "2px 0 4px" }}>
-                    Model inherited from main agent when no provider is selected.
+                    Model inherited from Swarog when no provider is selected.
                 </div>
             )}
         </Section>

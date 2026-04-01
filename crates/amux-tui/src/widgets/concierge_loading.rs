@@ -140,7 +140,7 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens, tick: u64) {
     let orbit_width = inner.width.saturating_sub(6) as usize;
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
-        "Concierge is threading a welcome",
+        "Rarog is threading a welcome",
         theme.fg_active.add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(Span::styled(stage_label(tick), theme.fg_dim)));

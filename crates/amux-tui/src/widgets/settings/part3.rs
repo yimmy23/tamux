@@ -6,9 +6,9 @@ fn render_provider_tab<'a>(
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  Provider", theme.fg_active)));
+    lines.push(Line::from(Span::styled("  Swarog Provider", theme.fg_active)));
     lines.push(Line::from(Span::styled(
-        "  Select your LLM provider and runtime settings. Credentials are managed in Auth.",
+        "  Select Swarog's LLM provider and runtime settings. Credentials are managed in Auth.",
         theme.fg_dim,
     )));
     lines.push(Line::raw(""));

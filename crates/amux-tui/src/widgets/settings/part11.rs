@@ -146,21 +146,17 @@ fn render_agent_tab<'a>(
     let mut lines = Vec::new();
 
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  Agent", theme.fg_active)));
+    lines.push(Line::from(Span::styled("  Swarog", theme.fg_active)));
     lines.push(Line::from(Span::styled(
-        "  Agent identity and behavior",
+        "  Main agent identity and behavior (Swarog)",
         theme.fg_dim,
     )));
     lines.push(Line::raw(""));
 
-    let agent_name = if let Some(raw) = config.agent_config_raw() {
-        raw.get("agent_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Tamux")
-            .to_string()
-    } else {
-        "Tamux".to_string()
-    };
+    lines.push(Line::from(vec![
+        Span::styled("  Fixed Name        ", theme.fg_dim),
+        Span::styled("Swarog", theme.fg_active),
+    ]));
 
     let system_prompt = if let Some(raw) = config.agent_config_raw() {
         raw.get("system_prompt")
@@ -172,22 +168,13 @@ fn render_agent_tab<'a>(
     };
 
     // (field_index, label, value, field_name, hint)
-    let editable_fields: [(usize, &str, String, &str, &str); 2] = [
-        (
-            0,
-            "Agent Name    ",
-            agent_name,
-            "agent_name",
-            " [Enter: edit]",
-        ),
-        (
-            1,
-            "System Prompt ",
-            system_prompt,
-            "system_prompt",
-            " [Enter: edit]",
-        ),
-    ];
+    let editable_fields: [(usize, &str, String, &str, &str); 1] = [(
+        0,
+        "System Prompt ",
+        system_prompt,
+        "system_prompt",
+        " [Enter: edit]",
+    )];
 
     for (idx, label, value, field_name, hint) in &editable_fields {
         let is_selected = settings.field_cursor() == *idx;
@@ -295,9 +282,9 @@ fn render_agent_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 2: backend (read-only)
+    // Field 1: backend (read-only)
     {
-        let is_selected = settings.field_cursor() == 2;
+        let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
         let marker_style = if is_selected {
             theme.accent_primary

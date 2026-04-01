@@ -74,29 +74,64 @@ if matches!(
                         has_key = !resolved_key.is_empty(),
                         "validating provider connection"
                     );
-                    let (valid, error) =
-                        match crate::agent::llm_client::validate_provider_connection(
-                            &provider_id,
-                            &resolved_url,
-                            &resolved_key,
-                            auth_source,
-                        )
-                        .await
-                        {
-                            Ok(_) => (true, None),
-                            Err(e) => {
-                                tracing::warn!(provider = %provider_id, error = %e, "provider validation failed");
-                                (false, Some(e.to_string()))
-                            }
-                        };
-                    framed
-                        .send(DaemonMessage::AgentProviderValidation {
-                            provider_id,
+
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_PROVIDER_VALIDATION,
+                                Some(provider_validation_dedup_key(&agent, &provider_id)),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
+                    }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let provider_id_for_task = provider_id.clone();
+                    let background_daemon_tx = background_daemon_tx.clone();
+                    background_daemon_pending = background_daemon_pending.saturating_add(1);
+                    tokio::spawn(async move {
+                        if let Some(operation_id) = operation_id.as_deref() {
+                            operation_registry().mark_started(operation_id);
+                        }
+
+                        let (valid, error) =
+                            match crate::agent::llm_client::validate_provider_connection(
+                                &provider_id_for_task,
+                                &resolved_url,
+                                &resolved_key,
+                                auth_source,
+                            )
+                            .await
+                            {
+                                Ok(_) => (true, None),
+                                Err(e) => {
+                                    tracing::warn!(provider = %provider_id_for_task, error = %e, "provider validation failed");
+                                    (false, Some(e.to_string()))
+                                }
+                            };
+
+                        let _ = background_daemon_tx.send(DaemonMessage::AgentProviderValidation {
+                            provider_id: provider_id_for_task,
                             valid,
                             error,
                             models_json: None,
-                        })
-                        .await?;
+                        });
+
+                        if let Some(operation_id) = operation_id.as_deref() {
+                            operation_registry().mark_completed(operation_id);
+                        }
+                    });
                 }
 
                 ClientMessage::AgentSetSubAgent { sub_agent_json } => {

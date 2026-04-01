@@ -81,7 +81,7 @@ pub fn hit_test(
                 let action_col = content_col.saturating_sub(content_start);
                 if let Some(chip) = tool_file_chip(message) {
                     let line_text = rendered_line_plain_text(hit);
-                    let chip_text = format!("[{}]", chip.path);
+                    let chip_text = format!("[{}]", chip.label);
                     if let Some(chip_byte_start) = line_text.find(&chip_text) {
                         let chip_start = UnicodeWidthStr::width(&line_text[..chip_byte_start]);
                         let chip_width = UnicodeWidthStr::width(chip_text.as_str());

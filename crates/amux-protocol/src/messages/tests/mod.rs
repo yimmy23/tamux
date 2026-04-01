@@ -144,6 +144,17 @@ fn client_message_roundtrips_operation_status_query() {
 }
 
 #[test]
+fn client_message_roundtrips_explain_action() {
+    let msg = ClientMessage::AgentExplainAction {
+        action_id: "missing-action".to_string(),
+        step_index: None,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(decoded, ClientMessage::AgentExplainAction { .. }));
+}
+
+#[test]
 fn daemon_message_roundtrips_operation_status_snapshot() {
     let msg = DaemonMessage::OperationStatus {
         snapshot: OperationStatusSnapshot {

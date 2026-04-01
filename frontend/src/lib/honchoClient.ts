@@ -90,7 +90,7 @@ async function ensureSession(settings: AgentSettings, threadId: string): Promise
     }
 
     const userPeer = await client.peer("operator") as HonchoPeer;
-    const assistantPeer = await client.peer(settings.agent_name.trim() || "assistant") as HonchoPeer;
+    const assistantPeer = await client.peer(settings.agent_name.trim() || "Swarog") as HonchoPeer;
     const session = await client.session(threadId) as HonchoSession;
     await session.addPeers([userPeer, assistantPeer]);
     return { session, userPeer, assistantPeer };

@@ -184,7 +184,7 @@ export function AgentTab({
                     background: providerAuthenticated ? "#4ade80" : "#6b7280",
                 }} />
                 <span style={{ fontSize: 12, fontWeight: 600 }}>
-                    Active: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
+                    Swarog: {providerOptions.find((p) => p.id === settings.active_provider)?.label || settings.active_provider}
                 </span>
                 <span style={{
                     fontSize: 10,
@@ -206,7 +206,7 @@ export function AgentTab({
                 </button>
             </div>
             <Section title="General">
-                <SettingRow label="Enable Agent">
+                <SettingRow label="Enable Swarog">
                     <Toggle value={settings.enabled} onChange={(value) => updateSetting("enabled", value)} />
                 </SettingRow>
                 <SettingRow label="Agent Backend">
@@ -240,8 +240,10 @@ export function AgentTab({
                         </div>
                     </div>
                 ) : null}
-                <SettingRow label="Agent Name">
-                    <TextInput value={settings.agent_name} onChange={(value) => updateSetting("agent_name", value)} />
+                <SettingRow label="Swarog Name">
+                    <div style={{ ...inputStyle, width: "100%", color: "var(--text-primary)", opacity: 0.85, cursor: "default" }}>
+                        Swarog
+                    </div>
                 </SettingRow>
                 <SettingRow label="Handler Prefix">
                     <TextInput value={settings.handler} onChange={(value) => updateSetting("handler", value)} />
@@ -255,7 +257,7 @@ export function AgentTab({
             </Section>
 
             {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
-                <Section title="Provider">
+                <Section title="Swarog Provider">
                     <SettingRow label="Active Provider">
                         <SelectInput value={settings.active_provider}
                             options={providerOptions.map((provider) => provider.id)}

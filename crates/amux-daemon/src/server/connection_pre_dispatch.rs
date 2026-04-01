@@ -118,12 +118,23 @@
                 }
             }
         }
+        loop {
+            match background_daemon_rx.try_recv() {
+                Ok(daemon_msg) => {
+                    background_daemon_pending = background_daemon_pending.saturating_sub(1);
+                    framed.send(daemon_msg).await?;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
 
         // We need to select between: incoming client messages and output from attached sessions.
         let has_subscriptions = !attached_rxs.is_empty()
             || agent_event_rx.is_some()
             || whatsapp_link_rx.is_some()
-            || gateway_ipc_rx.is_some();
+            || gateway_ipc_rx.is_some()
+            || background_daemon_pending > 0;
         let msg = if !has_subscriptions {
             // No attached sessions or agent subscription — just wait for client input.
             match framed.next().await {

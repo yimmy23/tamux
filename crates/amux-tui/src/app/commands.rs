@@ -40,7 +40,12 @@ impl TuiModel {
         };
 
         let resolved_path = Self::resolve_preview_path(&chip.path);
-        let repo_root = Self::find_repo_root(&resolved_path);
+        let show_plain_preview = chip.tool_name == "read_file";
+        let repo_root = if show_plain_preview {
+            None
+        } else {
+            Self::find_repo_root(&resolved_path)
+        };
         let repo_relative_path = repo_root.as_ref().and_then(|root| {
             resolved_path
                 .strip_prefix(root)

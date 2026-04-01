@@ -283,23 +283,58 @@ if matches!(
                     base_url,
                     api_key,
                 } => {
-                    match crate::agent::llm_client::fetch_models(&provider_id, &base_url, &api_key)
-                        .await
-                    {
-                        Ok(models) => {
-                            let json = serde_json::to_string(&models).unwrap_or_default();
-                            framed
-                                .send(DaemonMessage::AgentModelsResponse { models_json: json })
-                                .await?;
-                        }
-                        Err(e) => {
-                            framed
-                                .send(DaemonMessage::AgentError {
-                                    message: e.to_string(),
-                                })
-                                .await?;
-                        }
+                    let operation = async_command_capability
+                        .as_ref()
+                        .filter(|capability| capability.version >= 1 && capability.supports_operation_acceptance)
+                        .map(|_| {
+                            operation_registry().accept_operation(
+                                OPERATION_KIND_FETCH_MODELS,
+                                Some(fetch_models_dedup_key(&agent, &provider_id)),
+                            )
+                        });
+
+                    if let Some(operation) = operation.as_ref() {
+                        framed
+                            .send(DaemonMessage::OperationAccepted {
+                                operation_id: operation.operation_id.clone(),
+                                kind: operation.kind.clone(),
+                                dedup: operation.dedup.clone(),
+                                revision: operation.revision,
+                            })
+                            .await?;
                     }
+
+                    let operation_id = operation.map(|record| record.operation_id);
+                    let background_daemon_tx = background_daemon_tx.clone();
+                    background_daemon_pending = background_daemon_pending.saturating_add(1);
+                    tokio::spawn(async move {
+                        if let Some(operation_id) = operation_id.as_deref() {
+                            operation_registry().mark_started(operation_id);
+                        }
+
+                        let result = crate::agent::llm_client::fetch_models(
+                            &provider_id,
+                            &base_url,
+                            &api_key,
+                        )
+                        .await;
+
+                        let daemon_msg = match result {
+                            Ok(models) => {
+                                let json = serde_json::to_string(&models).unwrap_or_default();
+                                DaemonMessage::AgentModelsResponse { models_json: json }
+                            }
+                            Err(e) => DaemonMessage::AgentError {
+                                message: e.to_string(),
+                            },
+                        };
+
+                        let _ = background_daemon_tx.send(daemon_msg);
+
+                        if let Some(operation_id) = operation_id.as_deref() {
+                            operation_registry().mark_completed(operation_id);
+                        }
+                    });
                 }
 
                 ClientMessage::AgentHeartbeatGetItems => {

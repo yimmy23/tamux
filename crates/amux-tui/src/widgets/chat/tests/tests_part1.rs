@@ -91,7 +91,8 @@ fn read_file_tool_row_renders_clickable_path_chip() {
     let text = rendered_line_plain_text(tool_line);
 
     assert!(text.contains("read_file"));
-    assert!(text.contains("[/tmp/demo.txt]"));
+    assert!(text.contains("[demo.txt]"));
+    assert!(!text.contains("[/tmp/demo.txt]"));
 }
 
 #[test]
@@ -159,7 +160,7 @@ fn hit_test_returns_tool_file_path_target() {
     let hit_line = &visible[tool_row];
     let (plain, content_start, _) = rendered_line_content_bounds(hit_line);
     let chip_col = plain
-        .find("[/tmp/demo.txt]")
+        .find("[demo.txt]")
         .expect("path chip should be rendered on the tool row");
 
     let chip_hit = hit_test(

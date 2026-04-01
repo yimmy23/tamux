@@ -291,8 +291,6 @@ fn current_field_name_gateway_tab() {
 fn current_field_name_agent_tab() {
     let mut state = SettingsState::new();
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
-    assert_eq!(state.current_field_name(), "agent_name");
-    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "system_prompt");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "backend");
@@ -389,7 +387,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
-    assert_eq!(state.field_count(), 3);
+    assert_eq!(state.field_count(), 2);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));

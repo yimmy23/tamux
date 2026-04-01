@@ -7,7 +7,7 @@ fn render_concierge_tab<'a>(
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled("  Rarog", theme.fg_active)));
     lines.push(Line::from(Span::styled(
-        "  Welcome agent and operational assistant (Rarog)",
+        "  Welcome agent and operational assistant",
         theme.fg_dim,
     )));
     lines.push(Line::raw(""));
@@ -89,7 +89,7 @@ fn render_concierge_tab<'a>(
                 concierge
                     .provider
                     .clone()
-                    .unwrap_or_else(|| "(default)".to_string()),
+                    .unwrap_or_else(|| "(use Swarog)".to_string()),
                 if is_selected {
                     theme.fg_active
                 } else {
@@ -117,7 +117,7 @@ fn render_concierge_tab<'a>(
                 concierge
                     .model
                     .clone()
-                    .unwrap_or_else(|| "(default)".to_string()),
+                    .unwrap_or_else(|| "(use Swarog)".to_string()),
                 if is_selected {
                     theme.fg_active
                 } else {
