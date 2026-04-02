@@ -11,6 +11,7 @@ async fn fetch_native_assistant_message(
         .await?;
     if !response.status().is_success() {
         let status = response.status();
+        let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
         let text = response
             .text()
             .await
@@ -18,7 +19,12 @@ async fn fetch_native_assistant_message(
             .chars()
             .take(240)
             .collect::<String>();
-        return Err(classify_http_failure(status, provider, &text));
+        return Err(classify_http_failure_with_retry_after(
+            status,
+            provider,
+            &text,
+            retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+        ));
     }
     let payload: serde_json::Value = response.json().await?;
     let data = payload
@@ -124,6 +130,7 @@ async fn run_openai_chat_completions(
 
     if !response.status().is_success() {
         let status = response.status();
+        let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
         let text = response
             .text()
             .await
@@ -131,7 +138,12 @@ async fn run_openai_chat_completions(
             .chars()
             .take(200)
             .collect::<String>();
-        return Err(classify_http_failure(status, provider, &text));
+        return Err(classify_http_failure_with_retry_after(
+            status,
+            provider,
+            &text,
+            retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+        ));
     }
 
     parse_openai_sse(response, tx).await
@@ -426,6 +438,7 @@ async fn run_openai_responses(
 
     if !response.status().is_success() {
         let status = response.status();
+        let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
         let text = response
             .text()
             .await
@@ -442,11 +455,20 @@ async fn run_openai_responses(
                 | reqwest::StatusCode::UNPROCESSABLE_ENTITY
         );
         if is_compatibility_error {
-            return Err(classify_http_failure(status, provider, &text));
+            return Err(classify_http_failure_with_retry_after(
+                status,
+                provider,
+                &text,
+                retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+            ));
         }
-        return Err(classify_http_failure(status, provider, &text));
+        return Err(classify_http_failure_with_retry_after(
+            status,
+            provider,
+            &text,
+            retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+        ));
     }
 
     parse_openai_responses_sse(response, provider, tx).await
 }
-

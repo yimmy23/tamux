@@ -3,7 +3,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use crate::state::NotificationsState;
+use crate::state::{NotificationsHeaderAction, NotificationsState};
 use crate::theme::ThemeTokens;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +37,21 @@ struct ActionRegion {
     x: u16,
     width: u16,
     y: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HeaderButton {
+    action: NotificationsHeaderAction,
+    label: &'static str,
+    enabled: bool,
+    selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RowActionButton {
+    label: String,
+    enabled: bool,
+    selected: bool,
 }
 
 pub fn render(frame: &mut Frame, area: Rect, state: &NotificationsState, theme: &ThemeTokens) {
@@ -79,6 +94,11 @@ pub fn render(frame: &mut Frame, area: Rect, state: &NotificationsState, theme: 
             notification,
             state.selected_index() == layout.index,
             state.expanded_id() == Some(notification.id.as_str()),
+            if state.selected_index() == layout.index {
+                state.selected_row_action_index()
+            } else {
+                None
+            },
             theme,
         );
     }
@@ -92,7 +112,7 @@ pub fn hit_test(
     let block = Block::default().borders(Borders::ALL);
     let inner = block.inner(area);
     if position.y == inner.y {
-        if let Some(target) = header_hit_test(inner, position) {
+        if let Some(target) = header_hit_test(inner, state, position) {
             return Some(target);
         }
     }
@@ -126,6 +146,12 @@ pub fn hit_test(
 }
 
 fn render_header(frame: &mut Frame, inner: Rect, state: &NotificationsState, theme: &ThemeTokens) {
+    let buttons = header_buttons(state);
+    let buttons_width = buttons
+        .iter()
+        .map(|button| button.label.chars().count() as u16)
+        .sum::<u16>()
+        + buttons.len().saturating_sub(1) as u16;
     let left = format!(
         "{} unread  {} total",
         state.unread_count(),
@@ -133,18 +159,24 @@ fn render_header(frame: &mut Frame, inner: Rect, state: &NotificationsState, the
     );
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(left, theme.fg_dim))),
-        Rect::new(inner.x, inner.y, inner.width.saturating_sub(34), 1),
+        Rect::new(
+            inner.x,
+            inner.y,
+            inner.width.saturating_sub(buttons_width.saturating_add(1)),
+            1,
+        ),
     );
 
-    let mut x = inner.x.saturating_add(inner.width.saturating_sub(32));
-    for (label, style) in [
-        ("[Read all]", theme.accent_primary),
-        ("[Archive read]", theme.fg_dim),
-        ("[Close]", theme.accent_secondary),
-    ] {
-        let width = label.chars().count() as u16;
+    let mut x = inner
+        .x
+        .saturating_add(inner.width.saturating_sub(buttons_width));
+    for button in buttons {
+        let width = button.label.chars().count() as u16;
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(label.to_string(), style)))
+            Paragraph::new(Line::from(Span::styled(
+                button.label.to_string(),
+                header_button_style(&button, theme),
+            )))
                 .alignment(Alignment::Left),
             Rect::new(x, inner.y, width, 1),
         );
@@ -153,27 +185,65 @@ fn render_header(frame: &mut Frame, inner: Rect, state: &NotificationsState, the
 
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            "Enter expands and marks read  a archives  x deletes",
+            "Tab switches focus  ←→ active group  ↑↓ rows  Enter activates  e expands",
             theme.fg_dim,
         ))),
         Rect::new(inner.x, inner.y + 1, inner.width, 1),
     );
 }
 
-fn header_hit_test(inner: Rect, position: Position) -> Option<NotificationsHitTarget> {
-    let mut x = inner.x.saturating_add(inner.width.saturating_sub(32));
-    for (label, target) in [
-        ("[Read all]", NotificationsHitTarget::MarkAllRead),
-        ("[Archive read]", NotificationsHitTarget::ArchiveRead),
-        ("[Close]", NotificationsHitTarget::Close),
-    ] {
-        let width = label.chars().count() as u16;
+fn header_hit_test(
+    inner: Rect,
+    state: &NotificationsState,
+    position: Position,
+) -> Option<NotificationsHitTarget> {
+    let buttons = header_buttons(state);
+    let buttons_width = buttons
+        .iter()
+        .map(|button| button.label.chars().count() as u16)
+        .sum::<u16>()
+        + buttons.len().saturating_sub(1) as u16;
+    let mut x = inner
+        .x
+        .saturating_add(inner.width.saturating_sub(buttons_width));
+    for button in buttons {
+        let width = button.label.chars().count() as u16;
         if position.x >= x && position.x < x.saturating_add(width) {
-            return Some(target);
+            return button.enabled.then_some(match button.action {
+                NotificationsHeaderAction::MarkAllRead => NotificationsHitTarget::MarkAllRead,
+                NotificationsHeaderAction::ArchiveRead => NotificationsHitTarget::ArchiveRead,
+                NotificationsHeaderAction::Close => NotificationsHitTarget::Close,
+            });
         }
         x = x.saturating_add(width + 1);
     }
     None
+}
+
+fn header_buttons(state: &NotificationsState) -> Vec<HeaderButton> {
+    [
+        (NotificationsHeaderAction::MarkAllRead, "[Read all]"),
+        (NotificationsHeaderAction::ArchiveRead, "[Archive read]"),
+        (NotificationsHeaderAction::Close, "[Close]"),
+    ]
+    .into_iter()
+    .map(|(action, label)| HeaderButton {
+        action,
+        label,
+        enabled: state.is_header_action_enabled(action),
+        selected: state.selected_header_action() == Some(action),
+    })
+    .collect()
+}
+
+fn header_button_style(button: &HeaderButton, theme: &ThemeTokens) -> Style {
+    if button.selected {
+        theme.fg_active.bg(Color::Indexed(236))
+    } else if button.enabled {
+        theme.fg_dim
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
 }
 
 fn render_row(
@@ -183,6 +253,7 @@ fn render_row(
     notification: &amux_protocol::InboxNotification,
     selected: bool,
     expanded: bool,
+    focused_row_action: Option<usize>,
     theme: &ThemeTokens,
 ) {
     let bg = if selected {
@@ -255,14 +326,22 @@ fn render_row(
         );
     }
 
-    let action_labels = action_labels(notification, expanded);
+    let action_labels = row_action_buttons(notification, expanded, focused_row_action);
     let mut x = list_area.x;
-    for (label, style) in action_labels {
+    for button in action_labels {
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(label.clone(), style.patch(bg)))),
-            Rect::new(x, layout.action_y, label.chars().count() as u16, 1),
+            Paragraph::new(Line::from(Span::styled(
+                button.label.clone(),
+                row_action_button_style(&button, theme).patch(bg),
+            ))),
+            Rect::new(
+                x,
+                layout.action_y,
+                button.label.chars().count() as u16,
+                1,
+            ),
         );
-        x = x.saturating_add(label.chars().count() as u16 + 1);
+        x = x.saturating_add(button.label.chars().count() as u16 + 1);
     }
 }
 
@@ -324,44 +403,61 @@ fn visible_layouts(area: Rect, state: &NotificationsState) -> Vec<RowLayout> {
     layouts
 }
 
-fn action_labels(
+fn row_action_buttons(
     notification: &amux_protocol::InboxNotification,
     expanded: bool,
-) -> Vec<(String, Style)> {
+    focused_row_action: Option<usize>,
+) -> Vec<RowActionButton> {
     let mut labels = vec![
-        (
-            if expanded { "[Collapse]" } else { "[Expand]" }.to_string(),
-            Style::default().fg(Color::Indexed(81)),
-        ),
-        (
-            "[Read]".to_string(),
-            Style::default().fg(Color::Indexed(114)),
-        ),
-        (
-            "[Archive]".to_string(),
-            Style::default().fg(Color::Indexed(245)),
-        ),
-        (
-            "[Delete]".to_string(),
-            Style::default().fg(Color::Indexed(203)),
-        ),
+        RowActionButton {
+            label: if expanded { "[Collapse]" } else { "[Expand]" }.to_string(),
+            enabled: true,
+            selected: focused_row_action == Some(0),
+        },
+        RowActionButton {
+            label: "[Read]".to_string(),
+            enabled: notification.read_at.is_none(),
+            selected: focused_row_action == Some(1),
+        },
+        RowActionButton {
+            label: "[Archive]".to_string(),
+            enabled: true,
+            selected: focused_row_action == Some(2),
+        },
+        RowActionButton {
+            label: "[Delete]".to_string(),
+            enabled: true,
+            selected: focused_row_action == Some(3),
+        },
     ];
-    labels.extend(notification.actions.iter().map(|action| {
-        (
-            format!("[{}]", action.label),
-            Style::default().fg(Color::Indexed(39)),
-        )
+    labels.extend(notification.actions.iter().enumerate().map(|(index, action)| RowActionButton {
+        label: format!("[{}]", action.label),
+        enabled: true,
+        selected: focused_row_action == Some(index + 4),
     }));
     labels
+}
+
+fn row_action_button_style(button: &RowActionButton, theme: &ThemeTokens) -> Style {
+    if button.selected {
+        theme
+            .fg_active
+            .bg(Color::Indexed(236))
+            .add_modifier(Modifier::BOLD)
+    } else if button.enabled {
+        theme.fg_dim
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
 }
 
 fn action_hit_labels(
     notification: &amux_protocol::InboxNotification,
     expanded: bool,
 ) -> Vec<String> {
-    action_labels(notification, expanded)
+    row_action_buttons(notification, expanded, None)
         .into_iter()
-        .map(|(label, _)| label)
+        .map(|button| button.label)
         .collect()
 }
 
@@ -454,6 +550,7 @@ fn relative_time(timestamp_ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{NotificationsAction, NotificationsHeaderAction};
 
     fn state_with_notification() -> NotificationsState {
         let mut state = NotificationsState::new();
@@ -505,5 +602,62 @@ mod tests {
             hit,
             Some(NotificationsHitTarget::ToggleExpand("n1".to_string()))
         );
+    }
+
+    #[test]
+    fn header_buttons_dim_inactive_actions_and_highlight_focus() {
+        let mut state = state_with_notification();
+        state.reduce(NotificationsAction::FocusHeader(Some(
+            NotificationsHeaderAction::MarkAllRead,
+        )));
+
+        let buttons = header_buttons(&state);
+        let theme = ThemeTokens::default();
+
+        assert_eq!(buttons[0].action, NotificationsHeaderAction::MarkAllRead);
+        assert!(buttons[0].enabled);
+        assert!(buttons[0].selected);
+        assert_eq!(header_button_style(&buttons[0], &theme), theme.fg_active.bg(Color::Indexed(236)));
+
+        assert_eq!(buttons[1].action, NotificationsHeaderAction::ArchiveRead);
+        assert!(!buttons[1].enabled);
+        assert!(!buttons[1].selected);
+        assert_eq!(header_button_style(&buttons[1], &theme), Style::default().fg(Color::DarkGray));
+
+        assert_eq!(buttons[2].action, NotificationsHeaderAction::Close);
+        assert!(buttons[2].enabled);
+        assert!(!buttons[2].selected);
+        assert_eq!(header_button_style(&buttons[2], &theme), theme.fg_dim);
+    }
+
+    #[test]
+    fn row_action_buttons_dim_inactive_actions_and_highlight_focus() {
+        let mut state = state_with_notification();
+        state.reduce(crate::state::NotificationsAction::FocusRowAction(Some(1)));
+
+        let notification = state.selected_item().expect("notification should be selected");
+        let buttons = row_action_buttons(notification, false, state.selected_row_action_index());
+        let theme = ThemeTokens::default();
+
+        assert_eq!(buttons[0].label, "[Expand]");
+        assert!(buttons[0].enabled);
+        assert!(!buttons[0].selected);
+        assert_eq!(row_action_button_style(&buttons[0], &theme), theme.fg_dim);
+
+        assert_eq!(buttons[1].label, "[Read]");
+        assert!(buttons[1].enabled);
+        assert!(buttons[1].selected);
+        assert_eq!(
+            row_action_button_style(&buttons[1], &theme),
+            theme
+                .fg_active
+                .bg(Color::Indexed(236))
+                .add_modifier(Modifier::BOLD)
+        );
+
+        assert_eq!(buttons[2].label, "[Archive]");
+        assert!(buttons[2].enabled);
+        assert!(!buttons[2].selected);
+        assert_eq!(row_action_button_style(&buttons[2], &theme), theme.fg_dim);
     }
 }

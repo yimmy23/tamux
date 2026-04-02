@@ -110,19 +110,33 @@ impl TuiModel {
             }
         }
 
-        if self.focus == FocusArea::Chat
+        let retry_waiting = matches!(self.main_pane_view, MainPaneView::Conversation)
             && self
                 .chat
                 .retry_status()
-                .is_some_and(|status| matches!(status.phase, chat::RetryPhase::Waiting))
-        {
+                .is_some_and(|status| matches!(status.phase, chat::RetryPhase::Waiting));
+        let retry_wait_accepts_keyboard = retry_waiting
+            && (matches!(self.focus, FocusArea::Chat)
+                || (matches!(self.focus, FocusArea::Input)
+                    && self.input.buffer().trim().is_empty()));
+        if retry_wait_accepts_keyboard {
             match code {
-                KeyCode::Left | KeyCode::Char('h') => {
+                KeyCode::Left | KeyCode::Char('h') if matches!(self.focus, FocusArea::Chat) => {
                     self.retry_wait_start_selected = true;
                     self.status_line = "Retry prompt: Yes now".to_string();
                     return false;
                 }
-                KeyCode::Right | KeyCode::Char('l') => {
+                KeyCode::Right | KeyCode::Char('l') if matches!(self.focus, FocusArea::Chat) => {
+                    self.retry_wait_start_selected = false;
+                    self.status_line = "Retry prompt: No".to_string();
+                    return false;
+                }
+                KeyCode::Left => {
+                    self.retry_wait_start_selected = true;
+                    self.status_line = "Retry prompt: Yes now".to_string();
+                    return false;
+                }
+                KeyCode::Right => {
                     self.retry_wait_start_selected = false;
                     self.status_line = "Retry prompt: No".to_string();
                     return false;

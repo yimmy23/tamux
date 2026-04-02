@@ -434,6 +434,7 @@ pub fn execute_tool<'a>(
         "append_to_file" => execute_append_to_file(&args).await,
         "replace_in_file" => execute_replace_in_file(&args).await,
         "apply_file_patch" => execute_apply_file_patch(&args).await,
+        "apply_patch" => execute_apply_patch(&args).await,
         "search_files" => execute_search_files(&args).await,
         "get_system_info" => execute_system_info().await,
         "list_processes" => execute_list_processes(&args).await,

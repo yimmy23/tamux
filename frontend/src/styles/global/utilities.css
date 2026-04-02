@@ -1,0 +1,74 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * UTILITY CLASSES
+ * Quick helpers for common patterns
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Text colors */
+.text-accent { color: var(--accent); }
+.text-agent { color: var(--agent); }
+.text-human { color: var(--human); }
+.text-approval { color: var(--approval); }
+.text-reasoning { color: var(--reasoning); }
+.text-mission { color: var(--mission); }
+.text-timeline { color: var(--timeline); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-danger { color: var(--danger); }
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+
+/* Background colors */
+.bg-accent { background-color: var(--accent-soft); }
+.bg-agent { background-color: var(--agent-soft); }
+.bg-human { background-color: var(--human-soft); }
+.bg-approval { background-color: var(--approval-soft); }
+.bg-reasoning { background-color: var(--reasoning-soft); }
+.bg-mission { background-color: var(--mission-soft); }
+
+/* Border colors */
+.border-accent { border-color: var(--accent-border); }
+.border-agent { border-color: var(--agent-border); }
+.border-human { border-color: var(--human-border); }
+.border-approval { border-color: var(--approval-border); }
+.border-reasoning { border-color: var(--reasoning-border); }
+.border-mission { border-color: var(--mission-border); }
+
+/* Truncate text */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Flex utilities */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * PRINT STYLES
+ * Minimal print support for documentation
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+
+  .amux-shell-card {
+    background: white;
+    border: 1px solid #ccc;
+    box-shadow: none;
+  }
+
+  .amux-shell-card::before {
+    display: none;
+  }
+}

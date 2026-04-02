@@ -166,6 +166,36 @@ fn file_suspicion_reasons(path: Option<&str>) -> Vec<String> {
     }
 }
 
+fn patch_suspicion_reasons(tool_args: &serde_json::Value) -> Vec<String> {
+    if let Some(path) = tool_args
+        .get("path")
+        .and_then(|value| value.as_str())
+        .or_else(|| tool_args.get("filename").and_then(|value| value.as_str()))
+    {
+        return file_suspicion_reasons(Some(path));
+    }
+
+    let Some(input) = tool_args
+        .get("input")
+        .or_else(|| tool_args.get("patch"))
+        .and_then(|value| value.as_str())
+    else {
+        return Vec::new();
+    };
+
+    let Ok(paths) = crate::agent::tool_executor::extract_apply_patch_paths(input) else {
+        return Vec::new();
+    };
+
+    for path in paths.into_iter() {
+        let reasons = file_suspicion_reasons(Some(path.as_str()));
+        if !reasons.is_empty() {
+            return reasons;
+        }
+    }
+    Vec::new()
+}
+
 fn delegation_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) -> Vec<String> {
     let mut reasons = Vec::new();
     let fanout = tool_args
@@ -226,16 +256,16 @@ pub(crate) fn classify_tool_call(
 
     if matches!(
         normalized_tool.as_str(),
-        "write_file" | "create_file" | "append_to_file" | "replace_in_file" | "apply_file_patch"
+        "write_file"
+            | "create_file"
+            | "append_to_file"
+            | "replace_in_file"
+            | "apply_file_patch"
+            | "apply_patch"
     ) {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardIfSuspicious,
-            reasons: file_suspicion_reasons(
-                tool_args
-                    .get("path")
-                    .and_then(|value| value.as_str())
-                    .or_else(|| tool_args.get("filename").and_then(|value| value.as_str())),
-            ),
+            reasons: patch_suspicion_reasons(tool_args),
         };
     }
 

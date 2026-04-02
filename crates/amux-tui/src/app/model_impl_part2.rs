@@ -426,6 +426,9 @@ impl TuiModel {
         if self.modal.top() == Some(modal::ModalKind::Notifications) {
             self.close_top_modal();
         } else {
+            let header_action = self.notifications.first_enabled_header_action();
+            self.notifications
+                .reduce(crate::state::NotificationsAction::FocusHeader(header_action));
             self.modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Notifications));
         }
@@ -526,6 +529,16 @@ impl TuiModel {
             .collect::<Vec<_>>();
         for id in ids {
             self.archive_notification(&id);
+        }
+    }
+
+    fn execute_notification_row_action(&mut self, notification_id: &str, action_index: usize) {
+        match action_index {
+            0 => self.toggle_notification_expand(notification_id.to_string()),
+            1 => self.mark_notification_read(notification_id),
+            2 => self.archive_notification(notification_id),
+            3 => self.delete_notification(notification_id),
+            other => self.execute_notification_action(notification_id, "", Some(other.saturating_sub(4))),
         }
     }
 

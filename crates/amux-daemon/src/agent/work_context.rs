@@ -125,10 +125,21 @@ impl AgentEngine {
     ) {
         match tool_name {
             "create_file" | "write_file" | "append_to_file" | "replace_in_file"
-            | "apply_file_patch" => {
+            | "apply_file_patch" | "apply_patch" => {
                 let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) else {
                     return;
                 };
+                if tool_name == "apply_patch" {
+                    if let Some(input) = args.get("input").and_then(|value| value.as_str()) {
+                        if let Ok(paths) = super::tool_executor::extract_apply_patch_paths(input) {
+                            for path in paths {
+                                self.record_file_work_context(thread_id, task_id, tool_name, &path)
+                                    .await;
+                            }
+                            return;
+                        }
+                    }
+                }
                 let Some(path) = args
                     .get("path")
                     .and_then(|value| value.as_str())

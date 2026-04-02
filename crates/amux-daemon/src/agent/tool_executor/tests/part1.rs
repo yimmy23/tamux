@@ -2,6 +2,7 @@
         build_list_files_script, build_write_file_command, build_write_file_script,
         command_looks_interactive, command_matches_policy_risk, command_requires_managed_state,
         daemon_tool_timeout_seconds, default_timeout_seconds_for_tool,
+        execute_apply_patch,
         execute_fetch_url_with_runner, execute_gateway_message, execute_get_divergent_session,
         execute_headless_shell_command, execute_onecontext_search_with_runner, execute_read_file,
         execute_search_files_with_runner, execute_tool, execute_web_search_with_runner,

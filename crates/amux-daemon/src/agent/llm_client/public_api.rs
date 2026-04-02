@@ -96,6 +96,9 @@ pub fn send_completion_request(
                 Err(e) => {
                     let structured_failure = upstream_failure_error(&e);
                     let failure_class = structured_failure.map(|failure| failure.class);
+                    let retry_after_ms = structured_failure
+                        .and_then(|failure| failure.diagnostics.get("retry_after_ms"))
+                        .and_then(|value| value.as_u64());
                     let is_rate_limited =
                         matches!(failure_class, Some(UpstreamFailureClass::RateLimit));
                     let is_transient_transport = matches!(
@@ -120,8 +123,9 @@ pub fn send_completion_request(
                                 retry_delay_ms,
                             } if retry_attempt < max_retries => {
                                 retry_attempt += 1;
-                                let delay_ms =
-                                    compute_retry_delay_ms_for_attempt(retry_delay_ms, retry_attempt);
+                                let delay_ms = retry_after_ms.unwrap_or_else(|| {
+                                    compute_retry_delay_ms_for_attempt(retry_delay_ms, retry_attempt)
+                                });
                                 let _ = tx
                                     .send(Ok(CompletionChunk::Retry {
                                         attempt: retry_attempt,
@@ -136,8 +140,9 @@ pub fn send_completion_request(
                             }
                             RetryStrategy::DurableRateLimited if is_rate_limited => {
                                 retry_attempt = retry_attempt.saturating_add(1);
-                                let delay_ms =
-                                    compute_retry_delay_ms_for_attempt(5_000, retry_attempt);
+                                let delay_ms = retry_after_ms.unwrap_or_else(|| {
+                                    compute_retry_delay_ms_for_attempt(5_000, retry_attempt)
+                                });
                                 let _ = tx
                                     .send(Ok(CompletionChunk::Retry {
                                         attempt: retry_attempt,
@@ -346,4 +351,3 @@ fn build_chat_completion_messages(
 
     Ok(out)
 }
-

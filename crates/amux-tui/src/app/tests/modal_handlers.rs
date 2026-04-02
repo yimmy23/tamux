@@ -764,3 +764,169 @@ fn subagent_inline_edit_does_not_sync_main_config() {
         "sub-agent field edits should stay local until Save"
     );
 }
+
+fn sample_notification(read_at: Option<i64>) -> amux_protocol::InboxNotification {
+    amux_protocol::InboxNotification {
+        id: "n1".to_string(),
+        source: "plugin_auth".to_string(),
+        kind: "plugin_auth_warning".to_string(),
+        title: "Refresh needed".to_string(),
+        body: "Reconnect plugin auth before it expires.".to_string(),
+        subtitle: Some("gmail".to_string()),
+        severity: "warning".to_string(),
+        created_at: 1,
+        updated_at: 1,
+        read_at,
+        archived_at: None,
+        deleted_at: None,
+        actions: Vec::new(),
+        metadata_json: None,
+    }
+}
+
+#[test]
+fn notifications_modal_uses_wider_overlay_width() {
+    let (mut model, _daemon_rx) = make_model();
+    model.width = 100;
+    model.height = 40;
+    model.toggle_notifications_modal();
+
+    let (_, overlay_area) = model
+        .current_modal_area()
+        .expect("notifications modal should be visible");
+
+    assert_eq!(overlay_area.width, 78);
+}
+
+#[test]
+fn notifications_modal_left_right_changes_header_focus_and_enter_uses_it() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .notifications
+        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+    model.toggle_notifications_modal();
+
+    assert_eq!(
+        model.notifications.selected_header_action(),
+        Some(crate::state::NotificationsHeaderAction::MarkAllRead)
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.notifications.selected_header_action(),
+        Some(crate::state::NotificationsHeaderAction::Close)
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert!(model.modal.top().is_none());
+}
+
+#[test]
+fn notifications_modal_down_clears_header_focus_and_enter_expands_row() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .notifications
+        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+    model.toggle_notifications_modal();
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(model.notifications.selected_header_action(), None);
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(model.notifications.expanded_id(), Some("n1"));
+}
+
+#[test]
+fn notifications_modal_tab_switches_between_header_and_row_actions() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .notifications
+        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+    model.toggle_notifications_modal();
+
+    assert_eq!(
+        model.notifications.selected_header_action(),
+        Some(crate::state::NotificationsHeaderAction::MarkAllRead)
+    );
+    assert_eq!(model.notifications.selected_row_action_index(), None);
+
+    let quit = model.handle_key_modal(
+        KeyCode::Tab,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(model.notifications.selected_header_action(), None);
+    assert_eq!(model.notifications.selected_row_action_index(), Some(0));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Tab,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(
+        model.notifications.selected_header_action(),
+        Some(crate::state::NotificationsHeaderAction::MarkAllRead)
+    );
+    assert_eq!(model.notifications.selected_row_action_index(), None);
+}
+
+#[test]
+fn notifications_modal_row_action_focus_uses_left_right_and_enter() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .notifications
+        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+    model.toggle_notifications_modal();
+
+    let quit = model.handle_key_modal(
+        KeyCode::Tab,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(model.notifications.selected_row_action_index(), Some(0));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert_eq!(model.notifications.selected_row_action_index(), Some(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Notifications,
+    );
+    assert!(!quit);
+    assert!(
+        model
+            .notifications
+            .selected_item()
+            .and_then(|notification| notification.read_at)
+            .is_some()
+    );
+}

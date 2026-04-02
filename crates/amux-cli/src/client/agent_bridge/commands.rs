@@ -471,7 +471,8 @@ mod tests {
         let mut bridge = Framed::new(client_side, AmuxCodec);
         let mut daemon = Framed::new(server_side, DaemonCodec);
 
-        let (handle_result, message_result) = tokio::join!(handle_line(&mut bridge, line), daemon.next());
+        let (handle_result, message_result) =
+            tokio::join!(handle_line(&mut bridge, line), daemon.next());
 
         assert!(handle_result.expect("bridge command should be handled"));
 
@@ -482,7 +483,10 @@ mod tests {
 
     async fn assert_emitted_client_message(line: &str, expected: ClientMessage) {
         let message = emitted_client_message(line).await;
-        assert_eq!(std::mem::discriminant(&message), std::mem::discriminant(&expected));
+        assert_eq!(
+            std::mem::discriminant(&message),
+            std::mem::discriminant(&expected)
+        );
     }
 
     #[tokio::test]

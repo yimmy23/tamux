@@ -229,7 +229,7 @@ fn command_requires_managed_state(command: &str) -> bool {
         .next()
         .unwrap_or_default();
 
-    matches!(
+    let requires_persistent_session = matches!(
         first,
         "cd" | "pushd"
             | "popd"
@@ -249,7 +249,18 @@ fn command_requires_managed_state(command: &str) -> bool {
             | "fg"
             | "bg"
             | "jobs"
-    )
+    );
+
+    requires_persistent_session && !command_has_followup_work(trimmed)
+}
+
+fn command_has_followup_work(command: &str) -> bool {
+    ["&&", "||", ";", "\n"].iter().any(|separator| {
+        command
+            .find(separator)
+            .map(|index| !command[index + separator.len()..].trim().is_empty())
+            .unwrap_or(false)
+    })
 }
 
 fn command_looks_interactive(command: &str) -> bool {

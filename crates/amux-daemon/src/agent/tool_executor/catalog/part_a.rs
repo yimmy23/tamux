@@ -142,6 +142,42 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
+            "apply_patch",
+            "Apply a harness-style patch with `*** Begin Patch` / `*** End Patch` markers, supporting Add/Update/Delete file actions. Also accepts the legacy `path` + `edits` exact-replacement shape for compatibility.",
+            serde_json::json!({
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "input": { "type": "string", "description": "Harness-style patch text in the apply_patch format." },
+                            "explanation": { "type": "string", "description": "Optional short explanation for why the patch is being applied." }
+                        },
+                        "required": ["input"]
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string", "description": "File path to patch" },
+                            "edits": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "old_text": { "type": "string", "description": "Exact existing text to replace" },
+                                        "new_text": { "type": "string", "description": "Replacement text" },
+                                        "replace_all": { "type": "boolean", "description": "Replace all occurrences for this edit (default: false)" }
+                                    },
+                                    "required": ["old_text", "new_text"]
+                                }
+                            }
+                        },
+                        "required": ["path", "edits"]
+                    }
+                ]
+            }),
+        ));
+
+        tools.push(tool_def(
             "search_files",
             "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
             serde_json::json!({

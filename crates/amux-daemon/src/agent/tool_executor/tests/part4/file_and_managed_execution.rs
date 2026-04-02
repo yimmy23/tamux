@@ -124,6 +124,63 @@ fn write_file_multipart_args_parse_path_and_content() {
 }
 
 #[test]
+fn apply_patch_harness_input_updates_adds_and_deletes_files() {
+    let root = tempdir().expect("tempdir");
+    let existing = root.path().join("existing.txt");
+    let added = root.path().join("added.txt");
+    let removed = root.path().join("removed.txt");
+    std::fs::write(&existing, "alpha\nbeta\nomega\n").expect("write existing file");
+    std::fs::write(&removed, "remove me\n").expect("write removed file");
+
+    let patch = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n alpha\n-beta\n+gamma\n omega\n*** Add File: {}\n+hello\n+world\n*** Delete File: {}\n*** End Patch\n",
+        existing.display(),
+        added.display(),
+        removed.display(),
+    );
+
+    let result = tokio::runtime::Runtime::new()
+        .expect("runtime")
+        .block_on(execute_apply_patch(&serde_json::json!({
+            "input": patch,
+            "explanation": "test harness parity"
+        })))
+        .expect("apply_patch should succeed");
+
+    assert!(result.contains("Updated file"));
+    assert!(result.contains("Added file"));
+    assert!(result.contains("Deleted file"));
+    assert_eq!(
+        std::fs::read_to_string(&existing).expect("read existing file"),
+        "alpha\ngamma\nomega\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&added).expect("read added file"),
+        "hello\nworld\n"
+    );
+    assert!(!removed.exists(), "delete action should remove the file");
+}
+
+#[test]
+fn apply_patch_is_classified_like_other_file_mutations() {
+    let classification = crate::agent::weles_governance::classify_tool_call(
+        "apply_patch",
+        &serde_json::json!({
+            "input": "*** Begin Patch\n*** Update File: /tmp/.env\n@@\n-OLD=1\n+OLD=2\n*** End Patch\n"
+        }),
+    );
+
+    assert_eq!(
+        classification.class,
+        crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
+    );
+    assert!(classification
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("sensitive")));
+}
+
+#[test]
 fn managed_alias_leaves_security_level_for_runtime_defaults() {
     let args = serde_json::json!({
         "command": "echo hello"
@@ -184,11 +241,26 @@ fn managed_execution_uses_headless_for_simple_blocking_commands() {
 fn managed_execution_detects_shell_state_changes() {
     assert!(command_requires_managed_state("cd /tmp"));
     assert!(command_requires_managed_state("export FOO=bar"));
-    assert!(should_use_managed_execution(&serde_json::json!({
-        "command": "cd /workspace && ls"
-    })));
     assert!(!command_requires_managed_state("grep foo Cargo.toml"));
     assert!(!command_requires_managed_state("ls -la"));
+}
+
+#[test]
+fn managed_execution_keeps_self_contained_shell_setup_commands_headless() {
+    assert!(
+        !command_requires_managed_state("cd /workspace && ls -la"),
+        "one-shot directory changes should not require managed session state"
+    );
+    assert!(
+        !command_requires_managed_state("source ~/.cargo/env && cargo --version"),
+        "one-shot sourced environments should stay headless"
+    );
+    assert!(!should_use_managed_execution(&serde_json::json!({
+        "command": "cd /workspace && ls -la"
+    })));
+    assert!(!should_use_managed_execution(&serde_json::json!({
+        "command": "source ~/.cargo/env && cargo --version"
+    })));
 }
 
 #[test]

@@ -18,15 +18,85 @@ impl TuiModel {
                 KeyCode::Esc => {
                     self.close_top_modal();
                 }
+                KeyCode::Tab | KeyCode::BackTab => {
+                    if self.notifications.selected_row_action_index().is_some() {
+                        let header_action = self.notifications.first_enabled_header_action();
+                        self.notifications
+                            .reduce(crate::state::NotificationsAction::FocusHeader(header_action));
+                    } else {
+                        let row_action = self.notifications.first_enabled_row_action_index();
+                        self.notifications.reduce(
+                            crate::state::NotificationsAction::FocusRowAction(row_action),
+                        );
+                    }
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    if self.notifications.selected_row_action_index().is_some() {
+                        self.notifications
+                            .reduce(crate::state::NotificationsAction::StepRowAction(-1));
+                    } else {
+                        self.notifications
+                            .reduce(crate::state::NotificationsAction::StepHeader(-1));
+                    }
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    if self.notifications.selected_row_action_index().is_some() {
+                        self.notifications
+                            .reduce(crate::state::NotificationsAction::StepRowAction(1));
+                    } else {
+                        self.notifications
+                            .reduce(crate::state::NotificationsAction::StepHeader(1));
+                    }
+                }
                 KeyCode::Up | KeyCode::Char('k') => {
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusHeader(None));
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusRowAction(None));
                     self.notifications
                         .reduce(crate::state::NotificationsAction::Navigate(-1));
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusHeader(None));
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusRowAction(None));
+                    self.notifications
                         .reduce(crate::state::NotificationsAction::Navigate(1));
                 }
-                KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('e') => {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some(action_index) = self.notifications.selected_row_action_index() {
+                        if let Some(id) = self
+                            .notifications
+                            .selected_item()
+                            .map(|notification| notification.id.clone())
+                        {
+                            self.execute_notification_row_action(&id, action_index);
+                        }
+                    } else {
+                        match self.notifications.selected_header_action() {
+                            Some(crate::state::NotificationsHeaderAction::MarkAllRead) => {
+                                self.mark_all_notifications_read();
+                            }
+                            Some(crate::state::NotificationsHeaderAction::ArchiveRead) => {
+                                self.archive_read_notifications();
+                            }
+                            Some(crate::state::NotificationsHeaderAction::Close) => {
+                                self.close_top_modal();
+                            }
+                            None => {
+                                if let Some(id) = self
+                                    .notifications
+                                    .selected_item()
+                                    .map(|notification| notification.id.clone())
+                                {
+                                    self.toggle_notification_expand(id);
+                                }
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('e') => {
                     if let Some(id) = self
                         .notifications
                         .selected_item()
@@ -265,7 +335,7 @@ impl TuiModel {
                             }
                             "snapshot_max_size_mb" => {
                                 if let Ok(n) = value.parse::<u32>() {
-                                    self.config.snapshot_max_size_mb = n.clamp(100, 500_000);
+                                    self.config.snapshot_max_size_mb = n.clamp(1_024, 500_000);
                                 }
                             }
                             "agent_name" => {

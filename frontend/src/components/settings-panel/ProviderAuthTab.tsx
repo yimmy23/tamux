@@ -39,6 +39,30 @@ export function ProviderAuthTab() {
         refreshProviderAuthStates();
     }, [refreshProviderAuthStates]);
 
+    useEffect(() => {
+        if (!authCapability.chatgptSubscriptionAvailable) {
+            setChatgptAuthStatus(null);
+            return;
+        }
+
+        const amux = getBridge();
+        if (!amux?.openAICodexAuthStatus) {
+            return;
+        }
+
+        let cancelled = false;
+        void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
+            if (cancelled) {
+                return;
+            }
+            setChatgptAuthStatus(status);
+        }).catch(() => {});
+
+        return () => {
+            cancelled = true;
+        };
+    }, [authCapability.chatgptSubscriptionAvailable]);
+
     // Poll ChatGPT auth status when auth URL is active
     useEffect(() => {
         if (!chatgptAuthUi.shouldPoll) return;
@@ -183,6 +207,7 @@ export function ProviderAuthTab() {
                         const isGithubCopilot = state.provider_id === "github-copilot";
                         const usesChatgptSubscription = isOpenAI && state.auth_source === "chatgpt_subscription";
                         const canUseChatgptSubscription = isOpenAI && authCapability.chatgptSubscriptionAvailable;
+                        const hasStoredChatgptAuth = isOpenAI && chatgptAuthStatus?.available === true;
                         const authButtonLabel = isGithubCopilot ? "Token" : "API Key";
                         const keyPlaceholder = isOpenAI
                             ? "OpenAI API Key"
@@ -241,16 +266,18 @@ export function ProviderAuthTab() {
                                             </>
                                         ) : (
                                             <>
-                                                <button
-                                                    onClick={() => {
-                                                        setLoginTarget(isExpanded ? null : state.provider_id);
-                                                        setLoginKey("");
-                                                    }}
-                                                    style={{ ...smallBtnStyle, fontSize: 10 }}
-                                                >
-                                                    {isExpanded ? "Cancel" : authButtonLabel}
-                                                </button>
-                                                {canUseChatgptSubscription && (
+                                                {!usesChatgptSubscription && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setLoginTarget(isExpanded ? null : state.provider_id);
+                                                            setLoginKey("");
+                                                        }}
+                                                        style={{ ...smallBtnStyle, fontSize: 10 }}
+                                                    >
+                                                        {isExpanded ? "Cancel" : authButtonLabel}
+                                                    </button>
+                                                )}
+                                                {canUseChatgptSubscription && usesChatgptSubscription && (
                                                     <button
                                                         onClick={handleChatgptLogin}
                                                         disabled={chatgptAuthBusy}
@@ -261,8 +288,13 @@ export function ProviderAuthTab() {
                                                 )}
                                             </>
                                         )}
-                                    </div>
+                                        </div>
                                 </div>
+                                {isOpenAI && hasStoredChatgptAuth && !usesChatgptSubscription && (
+                                    <div style={{ fontSize: 10, marginTop: 4, color: "var(--text-secondary)" }}>
+                                        ChatGPT auth is connected in the daemon, but OpenAI is currently set to API Key mode. Switch OpenAI Auth to ChatGPT Subscription in Agent settings to use it.
+                                    </div>
+                                )}
                                 {vr && (
                                     <div style={{
                                         fontSize: 10,

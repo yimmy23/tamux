@@ -169,6 +169,227 @@ async fn execute_apply_file_patch(args: &serde_json::Value) -> Result<String> {
     apply_exact_replacements(path, replacements).await
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HarnessPatchAction {
+    Add {
+        path: String,
+        content: String,
+    },
+    Update {
+        path: String,
+        old_text: String,
+        new_text: String,
+    },
+    Delete {
+        path: String,
+    },
+}
+
+pub(super) fn extract_apply_patch_paths(input: &str) -> Result<Vec<String>> {
+    let mut paths = Vec::new();
+    for action in parse_harness_patch_actions(input)? {
+        let path = match action {
+            HarnessPatchAction::Add { path, .. }
+            | HarnessPatchAction::Update { path, .. }
+            | HarnessPatchAction::Delete { path } => path,
+        };
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
+async fn execute_apply_patch(args: &serde_json::Value) -> Result<String> {
+    if args.get("input").and_then(|value| value.as_str()).is_none() {
+        return execute_apply_file_patch(args).await;
+    }
+
+    let input = get_string_arg(args, &["input", "patch"])
+        .ok_or_else(|| anyhow::anyhow!("missing 'input' argument"))?;
+    let actions = parse_harness_patch_actions(input)?;
+    if actions.is_empty() {
+        anyhow::bail!("patch did not contain any file actions");
+    }
+
+    let mut summary = Vec::with_capacity(actions.len());
+    for action in actions {
+        match action {
+            HarnessPatchAction::Add { path, content } => {
+                validate_write_path(&path)?;
+                let target = PathBuf::from(&path);
+                if target.exists() {
+                    anyhow::bail!("cannot add file that already exists: {path}");
+                }
+                if let Some(parent) = target.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::write(&target, content).await?;
+                summary.push(format!("Added file {path}"));
+            }
+            HarnessPatchAction::Update {
+                path,
+                old_text,
+                new_text,
+            } => {
+                validate_write_path(&path)?;
+                apply_exact_replacements(&path, vec![(old_text, new_text, false)]).await?;
+                summary.push(format!("Updated file {path}"));
+            }
+            HarnessPatchAction::Delete { path } => {
+                validate_write_path(&path)?;
+                let target = PathBuf::from(&path);
+                if !target.exists() {
+                    anyhow::bail!("cannot delete missing file: {path}");
+                }
+                tokio::fs::remove_file(&target).await?;
+                summary.push(format!("Deleted file {path}"));
+            }
+        }
+    }
+
+    Ok(summary.join("\n"))
+}
+
+fn parse_harness_patch_actions(input: &str) -> Result<Vec<HarnessPatchAction>> {
+    let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
+    let lines: Vec<&str> = normalized.lines().collect();
+    if lines.first().copied() != Some("*** Begin Patch") {
+        anyhow::bail!("patch must start with '*** Begin Patch'");
+    }
+    if lines.last().copied() != Some("*** End Patch") {
+        anyhow::bail!("patch must end with '*** End Patch'");
+    }
+
+    let mut actions = Vec::new();
+    let mut index = 1;
+    while index + 1 < lines.len() {
+        let line = lines[index];
+        if line.trim().is_empty() {
+            index += 1;
+            continue;
+        }
+
+        let (kind, path) = if let Some(path) = line.strip_prefix("*** Update File: ") {
+            ("update", parse_harness_patch_path(path)?)
+        } else if let Some(path) = line.strip_prefix("*** Add File: ") {
+            ("add", parse_harness_patch_path(path)?)
+        } else if let Some(path) = line.strip_prefix("*** Delete File: ") {
+            ("delete", parse_harness_patch_path(path)?)
+        } else {
+            anyhow::bail!("unsupported patch line: {line}");
+        };
+
+        index += 1;
+        let body_start = index;
+        while index + 1 < lines.len() && !lines[index].starts_with("*** ") {
+            index += 1;
+        }
+        let body = &lines[body_start..index];
+
+        match kind {
+            "update" => actions.extend(parse_harness_update_actions(&path, body)?),
+            "add" => actions.push(parse_harness_add_action(&path, body)),
+            "delete" => actions.push(HarnessPatchAction::Delete { path }),
+            _ => unreachable!(),
+        }
+    }
+
+    Ok(actions)
+}
+
+fn parse_harness_patch_path(raw: &str) -> Result<String> {
+    let path = raw.split(" -> ").next().unwrap_or(raw).trim();
+    if path.is_empty() {
+        anyhow::bail!("patch file path must not be empty");
+    }
+    Ok(path.to_string())
+}
+
+fn parse_harness_update_actions(path: &str, body: &[&str]) -> Result<Vec<HarnessPatchAction>> {
+    let mut actions = Vec::new();
+    let mut current_hunk = Vec::new();
+
+    for line in body {
+        if line.starts_with("@@") {
+            if !current_hunk.is_empty() {
+                actions.push(build_harness_update_action(path, &current_hunk)?);
+                current_hunk.clear();
+            }
+            continue;
+        }
+        current_hunk.push(*line);
+    }
+
+    if !current_hunk.is_empty() {
+        actions.push(build_harness_update_action(path, &current_hunk)?);
+    }
+
+    if actions.is_empty() {
+        anyhow::bail!("update patch for {path} did not contain any hunks");
+    }
+
+    Ok(actions)
+}
+
+fn build_harness_update_action(path: &str, hunk: &[&str]) -> Result<HarnessPatchAction> {
+    let mut old_lines = Vec::new();
+    let mut new_lines = Vec::new();
+    let mut saw_change = false;
+
+    for line in hunk {
+        if let Some(rest) = line.strip_prefix('+') {
+            new_lines.push(rest);
+            saw_change = true;
+        } else if let Some(rest) = line.strip_prefix('-') {
+            old_lines.push(rest);
+            saw_change = true;
+        } else if let Some(rest) = line.strip_prefix(' ') {
+            old_lines.push(rest);
+            new_lines.push(rest);
+        } else {
+            old_lines.push(*line);
+            new_lines.push(*line);
+        }
+    }
+
+    if !saw_change {
+        anyhow::bail!("update patch for {path} did not contain any changed lines");
+    }
+    if old_lines.is_empty() {
+        anyhow::bail!("update patch for {path} needs existing context to locate the change");
+    }
+
+    Ok(HarnessPatchAction::Update {
+        path: path.to_string(),
+        old_text: old_lines.join("\n"),
+        new_text: new_lines.join("\n"),
+    })
+}
+
+fn parse_harness_add_action(path: &str, body: &[&str]) -> HarnessPatchAction {
+    let mut content_lines = Vec::new();
+    for line in body {
+        if line.starts_with("@@") {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('+') {
+            content_lines.push(rest);
+        } else {
+            content_lines.push(*line);
+        }
+    }
+
+    let mut content = content_lines.join("\n");
+    if !content.is_empty() {
+        content.push('\n');
+    }
+    HarnessPatchAction::Add {
+        path: path.to_string(),
+        content,
+    }
+}
+
 async fn apply_exact_replacements(
     path: &str,
     replacements: Vec<(String, String, bool)>,

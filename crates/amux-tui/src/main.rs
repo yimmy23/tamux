@@ -32,16 +32,14 @@ use crate::client::DaemonClient;
 use crate::state::DaemonCommand;
 
 fn main() -> Result<()> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| "/tmp".to_string());
-    let log_dir = format!("{}/.tamux", home);
-    let _ = std::fs::create_dir_all(&log_dir);
-    let log_file = std::fs::File::create(format!("{}/tamux-tui.log", log_dir))?;
+    let log_writer = amux_protocol::DailyLogWriter::new("tamux-tui.log")?;
+    let log_path = log_writer.current_path()?;
+    let (log_writer, _log_guard) = tracing_appender::non_blocking(log_writer);
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
-        .with_writer(log_file)
+        .with_writer(log_writer)
         .init();
+    tracing::info!(path = %log_path.display(), "tui log file initialized");
 
     // Setup terminal
     enable_raw_mode()?;

@@ -425,7 +425,10 @@ async fn auto_retry_wait_repeats_scheduled_retry_cycles_until_cancelled() {
             .is_err(),
         "send loop should keep retrying until explicitly cancelled"
     );
-    assert!(engine.stop_stream(thread_id).await, "stream should be cancellable");
+    assert!(
+        engine.stop_stream(thread_id).await,
+        "stream should be cancellable"
+    );
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
         .await

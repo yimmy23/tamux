@@ -21,6 +21,7 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
             | "append_to_file"
             | "replace_in_file"
             | "apply_file_patch"
+            | "apply_patch"
     ) {
         return None;
     }
@@ -31,8 +32,15 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
         .get("path")
         .or_else(|| value.get("filePath"))
         .or_else(|| value.get("file_path"))
-        .and_then(|value| value.as_str())?
-        .to_string();
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+        .or_else(|| {
+            if tool_name == "apply_patch" {
+                first_apply_patch_path(arguments)
+            } else {
+                None
+            }
+        })?;
     let label = if tool_name == "read_file" {
         Path::new(&path)
             .file_name()
@@ -63,6 +71,27 @@ pub(crate) fn append_tool_file_chip(
     line.spans.push(Span::raw(" "));
     line.spans
         .push(Span::styled(format!("[{}]", chip.label), theme.accent_primary));
+}
+
+fn first_apply_patch_path(arguments: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    let input = value
+        .get("input")
+        .or_else(|| value.get("patch"))
+        .and_then(|raw| raw.as_str())?;
+    for line in input.lines() {
+        if let Some(path) = line
+            .strip_prefix("*** Update File: ")
+            .or_else(|| line.strip_prefix("*** Add File: "))
+            .or_else(|| line.strip_prefix("*** Delete File: "))
+        {
+            let path = path.split(" -> ").next().unwrap_or(path).trim();
+            if !path.is_empty() {
+                return Some(path.to_string());
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

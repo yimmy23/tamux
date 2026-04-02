@@ -268,7 +268,7 @@ fn render_advanced_tab<'a>(
         ),
         (
             14,
-            "Max Size (MB):   ",
+            "Max Snapshot Size:",
             config.snapshot_max_size_mb.to_string(),
             "snapshot_max_size_mb",
         ),

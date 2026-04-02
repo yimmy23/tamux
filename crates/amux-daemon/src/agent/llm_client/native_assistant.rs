@@ -42,6 +42,7 @@ async fn run_native_assistant(
                 .await?;
             if !response.status().is_success() {
                 let status = response.status();
+                let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
                 let text = response
                     .text()
                     .await
@@ -62,7 +63,12 @@ async fn run_native_assistant(
                         format!("native assistant thread creation failed ({status}): {text}"),
                     ));
                 }
-                return Err(classify_http_failure(status, provider, &text));
+                return Err(classify_http_failure_with_retry_after(
+                    status,
+                    provider,
+                    &text,
+                    retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+                ));
             }
             let payload: serde_json::Value = response.json().await?;
             payload
@@ -86,6 +92,7 @@ async fn run_native_assistant(
         .await?;
     if !add_message_response.status().is_success() {
         let status = add_message_response.status();
+        let retry_after_ms = extract_retry_after_ms(Some(add_message_response.headers()), "");
         let text = add_message_response
             .text()
             .await
@@ -106,7 +113,12 @@ async fn run_native_assistant(
                 format!("native assistant message append failed ({status}): {text}"),
             ));
         }
-        return Err(classify_http_failure(status, provider, &text));
+        return Err(classify_http_failure_with_retry_after(
+            status,
+            provider,
+            &text,
+            retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+        ));
     }
 
     let run_url = format!("{base_url}/threads/{thread_id}/runs");
@@ -119,6 +131,7 @@ async fn run_native_assistant(
         .await?;
     if !run_response.status().is_success() {
         let status = run_response.status();
+        let retry_after_ms = extract_retry_after_ms(Some(run_response.headers()), "");
         let text = run_response
             .text()
             .await
@@ -139,7 +152,12 @@ async fn run_native_assistant(
                 format!("native assistant run creation failed ({status}): {text}"),
             ));
         }
-        return Err(classify_http_failure(status, provider, &text));
+        return Err(classify_http_failure_with_retry_after(
+            status,
+            provider,
+            &text,
+            retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+        ));
     }
     let run_payload: serde_json::Value = run_response.json().await?;
     let run_id = run_payload
@@ -159,6 +177,7 @@ async fn run_native_assistant(
                 .await?;
         if !status_response.status().is_success() {
             let status = status_response.status();
+            let retry_after_ms = extract_retry_after_ms(Some(status_response.headers()), "");
             let text = status_response
                 .text()
                 .await
@@ -166,7 +185,12 @@ async fn run_native_assistant(
                 .chars()
                 .take(240)
                 .collect::<String>();
-            return Err(classify_http_failure(status, provider, &text));
+            return Err(classify_http_failure_with_retry_after(
+                status,
+                provider,
+                &text,
+                retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+            ));
         }
         let run_status: serde_json::Value = status_response.json().await?;
         if let Some(usage) = run_status.get("usage") {
@@ -228,4 +252,3 @@ async fn run_native_assistant(
         "native assistant run timed out while waiting for completion"
     ))
 }
-

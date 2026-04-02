@@ -302,7 +302,7 @@ impl TuiModel {
                 modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
                 modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
                 modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
-                modal::ModalKind::Notifications => render_helpers::centered_rect(70, 78, area),
+                modal::ModalKind::Notifications => render_helpers::centered_rect(78, 78, area),
                 modal::ModalKind::WhatsAppLink => render_helpers::centered_rect(70, 80, area),
                 modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
                     render_helpers::centered_rect(40, 35, area)
@@ -458,7 +458,7 @@ impl TuiModel {
             modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
             modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
             modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
-            modal::ModalKind::Notifications => render_helpers::centered_rect(70, 78, area),
+            modal::ModalKind::Notifications => render_helpers::centered_rect(78, 78, area),
             modal::ModalKind::WhatsAppLink => render_helpers::centered_rect(70, 80, area),
             modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
                 render_helpers::centered_rect(40, 35, area)

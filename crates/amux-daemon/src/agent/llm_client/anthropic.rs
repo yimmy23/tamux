@@ -104,6 +104,7 @@ async fn run_anthropic(
 
     if !response.status().is_success() {
         let status = response.status();
+        let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
         let text = response
             .text()
             .await
@@ -111,7 +112,12 @@ async fn run_anthropic(
             .chars()
             .take(200)
             .collect::<String>();
-        return Err(classify_http_failure(status, "Anthropic", &text));
+        return Err(classify_http_failure_with_retry_after(
+            status,
+            "Anthropic",
+            &text,
+            retry_after_ms.or_else(|| extract_retry_after_ms(None, &text)),
+        ));
     }
 
     parse_anthropic_sse(response, tx).await

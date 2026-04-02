@@ -27,13 +27,10 @@ use runtime::GatewayRuntime;
 
 pub use runtime::GatewayProvider;
 
-fn init_logging() {
-    let log_path = amux_protocol::log_file_path("tamux-gateway.log");
-    let log_dir = log_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
-    let file_appender = tracing_appender::rolling::daily(log_dir, "tamux-gateway.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard> {
+    let file_appender = amux_protocol::DailyLogWriter::new("tamux-gateway.log")?;
+    let log_path = file_appender.current_path()?;
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -43,6 +40,9 @@ fn init_logging() {
         .with_writer(non_blocking)
         .with_ansi(false)
         .init();
+
+    tracing::info!(path = %log_path.display(), "gateway log file initialized");
+    Ok(guard)
 }
 
 fn providers_from_bootstrap(
@@ -87,7 +87,7 @@ fn providers_from_bootstrap(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_logging();
+    let _log_guard = init_logging()?;
 
     tracing::info!("tamux-gateway starting");
     let (daemon, bootstrap) = ipc::connect_and_bootstrap(

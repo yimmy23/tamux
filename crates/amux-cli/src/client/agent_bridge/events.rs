@@ -475,8 +475,7 @@ mod tests {
     #[test]
     fn translates_openai_codex_auth_status_event() {
         let event = bridge_event_from_daemon_message(&DaemonMessage::AgentOpenAICodexAuthStatus {
-            status_json: r#"{"available":false,"authMode":"chatgpt_subscription"}"#
-                .to_string(),
+            status_json: r#"{"available":false,"authMode":"chatgpt_subscription"}"#.to_string(),
         })
         .expect("status event should translate");
 
@@ -494,13 +493,12 @@ mod tests {
 
     #[test]
     fn translates_openai_codex_auth_login_result_event() {
-        let event = bridge_event_from_daemon_message(
-            &DaemonMessage::AgentOpenAICodexAuthLoginResult {
+        let event =
+            bridge_event_from_daemon_message(&DaemonMessage::AgentOpenAICodexAuthLoginResult {
                 result_json: r#"{"status":"pending","authUrl":"https://example.test/auth"}"#
                     .to_string(),
-            },
-        )
-        .expect("login result event should translate");
+            })
+            .expect("login result event should translate");
 
         assert_eq!(
             event,
@@ -516,13 +514,12 @@ mod tests {
 
     #[test]
     fn translates_openai_codex_auth_logout_result_event() {
-        let event = bridge_event_from_daemon_message(
-            &DaemonMessage::AgentOpenAICodexAuthLogoutResult {
+        let event =
+            bridge_event_from_daemon_message(&DaemonMessage::AgentOpenAICodexAuthLogoutResult {
                 ok: true,
                 error: None,
-            },
-        )
-        .expect("logout result event should translate");
+            })
+            .expect("logout result event should translate");
 
         assert_eq!(
             event,

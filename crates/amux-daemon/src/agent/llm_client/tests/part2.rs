@@ -354,3 +354,58 @@
         assert_eq!(diagnostics.class, "temporary_upstream");
         assert!(diagnostics.diagnostics.to_string().contains("503"));
     }
+
+    #[tokio::test]
+    async fn rate_limit_responses_429_uses_retry_after_delay_from_body() {
+        let request_paths = Arc::new(Mutex::new(VecDeque::new()));
+        let chat_requests = Arc::new(AtomicUsize::new(0));
+        let base_url = spawn_responses_error_server(
+            "429 Too Many Requests",
+            r#"{"message":"You are being rate limited.","retry_after":0.641,"global":false}"#
+                .to_string(),
+            None,
+            request_paths,
+            chat_requests,
+        )
+        .await;
+
+        let stream = send_completion_request(
+            &reqwest::Client::new(),
+            "openai",
+            &responses_test_config(base_url, AuthSource::ApiKey),
+            "system",
+            &[ApiMessage {
+                role: "user".to_string(),
+                content: ApiContent::Text("hello".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            }],
+            &[],
+            ApiTransport::Responses,
+            None,
+            None,
+            RetryStrategy::Bounded {
+                max_retries: 1,
+                retry_delay_ms: 5_000,
+            },
+        );
+
+        let chunks = collect_chunks(stream).await;
+        let retry = chunks
+            .iter()
+            .find_map(|chunk| match chunk {
+                CompletionChunk::Retry { delay_ms, .. } => Some(*delay_ms),
+                _ => None,
+            })
+            .expect("stream should emit retry chunk");
+        assert_eq!(retry, 641);
+
+        let message = match chunks.last().expect("terminal chunk") {
+            CompletionChunk::Error { message } => message,
+            other => panic!("expected error chunk, got {other:?}"),
+        };
+        let diagnostics = parse_structured_error(message);
+        assert_eq!(diagnostics.class, "rate_limit");
+        assert_eq!(diagnostics.diagnostics["retry_after_ms"], 641);
+    }

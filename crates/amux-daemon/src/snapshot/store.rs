@@ -49,6 +49,16 @@ impl SnapshotRetentionConfig {
     }
 }
 
+fn max_snapshot_bytes(config: &SnapshotRetentionConfig) -> u64 {
+    config.max_total_size_mb.saturating_mul(1024 * 1024)
+}
+
+fn snapshot_exceeds_size_limit(snapshot: &SnapshotInfo, config: &SnapshotRetentionConfig) -> bool {
+    std::fs::metadata(&snapshot.path)
+        .map(|metadata| metadata.len() > max_snapshot_bytes(config))
+        .unwrap_or(false)
+}
+
 fn read_settings_root(path: &Path) -> Option<Value> {
     let data = std::fs::read_to_string(path).ok()?;
     let parsed = serde_json::from_str::<Value>(&data).ok()?;
@@ -102,9 +112,8 @@ pub async fn enforce_retention(
             .filter_map(|e| std::fs::metadata(&e.path).ok())
             .map(|m| m.len())
             .sum();
-        let total_mb = total_size / (1024 * 1024);
 
-        if total_mb <= config.max_total_size_mb || entries.is_empty() {
+        if total_size <= max_snapshot_bytes(config) || entries.is_empty() {
             break;
         }
 
@@ -223,6 +232,21 @@ impl SnapshotStore {
             command,
         )?;
 
+        if snapshot_exceeds_size_limit(&snapshot, &retention) {
+            let size_bytes = std::fs::metadata(&snapshot.path)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default();
+            let _ = std::fs::remove_file(&snapshot.path);
+            tracing::warn!(
+                snapshot_id = %snapshot.snapshot_id,
+                path = %snapshot.path,
+                size_bytes,
+                limit_bytes = max_snapshot_bytes(&retention),
+                "snapshot exceeded size limit and was discarded"
+            );
+            return Ok(None);
+        }
+
         self.history
             .upsert_snapshot_index(&encode_snapshot(&snapshot))
             .await?;
@@ -259,5 +283,94 @@ impl SnapshotStore {
 
     pub async fn cleanup_orphaned(&self) -> Result<usize> {
         cleanup_orphaned_files(&self.history).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amux_protocol::SnapshotIndexEntry;
+    use tempfile::tempdir;
+
+    fn make_snapshot_entry(snapshot_id: &str, path: &Path, created_at: i64) -> SnapshotIndexEntry {
+        SnapshotIndexEntry {
+            snapshot_id: snapshot_id.to_string(),
+            workspace_id: Some("workspace".to_string()),
+            session_id: None,
+            kind: "filesystem".to_string(),
+            label: Some(snapshot_id.to_string()),
+            path: path.to_string_lossy().into_owned(),
+            created_at,
+            details_json: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn enforce_retention_removes_oldest_entries_when_total_size_exceeds_limit() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+
+        let old_path = root.path().join("old.tar.gz");
+        let new_path = root.path().join("new.tar.gz");
+        std::fs::write(&old_path, vec![b'a'; 700_000]).expect("write old snapshot");
+        std::fs::write(&new_path, vec![b'b'; 700_000]).expect("write new snapshot");
+
+        history
+            .upsert_snapshot_index(&make_snapshot_entry("old", &old_path, 1))
+            .await
+            .expect("index old");
+        history
+            .upsert_snapshot_index(&make_snapshot_entry("new", &new_path, 2))
+            .await
+            .expect("index new");
+
+        let removed = enforce_retention(
+            &history,
+            &SnapshotRetentionConfig {
+                max_snapshots: 10,
+                max_total_size_mb: 1,
+                auto_cleanup: true,
+            },
+        )
+        .await
+        .expect("enforce retention");
+
+        assert_eq!(removed, vec!["old".to_string()]);
+        assert!(!old_path.exists(), "oldest snapshot file should be removed");
+        assert!(new_path.exists(), "newest snapshot file should remain");
+    }
+
+    #[test]
+    fn created_snapshot_is_rejected_when_file_exceeds_size_limit() {
+        let root = tempdir().expect("tempdir");
+        let path = root.path().join("oversized.tar.gz");
+        std::fs::write(&path, vec![b'x'; 1_200_000]).expect("write oversized snapshot");
+
+        let snapshot = SnapshotInfo {
+            snapshot_id: "snap_oversized".to_string(),
+            workspace_id: Some("workspace".to_string()),
+            session_id: None,
+            command: None,
+            kind: "filesystem".to_string(),
+            label: "snapshot".to_string(),
+            path: path.to_string_lossy().into_owned(),
+            created_at: 1,
+            status: "ready".to_string(),
+            details: String::new(),
+        };
+
+        assert!(
+            snapshot_exceeds_size_limit(
+                &snapshot,
+                &SnapshotRetentionConfig {
+                    max_snapshots: 1,
+                    max_total_size_mb: 1,
+                    auto_cleanup: true,
+                },
+            ),
+            "created snapshot should be rejected when it exceeds the configured size cap"
+        );
     }
 }

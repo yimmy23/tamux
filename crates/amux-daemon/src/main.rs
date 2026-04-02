@@ -22,9 +22,8 @@ use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
 fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard> {
-    let log_dir = amux_protocol::ensure_amux_data_dir()?;
-    let log_path = amux_protocol::log_file_path("tamux-daemon.log");
-    let file_appender = tracing_appender::rolling::never(log_dir, "tamux-daemon.log");
+    let file_appender = amux_protocol::DailyLogWriter::new("tamux-daemon.log")?;
+    let log_path = file_appender.current_path()?;
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()

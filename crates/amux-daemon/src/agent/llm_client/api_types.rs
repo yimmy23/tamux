@@ -5,10 +5,44 @@ use super::openai_codex_auth::{
     OPENAI_CODEX_AUTH_TOKEN_URL,
 };
 
-fn classify_http_failure(
+fn parse_retry_after_ms_from_value(value: &serde_json::Value) -> Option<u64> {
+    if let Some(seconds) = value.as_f64() {
+        return Some((seconds * 1000.0).ceil().max(1.0) as u64);
+    }
+    if let Some(raw) = value.as_str() {
+        if let Ok(seconds) = raw.trim().parse::<f64>() {
+            return Some((seconds * 1000.0).ceil().max(1.0) as u64);
+        }
+    }
+    None
+}
+
+fn extract_retry_after_ms(headers: Option<&reqwest::header::HeaderMap>, body_text: &str) -> Option<u64> {
+    if let Some(headers) = headers {
+        if let Some(value) = headers
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<f64>().ok())
+        {
+            return Some((value * 1000.0).ceil().max(1.0) as u64);
+        }
+    }
+
+    serde_json::from_str::<serde_json::Value>(body_text)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("retry_after")
+                .or_else(|| value.pointer("/error/retry_after"))
+                .and_then(parse_retry_after_ms_from_value)
+        })
+}
+
+fn classify_http_failure_with_retry_after(
     status: reqwest::StatusCode,
     provider: &str,
     body_text: &str,
+    retry_after_ms: Option<u64>,
 ) -> anyhow::Error {
     let raw_message = raw_upstream_message(body_text);
     let lower = raw_message.to_ascii_lowercase();
@@ -86,17 +120,25 @@ fn classify_http_failure(
         UpstreamFailureClass::Unknown => format!("{provider} API returned {status}: {raw_message}"),
     };
 
-    UpstreamFailureError::new(
-        class,
-        summary,
-        serde_json::json!({
-            "provider": provider,
-            "status": status.as_u16(),
-            "raw_message": raw_message,
-            "body": summarize_upstream_body(body_text),
-        }),
-    )
-    .into()
+    let mut diagnostics = serde_json::json!({
+        "provider": provider,
+        "status": status.as_u16(),
+        "raw_message": raw_message,
+        "body": summarize_upstream_body(body_text),
+    });
+    if let Some(retry_after_ms) = retry_after_ms {
+        diagnostics["retry_after_ms"] = serde_json::json!(retry_after_ms);
+    }
+
+    UpstreamFailureError::new(class, summary, diagnostics).into()
+}
+
+fn classify_http_failure(
+    status: reqwest::StatusCode,
+    provider: &str,
+    body_text: &str,
+) -> anyhow::Error {
+    classify_http_failure_with_retry_after(status, provider, body_text, None)
 }
 
 fn transport_incompatibility_error(provider: &str, details: impl Into<String>) -> anyhow::Error {

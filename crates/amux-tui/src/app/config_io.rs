@@ -411,12 +411,12 @@ impl TuiModel {
             .get("snapshot_retention")
             .and_then(|value| value.get("max_snapshots"))
             .and_then(|value| value.as_u64())
-            .unwrap_or(10) as u32;
+            .unwrap_or(1) as u32;
         self.config.snapshot_max_size_mb = json
             .get("snapshot_retention")
             .and_then(|value| value.get("max_total_size_mb"))
             .and_then(|value| value.as_u64())
-            .unwrap_or(51_200) as u32;
+            .unwrap_or(10_240) as u32;
         self.config.snapshot_auto_cleanup = json
             .get("snapshot_retention")
             .and_then(|value| value.get("auto_cleanup"))

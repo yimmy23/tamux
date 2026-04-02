@@ -12,9 +12,8 @@ use tracing_subscriber::EnvFilter;
 use crate::cli::{Cli, Commands};
 
 fn init_logging(log_file_name: &str) -> Result<tracing_appender::non_blocking::WorkerGuard> {
-    let log_dir = amux_protocol::ensure_amux_data_dir()?;
-    let log_path = amux_protocol::log_file_path(log_file_name);
-    let file_appender = tracing_appender::rolling::never(log_dir, log_file_name);
+    let file_appender = amux_protocol::DailyLogWriter::new(log_file_name)?;
+    let log_path = file_appender.current_path()?;
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()

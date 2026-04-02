@@ -168,6 +168,10 @@ impl TuiModel {
                 }
                 modal::ModalKind::Notifications => {
                     self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusHeader(None));
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusRowAction(None));
+                    self.notifications
                         .reduce(crate::state::NotificationsAction::Navigate(-1));
                 }
                 _ => {}
@@ -184,6 +188,10 @@ impl TuiModel {
                     self.modal.reduce(modal::ModalAction::Navigate(1));
                 }
                 modal::ModalKind::Notifications => {
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusHeader(None));
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::FocusRowAction(None));
                     self.notifications
                         .reduce(crate::state::NotificationsAction::Navigate(1));
                 }
@@ -334,15 +342,35 @@ impl TuiModel {
                     ) {
                         match target {
                             widgets::notifications::NotificationsHitTarget::MarkAllRead => {
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusHeader(Some(
+                                        crate::state::NotificationsHeaderAction::MarkAllRead,
+                                    )),
+                                );
                                 self.mark_all_notifications_read();
                             }
                             widgets::notifications::NotificationsHitTarget::ArchiveRead => {
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusHeader(Some(
+                                        crate::state::NotificationsHeaderAction::ArchiveRead,
+                                    )),
+                                );
                                 self.archive_read_notifications();
                             }
                             widgets::notifications::NotificationsHitTarget::Close => {
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusHeader(Some(
+                                        crate::state::NotificationsHeaderAction::Close,
+                                    )),
+                                );
                                 self.close_top_modal();
                             }
                             widgets::notifications::NotificationsHitTarget::Row(index) => {
+                                self.notifications
+                                    .reduce(crate::state::NotificationsAction::FocusHeader(None));
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusRowAction(None),
+                                );
                                 self.notifications
                                     .reduce(crate::state::NotificationsAction::Select(index));
                                 if let Some(id) = self
@@ -354,25 +382,41 @@ impl TuiModel {
                                 }
                             }
                             widgets::notifications::NotificationsHitTarget::ToggleExpand(id) => {
-                                self.toggle_notification_expand(id);
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusRowAction(Some(0)),
+                                );
+                                self.execute_notification_row_action(&id, 0);
                             }
                             widgets::notifications::NotificationsHitTarget::MarkRead(id) => {
-                                self.mark_notification_read(&id);
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusRowAction(Some(1)),
+                                );
+                                self.execute_notification_row_action(&id, 1);
                             }
                             widgets::notifications::NotificationsHitTarget::Archive(id) => {
-                                self.archive_notification(&id);
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusRowAction(Some(2)),
+                                );
+                                self.execute_notification_row_action(&id, 2);
                             }
                             widgets::notifications::NotificationsHitTarget::Delete(id) => {
-                                self.delete_notification(&id);
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusRowAction(Some(3)),
+                                );
+                                self.execute_notification_row_action(&id, 3);
                             }
                             widgets::notifications::NotificationsHitTarget::Action {
                                 notification_id,
                                 action_index,
                             } => {
-                                self.execute_notification_action(
+                                self.notifications.reduce(
+                                    crate::state::NotificationsAction::FocusRowAction(Some(
+                                        action_index + 4,
+                                    )),
+                                );
+                                self.execute_notification_row_action(
                                     &notification_id,
-                                    "",
-                                    Some(action_index),
+                                    action_index + 4,
                                 );
                             }
                         }

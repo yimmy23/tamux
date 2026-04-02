@@ -252,11 +252,14 @@ pub(crate) use flow::{
     complete_openai_codex_auth_with_code_for_tests, current_pending_openai_codex_flow_id_for_tests,
     mark_openai_codex_auth_timeout_for_tests,
 };
+#[cfg(test)]
 pub(crate) use storage::{
-    clear_openai_codex_auth_test_state, import_codex_cli_auth_if_present,
-    read_codex_cli_auth_if_present, read_stored_openai_codex_auth,
-    reset_openai_codex_auth_runtime_for_tests, tombstone_present_for_tests,
-    write_stored_openai_codex_auth,
+    clear_openai_codex_auth_test_state, reset_openai_codex_auth_runtime_for_tests,
+    tombstone_present_for_tests,
+};
+pub(crate) use storage::{
+    import_codex_cli_auth_if_present, read_codex_cli_auth_if_present,
+    read_stored_openai_codex_auth, write_stored_openai_codex_auth,
 };
 
 pub(crate) fn has_openai_chatgpt_subscription_auth() -> bool {

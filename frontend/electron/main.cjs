@@ -1188,17 +1188,24 @@ function revealDataPath(relativePath) {
     return true;
 }
 
+function datedLogFileName(fileName, date = new Date()) {
+    const stem = fileName.endsWith('.log') ? fileName.slice(0, -4) : fileName;
+    const isoDate = date.toISOString().slice(0, 10);
+    return `${stem}-${isoDate}.log`;
+}
+
 function logToFile(level, message, details) {
     try {
         const logDir = getTamuxDataDir();
         fs.mkdirSync(logDir, { recursive: true });
+        const now = new Date();
         const line = [
-            new Date().toISOString(),
+            now.toISOString(),
             level.toUpperCase(),
             message,
             details ? JSON.stringify(details) : '',
         ].filter(Boolean).join(' ') + '\n';
-        fs.appendFileSync(path.join(logDir, 'tamux-electron.log'), line, 'utf8');
+        fs.appendFileSync(path.join(logDir, datedLogFileName('tamux-electron.log', now)), line, 'utf8');
     } catch {
         // Ignore logging failures.
     }
