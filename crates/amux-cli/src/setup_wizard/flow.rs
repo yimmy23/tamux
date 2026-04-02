@@ -317,26 +317,41 @@ async fn configure_model(
     Ok(())
 }
 
-pub async fn needs_setup_via_ipc() -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SetupProbe {
+    Ready,
+    NeedsSetup,
+    DaemonUnavailable,
+}
+
+pub(crate) fn setup_probe_from_config_json(config_json: &str) -> SetupProbe {
+    let value: serde_json::Value = match serde_json::from_str(config_json) {
+        Ok(v) => v,
+        Err(_) => return SetupProbe::NeedsSetup,
+    };
+    if matches!(value.get("provider").and_then(|v| v.as_str()), Some(s) if !s.is_empty()) {
+        SetupProbe::Ready
+    } else {
+        SetupProbe::NeedsSetup
+    }
+}
+
+pub(crate) async fn probe_setup_via_ipc() -> SetupProbe {
     let mut framed = match wizard_connect().await {
         Ok(f) => f,
-        Err(_) => return true,
+        Err(_) => return SetupProbe::DaemonUnavailable,
     };
     if wizard_send(&mut framed, ClientMessage::AgentGetConfig)
         .await
         .is_err()
     {
-        return true;
+        return SetupProbe::DaemonUnavailable;
     }
     match wizard_recv(&mut framed).await {
         Ok(DaemonMessage::AgentConfigResponse { config_json }) => {
-            let value: serde_json::Value = match serde_json::from_str(&config_json) {
-                Ok(v) => v,
-                Err(_) => return true,
-            };
-            !matches!(value.get("provider").and_then(|v| v.as_str()), Some(s) if !s.is_empty())
+            setup_probe_from_config_json(&config_json)
         }
-        _ => true,
+        _ => SetupProbe::DaemonUnavailable,
     }
 }
 

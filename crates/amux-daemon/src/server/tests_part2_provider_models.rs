@@ -557,3 +557,45 @@ async fn fetch_models_request_without_declared_capability_still_returns_operatio
     accept_task.abort();
     conn.shutdown().await;
 }
+
+#[tokio::test]
+async fn unsupported_provider_fetch_models_returns_empty_response_instead_of_error() {
+    let mut conn = spawn_test_connection().await;
+
+    conn.framed
+        .send(ClientMessage::AgentFetchModels {
+            provider_id: "featherless".to_string(),
+            base_url: "http://127.0.0.1:9".to_string(),
+            api_key: String::new(),
+        })
+        .await
+        .expect("request unsupported provider models fetch");
+
+    let operation_id = match conn.recv().await {
+        DaemonMessage::OperationAccepted {
+            operation_id, kind, ..
+        } => {
+            assert_eq!(kind, "fetch_models");
+            operation_id
+        }
+        other => panic!("expected fetch-models acceptance, got {other:?}"),
+    };
+
+    match conn.recv().await {
+        DaemonMessage::AgentModelsResponse {
+            operation_id: result_operation_id,
+            models_json,
+        } => {
+            assert_eq!(result_operation_id.as_deref(), Some(operation_id.as_str()));
+            let models: Vec<serde_json::Value> =
+                serde_json::from_str(&models_json).expect("parse models response");
+            assert!(models.is_empty(), "unsupported providers should return no models");
+        }
+        DaemonMessage::AgentError { message } => {
+            panic!("unsupported providers should not surface an agent error: {message}");
+        }
+        other => panic!("expected empty models response, got {other:?}"),
+    }
+
+    conn.shutdown().await;
+}

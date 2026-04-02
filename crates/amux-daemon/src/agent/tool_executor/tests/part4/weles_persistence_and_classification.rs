@@ -288,7 +288,7 @@ async fn persisted_weles_internal_task_keeps_runtime_path_without_serializing_hi
 }
 
 #[test]
-fn weles_classifier_guards_suspicious_shell_file_messaging_and_delegation_calls() {
+fn weles_classifier_guards_suspicious_shell_file_and_delegation_calls() {
     let low_risk_shell_python = crate::agent::weles_governance::classify_tool_call(
         "bash_command",
         &serde_json::json!({ "command": "python3 -c \"print('hi')\"" }),
@@ -328,19 +328,6 @@ fn weles_classifier_guards_suspicious_shell_file_messaging_and_delegation_calls(
         .iter()
         .any(|reason: &String| reason.contains("sensitive")));
 
-    let messaging = crate::agent::weles_governance::classify_tool_call(
-        "send_slack_message",
-        &serde_json::json!({ "text": "Ship it" }),
-    );
-    assert_eq!(
-        messaging.class,
-        crate::agent::weles_governance::WelesGovernanceClass::GuardAlways
-    );
-    assert!(messaging
-        .reasons
-        .iter()
-        .any(|reason: &String| reason.contains("external message")));
-
     let delegation = crate::agent::weles_governance::classify_tool_call(
         "route_to_specialist",
         &serde_json::json!({
@@ -357,6 +344,35 @@ fn weles_classifier_guards_suspicious_shell_file_messaging_and_delegation_calls(
         .reasons
         .iter()
         .any(|reason: &String| reason.contains("delegation")));
+}
+
+#[test]
+fn weles_classifier_allows_default_discord_route_but_guards_explicit_message_targets() {
+    let default_discord = crate::agent::weles_governance::classify_tool_call(
+        "send_discord_message",
+        &serde_json::json!({ "message": "Ship it" }),
+    );
+    assert_eq!(
+        default_discord.class,
+        crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
+    );
+    assert!(default_discord.reasons.is_empty());
+
+    let explicit_discord = crate::agent::weles_governance::classify_tool_call(
+        "send_discord_message",
+        &serde_json::json!({
+            "user_id": "123456789",
+            "message": "Ship it"
+        }),
+    );
+    assert_eq!(
+        explicit_discord.class,
+        crate::agent::weles_governance::WelesGovernanceClass::GuardIfSuspicious
+    );
+    assert!(explicit_discord
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("explicit") || reason.contains("target")));
 }
 
 #[test]

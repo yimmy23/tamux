@@ -1,4 +1,7 @@
-use super::flow::{parse_fetch_models_terminal_response, parse_set_config_item_response};
+use super::flow::{
+    parse_fetch_models_terminal_response, parse_set_config_item_response,
+    setup_probe_from_config_json, SetupProbe,
+};
 use super::*;
 
 #[test]
@@ -272,4 +275,32 @@ fn config_set_response_completes_on_operation_acceptance() {
     response
         .expect("terminal response")
         .expect("successful config-set acknowledgement");
+}
+
+#[test]
+fn setup_probe_marks_ready_when_provider_is_persisted() {
+    assert_eq!(
+        setup_probe_from_config_json(r#"{"provider":"openai"}"#),
+        SetupProbe::Ready
+    );
+}
+
+#[test]
+fn setup_probe_requires_setup_without_provider() {
+    assert_eq!(
+        setup_probe_from_config_json(r#"{"provider":""}"#),
+        SetupProbe::NeedsSetup
+    );
+    assert_eq!(
+        setup_probe_from_config_json(r#"{"providers":{"openai":{}}}"#),
+        SetupProbe::NeedsSetup
+    );
+}
+
+#[test]
+fn setup_probe_treats_invalid_config_as_needing_setup() {
+    assert_eq!(
+        setup_probe_from_config_json("{not-json"),
+        SetupProbe::NeedsSetup
+    );
 }

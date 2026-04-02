@@ -27,7 +27,8 @@ mod tiering;
 mod types;
 mod whatsapp;
 
-pub use flow::{needs_setup_via_ipc, run_setup_wizard};
+pub(crate) use flow::{probe_setup_via_ipc, run_setup_wizard, SetupProbe};
+pub(crate) use ipc::ensure_daemon_running;
 pub use types::PostSetupAction;
 
 use agents::*;
