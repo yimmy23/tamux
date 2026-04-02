@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getBridge } from "@/lib/bridge";
 import { useAgentStore } from "../../lib/agentStore";
+import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { Section, inputStyle, smallBtnStyle } from "./shared";
 
 export function ProviderAuthTab() {
@@ -17,8 +18,9 @@ export function ProviderAuthTab() {
     const [validationResult, setValidationResult] = useState<Record<string, { valid: boolean; error?: string }>>({});
 
     // ChatGPT subscription auth state
-    const [chatgptAuthUrl, setChatgptAuthUrl] = useState<string | null>(null);
+    const [chatgptAuthStatus, setChatgptAuthStatus] = useState<AmuxOpenAICodexAuthLogin | AmuxOpenAICodexAuthStatus | null>(null);
     const [chatgptAuthBusy, setChatgptAuthBusy] = useState(false);
+    const chatgptAuthUi = deriveOpenAICodexAuthUi(chatgptAuthStatus);
 
     const openChatgptAuthUrl = (url: string) => {
         if (!url) return;
@@ -32,23 +34,24 @@ export function ProviderAuthTab() {
 
     useEffect(() => {
         refreshProviderAuthStates();
-    }, []);
+    }, [refreshProviderAuthStates]);
 
     // Poll ChatGPT auth status when auth URL is active
     useEffect(() => {
-        if (!chatgptAuthUrl) return;
+        if (!chatgptAuthUi.shouldPoll) return;
         const timer = window.setInterval(() => {
             const amux = getBridge();
             if (!amux?.openAICodexAuthStatus) return;
             void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
-                if (status?.available) {
-                    setChatgptAuthUrl(null);
+                const nextUi = deriveOpenAICodexAuthUi(status);
+                setChatgptAuthStatus(status);
+                if (nextUi.isTerminal) {
                     refreshProviderAuthStates();
                 }
             }).catch(() => {});
         }, 2000);
         return () => window.clearInterval(timer);
-    }, [chatgptAuthUrl]);
+    }, [chatgptAuthUi.shouldPoll, refreshProviderAuthStates]);
 
     const filtered = providerAuthStates.filter((s) =>
         !filter || s.provider_name.toLowerCase().includes(filter.toLowerCase()) || s.provider_id.toLowerCase().includes(filter.toLowerCase())
@@ -72,12 +75,12 @@ export function ProviderAuthTab() {
         setChatgptAuthBusy(true);
         try {
             const result = await amux.openAICodexAuthLogin();
-            const authUrl = typeof result?.authUrl === "string" ? result.authUrl : null;
-            setChatgptAuthUrl(authUrl);
+            const authUrl = deriveOpenAICodexAuthUi(result).authUrl;
+            setChatgptAuthStatus(result);
             if (authUrl) {
                 openChatgptAuthUrl(authUrl);
             }
-            if (result?.available) {
+            if (deriveOpenAICodexAuthUi(result).isTerminal) {
                 refreshProviderAuthStates();
             }
         } catch (error: any) {
@@ -93,7 +96,7 @@ export function ProviderAuthTab() {
         setChatgptAuthBusy(true);
         try {
             await amux.openAICodexAuthLogout();
-            setChatgptAuthUrl(null);
+            setChatgptAuthStatus({ available: false, authMode: "chatgpt_subscription" });
             refreshProviderAuthStates();
         } catch { /* ignore */ } finally {
             setChatgptAuthBusy(false);
@@ -115,6 +118,7 @@ export function ProviderAuthTab() {
                     return;
                 }
                 const status = await amux.openAICodexAuthStatus({ refresh: true });
+                setChatgptAuthStatus(status);
                 setValidationResult((prev) => ({
                     ...prev,
                     [providerId]: status?.available
@@ -249,16 +253,16 @@ export function ProviderAuthTab() {
                                         {vr.valid ? "Connection OK" : `Error: ${vr.error || "unknown"}`}
                                     </div>
                                 )}
-                                {isOpenAI && chatgptAuthUrl && (
+                                {isOpenAI && chatgptAuthUi.authUrl && (
                                     <div style={{ fontSize: 10, marginTop: 4, color: "var(--accent)" }}>
                                         <span>Auth URL: </span>
                                         <a
-                                            href={chatgptAuthUrl}
+                                            href={chatgptAuthUi.authUrl}
                                             target="_blank"
                                             rel="noreferrer"
                                             onClick={(event) => {
                                                 event.preventDefault();
-                                                openChatgptAuthUrl(chatgptAuthUrl);
+                                                openChatgptAuthUrl(chatgptAuthUi.authUrl!);
                                             }}
                                             style={{ color: "var(--accent)", textDecoration: "underline" }}
                                         >

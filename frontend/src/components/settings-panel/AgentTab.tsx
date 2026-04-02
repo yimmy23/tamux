@@ -4,6 +4,7 @@ import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
 import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
+import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function AgentTab({
@@ -16,7 +17,6 @@ export function AgentTab({
     const [useCustomUrl, setUseCustomUrl] = useState(false);
     const [subscriptionAuthStatus, setSubscriptionAuthStatus] = useState<any>(null);
     const [subscriptionAuthBusy, setSubscriptionAuthBusy] = useState(false);
-    const [subscriptionAuthUrl, setSubscriptionAuthUrl] = useState<string | null>(null);
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
 
@@ -73,6 +73,7 @@ export function AgentTab({
     const showUrlEditor = isCustomProvider || useCustomUrl || Boolean(providerConfig.base_url && providerConfig.base_url !== providerDef?.defaultBaseUrl);
     const effectiveContextWindow = getEffectiveContextWindow(settings.active_provider, providerConfig);
     const activeProviderAuthState = providerAuthStates.find((state) => state.provider_id === settings.active_provider);
+    const subscriptionAuthUi = deriveOpenAICodexAuthUi(subscriptionAuthStatus);
     const providerAuthenticated = providerConfig.auth_source === "chatgpt_subscription"
         ? Boolean(subscriptionAuthStatus?.available)
         : providerConfig.auth_source === "github_copilot"
@@ -86,7 +87,6 @@ export function AgentTab({
     useEffect(() => {
         if (settings.active_provider !== "openai" || providerConfig.auth_source !== "chatgpt_subscription") {
             setSubscriptionAuthStatus(null);
-            setSubscriptionAuthUrl(null);
             return;
         }
 
@@ -113,7 +113,7 @@ export function AgentTab({
     }, [settings.active_provider, providerConfig.auth_source]);
 
     useEffect(() => {
-        if (!subscriptionAuthUrl) {
+        if (!subscriptionAuthUi.shouldPoll) {
             return;
         }
 
@@ -123,15 +123,12 @@ export function AgentTab({
                 return;
             }
             void amux.openAICodexAuthStatus({ refresh: true }).then((status: any) => {
-                if (status?.available) {
-                    setSubscriptionAuthStatus(status);
-                    setSubscriptionAuthUrl(null);
-                }
+                setSubscriptionAuthStatus(status);
             }).catch(() => { });
         }, 2000);
 
         return () => window.clearInterval(timer);
-    }, [subscriptionAuthUrl]);
+    }, [subscriptionAuthUi.shouldPoll]);
 
     const triggerSubscriptionAuth = async () => {
         const amux = getBridge();
@@ -144,8 +141,7 @@ export function AgentTab({
         try {
             const result = await amux.openAICodexAuthLogin();
             setSubscriptionAuthStatus(result);
-            const authUrl = typeof result?.authUrl === "string" ? result.authUrl : null;
-            setSubscriptionAuthUrl(authUrl);
+            const authUrl = deriveOpenAICodexAuthUi(result).authUrl;
             if (authUrl) {
                 openSubscriptionAuthUrl(authUrl);
             }
@@ -166,8 +162,7 @@ export function AgentTab({
         setSubscriptionAuthBusy(true);
         try {
             await amux.openAICodexAuthLogout();
-            setSubscriptionAuthStatus({ available: false, authMode: "chatgpt_subscription", error: "No ChatGPT subscription auth found" });
-            setSubscriptionAuthUrl(null);
+            setSubscriptionAuthStatus({ available: false, status: null, authMode: "chatgpt_subscription", error: "No ChatGPT subscription auth found" });
         } catch (error: any) {
             setSubscriptionAuthStatus({ ok: false, available: false, error: error?.message || "Failed to clear ChatGPT auth" });
         } finally {
@@ -383,24 +378,24 @@ export function AgentTab({
                                         </button>
                                     )}
                                 </div>
-                                {subscriptionAuthUrl ? (
+                                {subscriptionAuthUi.authUrl ? (
                                     <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
                                         <a
-                                            href={subscriptionAuthUrl}
+                                            href={subscriptionAuthUi.authUrl}
                                             target="_blank"
                                             rel="noreferrer"
                                             onClick={(event) => {
                                                 event.preventDefault();
-                                                openSubscriptionAuthUrl(subscriptionAuthUrl);
+                                                openSubscriptionAuthUrl(subscriptionAuthUi.authUrl!);
                                             }}
                                             style={{ fontSize: 11, color: "var(--accent, #60a5fa)", wordBreak: "break-all", textAlign: "right" }}
                                         >
-                                            {subscriptionAuthUrl}
+                                            {subscriptionAuthUi.authUrl}
                                         </a>
                                         <div style={{ display: "flex", gap: 6 }}>
                                             <button
                                                 type="button"
-                                                onClick={() => openSubscriptionAuthUrl(subscriptionAuthUrl)}
+                                                onClick={() => openSubscriptionAuthUrl(subscriptionAuthUi.authUrl!)}
                                                 style={smallBtnStyle}
                                             >
                                                 Open Browser
@@ -410,10 +405,10 @@ export function AgentTab({
                                                 onClick={() => {
                                                     const amux = getBridge();
                                                     if (amux?.writeClipboardText) {
-                                                        void amux.writeClipboardText(subscriptionAuthUrl);
+                                                        void amux.writeClipboardText(subscriptionAuthUi.authUrl!);
                                                         return;
                                                     }
-                                                    void navigator.clipboard?.writeText(subscriptionAuthUrl).catch(() => { });
+                                                    void navigator.clipboard?.writeText(subscriptionAuthUi.authUrl!).catch(() => { });
                                                 }}
                                                 style={smallBtnStyle}
                                             >
@@ -422,7 +417,7 @@ export function AgentTab({
                                         </div>
                                     </div>
                                 ) : null}
-                                {subscriptionAuthUrl ? (
+                                {subscriptionAuthUi.authUrl ? (
                                     <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "right" }}>
                                         Open the link above and complete ChatGPT authentication. This row updates automatically after the callback returns.
                                     </div>

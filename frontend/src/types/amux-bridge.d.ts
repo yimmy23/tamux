@@ -1,6 +1,7 @@
 declare global {
     type AmuxOpenAICodexAuthStatus = {
         available: boolean;
+        status?: string;
         authMode?: string;
         accountId?: string;
         expiresAt?: number;

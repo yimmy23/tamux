@@ -4,6 +4,7 @@ import {
   normalizeAuthSource,
   normalizeProviderConfig,
 } from "./providers";
+import { normalizeDaemonBackedAgentMode } from "./daemonBackedSettings";
 import type {
   AgentBackend,
   AgentProviderConfig,
@@ -314,12 +315,13 @@ function providerConfigFromRaw(
 export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): AgentSettings {
   const active_provider = normalizeAgentProviderId(source.active_provider ?? source.provider);
   const activeProviderConfig = providerConfigFromRaw(active_provider, source);
+  const authSource = normalizeAuthSource(active_provider, source.auth_source ?? activeProviderConfig.auth_source);
   return {
     ...DEFAULT_AGENT_SETTINGS,
     ...source,
     agent_name: DEFAULT_AGENT_SETTINGS.agent_name,
     active_provider,
-    agent_backend: normalizeAgentBackend(source.agent_backend),
+    agent_backend: normalizeAgentBackendModeFromSource(source, active_provider, authSource),
     featherless: providerConfigFromRaw("featherless", source),
     openai: providerConfigFromRaw("openai", source),
     "github-copilot": providerConfigFromRaw("github-copilot", source),
@@ -395,10 +397,22 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
       model: source.model ?? activeProviderConfig.model,
       api_key: source.api_key ?? activeProviderConfig.api_key,
       assistant_id: source.assistant_id ?? activeProviderConfig.assistant_id,
-      auth_source: normalizeAuthSource(active_provider, source.auth_source ?? activeProviderConfig.auth_source),
+      auth_source: authSource,
       api_transport: normalizeApiTransport(active_provider, source.api_transport ?? activeProviderConfig.api_transport),
     },
   };
+}
+
+function normalizeAgentBackendModeFromSource(
+  source: DiskAgentSettings,
+  activeProvider: AgentProviderId,
+  authSource: AuthSource,
+): AgentBackend {
+  return normalizeDaemonBackedAgentMode(
+    normalizeAgentBackend(source.agent_backend),
+    activeProvider,
+    authSource,
+  ) as AgentBackend;
 }
 
 export function looksLikeDaemonAgentConfig(value: unknown): value is DiskAgentSettings {
