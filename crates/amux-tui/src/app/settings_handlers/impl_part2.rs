@@ -1,0 +1,419 @@
+impl TuiModel {
+    fn commit_subagent_editor(&mut self) {
+        let Some(editor) = self.subagents.editor.clone() else {
+            return;
+        };
+        if editor.name.trim().is_empty() {
+            self.status_line = "Sub-agent name is required".to_string();
+            return;
+        }
+        if editor.provider.trim().is_empty() {
+            self.status_line = "Sub-agent provider is required".to_string();
+            return;
+        }
+        if editor.model.trim().is_empty() {
+            self.status_line = "Sub-agent model is required".to_string();
+            return;
+        }
+
+        let id = editor.id.clone().unwrap_or_else(|| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            format!("subagent-{now}")
+        });
+        let mut raw = editor
+            .raw_json
+            .clone()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let role = if editor.role.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(editor.role.trim().to_string())
+        };
+        let system_prompt = if editor.system_prompt.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(editor.system_prompt.trim().to_string())
+        };
+        let existing_name = raw
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        if let Some(obj) = raw.as_object_mut() {
+            obj.insert("id".to_string(), serde_json::Value::String(id));
+            let name = if editor.identity_is_mutable() {
+                editor.name.trim().to_string()
+            } else {
+                existing_name.unwrap_or_else(|| editor.name.trim().to_string())
+            };
+            obj.insert("name".to_string(), serde_json::Value::String(name));
+            obj.insert(
+                "provider".to_string(),
+                serde_json::Value::String(editor.provider.clone()),
+            );
+            obj.insert(
+                "model".to_string(),
+                serde_json::Value::String(editor.model.clone()),
+            );
+            obj.insert("role".to_string(), role);
+            obj.insert("system_prompt".to_string(), system_prompt);
+            obj.insert(
+                "enabled".to_string(),
+                serde_json::Value::Bool(editor.enabled),
+            );
+            obj.insert(
+                "builtin".to_string(),
+                serde_json::Value::Bool(editor.builtin),
+            );
+            obj.insert(
+                "immutable_identity".to_string(),
+                serde_json::Value::Bool(editor.immutable_identity),
+            );
+            obj.insert(
+                "disable_allowed".to_string(),
+                serde_json::Value::Bool(editor.disable_allowed),
+            );
+            obj.insert(
+                "delete_allowed".to_string(),
+                serde_json::Value::Bool(editor.delete_allowed),
+            );
+            obj.insert(
+                "protected_reason".to_string(),
+                editor
+                    .protected_reason
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert(
+                "reasoning_effort".to_string(),
+                editor
+                    .reasoning_effort
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert(
+                "created_at".to_string(),
+                serde_json::Value::Number(editor.created_at.into()),
+            );
+        }
+        self.send_daemon_command(DaemonCommand::SetSubAgent(raw.to_string()));
+
+        let optimistic = crate::state::SubAgentEntry {
+            id: raw
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            name: raw
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            provider: raw
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            model: raw
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            role: raw
+                .get("role")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            enabled: raw.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+            builtin: raw
+                .get("builtin")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            immutable_identity: raw
+                .get("immutable_identity")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            disable_allowed: raw
+                .get("disable_allowed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            delete_allowed: raw
+                .get("delete_allowed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            protected_reason: raw
+                .get("protected_reason")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            reasoning_effort: raw
+                .get("reasoning_effort")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            raw_json: Some(raw),
+        };
+        if self
+            .subagents
+            .entries
+            .iter()
+            .any(|entry| entry.id == optimistic.id)
+        {
+            self.subagents
+                .reduce(crate::state::subagents::SubAgentsAction::Updated(
+                    optimistic,
+                ));
+            self.status_line = "Updated sub-agent".to_string();
+        } else {
+            self.subagents
+                .reduce(crate::state::subagents::SubAgentsAction::Added(optimistic));
+            self.status_line = "Added sub-agent".to_string();
+        }
+        self.subagents.editor = None;
+        self.settings.reduce(SettingsAction::CancelEdit);
+    }
+
+    fn cycle_subagent_role(&mut self, delta: i32) {
+        let Some(editor) = self.subagents.editor.as_mut() else {
+            return;
+        };
+        let len = crate::state::subagents::SUBAGENT_ROLE_PRESETS.len();
+        if len == 0 {
+            return;
+        }
+        let current = editor.role_preset_index().unwrap_or(0);
+        let next = if delta >= 0 {
+            (current + delta as usize) % len
+        } else {
+            current.saturating_sub((-delta) as usize)
+        };
+        editor.apply_role_preset_by_index(next);
+    }
+
+    fn open_subagent_provider_picker(&mut self) {
+        self.settings_picker_target = Some(SettingsPickerTarget::SubAgentProvider);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+        self.modal.set_picker_item_count(
+            widgets::provider_picker::available_provider_defs(&self.auth).len(),
+        );
+    }
+
+    fn open_subagent_model_picker(&mut self) {
+        let Some(editor) = self.subagents.editor.as_ref() else {
+            return;
+        };
+        let models = self.subagent_known_models_for(&editor.provider);
+        self.config
+            .reduce(config::ConfigAction::ModelsFetched(models.clone()));
+        self.settings_picker_target = Some(SettingsPickerTarget::SubAgentModel);
+        let count = widgets::model_picker::available_models(&self.config).len() + 1;
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.modal.set_picker_item_count(count);
+    }
+
+    fn open_subagent_effort_picker(&mut self) {
+        self.settings_picker_target = Some(SettingsPickerTarget::SubAgentReasoningEffort);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
+        self.modal.set_picker_item_count(6);
+    }
+
+    pub(super) fn send_concierge_config(&mut self) {
+        let config = serde_json::json!({
+            "enabled": self.concierge.enabled,
+            "detail_level": self.concierge.detail_level,
+            "provider": self.concierge.provider,
+            "model": self.concierge.model,
+            "reasoning_effort": self.concierge.reasoning_effort,
+            "auto_cleanup_on_navigate": self.concierge.auto_cleanup_on_navigate,
+        });
+        self.send_daemon_command(DaemonCommand::SetConciergeConfig(config.to_string()));
+    }
+
+    pub(super) fn refresh_provider_models_for_current_auth(&mut self) {
+        let models = providers::known_models_for_provider_auth(
+            &self.config.provider,
+            &self.config.auth_source,
+        );
+        if !models.is_empty() {
+            self.config
+                .reduce(config::ConfigAction::ModelsFetched(models.clone()));
+            if !models.iter().any(|model| model.id == self.config.model) {
+                let fallback = providers::default_model_for_provider_auth(
+                    &self.config.provider,
+                    &self.config.auth_source,
+                );
+                self.config.reduce(config::ConfigAction::SetModel(fallback));
+            }
+        }
+    }
+
+    pub(super) fn apply_provider_selection(&mut self, provider_id: &str) {
+        self.apply_provider_selection_internal(provider_id, true);
+    }
+
+    pub(super) fn run_auth_tab_action(&mut self) {
+        let Some(entry) = self.auth.entries.get(self.auth.selected).cloned() else {
+            return;
+        };
+
+        match self.auth.action_cursor {
+            0 => {
+                if entry.authenticated {
+                    if entry.provider_id == "openai" && entry.auth_source == "chatgpt_subscription"
+                    {
+                        self.send_daemon_command(DaemonCommand::LogoutOpenAICodex);
+                    } else if entry.provider_id == "github-copilot"
+                        && entry.auth_source == "github_copilot"
+                    {
+                        match crate::auth::clear_github_copilot_auth() {
+                            Ok(()) => {
+                                self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                                self.status_line = "GitHub Copilot auth cleared".to_string();
+                            }
+                            Err(err) => {
+                                self.status_line =
+                                    format!("Failed to clear GitHub Copilot auth: {err}");
+                            }
+                        }
+                    } else {
+                        if self.config.provider == entry.provider_id {
+                            self.config.api_key.clear();
+                        }
+                        self.clear_saved_provider_api_key(&entry.provider_id);
+                        if let Ok(value_json) =
+                            serde_json::to_string(&serde_json::Value::String(String::new()))
+                        {
+                            self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                key_path: format!("/providers/{}/api_key", entry.provider_id),
+                                value_json: value_json.clone(),
+                            });
+                            self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                key_path: format!("/{}/api_key", entry.provider_id),
+                                value_json: value_json.clone(),
+                            });
+                            if self.config.provider == entry.provider_id {
+                                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                    key_path: "/api_key".to_string(),
+                                    value_json,
+                                });
+                            }
+                        }
+                        self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                        self.status_line =
+                            format!("Cleared credentials for {}", entry.provider_name);
+                    }
+                } else if entry.provider_id == "openai"
+                    && entry.auth_source == "chatgpt_subscription"
+                {
+                    self.send_daemon_command(DaemonCommand::LoginOpenAICodex);
+                } else if entry.provider_id == "github-copilot"
+                    && entry.auth_source == "github_copilot"
+                {
+                    self.start_auth_login(&entry.provider_id, &entry.provider_name);
+                } else {
+                    self.start_auth_login(&entry.provider_id, &entry.provider_name);
+                }
+            }
+            1 => {
+                if entry.provider_id == "openai" && self.config.chatgpt_auth_available {
+                    self.send_daemon_command(DaemonCommand::LogoutOpenAICodex);
+                } else if entry.provider_id == "openai" {
+                    self.send_daemon_command(DaemonCommand::LoginOpenAICodex);
+                } else if !entry.authenticated
+                    && entry.provider_id == "github-copilot"
+                    && entry.auth_source == "github_copilot"
+                {
+                    match crate::auth::begin_github_copilot_auth_flow() {
+                        Ok(crate::auth::GithubCopilotAuthFlowResult::AlreadyAvailable) => {
+                            self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                            self.status_line = "GitHub Copilot auth already available".to_string();
+                        }
+                        Ok(crate::auth::GithubCopilotAuthFlowResult::ImportedFromGhCli) => {
+                            self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                            self.status_line =
+                                "Imported GitHub Copilot auth from GitHub CLI".to_string();
+                        }
+                        Ok(crate::auth::GithubCopilotAuthFlowResult::Started) => {
+                            self.status_line =
+                                "Started GitHub Copilot browser login. Refresh after completing it."
+                                    .to_string();
+                        }
+                        Err(err) => {
+                            self.status_line =
+                                format!("Failed to start GitHub Copilot auth: {err}");
+                        }
+                    }
+                } else {
+                    let (base_url, api_key, auth_source) =
+                        self.provider_auth_snapshot(&entry.provider_id);
+                    if entry.provider_id == "openai" && auth_source == "chatgpt_subscription" {
+                        self.refresh_openai_auth_status();
+                        self.status_line =
+                            "Refreshing ChatGPT subscription auth status...".to_string();
+                    } else {
+                        self.auth.validating = Some(entry.provider_id.clone());
+                        self.send_daemon_command(DaemonCommand::ValidateProvider {
+                            provider_id: entry.provider_id,
+                            base_url,
+                            api_key,
+                            auth_source,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn run_subagent_action(&mut self) {
+        match self.subagents.action_cursor {
+            0 => {
+                self.open_subagent_editor_new();
+            }
+            1 => {
+                self.open_subagent_editor_existing();
+            }
+            2 => {
+                if let Some(entry) = self.subagents.entries.get(self.subagents.selected) {
+                    if !entry.delete_allowed {
+                        self.status_line = "This sub-agent cannot be deleted".to_string();
+                        return;
+                    }
+                    self.send_daemon_command(DaemonCommand::RemoveSubAgent(entry.id.clone()));
+                    self.subagents
+                        .reduce(crate::state::subagents::SubAgentsAction::Removed(
+                            entry.id.clone(),
+                        ));
+                }
+            }
+            3 => {
+                if let Some(entry) = self.subagents.entries.get(self.subagents.selected) {
+                    if entry.enabled && !entry.disable_allowed {
+                        self.status_line = "This sub-agent cannot be disabled".to_string();
+                        return;
+                    }
+                    if let Some(ref raw) = entry.raw_json {
+                        let mut updated = raw.clone();
+                        if let Some(obj) = updated.as_object_mut() {
+                            obj.insert(
+                                "enabled".to_string(),
+                                serde_json::Value::Bool(!entry.enabled),
+                            );
+                        }
+                        self.send_daemon_command(DaemonCommand::SetSubAgent(updated.to_string()));
+                        self.subagents.reduce(
+                            crate::state::subagents::SubAgentsAction::ToggleEnabled(
+                                entry.id.clone(),
+                            ),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}

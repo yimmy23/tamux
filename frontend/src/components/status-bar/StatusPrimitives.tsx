@@ -1,8 +1,9 @@
-export function StatusIndicator({ label, status }: { label: string; status: "success" | "warning" | "neutral" }) {
+export function StatusIndicator({ label, status }: { label: string; status: "success" | "warning" | "neutral" | "info" }) {
     const colors = {
         success: { dot: "var(--success)" },
         warning: { dot: "var(--warning)" },
         neutral: { dot: "var(--text-muted)" },
+        info: { dot: "var(--agent)" },
     }[status];
 
     return (
@@ -26,7 +27,7 @@ export function StatusBadge({
     onClick,
 }: {
     label: string;
-    tone: "success" | "warning" | "agent" | "neutral";
+    tone: "success" | "warning" | "agent" | "neutral" | "info";
     onClick?: () => void;
 }) {
     const colors = {
@@ -34,6 +35,7 @@ export function StatusBadge({
         warning: { bg: "var(--warning-soft)", text: "var(--warning)", border: "rgba(251, 191, 36, 0.2)" },
         agent: { bg: "var(--agent-soft)", text: "var(--agent)", border: "rgba(130, 170, 255, 0.2)" },
         neutral: { bg: "var(--bg-tertiary)", text: "var(--text-muted)", border: "var(--glass-border)" },
+        info: { bg: "var(--agent-soft)", text: "var(--agent)", border: "rgba(130, 170, 255, 0.2)" },
     }[tone];
 
     return (

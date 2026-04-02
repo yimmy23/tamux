@@ -112,6 +112,19 @@ const bridgeApi = {
     discoverAITraining: (workspacePath) => ipcRenderer.invoke('ai-training-discover', workspacePath),
     listInstalledPlugins: () => ipcRenderer.invoke('plugin-list-installed'),
     loadInstalledPlugins: () => loadInstalledPlugins(),
+    pluginDaemonList: () => ipcRenderer.invoke('plugin-daemon-list'),
+    pluginDaemonGet: (name) => ipcRenderer.invoke('plugin-daemon-get', name),
+    pluginDaemonEnable: (name) => ipcRenderer.invoke('plugin-daemon-enable', name),
+    pluginDaemonDisable: (name) => ipcRenderer.invoke('plugin-daemon-disable', name),
+    pluginGetSettings: (name) => ipcRenderer.invoke('plugin-get-settings', name),
+    pluginUpdateSettings: (pluginName, key, value, isSecret) => ipcRenderer.invoke('plugin-update-settings', pluginName, key, value, isSecret),
+    pluginTestConnection: (name) => ipcRenderer.invoke('plugin-test-connection', name),
+    pluginOAuthStart: (name) => ipcRenderer.invoke('plugin-oauth-start', name),
+    onPluginOAuthComplete: (callback) => {
+        const handler = (_event, data) => callback(data);
+        ipcRenderer.on('plugin-oauth-complete', handler);
+        return () => ipcRenderer.removeListener('plugin-oauth-complete', handler);
+    },
     checkLspHealth: () => ipcRenderer.invoke('diagnostics-check-lsp'),
     checkMcpHealth: (servers) => ipcRenderer.invoke('diagnostics-check-mcp', servers),
     getDataDir: () => ipcRenderer.invoke('persistence-get-data-dir'),
@@ -133,6 +146,8 @@ const bridgeApi = {
     readFsText: (targetPath) => ipcRenderer.invoke('fs-read-text', targetPath),
     writeFsText: (targetPath, content) => ipcRenderer.invoke('fs-write-text', targetPath, content),
     getFsPathInfo: (targetPath) => ipcRenderer.invoke('fs-path-info', targetPath),
+    gitStatus: (targetPath) => ipcRenderer.invoke('git-status', targetPath),
+    gitDiff: (targetPath, filePath) => ipcRenderer.invoke('git-diff', targetPath, filePath),
     readClipboardText: () => ipcRenderer.invoke('clipboard-read-text'),
     writeClipboardText: (text) => ipcRenderer.invoke('clipboard-write-text', text),
     startTerminalSession: (options) => ipcRenderer.invoke('terminal-start', options),
@@ -156,6 +171,7 @@ const bridgeApi = {
     dbListThreads: () => ipcRenderer.invoke('db-list-threads'),
     dbGetThread: (id) => ipcRenderer.invoke('db-get-thread', id),
     dbAddMessage: (message) => ipcRenderer.invoke('db-add-message', message),
+    dbDeleteMessage: (threadId, messageId) => ipcRenderer.invoke('db-delete-message', threadId, messageId),
     dbListMessages: (threadId, limit) => ipcRenderer.invoke('db-list-messages', threadId, limit),
     dbUpsertTranscriptIndex: (entry) => ipcRenderer.invoke('db-upsert-transcript-index', entry),
     dbListTranscriptIndex: (workspaceId) => ipcRenderer.invoke('db-list-transcript-index', workspaceId),
@@ -183,33 +199,9 @@ const bridgeApi = {
         ipcRenderer.on('window-state', (_e, state) => cb(state));
         return () => ipcRenderer.removeAllListeners('window-state');
     },
-    ensureDiscordConnected: (payload) => ipcRenderer.invoke('discord-ensure-connected', payload),
     sendDiscordMessage: (payload) => ipcRenderer.invoke('discord-send-message', payload),
-    onDiscordMessage: (cb) => {
-        const listener = (_event, msg) => cb(msg);
-        ipcRenderer.on('discord-message', listener);
-        return () => ipcRenderer.removeListener('discord-message', listener);
-    },
 
-    // Slack bridge
-    ensureSlackConnected: (payload) => ipcRenderer.invoke('slack-ensure-connected', payload),
-    sendSlackMessage: (payload) => ipcRenderer.invoke('slack-send-message', payload),
-    onSlackMessage: (cb) => {
-        const listener = (_event, msg) => cb(msg);
-        ipcRenderer.on('slack-message', listener);
-        return () => ipcRenderer.removeListener('slack-message', listener);
-    },
-
-    // Telegram bridge
-    ensureTelegramConnected: (payload) => ipcRenderer.invoke('telegram-ensure-connected', payload),
-    sendTelegramMessage: (payload) => ipcRenderer.invoke('telegram-send-message', payload),
-    onTelegramMessage: (cb) => {
-        const listener = (_event, msg) => cb(msg);
-        ipcRenderer.on('telegram-message', listener);
-        return () => ipcRenderer.removeListener('telegram-message', listener);
-    },
-
-    // WhatsApp bridge
+    // WhatsApp link bridge (daemon protocol by default, Electron sidecar via fallback flag)
     whatsappConnect: () => ipcRenderer.invoke('whatsapp-connect'),
     whatsappDisconnect: () => ipcRenderer.invoke('whatsapp-disconnect'),
     whatsappStatus: () => ipcRenderer.invoke('whatsapp-status'),
@@ -225,7 +217,7 @@ const bridgeApi = {
         return () => ipcRenderer.removeListener('whatsapp-connected', listener);
     },
     onWhatsAppDisconnected: (cb) => {
-        const listener = () => cb();
+        const listener = (_event, info) => cb(info);
         ipcRenderer.on('whatsapp-disconnected', listener);
         return () => ipcRenderer.removeListener('whatsapp-disconnected', listener);
     },
@@ -241,7 +233,7 @@ const bridgeApi = {
     },
 
     // Agent engine (daemon-side)
-    agentSendMessage: (threadId, content) => ipcRenderer.invoke('agent-send-message', threadId, content),
+    agentSendMessage: (threadId, content, sessionId, contextMessages) => ipcRenderer.invoke('agent-send-message', threadId, content, sessionId, contextMessages),
     agentStopStream: (threadId) => ipcRenderer.invoke('agent-stop-stream', threadId),
     agentListThreads: () => ipcRenderer.invoke('agent-list-threads'),
     agentGetThread: (threadId) => ipcRenderer.invoke('agent-get-thread', threadId),
@@ -249,10 +241,52 @@ const bridgeApi = {
     agentAddTask: (payload) => ipcRenderer.invoke('agent-add-task', payload),
     agentCancelTask: (taskId) => ipcRenderer.invoke('agent-cancel-task', taskId),
     agentListTasks: () => ipcRenderer.invoke('agent-list-tasks'),
+    agentListRuns: () => ipcRenderer.invoke('agent-list-runs'),
+    agentGetRun: (runId) => ipcRenderer.invoke('agent-get-run', runId),
+    agentListTodos: () => ipcRenderer.invoke('agent-list-todos'),
+    agentGetTodos: (threadId) => ipcRenderer.invoke('agent-get-todos', threadId),
+    agentGetWorkContext: (threadId) => ipcRenderer.invoke('agent-get-work-context', threadId),
+    agentGetGitDiff: (repoPath, filePath) => ipcRenderer.invoke('agent-get-git-diff', repoPath, filePath),
+    agentGetFilePreview: (filePath, maxBytes) => ipcRenderer.invoke('agent-get-file-preview', filePath, maxBytes),
+    agentStartGoalRun: (payload) => ipcRenderer.invoke('agent-start-goal-run', payload),
+    agentListGoalRuns: () => ipcRenderer.invoke('agent-list-goal-runs'),
+    agentGetGoalRun: (goalRunId) => ipcRenderer.invoke('agent-get-goal-run', goalRunId),
+    agentControlGoalRun: (goalRunId, action, stepIndex) => ipcRenderer.invoke('agent-control-goal-run', goalRunId, action, stepIndex),
+    agentExplainAction: (actionId, stepIndex) => ipcRenderer.invoke('agent-explain-action', actionId, stepIndex),
+    agentStartDivergentSession: (payload) => ipcRenderer.invoke('agent-start-divergent-session', payload),
+    agentGetDivergentSession: (sessionId) => ipcRenderer.invoke('agent-get-divergent-session', sessionId),
     agentGetConfig: () => ipcRenderer.invoke('agent-get-config'),
-    agentSetConfig: (config) => ipcRenderer.invoke('agent-set-config', config),
+    agentGetStatus: () => ipcRenderer.invoke('agent-get-status'),
+    agentSetConfigItem: (keyPath, value) => ipcRenderer.invoke('agent-set-config-item', keyPath, value),
+    agentSetProviderModel: (providerId, model) => ipcRenderer.invoke('agent-set-provider-model', providerId, model),
+    agentSetTierOverride: (tier) => ipcRenderer.invoke('agent-set-tier-override', tier),
+    gatewayGetConfig: () => ipcRenderer.invoke('gateway:get-config'),
+    gatewaySetConfig: (patch) => ipcRenderer.invoke('gateway:set-config', patch),
+    openAICodexAuthStatus: (options) => ipcRenderer.invoke('openai-codex-auth-status', options),
+    openAICodexAuthLogin: () => ipcRenderer.invoke('openai-codex-auth-login'),
+    openAICodexAuthLogout: () => ipcRenderer.invoke('openai-codex-auth-logout'),
     agentHeartbeatGetItems: () => ipcRenderer.invoke('agent-heartbeat-get-items'),
     agentHeartbeatSetItems: (items) => ipcRenderer.invoke('agent-heartbeat-set-items', items),
+    agentResolveTaskApproval: (approvalId, decision) => ipcRenderer.invoke('agent-resolve-task-approval', approvalId, decision),
+    agentGetProviderAuthStates: () => ipcRenderer.invoke('agent-get-provider-auth-states'),
+    agentLoginProvider: (providerId, apiKey, baseUrl) => ipcRenderer.invoke('agent-login-provider', providerId, apiKey, baseUrl),
+    agentLogoutProvider: (providerId) => ipcRenderer.invoke('agent-logout-provider', providerId),
+    agentValidateProvider: (providerId, baseUrl, apiKey, authSource) => ipcRenderer.invoke('agent-validate-provider', providerId, baseUrl, apiKey, authSource),
+    agentSetSubAgent: (subAgentJson) => ipcRenderer.invoke('agent-set-sub-agent', subAgentJson),
+    agentRemoveSubAgent: (subAgentId) => ipcRenderer.invoke('agent-remove-sub-agent', subAgentId),
+    agentListSubAgents: () => ipcRenderer.invoke('agent-list-sub-agents'),
+    agentGetConciergeConfig: () => ipcRenderer.invoke('agent-get-concierge-config'),
+    agentSetConciergeConfig: (config) => ipcRenderer.invoke('agent-set-concierge-config', config),
+    agentDismissConciergeWelcome: () => ipcRenderer.invoke('agent-dismiss-concierge-welcome'),
+    agentRequestConciergeWelcome: () => ipcRenderer.invoke('agent-request-concierge-welcome'),
+    dismissAuditEntry: (entryId) => ipcRenderer.invoke('dismiss-audit-entry', entryId),
+    agentStartOperatorProfileSession: (kind) => ipcRenderer.invoke('agent-start-operator-profile-session', kind),
+    agentNextOperatorProfileQuestion: (sessionId) => ipcRenderer.invoke('agent-next-operator-profile-question', sessionId),
+    agentSubmitOperatorProfileAnswer: (sessionId, questionId, answerJson) => ipcRenderer.invoke('agent-submit-operator-profile-answer', sessionId, questionId, answerJson),
+    agentSkipOperatorProfileQuestion: (sessionId, questionId, reason) => ipcRenderer.invoke('agent-skip-operator-profile-question', sessionId, questionId, reason),
+    agentDeferOperatorProfileQuestion: (sessionId, questionId, deferUntilUnixMs) => ipcRenderer.invoke('agent-defer-operator-profile-question', sessionId, questionId, deferUntilUnixMs),
+    agentGetOperatorProfileSummary: () => ipcRenderer.invoke('agent-get-operator-profile-summary'),
+    agentSetOperatorProfileConsent: (consentKey, granted) => ipcRenderer.invoke('agent-set-operator-profile-consent', consentKey, granted),
     onAgentEvent: (cb) => {
         const listener = (_event, data) => cb(data);
         ipcRenderer.on('agent-event', listener);

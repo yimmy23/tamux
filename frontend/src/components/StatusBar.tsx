@@ -1,44 +1,66 @@
 import { useEffect, useMemo, useState } from "react";
-import { allLeafIds } from "../lib/bspTree";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useNotificationStore } from "../lib/notificationStore";
 import { useSettingsStore } from "../lib/settingsStore";
-import { useAgentMissionStore } from "../lib/agentMissionStore";
+import { useAgentStore } from "../lib/agentStore";
+import { useStatusStore, type AgentActivityState } from "../lib/statusStore";
+import { useTierStore } from "../lib/tierStore";
 import { InlineSystemMonitor } from "./status-bar/InlineSystemMonitor";
-import { StatusBarMissionStats } from "./status-bar/StatusBarMissionStats";
 import { StatusIndicator } from "./status-bar/StatusPrimitives";
 import { TaskTrayButton } from "./TaskTray";
 import { dividerStyle, statusBarRootStyle } from "./status-bar/shared";
 
+const ACTIVITY_DISPLAY: Record<AgentActivityState, { label: string; status: "success" | "warning" | "neutral" | "info" }> = {
+  idle: { label: "idle", status: "neutral" },
+  thinking: { label: "thinking...", status: "info" },
+  executing_tool: { label: "running tool", status: "info" },
+  waiting_for_approval: { label: "awaiting approval", status: "warning" },
+  running_goal: { label: "running goal", status: "success" },
+  goal_running: { label: "running goal", status: "success" },
+};
+
 export function StatusBar() {
   const ws = useWorkspaceStore((s) => s.activeWorkspace());
-  const surface = useWorkspaceStore((s) => s.activeSurface());
   const zoomedPaneId = useWorkspaceStore((s) => s.zoomedPaneId);
-  const activePaneId = useWorkspaceStore((s) => s.activePaneId());
   const toggleNotificationPanel = useWorkspaceStore((s) => s.toggleNotificationPanel);
-  const notifications = useNotificationStore((s) => s.notifications);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
   const themeName = useSettingsStore((s) => s.settings.themeName);
   const sandboxEnabled = useSettingsStore((s) => s.settings.sandboxEnabled);
   const snapshotBackend = useSettingsStore((s) => s.settings.snapshotBackend);
-  const gatewayEnabled = useSettingsStore((s) => s.settings.gatewayEnabled);
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
-  const approvals = useAgentMissionStore((s) => s.approvals);
-  const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
-  const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
-  const historyHits = useAgentMissionStore((s) => s.historyHits);
-  const snapshots = useAgentMissionStore((s) => s.snapshots);
+  const gatewayEnabled = useAgentStore((s) => s.agentSettings.gateway_enabled);
+  const activity = useStatusStore((s) => s.activity);
+  const activeGoalRunTitle = useStatusStore((s) => s.activeGoalRunTitle);
+  const providerHealth = useStatusStore((s) => s.providerHealth);
+  const gatewayStatuses = useStatusStore((s) => s.gatewayStatuses);
+  const diagnostics = useStatusStore((s) => s.diagnostics);
+  const currentTier = useTierStore((s) => s.currentTier);
   const [daemonConnected, setDaemonConnected] = useState(false);
-  const pendingApprovals = useMemo(() => approvals.filter((entry) => entry.status === "pending").length, [approvals]);
-  const traceCount = cognitiveEvents.length;
-  const opsCount = operationalEvents.length;
-  const toolCallCount = useMemo(() => operationalEvents.filter((e) => e.kind === "tool-call").length, [operationalEvents]);
+  const [userHoveringStatus, setUserHoveringStatus] = useState(false);
+  const activityInfo = ACTIVITY_DISPLAY[activity] ?? ACTIVITY_DISPLAY.idle;
+  const activityLabel = (activity === "running_goal" || activity === "goal_running") && activeGoalRunTitle
+    ? `goal: ${activeGoalRunTitle}`
+    : activityInfo.label;
+  const unhealthyProviderCount = useMemo(
+    () => providerHealth.filter((p) => !p.canExecute).length,
+    [providerHealth],
+  );
+  const gatewayFailureCount = useMemo(
+    () =>
+      gatewayStatuses.filter(
+        (gateway) =>
+          gateway.status.toLowerCase() === "error" ||
+          (gateway.consecutiveFailures ?? 0) > 0,
+      ).length,
+    [gatewayStatuses],
+  );
 
   useEffect(() => {
     async function check() {
       try {
         if (typeof window !== "undefined" && "amux" in window) {
-          const ok = await ((window as any).tamux ?? (window as any).amux).checkDaemon();
-          setDaemonConnected(ok);
+          const ok = await getBridge()?.checkDaemon?.();
+          setDaemonConnected(ok ?? false);
         }
       } catch {
         setDaemonConnected(false);
@@ -49,54 +71,79 @@ export function StatusBar() {
     return () => clearInterval(interval);
   }, []);
 
-  const paneCount = surface ? allLeafIds(surface.layout).length : 0;
-
   return (
     <div style={statusBarRootStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", minWidth: 0 }}>
+
+        {currentTier && currentTier !== "newcomer" && (
+          <span
+            style={{
+              color: userHoveringStatus ? "var(--white)" : "var(--text-muted)",
+              fontSize: "var(--text-xs)",
+              textTransform: "capitalize",
+              border: "1px solid var(--glass-border)",
+              padding: "2px 6px",
+              borderRadius: "var(--radius-full)",
+              opacity: userHoveringStatus ? 1 : 0.7,
+              transition: "opacity var(--transition-fast)",
+            }}
+            onMouseEnter={() => setUserHoveringStatus(true)}
+            onMouseLeave={() => setUserHoveringStatus(false)}
+          >
+            {currentTier}
+          </span>
+        )}
         <StatusIndicator
-          label={daemonConnected ? "daemon online" : "daemon offline"}
+          label="daemon"
           status={daemonConnected ? "success" : "neutral"}
         />
 
-        {ws && (
-          <span style={{
-            color: ws.accentColor,
-            fontWeight: 600,
-            letterSpacing: "0.02em",
-            fontSize: "var(--text-sm)"
-          }}>
-            {ws.name}
-          </span>
+        {gatewayEnabled && (
+          <StatusIndicator label="gateway" status="success" />
         )}
 
-        {surface && (
-          <span style={{ color: "var(--text-muted)" }}>
-            {surface.name} · {paneCount} pane{paneCount !== 1 ? "s" : ""}
-          </span>
+        {daemonConnected && (
+          <StatusIndicator
+            label={activityLabel}
+            status={activityInfo.status}
+          />
         )}
-
-        {activePaneId && (
-          <span className="amux-code" style={{ color: "var(--text-muted)", opacity: 0.7 }}>
-            {activePaneId}
-          </span>
+        {unhealthyProviderCount > 0 && (
+          <StatusIndicator
+            label={`providers degraded ${unhealthyProviderCount}`}
+            status="warning"
+          />
         )}
-
-        {zoomedPaneId && (
-          <StatusIndicator label="zoomed" status="warning" />
+        {gatewayFailureCount > 0 && (
+          <StatusIndicator
+            label={`gateway degraded ${gatewayFailureCount}`}
+            status="warning"
+          />
+        )}
+        {diagnostics.operatorProfileSchedulerFallback && (
+          <StatusIndicator
+            label="profile scheduler fallback"
+            status="warning"
+          />
+        )}
+        {diagnostics.operatorProfileSyncDirty && (
+          <StatusIndicator
+            label={`profile sync ${diagnostics.operatorProfileSyncState}`}
+            status="warning"
+          />
         )}
 
         {sandboxEnabled && (
           <StatusIndicator label="sandbox" status="success" />
         )}
 
+        {zoomedPaneId && (
+          <StatusIndicator label="zoomed" status="warning" />
+        )}
         {snapshotBackend !== "tar" && (
           <StatusIndicator label={snapshotBackend} status="success" />
         )}
 
-        {gatewayEnabled && (
-          <StatusIndicator label="gateway" status="success" />
-        )}
 
         {ws?.gitBranch && (
           <span style={{ opacity: 0.8 }}>
@@ -115,14 +162,7 @@ export function StatusBar() {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-        <StatusBarMissionStats
-          pendingApprovals={pendingApprovals}
-          traceCount={traceCount}
-          opsCount={opsCount}
-          toolCallCount={toolCallCount}
-          historyCount={historyHits.length}
-          snapshotCount={snapshots.length}
-        />
+
 
         <div style={dividerStyle} />
 
@@ -158,6 +198,12 @@ export function StatusBar() {
             }}
           >
             {unreadCount}
+          </span>
+        )}
+
+        {currentTier !== "newcomer" && (
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", opacity: 0.7 }}>
+            {currentTier.replace("_", " ")}
           </span>
         )}
 

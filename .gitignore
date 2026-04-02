@@ -5,27 +5,34 @@
 /frontend/node_modules/
 /frontend/release/
 /dist-release/
+crates/amux-daemon/target/
 .history
+docs/superpowers/
 tmp
 .claude
+.superpowers
+.worktrees
 agents.md
 .codex
 .vsc
+.opencode
+.planning
+.copilot
 # IDE
 .idea/
 .vscode/settings.json
 *.swp
 *.swo
 *~
-
+.firecrawl
 # OS
 .DS_Store
 Thumbs.db
-
+$ROOT
 # Env
 .env
 .env.local
-
+PUBLISH.md
 # Logs
 *.log
 *.tsbuildinfo
@@ -35,3 +42,4 @@ dist-release/tamux-gateway.exe
 dist-release/tamux-mcp.exe
 dist-release/tamux-portable.exe
 dist-release/tamux.exe
+.planning/

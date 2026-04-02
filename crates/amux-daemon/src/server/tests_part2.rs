@@ -1,0 +1,10 @@
+include!("tests_part2_support.rs");
+include!("tests_part2_gateway_state.rs");
+include!("tests_part2_concierge_operations.rs");
+include!("tests_part2_provider_models.rs");
+include!("tests_part2_explain_plugin_async.rs");
+include!("tests_part2_plugin_queue_metrics.rs");
+include!("tests_part2_config_reconcile.rs");
+include!("tests_part2_agent_work_skills.rs");
+include!("tests_part2_synthesize_divergent.rs");
+include!("tests_part2_subagent_gateway_waiters.rs");

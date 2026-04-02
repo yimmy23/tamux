@@ -19,3 +19,5 @@ tracing-appender = { workspace = true }
 futures = { workspace = true }
 tokio-util = { workspace = true }
 humantime = { workspace = true }
+reqwest = { workspace = true }
+uuid = { workspace = true }

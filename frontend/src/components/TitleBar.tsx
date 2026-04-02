@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
 import { useAgentStore } from "../lib/agentStore";
 import { useKeybindStore } from "../lib/keybindStore";
@@ -36,14 +37,15 @@ export function TitleBar() {
   const toggleCommandLog = useWorkspaceStore((s) => s.toggleCommandLog);
   const toggleSnippets = useWorkspaceStore((s) => s.toggleSnippetPicker);
   const toggleAgentPanel = useWorkspaceStore((s) => s.toggleAgentPanel);
+  const toggleTimeTravel = useWorkspaceStore((s) => s.toggleTimeTravel);
   const toggleSystemMonitor = useWorkspaceStore((s) => s.toggleSystemMonitor);
   const toggleSearch = useWorkspaceStore((s) => s.toggleSearch);
   const toggleNotificationPanel = useWorkspaceStore((s) => s.toggleNotificationPanel);
   const notificationPanelOpen = useWorkspaceStore((s) => s.notificationPanelOpen);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
-  const notifications = useNotificationStore((s) => s.notifications);
-  const activeProvider = useAgentStore((s) => s.agentSettings.activeProvider);
+  const unreadNotifications = useNotificationStore((s) => s.unreadCount);
+  const active_provider = useAgentStore((s) => s.agentSettings.active_provider);
   const bindings = useKeybindStore((s) => s.bindings);
   const [platform, setPlatform] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
@@ -54,11 +56,6 @@ export function TitleBar() {
     [approvals],
   );
   const traceCount = cognitiveEvents.length;
-  const unreadNotifications = useMemo(
-    () => notifications.filter((entry) => !entry.isRead).length,
-    [notifications],
-  );
-
   const shortcutFor = useCallback(
     (action: string): string | undefined => bindings.find((binding) => binding.action === action)?.combo,
     [bindings],
@@ -111,6 +108,7 @@ export function TitleBar() {
         { id: "search", label: "Search", shortcut: shortcutFor("toggleSearch"), onSelect: toggleSearch },
         { id: "history", label: "Command History", shortcut: shortcutFor("toggleCommandHistory"), onSelect: toggleCommandHistory },
         { id: "logs", label: "Command Log", shortcut: shortcutFor("toggleCommandLog"), onSelect: toggleCommandLog },
+        { id: "time-travel", label: "Time Travel", shortcut: shortcutFor("toggleTimeTravel"), onSelect: toggleTimeTravel },
         { id: "snippets", label: "Snippets", shortcut: shortcutFor("toggleSnippets"), onSelect: toggleSnippets },
         { id: "runtime", label: "Runtime Settings", onSelect: openAbout },
       ],
@@ -126,6 +124,7 @@ export function TitleBar() {
     toggleCommandLog,
     toggleNotificationPanel,
     toggleSnippets,
+    toggleTimeTravel,
 
     toggleCommandPalette,
     toggleFileManager,
@@ -138,7 +137,7 @@ export function TitleBar() {
   ]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onWindowState) return;
 
     amux.getPlatform?.().then((value: string) => setPlatform(value));
@@ -182,7 +181,7 @@ export function TitleBar() {
   if (platform === null) return null;
   if (platform === "win32") return null;
 
-  const amux = (window as any).tamux ?? (window as any).amux;
+  const amux = getBridge();
 
   return (
     <div
@@ -222,7 +221,7 @@ export function TitleBar() {
               {surface && <span style={{ color: "var(--text-muted)" }}>/{surface.name}</span>}
             </span>
 
-            <span className="amux-chip">provider {activeProvider}</span>
+            <span className="amux-chip">provider {active_provider}</span>
 
             <span
               className="amux-chip"
@@ -378,9 +377,9 @@ export function TitleBar() {
             </span>
           ) : null}
         </button>
-        <WindowButton label="─" onClick={() => amux.windowMinimize()} />
-        <WindowButton label={maximized ? "❐" : "□"} onClick={() => amux.windowMaximize()} />
-        <WindowButton label="✕" onClick={() => amux.windowClose()} isClose />
+        <WindowButton label="─" onClick={() => amux?.windowMinimize?.()} />
+        <WindowButton label={maximized ? "❐" : "□"} onClick={() => amux?.windowMaximize?.()} />
+        <WindowButton label="✕" onClick={() => amux?.windowClose?.()} isClose />
       </div>
     </div>
   );

@@ -1,0 +1,205 @@
+use anyhow::{Context, Result};
+use futures::Stream;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+use std::pin::Pin;
+use std::task::Poll;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+use super::task_prompt::now_millis;
+use super::types::{
+    get_provider_api_type, get_provider_definition, ApiTransport, ApiType, AuthMethod, AuthSource,
+    CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
+};
+
+pub(crate) const UPSTREAM_DIAGNOSTICS_MARKER: &str = "\n\n[amux-upstream-diagnostics]";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UpstreamFailureClass {
+    RequestInvalid,
+    AuthConfiguration,
+    TransportIncompatible,
+    TemporaryUpstream,
+    TransientTransport,
+    RateLimit,
+    Unknown,
+}
+
+impl UpstreamFailureClass {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::RequestInvalid => "request_invalid",
+            Self::AuthConfiguration => "auth_configuration",
+            Self::TransportIncompatible => "transport_incompatible",
+            Self::TemporaryUpstream => "temporary_upstream",
+            Self::TransientTransport => "transient_transport",
+            Self::RateLimit => "rate_limit",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct StructuredUpstreamFailure {
+    pub class: String,
+    pub summary: String,
+    pub diagnostics: serde_json::Value,
+}
+
+#[derive(Debug)]
+struct UpstreamFailureError {
+    class: UpstreamFailureClass,
+    summary: String,
+    diagnostics: serde_json::Value,
+}
+
+impl UpstreamFailureError {
+    fn new(
+        class: UpstreamFailureClass,
+        summary: impl Into<String>,
+        diagnostics: serde_json::Value,
+    ) -> Self {
+        Self {
+            class,
+            summary: summary.into(),
+            diagnostics,
+        }
+    }
+
+    fn structured(&self) -> StructuredUpstreamFailure {
+        StructuredUpstreamFailure {
+            class: self.class.as_str().to_string(),
+            summary: self.summary.clone(),
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
+
+    fn operator_message(&self) -> String {
+        format!(
+            "{}{}{}",
+            self.summary,
+            UPSTREAM_DIAGNOSTICS_MARKER,
+            serde_json::to_string(&self.structured())
+                .unwrap_or_else(|_| "{\"class\":\"unknown\"}".to_string())
+        )
+    }
+}
+
+impl fmt::Display for UpstreamFailureError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.summary)
+    }
+}
+
+impl std::error::Error for UpstreamFailureError {}
+
+pub(crate) fn parse_structured_upstream_failure(
+    message: &str,
+) -> Option<StructuredUpstreamFailure> {
+    let (_, diagnostics) = message.split_once(UPSTREAM_DIAGNOSTICS_MARKER)?;
+    serde_json::from_str(diagnostics).ok()
+}
+
+pub(crate) fn sanitize_upstream_failure_message(message: &str) -> String {
+    parse_structured_upstream_failure(message)
+        .map(|structured| structured.summary)
+        .unwrap_or_else(|| message.to_string())
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RetryStrategy {
+    Bounded {
+        max_retries: u32,
+        retry_delay_ms: u64,
+    },
+    DurableRateLimited,
+}
+
+// ---------------------------------------------------------------------------
+// API message types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiMessage {
+    pub role: String,
+    pub content: ApiContent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ApiToolCall>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ApiContent {
+    Text(String),
+    Blocks(Vec<serde_json::Value>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: ApiToolCallFunction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiToolCallFunction {
+    pub name: String,
+    pub arguments: String,
+}
+
+// ---------------------------------------------------------------------------
+// Completion stream wrapper
+// ---------------------------------------------------------------------------
+
+pub struct CompletionStream {
+    rx: mpsc::Receiver<Result<CompletionChunk>>,
+}
+
+#[derive(Debug)]
+struct RateLimitError {
+    provider: String,
+    details: String,
+}
+
+impl fmt::Display for RateLimitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} API returned 429: {}", self.provider, self.details)
+    }
+}
+
+impl std::error::Error for RateLimitError {}
+
+#[derive(Debug, Clone)]
+struct OpenAICodexRequestAuth {
+    access_token: String,
+    account_id: String,
+}
+
+fn summarize_upstream_body(body_text: &str) -> String {
+    let trimmed = body_text.trim();
+    if trimmed.is_empty() {
+        "upstream returned an empty error body".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn raw_upstream_message(body_text: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body_text)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/error/message")
+                .and_then(|value| value.as_str())
+                .or_else(|| value.get("message").and_then(|value| value.as_str()))
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| summarize_upstream_body(body_text))
+}

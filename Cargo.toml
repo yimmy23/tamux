@@ -6,10 +6,11 @@ members = [
     "crates/amux-cli",
     "crates/amux-gateway",
     "crates/amux-mcp",
+    "crates/amux-tui",
 ]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 authors = ["tamux contributors"]
@@ -29,9 +30,11 @@ bincode = "1"
 bytes = "1"
 futures = "0.3"
 tokio-util = { version = "0.7", features = ["codec"] }
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 tokio-stream = "0.1"
 humantime = "2"
+tar = "0.4"
+flate2 = "1"
 
 # Protocol
 amux-protocol = { package = "tamux-protocol", path = "crates/amux-protocol" }

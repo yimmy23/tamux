@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { saveSession, startAutoSave } from "../../lib/sessionPersistence";
 import { useSettingsStore } from "../../lib/settingsStore";
@@ -58,7 +59,7 @@ export const AppRuntimeBridge: React.FC = () => {
             ),
         );
 
-        const amux = (window as any).tamux ?? (window as any).amux;
+        const amux = getBridge();
         void amux?.setWindowOpacity?.(settings.opacity);
     }, [
         settings.customTerminalBackground,
@@ -71,7 +72,7 @@ export const AppRuntimeBridge: React.FC = () => {
     ]);
 
     useEffect(() => {
-        const amux = (window as any).tamux ?? (window as any).amux;
+        const amux = getBridge();
         if (!amux?.onAppCommand) return;
 
         return amux.onAppCommand((command: string) => {

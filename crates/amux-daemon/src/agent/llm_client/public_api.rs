@@ -1,0 +1,489 @@
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+const MAX_RETRY_DELAY_MS: u64 = 60_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AttemptTarget {
+    api_type: ApiType,
+    branch: &'static str,
+    url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RetryFailureAnalysis {
+    structured_class: Option<String>,
+    failure_class: &'static str,
+    retry_after_ms: Option<u64>,
+    response_observed: bool,
+    is_rate_limited: bool,
+    is_transient_transport: bool,
+    is_temporary_upstream: bool,
+}
+
+fn effective_attempt_target(
+    provider: &str,
+    config: &ProviderConfig,
+    transport: ApiTransport,
+) -> AttemptTarget {
+    let api_type = get_provider_api_type(provider, &config.model, &config.base_url);
+    if api_type == ApiType::Anthropic {
+        return AttemptTarget {
+            api_type,
+            branch: "anthropic",
+            url: anthropic_messages_url(&config.base_url),
+        };
+    }
+
+    match transport {
+        ApiTransport::NativeAssistant => AttemptTarget {
+            api_type,
+            branch: "native_assistant",
+            url: build_native_assistant_base_url(provider, config)
+                .map(|base| format!("{base}/threads"))
+                .unwrap_or_else(|| config.base_url.clone()),
+        },
+        ApiTransport::ChatCompletions => AttemptTarget {
+            api_type,
+            branch: "chat_completions",
+            url: build_chat_completion_url(&config.base_url),
+        },
+        ApiTransport::Responses => AttemptTarget {
+            api_type,
+            branch: "responses",
+            url: build_responses_url(&config.base_url),
+        },
+    }
+}
+
+fn analyze_retry_failure(err: &anyhow::Error) -> RetryFailureAnalysis {
+    let structured_failure = upstream_failure_error(err);
+    let structured_class = structured_failure.map(|failure| failure.class);
+    let response_observed = structured_class.is_some();
+    let retry_after_ms = structured_failure
+        .and_then(|failure| failure.diagnostics.get("retry_after_ms"))
+        .and_then(|value| value.as_u64());
+    let is_rate_limited = matches!(structured_class, Some(UpstreamFailureClass::RateLimit));
+    let is_transient_transport = matches!(
+        structured_class,
+        Some(UpstreamFailureClass::TransientTransport)
+    ) || is_transient_transport_error(err);
+    let is_temporary_upstream =
+        matches!(structured_class, Some(UpstreamFailureClass::TemporaryUpstream))
+            || is_temporary_upstream_error(err);
+    let failure_class = if is_rate_limited {
+        "rate_limit"
+    } else if is_transient_transport {
+        "transport"
+    } else if is_temporary_upstream {
+        "upstream"
+    } else {
+        "non_retryable"
+    };
+
+    RetryFailureAnalysis {
+        structured_class: structured_class.map(|class| class.as_str().to_string()),
+        failure_class,
+        retry_after_ms,
+        response_observed,
+        is_rate_limited,
+        is_transient_transport,
+        is_temporary_upstream,
+    }
+}
+
+pub(crate) fn compute_retry_delay_ms_for_attempt(base_delay_ms: u64, attempt: u32) -> u64 {
+    let multiplier = u64::from(attempt.max(1));
+    base_delay_ms
+        .saturating_mul(multiplier)
+        .min(MAX_RETRY_DELAY_MS)
+}
+
+/// Send a completion request. Returns a stream of `CompletionChunk`.
+pub fn send_completion_request(
+    client: &reqwest::Client,
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    transport: ApiTransport,
+    previous_response_id: Option<String>,
+    upstream_thread_id: Option<String>,
+    retry_strategy: RetryStrategy,
+) -> CompletionStream {
+    let (tx, rx) = mpsc::channel(64);
+    let client = client.clone();
+    let provider = provider.to_string();
+    let config = config.clone();
+    let system_prompt = system_prompt.to_string();
+    let messages = messages.to_vec();
+    let tools = tools.to_vec();
+    let previous_response_id = previous_response_id.clone();
+    let upstream_thread_id = upstream_thread_id.clone();
+
+    tokio::spawn(async move {
+        let mut retry_attempt = 0u32;
+        loop {
+            let target = effective_attempt_target(&provider, &config, transport);
+            let attempt_number = retry_attempt.saturating_add(1);
+            tracing::info!(
+                provider = %provider,
+                model = %config.model,
+                api_type = ?target.api_type,
+                attempt = attempt_number,
+                branch = target.branch,
+                url = %target.url,
+                configured_transport = ?transport,
+                retry_strategy = ?retry_strategy,
+                previous_response_id = previous_response_id.as_deref().unwrap_or(""),
+                upstream_thread_id = upstream_thread_id.as_deref().unwrap_or(""),
+                message_count = messages.len(),
+                tool_count = tools.len(),
+                "llm attempt start"
+            );
+
+            let result = if target.api_type == ApiType::Anthropic {
+                run_anthropic(
+                    &client,
+                    &provider,
+                    attempt_number,
+                    &config,
+                    &system_prompt,
+                    &messages,
+                    &tools,
+                    &tx,
+                )
+                .await
+            } else {
+                match transport {
+                    ApiTransport::NativeAssistant => {
+                        run_native_assistant(
+                            &client,
+                            &provider,
+                            &config,
+                            &messages,
+                            upstream_thread_id.as_deref(),
+                            &tx,
+                        )
+                        .await
+                    }
+                    ApiTransport::ChatCompletions => {
+                        run_openai_chat_completions(
+                            &client,
+                            &provider,
+                            &config,
+                            &system_prompt,
+                            &messages,
+                            &tools,
+                            &tx,
+                        )
+                        .await
+                    }
+                    ApiTransport::Responses => {
+                        run_openai_responses(
+                            &client,
+                            &provider,
+                            &config,
+                            &system_prompt,
+                            &messages,
+                            &tools,
+                            previous_response_id.as_deref(),
+                            &tx,
+                        )
+                        .await
+                    }
+                }
+            };
+
+            match result {
+                Ok(()) => {
+                    tracing::info!(
+                        provider = %provider,
+                        model = %config.model,
+                        attempt = attempt_number,
+                        branch = target.branch,
+                        url = %target.url,
+                        "llm attempt completed"
+                    );
+                    break;
+                }
+                Err(e) => {
+                    let analysis = analyze_retry_failure(&e);
+                    tracing::warn!(
+                        provider = %provider,
+                        model = %config.model,
+                        attempt = attempt_number,
+                        branch = target.branch,
+                        url = %target.url,
+                        configured_transport = ?transport,
+                        structured_class = analysis.structured_class.as_deref().unwrap_or(""),
+                        failure_class = analysis.failure_class,
+                        response_observed = analysis.response_observed,
+                        retry_after_ms = analysis.retry_after_ms.unwrap_or(0),
+                        error_chain = %summarize_transport_error(&e),
+                        "llm attempt failed"
+                    );
+                    if analysis.is_rate_limited
+                        || analysis.is_transient_transport
+                        || analysis.is_temporary_upstream
+                    {
+                        let retry_message = e.to_string();
+                        match retry_strategy {
+                            RetryStrategy::Bounded {
+                                max_retries,
+                                retry_delay_ms,
+                            } if retry_attempt < max_retries => {
+                                retry_attempt += 1;
+                                let delay_ms = analysis.retry_after_ms.unwrap_or_else(|| {
+                                    compute_retry_delay_ms_for_attempt(retry_delay_ms, retry_attempt)
+                                });
+                                tracing::info!(
+                                    provider = %provider,
+                                    model = %config.model,
+                                    branch = target.branch,
+                                    url = %target.url,
+                                    attempt = retry_attempt,
+                                    max_retries,
+                                    delay_ms,
+                                    failure_class = analysis.failure_class,
+                                    retry_reason = analysis.structured_class.as_deref().unwrap_or("transient"),
+                                    "llm retry scheduled"
+                                );
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Retry {
+                                        attempt: retry_attempt,
+                                        max_retries,
+                                        delay_ms,
+                                        failure_class: analysis.failure_class.to_string(),
+                                        message: retry_message.clone(),
+                                    }))
+                                    .await;
+                                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                                continue;
+                            }
+                            RetryStrategy::DurableRateLimited if analysis.is_rate_limited => {
+                                retry_attempt = retry_attempt.saturating_add(1);
+                                let delay_ms = analysis.retry_after_ms.unwrap_or_else(|| {
+                                    compute_retry_delay_ms_for_attempt(5_000, retry_attempt)
+                                });
+                                tracing::info!(
+                                    provider = %provider,
+                                    model = %config.model,
+                                    branch = target.branch,
+                                    url = %target.url,
+                                    attempt = retry_attempt,
+                                    delay_ms,
+                                    failure_class = analysis.failure_class,
+                                    retry_reason = analysis.structured_class.as_deref().unwrap_or("rate_limit"),
+                                    "durable llm retry scheduled"
+                                );
+                                let _ = tx
+                                    .send(Ok(CompletionChunk::Retry {
+                                        attempt: retry_attempt,
+                                        max_retries: 0,
+                                        delay_ms,
+                                        failure_class: analysis.failure_class.to_string(),
+                                        message: retry_message.clone(),
+                                    }))
+                                    .await;
+                                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let message = if let Some(failure) = upstream_failure_error(&e) {
+                        failure.operator_message()
+                    } else if let Some(rate_limit) = e.downcast_ref::<RateLimitError>() {
+                        rate_limit.to_string()
+                    } else if is_timeout_error(&e) {
+                        format!(
+                            "{provider} request timed out: {}",
+                            summarize_transport_error(&e)
+                        )
+                    } else if is_transient_transport_error(&e) {
+                        format!(
+                            "{provider} transport error: {}",
+                            summarize_transport_error(&e)
+                        )
+                    } else {
+                        format!("API error: {}", summarize_transport_error(&e))
+                    };
+                    let _ = tx.send(Ok(CompletionChunk::Error { message })).await;
+                    break;
+                }
+            }
+        }
+    });
+
+    CompletionStream { rx }
+}
+
+/// Convert `AgentMessage` history to API format.
+pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<ApiMessage> {
+    let mut pending_tool_results = std::collections::VecDeque::new();
+
+    messages
+        .iter()
+        .filter(|m| {
+            matches!(
+                m.role,
+                super::types::MessageRole::User
+                    | super::types::MessageRole::Assistant
+                    | super::types::MessageRole::Tool
+            )
+        })
+        .filter_map(|m| {
+            let mut normalized_tool_calls = None;
+            if matches!(m.role, super::types::MessageRole::Assistant) {
+                pending_tool_results.clear();
+                if let Some(tool_calls) = &m.tool_calls {
+                    let normalized: Vec<ApiToolCall> = tool_calls
+                        .iter()
+                        .enumerate()
+                        .map(|(index, tc)| {
+                            let normalized_id = if tc.id.trim().is_empty() {
+                                format!(
+                                    "synthetic_tool_call_{}_{}_{}",
+                                    m.timestamp, index, tc.function.name
+                                )
+                            } else {
+                                tc.id.clone()
+                            };
+                            pending_tool_results.push_back(normalized_id.clone());
+                            ApiToolCall {
+                                id: normalized_id,
+                                call_type: "function".into(),
+                                function: ApiToolCallFunction {
+                                    name: tc.function.name.clone(),
+                                    arguments: tc.function.arguments.clone(),
+                                },
+                            }
+                        })
+                        .collect();
+                    normalized_tool_calls = Some(normalized);
+                }
+            }
+
+            let mut normalized_tool_call_id = m.tool_call_id.clone();
+            if matches!(m.role, super::types::MessageRole::Tool) {
+                let resolved_tool_call_id = if let Some(tool_call_id) = m
+                    .tool_call_id
+                    .as_ref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    let position = pending_tool_results
+                        .iter()
+                        .position(|pending_id| pending_id == tool_call_id);
+                    if let Some(position) = position {
+                        pending_tool_results.remove(position).unwrap_or_default()
+                    } else {
+                        tool_call_id.clone()
+                    }
+                } else {
+                    let Some(next_pending) = pending_tool_results.pop_front() else {
+                        return None;
+                    };
+                    next_pending
+                };
+
+                normalized_tool_call_id = Some(resolved_tool_call_id);
+                if normalized_tool_call_id.as_deref().is_none() {
+                    return None;
+                }
+            } else if !matches!(m.role, super::types::MessageRole::Assistant)
+                && !pending_tool_results.is_empty()
+            {
+                pending_tool_results.clear();
+            }
+
+            Some(ApiMessage {
+                role: match m.role {
+                    super::types::MessageRole::System => "system".into(),
+                    super::types::MessageRole::User => "user".into(),
+                    super::types::MessageRole::Assistant => "assistant".into(),
+                    super::types::MessageRole::Tool => "tool".into(),
+                },
+                content: ApiContent::Text(m.content.clone()),
+                tool_call_id: normalized_tool_call_id,
+                name: m.tool_name.clone(),
+                tool_calls: normalized_tool_calls.or_else(|| {
+                    m.tool_calls.as_ref().map(|tcs| {
+                        tcs.iter()
+                            .map(|tc| ApiToolCall {
+                                id: tc.id.clone(),
+                                call_type: "function".into(),
+                                function: ApiToolCallFunction {
+                                    name: tc.function.name.clone(),
+                                    arguments: tc.function.arguments.clone(),
+                                },
+                            })
+                            .collect()
+                    })
+                }),
+            })
+        })
+        .collect()
+}
+
+fn api_content_to_json(content: &ApiContent) -> serde_json::Value {
+    match content {
+        ApiContent::Text(text) => serde_json::Value::String(text.clone()),
+        ApiContent::Blocks(blocks) => serde_json::Value::Array(blocks.clone()),
+    }
+}
+
+fn build_chat_completion_messages(
+    system_prompt: &str,
+    messages: &[ApiMessage],
+) -> Result<Vec<serde_json::Value>> {
+    let messages = sanitize_api_messages(messages);
+
+    let mut out = Vec::with_capacity(messages.len() + 1);
+    out.push(serde_json::json!({
+        "role": "system",
+        "content": system_prompt,
+    }));
+
+    for message in messages {
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "role".to_string(),
+            serde_json::Value::String(message.role.clone()),
+        );
+
+        if message.role == "assistant"
+            && message
+                .tool_calls
+                .as_ref()
+                .is_some_and(|tool_calls| !tool_calls.is_empty())
+        {
+            obj.insert("content".to_string(), serde_json::Value::Null);
+            obj.insert(
+                "tool_calls".to_string(),
+                serde_json::to_value(message.tool_calls.clone().unwrap_or_default())?,
+            );
+        } else {
+            obj.insert("content".to_string(), api_content_to_json(&message.content));
+            if let Some(tool_call_id) = &message.tool_call_id {
+                obj.insert(
+                    "tool_call_id".to_string(),
+                    serde_json::Value::String(tool_call_id.clone()),
+                );
+            }
+            if let Some(name) = &message.name {
+                obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
+            }
+            if let Some(tool_calls) = &message.tool_calls {
+                obj.insert("tool_calls".to_string(), serde_json::to_value(tool_calls)?);
+            }
+        }
+
+        out.push(serde_json::Value::Object(obj));
+    }
+
+    Ok(out)
+}

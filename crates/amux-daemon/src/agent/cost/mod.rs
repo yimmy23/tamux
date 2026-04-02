@@ -1,0 +1,283 @@
+//! Per-goal cost and token accounting with budget alerts.
+//!
+//! The cost module tracks prompt and completion token usage for each goal run,
+//! converts tokens to estimated USD via provider rate cards, and fires a
+//! one-shot budget alert when cumulative cost exceeds a configured threshold.
+//!
+//! Cost accumulation happens at exactly ONE point -- `agent_loop.rs` after
+//! `CompletionChunk::Done` -- to prevent double-counting.
+
+pub mod rate_cards;
+
+pub use rate_cards::{default_rate_cards, lookup_rate, RateCard};
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+// ---------------------------------------------------------------------------
+// CostConfig
+// ---------------------------------------------------------------------------
+
+/// Operator-configurable cost tracking settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostConfig {
+    /// Whether cost tracking is enabled.
+    #[serde(default = "default_cost_enabled")]
+    pub enabled: bool,
+    /// Fire a BudgetAlert event when cumulative cost exceeds this USD amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_alert_threshold_usd: Option<f64>,
+    /// Per-model pricing overrides. Falls back to `default_rate_cards()`.
+    #[serde(default = "default_rate_cards")]
+    pub rate_cards: HashMap<String, RateCard>,
+}
+
+fn default_cost_enabled() -> bool {
+    true
+}
+
+impl Default for CostConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            budget_alert_threshold_usd: None,
+            rate_cards: default_rate_cards(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CostSummary
+// ---------------------------------------------------------------------------
+
+/// Accumulated cost snapshot for a goal run.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CostSummary {
+    #[serde(default)]
+    pub total_prompt_tokens: u64,
+    #[serde(default)]
+    pub total_completion_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_cost_usd: Option<f64>,
+}
+
+// ---------------------------------------------------------------------------
+// CostTracker
+// ---------------------------------------------------------------------------
+
+/// Tracks per-goal-run token usage and estimated cost.
+///
+/// Each goal run gets its own `CostTracker` instance, keyed by goal_run_id
+/// in `AgentEngine.cost_trackers`.
+#[derive(Debug, Clone)]
+pub struct CostTracker {
+    summary: CostSummary,
+    budget_alerted: bool,
+}
+
+impl CostTracker {
+    pub fn new() -> Self {
+        Self {
+            summary: CostSummary::default(),
+            budget_alerted: false,
+        }
+    }
+
+    /// Accumulate tokens from a single LLM call and compute incremental cost.
+    ///
+    /// Returns the incremental cost for this call if a rate card was found,
+    /// `None` otherwise (tokens are still accumulated).
+    pub fn accumulate(
+        &mut self,
+        input_tokens: u64,
+        output_tokens: u64,
+        provider: &str,
+        model: &str,
+        rate_cards: &HashMap<String, RateCard>,
+    ) -> Option<f64> {
+        self.summary.total_prompt_tokens += input_tokens;
+        self.summary.total_completion_tokens += output_tokens;
+
+        if let Some(rate) = lookup_rate(rate_cards, provider, model) {
+            let incremental = compute_cost_from_tokens(input_tokens, output_tokens, rate);
+            let current = self.summary.estimated_cost_usd.unwrap_or(0.0);
+            self.summary.estimated_cost_usd = Some(current + incremental);
+            Some(incremental)
+        } else {
+            tracing::warn!(
+                provider,
+                model,
+                "no rate card found for model -- cost estimate unavailable"
+            );
+            None
+        }
+    }
+
+    /// Returns a reference to the current cost summary.
+    pub fn summary(&self) -> &CostSummary {
+        &self.summary
+    }
+
+    /// Returns `true` once when cumulative cost crosses the threshold.
+    ///
+    /// After firing once, subsequent calls return `false` even if cost
+    /// continues to climb.
+    pub fn budget_alert_needed(&mut self, threshold: Option<f64>) -> bool {
+        if self.budget_alerted {
+            return false;
+        }
+        if let (Some(threshold), Some(cost)) = (threshold, self.summary.estimated_cost_usd) {
+            if cost >= threshold {
+                self.budget_alerted = true;
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Pure function: compute USD cost from token counts and a rate card.
+pub fn compute_cost_from_tokens(input: u64, output: u64, rate: &RateCard) -> f64 {
+    (input as f64 * rate.input_per_million / 1_000_000.0)
+        + (output as f64 * rate.output_per_million / 1_000_000.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cost_tracker_new_has_zero_totals() {
+        let tracker = CostTracker::new();
+        let s = tracker.summary();
+        assert_eq!(s.total_prompt_tokens, 0);
+        assert_eq!(s.total_completion_tokens, 0);
+        assert!(s.estimated_cost_usd.is_none());
+    }
+
+    #[test]
+    fn cost_tracker_accumulate_adds_tokens_and_computes_usd() {
+        let mut tracker = CostTracker::new();
+        let cards = default_rate_cards();
+
+        let cost = tracker.accumulate(1000, 500, "openai", "gpt-4o", &cards);
+        assert!(cost.is_some());
+        let c = cost.unwrap();
+        // gpt-4o: 2.50/M input + 10.00/M output
+        // 1000 input -> 0.0025, 500 output -> 0.005
+        let expected = (1000.0 * 2.50 / 1_000_000.0) + (500.0 * 10.00 / 1_000_000.0);
+        assert!((c - expected).abs() < 1e-10, "expected {expected}, got {c}");
+
+        let s = tracker.summary();
+        assert_eq!(s.total_prompt_tokens, 1000);
+        assert_eq!(s.total_completion_tokens, 500);
+        assert!((s.estimated_cost_usd.unwrap() - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cost_tracker_accumulate_unknown_model_returns_none() {
+        let mut tracker = CostTracker::new();
+        let cards = default_rate_cards();
+
+        let cost = tracker.accumulate(500, 200, "unknown", "fake-model-9000", &cards);
+        assert!(cost.is_none());
+        // Tokens should still be accumulated
+        assert_eq!(tracker.summary().total_prompt_tokens, 500);
+        assert_eq!(tracker.summary().total_completion_tokens, 200);
+        assert!(tracker.summary().estimated_cost_usd.is_none());
+    }
+
+    #[test]
+    fn cost_tracker_budget_alert_fires_once() {
+        let mut tracker = CostTracker::new();
+        let cards = default_rate_cards();
+        let threshold = Some(0.001); // very low threshold for testing
+
+        // First call: below threshold
+        tracker.accumulate(100, 50, "openai", "gpt-4o", &cards);
+        assert!(!tracker.budget_alert_needed(threshold));
+
+        // Push over threshold
+        tracker.accumulate(100_000, 50_000, "openai", "gpt-4o", &cards);
+        assert!(tracker.budget_alert_needed(threshold));
+
+        // Second check: should NOT fire again
+        assert!(!tracker.budget_alert_needed(threshold));
+    }
+
+    #[test]
+    fn cost_tracker_budget_alert_none_threshold() {
+        let mut tracker = CostTracker::new();
+        let cards = default_rate_cards();
+        tracker.accumulate(1_000_000, 500_000, "openai", "gpt-4o", &cards);
+        // No threshold set -> never fires
+        assert!(!tracker.budget_alert_needed(None));
+    }
+
+    #[test]
+    fn cost_summary_serde_roundtrip() {
+        let summary = CostSummary {
+            total_prompt_tokens: 12345,
+            total_completion_tokens: 6789,
+            estimated_cost_usd: Some(1.23),
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let decoded: CostSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.total_prompt_tokens, 12345);
+        assert_eq!(decoded.total_completion_tokens, 6789);
+        assert!((decoded.estimated_cost_usd.unwrap() - 1.23).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cost_summary_default_deserialize() {
+        // Verify that an empty JSON object deserializes to defaults
+        let decoded: CostSummary = serde_json::from_str("{}").unwrap();
+        assert_eq!(decoded.total_prompt_tokens, 0);
+        assert_eq!(decoded.total_completion_tokens, 0);
+        assert!(decoded.estimated_cost_usd.is_none());
+    }
+
+    #[test]
+    fn cost_goal_run_serde_backward_compat() {
+        // A GoalRun JSON without cost fields should deserialize fine via #[serde(default)]
+        let json = r#"{
+            "id": "goal_1",
+            "title": "Test",
+            "goal": "Do it",
+            "status": "completed",
+            "priority": "normal",
+            "created_at": 1,
+            "updated_at": 2,
+            "current_step_index": 0,
+            "replan_count": 0,
+            "max_replans": 2,
+            "steps": [],
+            "events": []
+        }"#;
+        let goal_run: crate::agent::types::GoalRun = serde_json::from_str(json).unwrap();
+        assert_eq!(goal_run.total_prompt_tokens, 0);
+        assert_eq!(goal_run.total_completion_tokens, 0);
+        assert!(goal_run.estimated_cost_usd.is_none());
+
+        // Round-trip with cost fields populated
+        let mut gr = goal_run;
+        gr.total_prompt_tokens = 1000;
+        gr.total_completion_tokens = 500;
+        gr.estimated_cost_usd = Some(0.05);
+        let serialized = serde_json::to_string(&gr).unwrap();
+        let roundtripped: crate::agent::types::GoalRun = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(roundtripped.total_prompt_tokens, 1000);
+        assert_eq!(roundtripped.total_completion_tokens, 500);
+        assert!((roundtripped.estimated_cost_usd.unwrap() - 0.05).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cost_compute_cost_from_tokens_pure() {
+        let rate = RateCard {
+            input_per_million: 3.00,
+            output_per_million: 15.00,
+        };
+        let cost = compute_cost_from_tokens(1_000_000, 1_000_000, &rate);
+        assert!((cost - 18.00).abs() < 1e-10);
+    }
+}

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { getBridge } from "@/lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useNotificationStore } from "../lib/notificationStore";
 import { useAgentMissionStore } from "../lib/agentMissionStore";
@@ -6,6 +7,7 @@ import { encodeTextToBase64 } from "./terminal-pane/utils";
 import { NotificationHeader } from "./notification-panel/NotificationHeader";
 import { NotificationList } from "./notification-panel/NotificationList";
 import type { TerminalNotification } from "../lib/types";
+import { usePluginStore } from "../lib/pluginStore";
 
 /**
  * Slide-over notification panel (Ctrl+I).
@@ -22,15 +24,19 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
   const notifications = useNotificationStore((s) => s.notifications);
   const markRead = useNotificationStore((s) => s.markRead);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
-  const clearAll = useNotificationStore((s) => s.clearAll);
+  const archiveRead = useNotificationStore((s) => s.archiveRead);
+  const archiveNotification = useNotificationStore((s) => s.archiveNotification);
+  const removeNotification = useNotificationStore((s) => s.removeNotification);
   const clearPaneNotifications = useNotificationStore((s) => s.clearPaneNotifications);
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
   const setActiveSurface = useWorkspaceStore((s) => s.setActiveSurface);
   const setActivePaneId = useWorkspaceStore((s) => s.setActivePaneId);
   const focusCanvasPanel = useWorkspaceStore((s) => s.focusCanvasPanel);
   const clearCanvasPanelStatus = useWorkspaceStore((s) => s.clearCanvasPanelStatus);
+  const toggleSettings = useWorkspaceStore((s) => s.toggleSettings);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const resolveApproval = useAgentMissionStore((s) => s.resolveApproval);
+  const selectPlugin = usePluginStore((s) => s.selectPlugin);
 
   const handleSelectNotification = (notification: TerminalNotification) => {
     if (notification.workspaceId) {
@@ -53,7 +59,7 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
     const paneId = notification.panelId ?? notification.paneId;
     if (!paneId) return;
 
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     const pendingApproval = approvals.find(
       (entry) => entry.paneId === paneId && entry.status === "pending" && entry.handledAt === null
     );
@@ -71,9 +77,31 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
     clearCanvasPanelStatus(paneId);
   };
 
+  const handleNotificationAction = async (notification: TerminalNotification, actionId: string) => {
+    if (actionId === "request_concierge_welcome") {
+      const bridge = getBridge();
+      void bridge?.agentRequestConciergeWelcome?.();
+      markRead(notification.id);
+      return;
+    }
+    const action = notification.actions?.find((entry) => entry.id === actionId);
+    if (action?.actionType === "open_plugin_settings" && action.target) {
+      if (!useWorkspaceStore.getState().settingsOpen) {
+        toggleSettings();
+      }
+      window.dispatchEvent(new CustomEvent("tamux-open-settings-tab", { detail: { tab: "plugins" } }));
+      window.dispatchEvent(new CustomEvent("amux-open-settings-tab", { detail: { tab: "plugins" } }));
+      await selectPlugin(action.target);
+      markRead(notification.id);
+      return;
+    }
+    markRead(notification.id);
+  };
+
   if (!open) return null;
 
-  const unread = notifications.filter((n) => !n.isRead);
+  const activeNotifications = notifications.filter((notification) => notification.archivedAt == null && notification.deletedAt == null);
+  const unread = activeNotifications.filter((n) => !n.isRead);
 
   return (
     <div
@@ -105,15 +133,17 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
       >
         <NotificationHeader
           unreadCount={unread.length}
-          totalCount={notifications.length}
+          totalCount={activeNotifications.length}
           markAllRead={markAllRead}
-          clearAll={clearAll}
+          archiveRead={archiveRead}
           close={toggle}
         />
 
         <NotificationList
           notifications={notifications}
           markRead={markRead}
+          archiveNotification={archiveNotification}
+          deleteNotification={removeNotification}
           onSelectNotification={handleSelectNotification}
           onApproveNotification={(notification) => {
             void reactToApprovalNotification(notification, "approve");
@@ -121,6 +151,7 @@ export function NotificationPanel({ style, className }: NotificationPanelProps =
           onDenyNotification={(notification) => {
             void reactToApprovalNotification(notification, "deny");
           }}
+          onNotificationAction={handleNotificationAction}
         />
       </div>
     </div>

@@ -4,8 +4,20 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod helpers;
+use helpers::{
+    copy_dir_recursive, detect_nested_plugins, ensure_plugin_workspace, load_registry, npm_command,
+    package_dir, package_name_from_spec, parse_github_url, plugins_root, save_registry,
+    validate_plugin_package,
+};
+pub use helpers::{plugin_commands, remove_plugin_files};
+
 const PLUGINS_DIR: &str = "plugins";
 const REGISTRY_FILE: &str = "registry.json";
+
+// ---------------------------------------------------------------------------
+// Legacy plugin types (kept for backward compat with `tamux install plugin`)
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledPluginRecord {
@@ -36,7 +48,11 @@ struct PackageJson {
 #[serde(untagged)]
 enum AmuxPluginManifest {
     EntryPath(String),
-    Detailed { entry: String, #[serde(default)] format: Option<String> },
+    Detailed {
+        entry: String,
+        #[serde(default)]
+        format: Option<String>,
+    },
 }
 
 impl AmuxPluginManifest {
@@ -55,168 +71,8 @@ impl AmuxPluginManifest {
     }
 }
 
-fn plugins_root() -> Result<PathBuf> {
-    Ok(amux_protocol::ensure_amux_data_dir()?.join(PLUGINS_DIR))
-}
-
-fn registry_path() -> Result<PathBuf> {
-    Ok(plugins_root()?.join(REGISTRY_FILE))
-}
-
-fn ensure_plugin_workspace(root: &Path) -> Result<()> {
-    std::fs::create_dir_all(root)?;
-
-    let package_json_path = root.join("package.json");
-    if !package_json_path.exists() {
-        let content = serde_json::json!({
-            "name": "tamux-external-plugins",
-            "private": true,
-            "description": "Runtime-installed tamux plugins"
-        });
-        std::fs::write(package_json_path, serde_json::to_vec_pretty(&content)?)?;
-    }
-
-    Ok(())
-}
-
-fn npm_command() -> &'static str {
-    if cfg!(windows) {
-        "npm.cmd"
-    } else {
-        "npm"
-    }
-}
-
-fn package_name_from_spec(spec: &str) -> Result<String> {
-    let trimmed = spec.trim();
-    if trimmed.is_empty() {
-        bail!("plugin package spec cannot be empty");
-    }
-
-    let candidate_path = Path::new(trimmed);
-    if candidate_path.exists() {
-        let package_json_path = if candidate_path.is_dir() {
-            candidate_path.join("package.json")
-        } else {
-            bail!("local plugin installation currently supports package directories, not single files");
-        };
-
-        let raw = std::fs::read_to_string(&package_json_path)
-            .with_context(|| format!("failed to read {}", package_json_path.display()))?;
-        let package_json: PackageJson = serde_json::from_str(&raw)
-            .with_context(|| format!("failed to parse {}", package_json_path.display()))?;
-        return Ok(package_json.name);
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("npm:") {
-        return package_name_from_spec(rest);
-    }
-
-    if trimmed.starts_with('@') {
-        let slash_idx = trimmed
-            .find('/')
-            .ok_or_else(|| anyhow!("invalid scoped package spec '{trimmed}'"))?;
-        let tail = &trimmed[(slash_idx + 1)..];
-        if let Some(version_sep) = tail.rfind('@') {
-            if version_sep > 0 {
-                return Ok(trimmed[..(slash_idx + 1 + version_sep)].to_string());
-            }
-        }
-        return Ok(trimmed.to_string());
-    }
-
-    Ok(trimmed.split('@').next().unwrap_or(trimmed).to_string())
-}
-
-fn package_dir(root: &Path, package_name: &str) -> PathBuf {
-    let mut dir = root.join("node_modules");
-    for part in package_name.split('/') {
-        dir = dir.join(part);
-    }
-    dir
-}
-
-fn load_registry() -> Result<PluginRegistry> {
-    let path = registry_path()?;
-    if !path.exists() {
-        return Ok(PluginRegistry::default());
-    }
-
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let registry = serde_json::from_str(&raw)
-        .with_context(|| format!("failed to parse {}", path.display()))?;
-    Ok(registry)
-}
-
-fn save_registry(registry: &PluginRegistry) -> Result<()> {
-    let path = registry_path()?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, serde_json::to_vec_pretty(registry)?)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(())
-}
-
-fn validate_plugin_package(package_dir: &Path) -> Result<InstalledPluginRecord> {
-    let package_json_path = package_dir.join("package.json");
-    let raw = std::fs::read_to_string(&package_json_path)
-        .with_context(|| format!("failed to read {}", package_json_path.display()))?;
-    let package_json: PackageJson = serde_json::from_str(&raw)
-        .with_context(|| format!("failed to parse {}", package_json_path.display()))?;
-
-    let manifest = package_json
-        .tamux_plugin
-        .ok_or_else(|| anyhow!("package '{}' is missing the required 'tamuxPlugin' field (legacy 'amuxPlugin' is also accepted)", package_json.name))?;
-
-    let format = manifest.format().trim().to_lowercase();
-    if format != "script" {
-        bail!(
-            "package '{}' declares unsupported tamux plugin format '{}'; only 'script' is currently supported",
-            package_json.name,
-            format
-        );
-    }
-
-    let package_root = package_dir
-        .canonicalize()
-        .with_context(|| format!("failed to resolve {}", package_dir.display()))?;
-    let entry_path = package_dir.join(manifest.entry());
-    if !entry_path.is_file() {
-        bail!(
-            "package '{}' declares tamuxPlugin.entry='{}' but the file does not exist",
-            package_json.name,
-            manifest.entry()
-        );
-    }
-
-    let canonical_entry_path = entry_path
-        .canonicalize()
-        .with_context(|| format!("failed to resolve {}", entry_path.display()))?;
-    if canonical_entry_path != package_root && !canonical_entry_path.starts_with(&package_root) {
-        bail!(
-            "package '{}' declares tamuxPlugin.entry='{}' outside the installed package directory",
-            package_json.name,
-            manifest.entry()
-        );
-    }
-
-    let installed_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    Ok(InstalledPluginRecord {
-        package_name: package_json.name.clone(),
-        package_version: package_json.version.unwrap_or_else(|| "0.0.0".to_string()),
-        plugin_name: package_json.name,
-        entry_path: canonical_entry_path.to_string_lossy().to_string(),
-        format,
-        installed_at,
-    })
-}
-
+/// Legacy plugin install (npm package with tamuxPlugin field in package.json).
+/// Used by `tamux install plugin <package>`.
 pub fn install_plugin(package_spec: &str) -> Result<InstalledPluginRecord> {
     let root = plugins_root()?;
     ensure_plugin_workspace(&root)?;
@@ -230,7 +86,9 @@ pub fn install_plugin(package_spec: &str) -> Result<InstalledPluginRecord> {
         .arg(&root)
         .arg(package_spec)
         .status()
-        .with_context(|| "failed to launch npm; ensure Node.js and npm are installed and on PATH")?;
+        .with_context(|| {
+            "failed to launch npm; ensure Node.js and npm are installed and on PATH"
+        })?;
 
     if !status.success() {
         bail!("npm install failed for plugin spec '{package_spec}'");
@@ -257,3 +115,462 @@ pub fn install_plugin(package_spec: &str) -> Result<InstalledPluginRecord> {
 
     Ok(installed)
 }
+
+/// Detected install source type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginSource {
+    /// npm registry package (default fallback).
+    Npm(String),
+    /// GitHub repository URL (https or git@ or github: shorthand).
+    GitHub {
+        owner: String,
+        repo: String,
+        url: String,
+    },
+    /// Local directory path.
+    Local(PathBuf),
+}
+
+/// Auto-detect source type from user argument. Per D-01.
+/// - Contains "github.com" or ends in ".git" or starts with "github:" -> GitHub
+/// - Is an existing local path -> Local
+/// - Otherwise -> npm
+pub fn detect_source_type(spec: &str) -> PluginSource {
+    let trimmed = spec.trim();
+
+    if trimmed.contains("github.com") || trimmed.ends_with(".git") || trimmed.starts_with("github:")
+    {
+        if let Some((owner, repo)) = parse_github_url(trimmed) {
+            return PluginSource::GitHub {
+                owner,
+                repo,
+                url: trimmed.to_string(),
+            };
+        }
+    }
+
+    let candidate = Path::new(trimmed);
+    if candidate.exists() && candidate.is_dir() {
+        return PluginSource::Local(candidate.to_path_buf());
+    }
+
+    PluginSource::Npm(trimmed.to_string())
+}
+
+/// Install plugin from npm. Uses --ignore-scripts per INST-08/D-03.
+/// Copies from node_modules into ~/.tamux/plugins/{name}/ directory.
+/// Returns Vec of (dir_name, plugin_name) -- single entry for root plugin.json,
+/// multiple entries for nested plugin subdirectories (e.g. gmail + calendar).
+pub fn install_from_npm(package_spec: &str) -> Result<Vec<(String, String)>> {
+    let root = plugins_root()?;
+    ensure_plugin_workspace(&root)?;
+
+    // Install to a temp node_modules area using npm
+    let status = Command::new(npm_command())
+        .arg("install")
+        .arg("--ignore-scripts")
+        .arg("--prefix")
+        .arg(&root)
+        .arg(package_spec)
+        .status()
+        .with_context(|| {
+            "failed to launch npm; ensure Node.js and npm are installed and on PATH"
+        })?;
+
+    if !status.success() {
+        bail!("npm install failed for '{}'", package_spec);
+    }
+
+    // Find the installed package name
+    let package_name = package_name_from_spec(package_spec)?;
+    let installed_dir = package_dir(&root, &package_name);
+    if !installed_dir.exists() {
+        bail!(
+            "npm reported success but package directory not found at {}",
+            installed_dir.display()
+        );
+    }
+
+    // Look for plugin.json (new v2 format) at root first (Pitfall 5: backward compat)
+    let plugin_json = installed_dir.join("plugin.json");
+    if plugin_json.exists() {
+        // Single plugin at root (existing behavior, now returns Vec with one item)
+        let manifest_bytes = std::fs::read(&plugin_json)?;
+        let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)
+            .with_context(|| "invalid JSON in plugin.json")?;
+        let plugin_name = manifest_value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("plugin.json missing 'name' field"))?
+            .to_string();
+
+        let target_dir = root.join(&plugin_name);
+        if target_dir.exists() && target_dir != installed_dir {
+            std::fs::remove_dir_all(&target_dir).with_context(|| {
+                format!(
+                    "failed to remove existing plugin at {}",
+                    target_dir.display()
+                )
+            })?;
+        }
+        if installed_dir != target_dir {
+            copy_dir_recursive(&installed_dir, &target_dir)?;
+        }
+
+        return Ok(vec![(plugin_name.clone(), plugin_name)]);
+    }
+
+    // No root plugin.json -- check for nested plugin subdirectories (D-03)
+    let nested_plugins = detect_nested_plugins(&installed_dir)?;
+
+    if nested_plugins.is_empty() {
+        // Check for legacy format before bailing
+        let pkg_json = installed_dir.join("package.json");
+        if pkg_json.exists() {
+            let raw = std::fs::read_to_string(&pkg_json)?;
+            let pkg: serde_json::Value = serde_json::from_str(&raw)?;
+            if pkg.get("tamuxPlugin").is_some() || pkg.get("amuxPlugin").is_some() {
+                bail!(
+                    "Package '{}' uses legacy tamuxPlugin format. Use 'tamux install plugin {}' for legacy plugins.",
+                    package_name, package_spec
+                );
+            }
+        }
+        bail!(
+            "Package '{}' does not contain a plugin.json manifest (at root or in subdirectories)",
+            package_name
+        );
+    }
+
+    // Copy each nested plugin to ~/.tamux/plugins/{plugin_name}/
+    let mut installed = Vec::new();
+    for (subdir, plugin_name) in &nested_plugins {
+        let target_dir = root.join(plugin_name);
+        if target_dir.exists() {
+            std::fs::remove_dir_all(&target_dir).with_context(|| {
+                format!(
+                    "failed to remove existing plugin at {}",
+                    target_dir.display()
+                )
+            })?;
+        }
+        copy_dir_recursive(subdir, &target_dir)?;
+        installed.push((plugin_name.clone(), plugin_name.clone()));
+    }
+
+    Ok(installed)
+}
+
+/// Install plugin from GitHub. Tries git clone first, falls back to tarball download.
+/// Per D-02: supports private repos via SSH when using git clone.
+/// Returns Vec of (dir_name, plugin_name) for nested plugin support.
+pub fn install_from_github(owner: &str, repo: &str, url: &str) -> Result<Vec<(String, String)>> {
+    let root = plugins_root()?;
+    std::fs::create_dir_all(&root)?;
+
+    // Try git clone first
+    let git_available = Command::new("git")
+        .arg("--version")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    let temp_dir = tempfile::TempDir::new_in(&root)?;
+    let clone_target = temp_dir.path().join(repo);
+
+    if git_available {
+        let clone_url = if url.starts_with("github:") {
+            format!("https://github.com/{}/{}.git", owner, repo)
+        } else {
+            url.to_string()
+        };
+
+        let status = Command::new("git")
+            .arg("clone")
+            .arg("--depth")
+            .arg("1")
+            .arg(&clone_url)
+            .arg(&clone_target)
+            .status()
+            .with_context(|| "failed to run git clone")?;
+
+        if !status.success() {
+            // Fall back to tarball
+            return install_github_tarball(owner, repo, &root, temp_dir);
+        }
+    } else {
+        // No git available, try tarball
+        return install_github_tarball(owner, repo, &root, temp_dir);
+    }
+
+    // Remove .git directory to save space before processing
+    let git_dir = clone_target.join(".git");
+    if git_dir.exists() {
+        let _ = std::fs::remove_dir_all(&git_dir);
+    }
+
+    // Check root plugin.json first (Pitfall 5: backward compat)
+    let plugin_json = clone_target.join("plugin.json");
+    if plugin_json.exists() {
+        let manifest_bytes = std::fs::read(&plugin_json)?;
+        let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
+        let plugin_name = manifest_value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("plugin.json missing 'name' field"))?
+            .to_string();
+
+        let target_dir = root.join(&plugin_name);
+        if target_dir.exists() {
+            std::fs::remove_dir_all(&target_dir)?;
+        }
+        copy_dir_recursive(&clone_target, &target_dir)?;
+
+        return Ok(vec![(plugin_name.clone(), plugin_name)]);
+    }
+
+    // No root plugin.json -- check for nested plugin subdirectories (D-03)
+    let nested_plugins = detect_nested_plugins(&clone_target)?;
+    if nested_plugins.is_empty() {
+        bail!(
+            "GitHub repo {}/{} does not contain a plugin.json manifest (at root or in subdirectories)",
+            owner,
+            repo
+        );
+    }
+
+    let mut installed = Vec::new();
+    for (subdir, plugin_name) in &nested_plugins {
+        let target_dir = root.join(plugin_name);
+        if target_dir.exists() {
+            std::fs::remove_dir_all(&target_dir)?;
+        }
+        copy_dir_recursive(subdir, &target_dir)?;
+        installed.push((plugin_name.clone(), plugin_name.clone()));
+    }
+
+    Ok(installed)
+}
+
+/// Fallback: download GitHub tarball (for when git is not installed). Per D-02.
+/// IMPORTANT: Uses reqwest::blocking::Client (synchronous HTTP) instead of async reqwest.
+/// The CLI runs inside #[tokio::main], and calling block_on() from within an existing
+/// tokio runtime panics with "Cannot start a runtime from within a runtime."
+/// reqwest::blocking::Client spawns its own internal thread and is safe to call from
+/// any context. Requires `features = ["blocking"]` on the reqwest dependency.
+fn install_github_tarball(
+    owner: &str,
+    repo: &str,
+    plugins_root: &Path,
+    _temp_dir: tempfile::TempDir,
+) -> Result<Vec<(String, String)>> {
+    let tarball_url = format!(
+        "https://api.github.com/repos/{}/{}/tarball/HEAD",
+        owner, repo
+    );
+
+    let response = reqwest::blocking::Client::new()
+        .get(&tarball_url)
+        .header("User-Agent", "tamux-cli")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .with_context(|| format!("failed to download tarball from {}", tarball_url))?;
+
+    if !response.status().is_success() {
+        bail!(
+            "GitHub API returned {} for {}/{}. Repository may be private or not found.",
+            response.status(),
+            owner,
+            repo
+        );
+    }
+
+    let bytes = response
+        .bytes()
+        .with_context(|| "failed to read tarball response")?;
+
+    // Extract tarball to temp dir using tar command
+    let temp_extract = tempfile::TempDir::new_in(plugins_root)?;
+    let tarball_path = temp_extract.path().join("download.tar.gz");
+    std::fs::write(&tarball_path, &bytes)?;
+
+    let status = Command::new("tar")
+        .arg("xzf")
+        .arg(&tarball_path)
+        .arg("-C")
+        .arg(temp_extract.path())
+        .status()
+        .with_context(|| "failed to extract tarball (is 'tar' installed?)")?;
+
+    if !status.success() {
+        bail!("tar extraction failed");
+    }
+
+    // GitHub tarballs extract to owner-repo-sha/ directory
+    let extracted_dirs: Vec<_> = std::fs::read_dir(temp_extract.path())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    let extracted_dir = extracted_dirs
+        .first()
+        .ok_or_else(|| anyhow!("no directory found in extracted tarball"))?
+        .path();
+
+    // Check root plugin.json first (Pitfall 5: backward compat)
+    let plugin_json = extracted_dir.join("plugin.json");
+    if plugin_json.exists() {
+        let manifest_bytes = std::fs::read(&plugin_json)?;
+        let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
+        let plugin_name = manifest_value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("plugin.json missing 'name' field"))?
+            .to_string();
+
+        let target_dir = plugins_root.join(&plugin_name);
+        if target_dir.exists() {
+            std::fs::remove_dir_all(&target_dir)?;
+        }
+        copy_dir_recursive(&extracted_dir, &target_dir)?;
+
+        return Ok(vec![(plugin_name.clone(), plugin_name)]);
+    }
+
+    // No root plugin.json -- check for nested plugin subdirectories (D-03)
+    let nested_plugins = detect_nested_plugins(&extracted_dir)?;
+    if nested_plugins.is_empty() {
+        bail!(
+            "GitHub repo {}/{} does not contain a plugin.json manifest (at root or in subdirectories)",
+            owner,
+            repo
+        );
+    }
+
+    let mut installed = Vec::new();
+    for (subdir, plugin_name) in &nested_plugins {
+        let target_dir = plugins_root.join(plugin_name);
+        if target_dir.exists() {
+            std::fs::remove_dir_all(&target_dir)?;
+        }
+        copy_dir_recursive(subdir, &target_dir)?;
+        installed.push((plugin_name.clone(), plugin_name.clone()));
+    }
+
+    Ok(installed)
+}
+
+/// Install plugin from local directory. Copies files to ~/.tamux/plugins/{name}/.
+/// Returns Vec of (dir_name, plugin_name) for nested plugin support.
+pub fn install_from_local(local_path: &Path) -> Result<Vec<(String, String)>> {
+    let root = plugins_root()?;
+    std::fs::create_dir_all(&root)?;
+
+    // Check root plugin.json first (Pitfall 5: backward compat)
+    let plugin_json = local_path.join("plugin.json");
+    if plugin_json.exists() {
+        let manifest_bytes = std::fs::read(&plugin_json)?;
+        let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
+        let plugin_name = manifest_value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("plugin.json missing 'name' field"))?
+            .to_string();
+
+        let target_dir = root.join(&plugin_name);
+
+        // If source == target (already in plugins dir), skip copy
+        let source_canonical = local_path
+            .canonicalize()
+            .unwrap_or_else(|_| local_path.to_path_buf());
+        let target_canonical_check = if target_dir.exists() {
+            target_dir
+                .canonicalize()
+                .unwrap_or_else(|_| target_dir.clone())
+        } else {
+            target_dir.clone()
+        };
+
+        if source_canonical != target_canonical_check {
+            if target_dir.exists() {
+                std::fs::remove_dir_all(&target_dir)?;
+            }
+            copy_dir_recursive(local_path, &target_dir)?;
+        }
+
+        return Ok(vec![(plugin_name.clone(), plugin_name)]);
+    }
+
+    // No root plugin.json -- check for nested plugin subdirectories (D-03)
+    let nested_plugins = detect_nested_plugins(local_path)?;
+    if nested_plugins.is_empty() {
+        bail!(
+            "Directory '{}' does not contain a plugin.json manifest (at root or in subdirectories)",
+            local_path.display()
+        );
+    }
+
+    let mut installed = Vec::new();
+    for (subdir, plugin_name) in &nested_plugins {
+        let target_dir = root.join(plugin_name);
+
+        let source_canonical = subdir
+            .canonicalize()
+            .unwrap_or_else(|_| subdir.to_path_buf());
+        let target_canonical_check = if target_dir.exists() {
+            target_dir
+                .canonicalize()
+                .unwrap_or_else(|_| target_dir.clone())
+        } else {
+            target_dir.clone()
+        };
+
+        if source_canonical != target_canonical_check {
+            if target_dir.exists() {
+                std::fs::remove_dir_all(&target_dir)?;
+            }
+            copy_dir_recursive(subdir, &target_dir)?;
+        }
+        installed.push((plugin_name.clone(), plugin_name.clone()));
+    }
+
+    Ok(installed)
+}
+
+/// Unified v2 plugin install. Auto-detects source, installs files,
+/// returns Vec of (dir_name, source_label) for multi-plugin packages.
+/// Does NOT register with daemon -- caller handles IPC separately.
+pub fn install_plugin_v2(spec: &str) -> Result<Vec<(String, String)>> {
+    let source = detect_source_type(spec);
+    match source {
+        PluginSource::Npm(package) => {
+            let results = install_from_npm(&package)?;
+            Ok(results
+                .into_iter()
+                .map(|(dir_name, _name)| (dir_name, format!("npm:{}", package)))
+                .collect())
+        }
+        PluginSource::GitHub { owner, repo, url } => {
+            let results = install_from_github(&owner, &repo, &url)?;
+            Ok(results
+                .into_iter()
+                .map(|(dir_name, _name)| (dir_name, format!("github:{}/{}", owner, repo)))
+                .collect())
+        }
+        PluginSource::Local(path) => {
+            let results = install_from_local(&path)?;
+            Ok(results
+                .into_iter()
+                .map(|(dir_name, _name)| (dir_name, format!("local:{}", path.display())))
+                .collect())
+        }
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+#[path = "tests/plugins.rs"]
+mod tests;

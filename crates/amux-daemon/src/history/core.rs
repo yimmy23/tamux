@@ -1,0 +1,388 @@
+use super::*;
+
+impl HistoryStore {
+    pub fn data_dir(&self) -> &Path {
+        self.skill_dir.parent().unwrap_or(self.skill_dir.as_path())
+    }
+
+    pub async fn new() -> Result<Self> {
+        let base = amux_protocol::ensure_amux_data_dir()?;
+        let history_dir = base.join("history");
+        let skill_dir = base.join("skills").join("generated");
+        let telemetry_dir = base.join("semantic-logs");
+        let worm_dir = telemetry_dir.join("worm");
+
+        std::fs::create_dir_all(&history_dir)?;
+        std::fs::create_dir_all(&skill_dir)?;
+        std::fs::create_dir_all(&telemetry_dir)?;
+        std::fs::create_dir_all(&worm_dir)?;
+
+        let db_path = history_dir.join("command-history.db");
+        let conn = tokio_rusqlite::Connection::open(&db_path)
+            .await
+            .context("failed to open SQLite connection via tokio-rusqlite")?;
+
+        // Apply WAL pragmas on the connection's background thread (FOUN-01, FOUN-06, per D-03)
+        // busy_timeout=5000 also satisfies D-13: SQLite waits up to 5s before SQLITE_BUSY
+        conn.call(|conn| {
+            conn.pragma_update(None, "journal_mode", "WAL")?;
+            conn.pragma_update(None, "synchronous", "NORMAL")?;
+            conn.pragma_update(None, "foreign_keys", "ON")?;
+            conn.pragma_update(None, "wal_autocheckpoint", "1000")?;
+            conn.pragma_update(None, "busy_timeout", "5000")?;
+            Ok(())
+        })
+        .await
+        .context("failed to apply WAL pragmas")?;
+
+        let store = Self {
+            conn,
+            skill_dir,
+            telemetry_dir,
+            worm_dir,
+        };
+        store.init_schema().await?;
+        Ok(store)
+    }
+
+    pub async fn list_agent_config_items(&self) -> Result<Vec<(String, serde_json::Value)>> {
+        self.conn.call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT key_path, value_json FROM agent_config_items ORDER BY length(key_path) ASC, key_path ASC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                let key_path = row.get::<_, String>(0)?;
+                let value_json = row.get::<_, String>(1)?;
+                Ok((key_path, value_json))
+            })?;
+            let mut items = Vec::new();
+            for row in rows {
+                let (key_path, value_json) = row?;
+                let value = serde_json::from_str::<serde_json::Value>(&value_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                items.push((key_path, value));
+            }
+            Ok(items)
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn replace_agent_config_items(
+        &self,
+        items: &[(String, serde_json::Value)],
+    ) -> Result<()> {
+        let items: Vec<(String, String)> = items
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), serde_json::to_string(v)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let items = items.clone();
+        self.conn.call(move |conn| {
+            let transaction = conn.unchecked_transaction()?;
+            transaction.execute("DELETE FROM agent_config_items", [])?;
+            let now = now_ts() as i64;
+            for (key_path, value_json) in &items {
+                transaction.execute(
+                    "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                    params![key_path, value_json, now],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn upsert_agent_config_item(
+        &self,
+        key_path: &str,
+        value: &serde_json::Value,
+    ) -> Result<()> {
+        let key_path = key_path.to_string();
+        let value_json = serde_json::to_string(value)?;
+        let value = value.clone();
+        self.conn.call(move |conn| {
+            let transaction = conn.unchecked_transaction()?;
+            let prefix = format!("{key_path}/%");
+            let now = now_ts() as i64;
+            transaction.execute(
+                "DELETE FROM agent_config_items \
+                 WHERE key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%'",
+                params![key_path, prefix],
+            )?;
+            transaction.execute(
+                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at) VALUES (?1, ?2, ?3)",
+                params![key_path, value_json.clone(), now],
+            )?;
+            transaction.execute(
+                "INSERT INTO agent_config_updates (id, key_path, value_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                params![uuid::Uuid::new_v4().to_string(), key_path, value_json, now],
+            )?;
+            transaction.commit()?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn load_provider_auth_state(
+        &self,
+        provider_id: &str,
+        auth_mode: &str,
+    ) -> Result<Option<ProviderAuthStateRow>> {
+        let provider_id = provider_id.to_string();
+        let auth_mode = auth_mode.to_string();
+        self.conn
+            .call(move |conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT provider_id, auth_mode, state_json, updated_at
+                         FROM provider_auth_state
+                         WHERE provider_id = ?1 AND auth_mode = ?2",
+                        params![provider_id, auth_mode],
+                        |row| {
+                            let state_json = row.get::<_, String>(2)?;
+                            let parsed = serde_json::from_str::<serde_json::Value>(&state_json)
+                                .map_err(|e| {
+                                    rusqlite::Error::ToSqlConversionFailure(Box::new(e))
+                                })?;
+                            Ok(ProviderAuthStateRow {
+                                provider_id: row.get(0)?,
+                                auth_mode: row.get(1)?,
+                                state_json: parsed,
+                                updated_at: row.get(3)?,
+                            })
+                        },
+                    )
+                    .optional()?;
+                Ok(row)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn save_provider_auth_state(
+        &self,
+        provider_id: &str,
+        auth_mode: &str,
+        state: &serde_json::Value,
+    ) -> Result<()> {
+        let provider_id = provider_id.to_string();
+        let auth_mode = auth_mode.to_string();
+        let state_json = serde_json::to_string(state)?;
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR REPLACE INTO provider_auth_state
+                     (provider_id, auth_mode, state_json, updated_at)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![provider_id, auth_mode, state_json, now_ts() as i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn delete_provider_auth_state(
+        &self,
+        provider_id: &str,
+        auth_mode: &str,
+    ) -> Result<()> {
+        let provider_id = provider_id.to_string();
+        let auth_mode = auth_mode.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
+                    params![provider_id, auth_mode],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn new_test_store(root: &Path) -> Result<Self> {
+        let history_dir = root.join("history");
+        let skill_dir = root.join("skills").join("generated");
+        let telemetry_dir = root.join("semantic-logs");
+        let worm_dir = telemetry_dir.join("worm");
+
+        std::fs::create_dir_all(&history_dir)?;
+        std::fs::create_dir_all(&skill_dir)?;
+        std::fs::create_dir_all(&telemetry_dir)?;
+        std::fs::create_dir_all(&worm_dir)?;
+
+        let db_path = history_dir.join("command-history.db");
+        let conn = tokio_rusqlite::Connection::open(&db_path).await?;
+        conn.call(|conn| {
+            conn.pragma_update(None, "journal_mode", "WAL")?;
+            conn.pragma_update(None, "synchronous", "NORMAL")?;
+            conn.pragma_update(None, "foreign_keys", "ON")?;
+            conn.pragma_update(None, "wal_autocheckpoint", "1000")?;
+            conn.pragma_update(None, "busy_timeout", "5000")?;
+            Ok(())
+        })
+        .await?;
+
+        let store = Self {
+            conn,
+            skill_dir,
+            telemetry_dir,
+            worm_dir,
+        };
+        store.init_schema().await?;
+        Ok(store)
+    }
+
+    pub async fn record_managed_finish(&self, record: &ManagedHistoryRecord) -> Result<()> {
+        let timestamp = now_ts() as i64;
+        let excerpt = format!(
+            "exit={:?} duration_ms={:?} snapshot={} rationale={}",
+            record.exit_code,
+            record.duration_ms,
+            record.snapshot_path.as_deref().unwrap_or("none"),
+            record.rationale
+        );
+
+        let execution_id = record.execution_id.clone();
+        let command = record.command.clone();
+        let rationale = record.rationale.clone();
+        let snapshot_path = record.snapshot_path.clone();
+        let excerpt_clone = excerpt.clone();
+        let record = record.clone();
+        self.conn.call(move |conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO history_entries (id, kind, title, excerpt, content, path, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    execution_id,
+                    "managed-command",
+                    command,
+                    excerpt_clone,
+                    format!("{}\n{}", command, rationale),
+                    snapshot_path,
+                    timestamp,
+                ],
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO history_fts (id, title, excerpt, content) VALUES (?1, ?2, ?3, ?4)",
+                params![execution_id, command, excerpt_clone, rationale],
+            )?;
+            Ok(())
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        self.append_telemetry(
+            "operational",
+            json!({
+                "timestamp": timestamp,
+                "execution_id": record.execution_id,
+                "session_id": record.session_id,
+                "workspace_id": record.workspace_id,
+                "command": record.command,
+                "exit_code": record.exit_code,
+                "duration_ms": record.duration_ms,
+                "snapshot": record.snapshot_path,
+            }),
+        )
+        .await?;
+        self.append_telemetry(
+            "cognitive",
+            json!({
+                "timestamp": timestamp,
+                "execution_id": record.execution_id,
+                "source": record.source,
+                "rationale": record.rationale,
+            }),
+        )
+        .await?;
+
+        let mut system = System::new_all();
+        system.refresh_memory();
+        system.refresh_cpu();
+        self.append_telemetry(
+            "contextual",
+            json!({
+                "timestamp": timestamp,
+                "execution_id": record.execution_id,
+                "total_memory": system.total_memory(),
+                "used_memory": system.used_memory(),
+                "cpu_usage": system.global_cpu_info().cpu_usage(),
+            }),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<(String, Vec<HistorySearchHit>)> {
+        let query = query.to_string();
+        let query = query.to_string();
+        self.conn.call(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT history_entries.id, kind, title, excerpt, path, timestamp, bm25(history_fts) \
+                 FROM history_fts JOIN history_entries ON history_entries.id = history_fts.id \
+                 WHERE history_fts MATCH ?1 ORDER BY bm25(history_fts) LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![query, limit as i64], |row| {
+                Ok(HistorySearchHit {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    title: row.get(2)?,
+                    excerpt: row.get(3)?,
+                    path: row.get(4)?,
+                    timestamp: row.get::<_, i64>(5)? as u64,
+                    score: row.get(6)?,
+                })
+            })?;
+
+            let hits = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
+            let summary = if hits.is_empty() {
+                format!("No prior runs matched '{query}'.")
+            } else {
+                format!("Found {} historical matches for '{query}'.", hits.len())
+            };
+            Ok((summary, hits))
+        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn generate_skill(
+        &self,
+        query: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<(String, String)> {
+        let title = title.unwrap_or("Recovered Workflow").trim();
+        let (summary, hits) = self
+            .search(query.unwrap_or("*"), 8)
+            .await
+            .unwrap_or_else(|_| ("No history available.".to_string(), Vec::new()));
+        let safe_name = title
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_ascii_lowercase();
+        let path = self.skill_dir.join(format!(
+            "{}.md",
+            if safe_name.is_empty() {
+                "recovered-workflow"
+            } else {
+                &safe_name
+            }
+        ));
+        let mut body = format!(
+            "# {}\n\n## Summary\n{}\n\n## Retrieved Steps\n",
+            title, summary
+        );
+        for hit in &hits {
+            body.push_str(&format!("- {}\n", hit.title));
+            body.push_str(&format!("  {}\n", hit.excerpt));
+        }
+        if hits.is_empty() {
+            body.push_str("- No matching executions were available.\n");
+        }
+        std::fs::write(&path, body)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        self.register_skill_document(&path).await?;
+        Ok((title.to_string(), path.to_string_lossy().into_owned()))
+    }
+}

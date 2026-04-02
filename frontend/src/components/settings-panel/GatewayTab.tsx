@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
-import type { AmuxSettings } from "../../lib/types";
-import { PasswordInput, Section, SettingRow, type SettingsUpdater, TextInput, Toggle, smallBtnStyle } from "./shared";
+import { useEffect, useMemo, useState } from "react";
+import { getBridge } from "@/lib/bridge";
+import type { AgentSettings } from "../../lib/agentStore";
+import { PasswordInput, Section, SettingRow, TextAreaInput, TextInput, Toggle, smallBtnStyle } from "./shared";
+import { GatewayHealth } from "./GatewaySettings";
+import { getWhatsAppAllowlistState, type WhatsAppAllowlistState } from "./whatsappAllowlist";
 
 type WhatsAppStatus = "disconnected" | "connecting" | "qr_ready" | "connected" | "error";
 
-function WhatsAppConnector() {
+function normalizeWhatsAppStatus(raw: unknown): WhatsAppStatus {
+    if (raw === "starting" || raw === "connecting") return "connecting";
+    if (raw === "qr_ready" || raw === "connected" || raw === "error" || raw === "disconnected") {
+        return raw;
+    }
+    return "disconnected";
+}
+
+function WhatsAppConnector({ allowlistState }: { allowlistState: WhatsAppAllowlistState }) {
     const [status, setStatus] = useState<WhatsAppStatus>("disconnected");
     const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
     const [phoneInfo, setPhoneInfo] = useState<string | null>(null);
@@ -13,55 +24,73 @@ function WhatsAppConnector() {
     useEffect(() => {
         checkStatus();
 
-        const amux = (window as any).tamux ?? (window as any).amux;
-        const unsubQr = amux?.onWhatsAppQR?.((dataUrl: string) => {
-            setQrDataUrl(dataUrl);
-            setStatus("qr_ready");
-            setError(null);
+        const amux = getBridge();
+        const unsubWhatsAppQr = amux?.onWhatsAppQR?.((dataUrl: string | null) => {
+            if (dataUrl && dataUrl.trim()) {
+                setQrDataUrl(dataUrl);
+                setStatus("qr_ready");
+                setError(null);
+            }
         });
-        const unsubConnected = amux?.onWhatsAppConnected?.((info: { phone: string }) => {
-            setPhoneInfo(info.phone);
+        const unsubWhatsAppConnected = amux?.onWhatsAppConnected?.((info: { phone?: string | null }) => {
+            setPhoneInfo(info?.phone ?? null);
             setStatus("connected");
             setQrDataUrl(null);
             setError(null);
         });
-        const unsubDisconnected = amux?.onWhatsAppDisconnected?.(() => {
+        const unsubWhatsAppDisconnected = amux?.onWhatsAppDisconnected?.((payload: { reason?: string | null } | null | undefined) => {
             setStatus("disconnected");
             setQrDataUrl(null);
             setPhoneInfo(null);
+            if (typeof payload?.reason === "string" && payload.reason.trim()) {
+                setError(payload.reason);
+            } else {
+                setError(null);
+            }
         });
-        const unsubError = amux?.onWhatsAppError?.((message: string) => {
-            setError(message);
+        const unsubWhatsAppError = amux?.onWhatsAppError?.((message: string) => {
+            setError(typeof message === "string" ? message : "WhatsApp link error");
             setStatus("error");
         });
 
         return () => {
-            unsubQr?.();
-            unsubConnected?.();
-            unsubDisconnected?.();
-            unsubError?.();
+            unsubWhatsAppQr?.();
+            unsubWhatsAppConnected?.();
+            unsubWhatsAppDisconnected?.();
+            unsubWhatsAppError?.();
         };
     }, []);
 
     async function checkStatus() {
         try {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.whatsappStatus) return;
             const result = await amux.whatsappStatus();
-            setStatus(result.status);
+            const nextStatus = normalizeWhatsAppStatus(result.status);
+            setStatus(nextStatus);
             if (result.phone) setPhoneInfo(result.phone);
+            if (nextStatus !== "qr_ready") setQrDataUrl(null);
+            if (typeof result.lastError === "string" && result.lastError.trim()) {
+                setError(result.lastError);
+            }
         } catch {
             // IPC not available yet
         }
     }
 
     async function connect() {
+        if (!allowlistState.hasValidContacts) {
+            setError(allowlistState.errorText || "Set at least one allowed WhatsApp contact before linking.");
+            setStatus("error");
+            return;
+        }
+
         setStatus("connecting");
         setError(null);
         try {
-            const amux = (window as any).tamux ?? (window as any).amux;
+            const amux = getBridge();
             if (!amux?.whatsappConnect) {
-                setError("WhatsApp bridge not available. Install dependencies: npm install @whiskeysockets/baileys qrcode pino @hapi/boom");
+                setError("WhatsApp link bridge is not available.");
                 setStatus("error");
                 return;
             }
@@ -78,10 +107,11 @@ function WhatsAppConnector() {
 
     async function disconnect() {
         try {
-            await (window as any).amux?.whatsappDisconnect?.();
+            await getBridge()?.whatsappDisconnect?.();
             setStatus("disconnected");
             setQrDataUrl(null);
             setPhoneInfo(null);
+            setError(null);
         } catch (disconnectError: any) {
             setError(disconnectError.message || "Failed to disconnect");
         }
@@ -121,8 +151,12 @@ function WhatsAppConnector() {
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                     {(status === "disconnected" || status === "error") ? (
-                        <button onClick={connect} style={{
-                            ...smallBtnStyle, color: "var(--success)", borderColor: "rgba(166, 227, 161, 0.2)",
+                        <button onClick={connect} disabled={!allowlistState.hasValidContacts} style={{
+                            ...smallBtnStyle,
+                            color: allowlistState.hasValidContacts ? "var(--success)" : "var(--text-muted)",
+                            borderColor: allowlistState.hasValidContacts ? "rgba(166, 227, 161, 0.2)" : "var(--border)",
+                            opacity: allowlistState.hasValidContacts ? 1 : 0.6,
+                            cursor: allowlistState.hasValidContacts ? "pointer" : "not-allowed",
                         }}>Link Device</button>
                     ) : null}
                     {status === "connected" ? (
@@ -136,6 +170,38 @@ function WhatsAppConnector() {
                 </div>
             </div>
 
+            <div style={{
+                marginBottom: 10,
+                padding: "6px 10px",
+                borderRadius: 0,
+                background: allowlistState.hasValidContacts ? "rgba(255,255,255,0.03)" : "rgba(243, 139, 168, 0.08)",
+                border: allowlistState.hasValidContacts
+                    ? "1px solid rgba(255,255,255,0.06)"
+                    : "1px solid rgba(243, 139, 168, 0.2)",
+                fontSize: 11,
+                color: allowlistState.hasValidContacts ? "var(--text-muted)" : "var(--danger)",
+                lineHeight: 1.4,
+            }}>
+                {allowlistState.hasValidContacts
+                    ? `Only messages from allowed contacts will be forwarded after linking. ${allowlistState.helperText}`
+                    : `${allowlistState.errorText} ${allowlistState.helperText}`}
+            </div>
+
+            {allowlistState.warningText ? (
+                <div style={{
+                    marginBottom: 10,
+                    padding: "6px 10px",
+                    borderRadius: 0,
+                    background: "rgba(250, 179, 135, 0.08)",
+                    border: "1px solid rgba(250, 179, 135, 0.2)",
+                    fontSize: 11,
+                    color: "var(--warning)",
+                    lineHeight: 1.4,
+                }}>
+                    {allowlistState.warningText}
+                </div>
+            ) : null}
+
             {(status === "qr_ready" || status === "connecting") ? (
                 <div style={{
                     display: "flex", flexDirection: "column", alignItems: "center",
@@ -144,16 +210,20 @@ function WhatsAppConnector() {
                 }}>
                     {qrDataUrl ? (
                         <>
-                            <div style={{
-                                background: "#ffffff", padding: 12, borderRadius: 0,
-                                boxShadow: "none",
-                            }}>
-                                <img
-                                    src={qrDataUrl}
-                                    alt="WhatsApp QR Code"
-                                    style={{ width: 200, height: 200, imageRendering: "pixelated" }}
-                                />
-                            </div>
+                            <img
+                                src={qrDataUrl}
+                                alt="WhatsApp linking QR code"
+                                style={{
+                                    display: "block",
+                                    width: "100%",
+                                    maxWidth: 320,
+                                    height: "auto",
+                                    padding: 12,
+                                    background: "rgba(255,255,255,0.98)",
+                                    border: "1px solid rgba(255,255,255,0.08)",
+                                    imageRendering: "pixelated",
+                                }}
+                            />
                             <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)", textAlign: "center", lineHeight: 1.5 }}>
                                 Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
                             </div>
@@ -193,19 +263,28 @@ function WhatsAppConnector() {
 export function GatewayTab({
     settings, updateSetting,
 }: {
-    settings: AmuxSettings;
-    updateSetting: SettingsUpdater;
+    settings: AgentSettings;
+    updateSetting: <K extends keyof AgentSettings>(key: K, value: AgentSettings[K]) => void;
 }) {
+    const whatsappAllowlistState = useMemo(
+        () => getWhatsAppAllowlistState(settings.whatsapp_allowed_contacts),
+        [settings.whatsapp_allowed_contacts],
+    );
+
     return (
         <>
+            <Section title="Connection Status">
+                <GatewayHealth />
+            </Section>
+
             <Section title="Gateway">
                 <SettingRow label="Enable Gateway">
-                    <Toggle value={settings.gatewayEnabled}
-                        onChange={(value) => updateSetting("gatewayEnabled", value)} />
+                    <Toggle value={settings.gateway_enabled}
+                        onChange={(value) => updateSetting("gateway_enabled", value)} />
                 </SettingRow>
                 <SettingRow label="Command Prefix">
-                    <TextInput value={settings.gatewayCommandPrefix}
-                        onChange={(value) => updateSetting("gatewayCommandPrefix", value)}
+                    <TextInput value={settings.gateway_command_prefix}
+                        onChange={(value) => updateSetting("gateway_command_prefix", value)}
                         placeholder="!tamux" />
                 </SettingRow>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
@@ -217,55 +296,61 @@ export function GatewayTab({
 
             <Section title="Slack">
                 <SettingRow label="Bot Token">
-                    <PasswordInput value={settings.slackToken}
-                        onChange={(value) => updateSetting("slackToken", value)}
+                    <PasswordInput value={settings.slack_token}
+                        onChange={(value) => updateSetting("slack_token", value)}
                         placeholder="xoxb-..." />
                 </SettingRow>
                 <SettingRow label="Channel Filter">
-                    <TextInput value={settings.slackChannelFilter}
-                        onChange={(value) => updateSetting("slackChannelFilter", value)}
+                    <TextInput value={settings.slack_channel_filter}
+                        onChange={(value) => updateSetting("slack_channel_filter", value)}
                         placeholder="general, ops (comma-separated)" />
                 </SettingRow>
             </Section>
 
             <Section title="Telegram">
                 <SettingRow label="Bot Token">
-                    <PasswordInput value={settings.telegramToken}
-                        onChange={(value) => updateSetting("telegramToken", value)}
+                    <PasswordInput value={settings.telegram_token}
+                        onChange={(value) => updateSetting("telegram_token", value)}
                         placeholder="123456:ABC-DEF..." />
                 </SettingRow>
                 <SettingRow label="Allowed Chats">
-                    <TextInput value={settings.telegramAllowedChats}
-                        onChange={(value) => updateSetting("telegramAllowedChats", value)}
+                    <TextInput value={settings.telegram_allowed_chats}
+                        onChange={(value) => updateSetting("telegram_allowed_chats", value)}
                         placeholder="chat_id1, chat_id2 (comma-separated)" />
                 </SettingRow>
             </Section>
 
             <Section title="Discord">
                 <SettingRow label="Bot Token">
-                    <PasswordInput value={settings.discordToken}
-                        onChange={(value) => updateSetting("discordToken", value)}
+                    <PasswordInput value={settings.discord_token}
+                        onChange={(value) => updateSetting("discord_token", value)}
                         placeholder="Discord bot token" />
                 </SettingRow>
                 <SettingRow label="Channel Filter">
-                    <TextInput value={settings.discordChannelFilter}
-                        onChange={(value) => updateSetting("discordChannelFilter", value)}
+                    <TextInput value={settings.discord_channel_filter}
+                        onChange={(value) => updateSetting("discord_channel_filter", value)}
                         placeholder="channel_id1, channel_id2 (comma-separated)" />
                 </SettingRow>
                 <SettingRow label="Allowed Users">
-                    <TextInput value={settings.discordAllowedUsers}
-                        onChange={(value) => updateSetting("discordAllowedUsers", value)}
+                    <TextInput value={settings.discord_allowed_users}
+                        onChange={(value) => updateSetting("discord_allowed_users", value)}
                         placeholder="user_id1, user_id2 (comma-separated)" />
                 </SettingRow>
             </Section>
 
             <Section title="WhatsApp">
-                <WhatsAppConnector />
+                <WhatsAppConnector allowlistState={whatsappAllowlistState} />
                 <SettingRow label="Allowed Contacts">
-                    <TextInput value={settings.whatsappAllowedContacts}
-                        onChange={(value) => updateSetting("whatsappAllowedContacts", value)}
-                        placeholder="+1234567890, +0987654321 (comma-separated)" />
+                    <TextAreaInput value={settings.whatsapp_allowed_contacts}
+                        onChange={(value) => updateSetting("whatsapp_allowed_contacts", value)}
+                        placeholder={"+1234567890, +19876543210\n+447700900123"}
+                        rows={4} />
                 </SettingRow>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, marginBottom: 12, lineHeight: 1.5 }}>
+                    Enter allowed WhatsApp numbers separated by commas or new lines. {whatsappAllowlistState.hasValidContacts
+                        ? `${whatsappAllowlistState.contacts.length} valid contact${whatsappAllowlistState.contacts.length === 1 ? " is" : "s are"} ready for linking.`
+                        : "Linking stays disabled until at least one valid contact is configured."}
+                </div>
 
                 <div style={{
                     marginTop: 12, padding: "8px 10px", borderRadius: 0,
@@ -278,13 +363,13 @@ export function GatewayTab({
                         If you have a Meta Business account, you can use the Cloud API instead of QR linking.
                     </div>
                     <SettingRow label="API Token">
-                        <PasswordInput value={settings.whatsappToken}
-                            onChange={(value) => updateSetting("whatsappToken", value)}
+                        <PasswordInput value={settings.whatsapp_token}
+                            onChange={(value) => updateSetting("whatsapp_token", value)}
                             placeholder="WhatsApp Business API token" />
                     </SettingRow>
                     <SettingRow label="Phone Number ID">
-                        <TextInput value={settings.whatsappPhoneNumberId}
-                            onChange={(value) => updateSetting("whatsappPhoneNumberId", value)}
+                        <TextInput value={settings.whatsapp_phone_id}
+                            onChange={(value) => updateSetting("whatsapp_phone_id", value)}
                             placeholder="Phone number ID from Meta dashboard" />
                     </SettingRow>
                 </div>

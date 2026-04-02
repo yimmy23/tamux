@@ -1,37 +1,96 @@
-//! Gateway: direct platform connections for receiving messages.
+//! Gateway runtime state shared by daemon supervision and event handling.
 //!
-//! Runs inside the daemon. No separate process, no Electron dependency.
-//! - Telegram: long-poll getUpdates API
-//! - Slack: poll conversations.history API
-//! - Discord: poll channel messages REST API
-//!
-//! Incoming messages are routed to the agent engine for processing.
+//! `tamux-gateway` is the sole owner of Slack/Discord/Telegram transport I/O.
+//! The daemon keeps only continuity state, reply-routing metadata, and the
+//! normalized message types needed to process inbound IPC events.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
-use tokio::sync::RwLock;
+use amux_protocol::{
+    AGENT_HANDLE_CONCIERGE, AGENT_HANDLE_MAIN, AGENT_HANDLE_RAROG, AGENT_HANDLE_SVAROG,
+    AGENT_HANDLE_SWAROG_LEGACY, AGENT_ID_RAROG, AGENT_ID_SWAROG,
+};
 
+use super::gateway_health::PlatformHealthState;
 use super::types::GatewayConfig;
 
-/// State for tracking already-seen messages per platform.
+/// Thread context for reply routing — captures platform-specific message
+/// references needed to reply in the correct thread/conversation.
+#[derive(Debug, Clone, Default)]
+pub struct ThreadContext {
+    /// Slack: thread_ts of the parent message (for in-thread replies).
+    pub slack_thread_ts: Option<String>,
+    /// Discord: message ID to reference in reply.
+    pub discord_message_id: Option<String>,
+    /// Telegram: message_id to reply to.
+    pub telegram_message_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GatewayRouteMode {
+    #[default]
+    Rarog,
+    Swarog,
+}
+
+impl GatewayRouteMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rarog => AGENT_ID_RAROG,
+            Self::Swarog => AGENT_ID_SWAROG,
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            AGENT_HANDLE_SVAROG | AGENT_HANDLE_SWAROG_LEGACY | AGENT_HANDLE_MAIN => Self::Swarog,
+            AGENT_HANDLE_RAROG | AGENT_HANDLE_CONCIERGE => Self::Rarog,
+            _ => Self::Rarog,
+        }
+    }
+}
+
+/// State retained by the daemon for gateway continuity and reply routing.
 pub struct GatewayState {
     pub config: GatewayConfig,
-    pub telegram_offset: i64,
-    pub slack_last_ts: HashMap<String, String>,
-    pub discord_last_id: HashMap<String, String>,
-    pub http_client: reqwest::Client,
+    pub telegram_replay_cursor: Option<i64>,
+    pub slack_replay_cursors: HashMap<String, String>,
+    pub discord_replay_cursors: HashMap<String, String>,
+    pub whatsapp_replay_cursors: HashMap<String, String>,
+    pub replay_cycle_active: HashSet<String>,
+    pub slack_health: PlatformHealthState,
+    pub discord_health: PlatformHealthState,
+    pub telegram_health: PlatformHealthState,
+    /// Per-channel thread context for auto-injecting reply metadata.
+    /// Key: "Platform:channel_id", Value: most recent ThreadContext.
+    pub reply_contexts: HashMap<String, ThreadContext>,
+    /// Discord DM alias resolution for user-targeted sends.
+    /// Key: "user:<discord_user_id>", Value: canonical DM channel id.
+    pub discord_dm_channels_by_user: HashMap<String, String>,
+    /// Per-channel timestamp of last outgoing agent response (epoch millis).
+    /// Key: "Platform:channel_id". Populated by send tools after successful sends.
+    pub last_response_at: HashMap<String, u64>,
+    /// Per-channel timestamp of last incoming message (epoch millis).
+    /// Key: "Platform:channel_id". Populated by inbound IPC event handling.
+    pub last_incoming_at: HashMap<String, u64>,
 }
 
 impl GatewayState {
-    pub fn new(config: GatewayConfig, http_client: reqwest::Client) -> Self {
+    pub fn new(config: GatewayConfig, _http_client: reqwest::Client) -> Self {
         Self {
             config,
-            telegram_offset: 0,
-            slack_last_ts: HashMap::new(),
-            discord_last_id: HashMap::new(),
-            http_client,
+            telegram_replay_cursor: None,
+            slack_replay_cursors: HashMap::new(),
+            discord_replay_cursors: HashMap::new(),
+            whatsapp_replay_cursors: HashMap::new(),
+            replay_cycle_active: HashSet::new(),
+            slack_health: PlatformHealthState::new(),
+            discord_health: PlatformHealthState::new(),
+            telegram_health: PlatformHealthState::new(),
+            reply_contexts: HashMap::new(),
+            discord_dm_channels_by_user: HashMap::new(),
+            last_response_at: HashMap::new(),
+            last_incoming_at: HashMap::new(),
         }
     }
 }
@@ -43,277 +102,27 @@ pub struct IncomingMessage {
     pub sender: String,
     pub content: String,
     pub channel: String,
+    /// Platform-specific unique message ID for deduplication.
+    pub message_id: Option<String>,
+    /// Thread context for reply routing — captures the message reference
+    /// needed to reply in the correct thread/conversation on the platform.
+    pub thread_context: Option<ThreadContext>,
 }
 
-// ---------------------------------------------------------------------------
-// Telegram: long-poll getUpdates
-// ---------------------------------------------------------------------------
-
-pub async fn poll_telegram(state: &mut GatewayState) -> Vec<IncomingMessage> {
-    let token = &state.config.telegram_token;
-    if token.is_empty() {
-        return vec![];
-    }
-
-    let url = format!(
-        "https://api.telegram.org/bot{token}/getUpdates?offset={}&timeout=1&limit=10",
-        state.telegram_offset
-    );
-
-    let resp = match state.http_client.get(&url).timeout(std::time::Duration::from_secs(5)).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::debug!("telegram poll error: {e}");
-            return vec![];
-        }
-    };
-
-    let body: serde_json::Value = match resp.json().await {
-        Ok(v) => v,
-        Err(_) => return vec![],
-    };
-
-    let mut messages = Vec::new();
-    let is_first_poll = state.telegram_offset == 0;
-
-    if let Some(results) = body.get("result").and_then(|v| v.as_array()) {
-        for update in results {
-            let update_id = update.get("update_id").and_then(|v| v.as_i64()).unwrap_or(0);
-            if update_id >= state.telegram_offset {
-                state.telegram_offset = update_id + 1;
-            }
-
-            // Skip historical messages on first poll
-            if is_first_poll {
-                continue;
-            }
-
-            let msg = update.get("message").or_else(|| update.get("channel_post"));
-            if let Some(msg) = msg {
-                let text = msg.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                if text.is_empty() {
-                    continue;
-                }
-
-                let from = msg.get("from");
-                let sender = from
-                    .and_then(|f| f.get("username").and_then(|v| v.as_str()))
-                    .or_else(|| from.and_then(|f| f.get("first_name").and_then(|v| v.as_str())))
-                    .unwrap_or("unknown")
-                    .to_string();
-
-                let chat_id = msg
-                    .get("chat")
-                    .and_then(|c| c.get("id"))
-                    .and_then(|v| v.as_i64())
-                    .map(|id| id.to_string())
-                    .unwrap_or_default();
-
-                messages.push(IncomingMessage {
-                    platform: "Telegram".into(),
-                    sender,
-                    content: text.into(),
-                    channel: chat_id,
-                });
-            }
-        }
-    }
-
-    messages
+#[derive(Debug, Clone)]
+pub enum ReplayFetchResult {
+    Replay(Vec<ReplayEnvelope>),
+    InitializeBoundary {
+        channel_id: String,
+        cursor_value: String,
+        cursor_type: &'static str,
+    },
 }
 
-// ---------------------------------------------------------------------------
-// Slack: poll conversations.history
-// ---------------------------------------------------------------------------
-
-pub async fn poll_slack(state: &mut GatewayState, channels: &[String]) -> Vec<IncomingMessage> {
-    let token = &state.config.slack_token;
-    if token.is_empty() {
-        return vec![];
-    }
-
-    let mut messages = Vec::new();
-
-    for channel in channels {
-        let oldest = state
-            .slack_last_ts
-            .get(channel)
-            .cloned()
-            .unwrap_or_default();
-
-        let mut url = format!(
-            "https://slack.com/api/conversations.history?channel={channel}&limit=5"
-        );
-        if !oldest.is_empty() {
-            url.push_str(&format!("&oldest={oldest}"));
-        }
-
-        let resp = match state
-            .http_client
-            .get(&url)
-            .bearer_auth(token)
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::debug!("slack poll error for {channel}: {e}");
-                continue;
-            }
-        };
-
-        let body: serde_json::Value = match resp.json().await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        if body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-            continue;
-        }
-
-        if let Some(msgs) = body.get("messages").and_then(|v| v.as_array()) {
-            for msg in msgs {
-                let ts = msg.get("ts").and_then(|v| v.as_str()).unwrap_or("");
-                let text = msg.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                let user = msg
-                    .get("user")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-                let subtype = msg.get("subtype").and_then(|v| v.as_str());
-
-                // Skip bot messages and empty
-                if text.is_empty() || subtype == Some("bot_message") {
-                    continue;
-                }
-
-                // Skip if we've already seen this timestamp
-                if !oldest.is_empty() && ts <= oldest.as_str() {
-                    continue;
-                }
-
-                if !ts.is_empty() {
-                    state
-                        .slack_last_ts
-                        .entry(channel.clone())
-                        .and_modify(|v| {
-                            if ts > v.as_str() {
-                                *v = ts.to_string();
-                            }
-                        })
-                        .or_insert_with(|| ts.to_string());
-                }
-
-                messages.push(IncomingMessage {
-                    platform: "Slack".into(),
-                    sender: user.into(),
-                    content: text.into(),
-                    channel: channel.clone(),
-                });
-            }
-        }
-    }
-
-    messages
-}
-
-// ---------------------------------------------------------------------------
-// Discord: poll channel messages REST API
-// ---------------------------------------------------------------------------
-
-pub async fn poll_discord(state: &mut GatewayState, channel_ids: &[String]) -> Vec<IncomingMessage> {
-    let token = &state.config.discord_token;
-    if token.is_empty() {
-        return vec![];
-    }
-
-    let mut messages = Vec::new();
-
-    for channel_id in channel_ids {
-        let had_last_id = state.discord_last_id.contains_key(channel_id);
-
-        let mut url = format!(
-            "https://discord.com/api/v10/channels/{channel_id}/messages?limit=5"
-        );
-
-        if let Some(after) = state.discord_last_id.get(channel_id) {
-            url.push_str(&format!("&after={after}"));
-        }
-
-        let resp = match state
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bot {token}"))
-            .timeout(std::time::Duration::from_secs(5))
-            .send()
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::debug!("discord poll error for {channel_id}: {e}");
-                continue;
-            }
-        };
-
-        if !resp.status().is_success() {
-            continue;
-        }
-
-        let body: serde_json::Value = match resp.json().await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        let msgs = match body.as_array() {
-            Some(a) => a,
-            None => continue,
-        };
-
-        // Track the newest message ID (for ALL messages including bot) so we
-        // never re-fetch. Discord returns newest first.
-        let newest_id = msgs.first()
-            .and_then(|m| m.get("id").and_then(|v| v.as_str()))
-            .unwrap_or("");
-        if !newest_id.is_empty() {
-            state.discord_last_id.insert(channel_id.clone(), newest_id.to_string());
-        }
-
-        // On first poll (no prior last_id), skip historical messages —
-        // only process messages from subsequent polls
-        if !had_last_id {
-            tracing::info!(
-                channel = %channel_id,
-                skipped = msgs.len(),
-                newest_id = %newest_id,
-                "discord: initialized, skipping historical messages"
-            );
-            continue;
-        }
-
-        // Process messages oldest first (reverse since Discord returns newest first)
-        for msg in msgs.iter().rev() {
-            let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            let author = msg.get("author");
-            let is_bot = author
-                .and_then(|a| a.get("bot").and_then(|v| v.as_bool()))
-                .unwrap_or(false);
-            let username = author
-                .and_then(|a| a.get("username").and_then(|v| v.as_str()))
-                .unwrap_or("unknown");
-
-            // Skip bot messages (our own replies) and empty
-            if content.is_empty() || is_bot {
-                continue;
-            }
-
-            messages.push(IncomingMessage {
-                platform: "Discord".into(),
-                sender: username.into(),
-                content: content.into(),
-                channel: channel_id.clone(),
-            });
-        }
-    }
-
-    messages
+#[derive(Debug, Clone)]
+pub struct ReplayEnvelope {
+    pub message: IncomingMessage,
+    pub channel_id: String,
+    pub cursor_value: String,
+    pub cursor_type: &'static str,
 }

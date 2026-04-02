@@ -1,0 +1,139 @@
+use super::*;
+// -- helpers --
+
+fn sample_goal_run() -> GoalRun {
+    GoalRun {
+        id: "goal_1".into(),
+        title: "Test goal".into(),
+        goal: "Do stuff".into(),
+        client_request_id: None,
+        status: GoalRunStatus::Running,
+        priority: TaskPriority::Normal,
+        created_at: 100,
+        updated_at: 200,
+        started_at: Some(110),
+        completed_at: None,
+        thread_id: Some("thread_1".into()),
+        session_id: None,
+        current_step_index: 2,
+        current_step_title: Some("Step 3".into()),
+        current_step_kind: None,
+        replan_count: 0,
+        max_replans: 2,
+        plan_summary: Some("Plan summary".into()),
+        reflection_summary: None,
+        memory_updates: vec!["learned X".into(), "noted Y".into()],
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        child_task_ids: vec!["task_1".into()],
+        child_task_count: 1,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        active_task_id: Some("task_1".into()),
+        duration_ms: None,
+        steps: vec![],
+        events: vec![],
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: Default::default(),
+        authorship_tag: None,
+    }
+}
+
+fn sample_task(id: &str) -> AgentTask {
+    AgentTask {
+        id: id.into(),
+        title: format!("Task {}", id),
+        description: "A test task".into(),
+        status: TaskStatus::InProgress,
+        priority: TaskPriority::Normal,
+        progress: 50,
+        created_at: 100,
+        started_at: Some(110),
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some("thread_1".into()),
+        source: "user".into(),
+        notify_on_complete: false,
+        notify_channels: vec![],
+        dependencies: vec![],
+        command: None,
+        session_id: None,
+        goal_run_id: Some("goal_1".into()),
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".into(),
+        retry_count: 0,
+        max_retries: 3,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        lane_id: None,
+        last_error: None,
+        logs: vec![],
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    }
+}
+
+fn sample_work_context() -> ThreadWorkContext {
+    ThreadWorkContext {
+        thread_id: "thread_1".into(),
+        entries: vec![WorkContextEntry {
+            path: "/tmp/test.rs".into(),
+            previous_path: None,
+            kind: WorkContextEntryKind::Artifact,
+            source: "agent".into(),
+            change_kind: Some("created".into()),
+            repo_root: None,
+            goal_run_id: Some("goal_1".into()),
+            step_index: Some(1),
+            session_id: None,
+            is_text: true,
+            updated_at: 200,
+        }],
+    }
+}
+
+fn sample_todos() -> Vec<TodoItem> {
+    vec![
+        TodoItem {
+            id: "todo_1".into(),
+            content: "Fix the bug".into(),
+            status: TodoStatus::Pending,
+            position: 0,
+            step_index: Some(1),
+            created_at: 100,
+            updated_at: 100,
+        },
+        TodoItem {
+            id: "todo_2".into(),
+            content: "Write tests".into(),
+            status: TodoStatus::InProgress,
+            position: 1,
+            step_index: Some(2),
+            created_at: 110,
+            updated_at: 120,
+        },
+    ]
+}
+
+mod part_a;
+mod part_b;

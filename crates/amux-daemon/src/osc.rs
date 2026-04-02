@@ -9,11 +9,9 @@ pub fn parse_osc_notifications(data: &[u8]) -> (Vec<OscNotificationPayload>, Vec
 
     while i < data.len() {
         // OSC starts with ESC ] (0x1b 0x5d) or 0x9d (C1 control)
-        if (i + 1 < data.len() && data[i] == 0x1b && data[i + 1] == 0x5d)
-            || data[i] == 0x9d
-        {
+        if (i + 1 < data.len() && data[i] == 0x1b && data[i + 1] == 0x5d) || data[i] == 0x9d {
             let osc_start = if data[i] == 0x9d { i + 1 } else { i + 2 };
-            
+
             // Find the end: ST = ESC \ (0x1b 0x5c) or BEL (0x07)
             let mut end = osc_start;
             let mut st_len = 0;

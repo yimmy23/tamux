@@ -1,23 +1,25 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, useEffect, useMemo } from "react";
+import { getBridge } from "@/lib/bridge";
 import { LayoutContainer } from "./components/LayoutContainer";
 import { SurfaceTabBar } from "./components/SurfaceTabBar";
 import { StatusBar } from "./components/StatusBar";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { AgentApprovalOverlay } from "./components/AgentApprovalOverlay";
+// ConciergeToast is rendered inline below — no separate import needed.
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
+import { OperatorProfileOnboardingPanel } from "./components/OperatorProfileOnboardingPanel";
 import { useAgentMissionStore } from "./lib/agentMissionStore";
-import { clearThreadAbortController, setThreadAbortController, useAgentStore } from "./lib/agentStore";
+import { useAgentStore } from "./lib/agentStore";
 import { applyAppShellTheme, getAppShellTheme } from "./lib/themes";
 import { useSettingsStore } from "./lib/settingsStore";
 import { useWorkspaceStore } from "./lib/workspaceStore";
 import { useHotkeys } from "./hooks/useHotkeys";
 import { saveSession, startAutoSave } from "./lib/sessionPersistence";
-import { sendChatCompletion, messagesToApiFormat } from "./lib/agentClient";
-import { executeTool, getAvailableTools, getToolCapabilityDescription } from "./lib/agentTools";
-import { readPersistedJson, scheduleJsonWrite } from "./lib/persistence";
-
-const GATEWAY_THREAD_MAP_FILE = "gateway-thread-map.json";
+import { ConciergeToast } from "./components/ConciergeToast";
+import { useNotificationStore } from "./lib/notificationStore";
+import { useAuditStore } from "./lib/auditStore";
+import { useTierStore, type CapabilityTier } from "./lib/tierStore";
 
 const CommandPalette = lazy(() => import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette })));
 const NotificationPanel = lazy(() => import("./components/NotificationPanel").then((module) => ({ default: module.NotificationPanel })));
@@ -32,6 +34,7 @@ const SystemMonitorPanel = lazy(() => import("./components/SystemMonitorPanel").
 const FileManagerPanel = lazy(() => import("./components/FileManagerPanel").then((module) => ({ default: module.FileManagerPanel })));
 const TimeTravelSlider = lazy(() => import("./components/TimeTravelSlider").then((module) => ({ default: module.TimeTravelSlider })));
 const ExecutionCanvas = lazy(() => import("./components/ExecutionCanvas").then((module) => ({ default: module.ExecutionCanvas })));
+const AuditPanel = lazy(() => import("./components/audit-panel/AuditPanel").then((module) => ({ default: module.AuditPanel })));
 
 export default function App() {
   const createWorkspace = useWorkspaceStore((s) => s.createWorkspace);
@@ -67,7 +70,8 @@ export default function App() {
   const settings = useSettingsStore((s) => s.settings);
   const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace());
   const activeSurface = useWorkspaceStore((s) => s.activeSurface());
-  const activeProvider = useAgentStore((s) => s.agentSettings.activeProvider);
+  const agentSettings = useAgentStore((s) => s.agentSettings);
+  const active_provider = agentSettings.active_provider;
   const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
   const operationalEvents = useAgentMissionStore((s) => s.operationalEvents);
   const approvals = useAgentMissionStore((s) => s.approvals);
@@ -76,13 +80,7 @@ export default function App() {
   const symbolHits = useAgentMissionStore((s) => s.symbolHits);
   const toggleAgentPanel = useWorkspaceStore((s) => s.toggleAgentPanel);
   const toggleSessionVault = useWorkspaceStore((s) => s.toggleSessionVault);
-  const gatewayThreadMapRef = useRef<Record<string, string>>({});
-  const gatewayInFlightRef = useRef<Set<string>>(new Set());
-
-  const persistGatewayThreadMap = useCallback(() => {
-    scheduleJsonWrite(GATEWAY_THREAD_MAP_FILE, gatewayThreadMapRef.current, 100);
-  }, []);
-
+  const auditPanelOpen = useAuditStore((s) => s.isOpen);
   const traceCount = cognitiveEvents.length;
   const opsCount = operationalEvents.length;
   const snapshotCount = snapshots.length;
@@ -103,12 +101,152 @@ export default function App() {
 
   useEffect(() => startAutoSave(30_000), []);
 
+  // Concierge: listen for welcome events and request one on mount.
+  // This runs in App (always mounted) because runtime.tsx (chat panel)
+  // may not be open when the app loads.
   useEffect(() => {
-    void readPersistedJson<Record<string, string>>(GATEWAY_THREAD_MAP_FILE).then((persisted) => {
-      if (persisted && typeof persisted === "object") {
-        gatewayThreadMapRef.current = persisted;
+    const amux = getBridge();
+    void useNotificationStore.getState().loadSharedNotifications();
+    if (!amux?.onAgentEvent) {
+      console.warn("[concierge] no onAgentEvent bridge available");
+      return;
+    }
+
+    console.log("[concierge] setting up agent event listener in App.tsx");
+    const applyConciergeWelcome = (event: any) => {
+      if (event?.type !== "concierge_welcome") return;
+      useAgentStore.setState({
+        conciergeWelcome: {
+          content: event.content ?? "",
+          actions: event.actions ?? [],
+        },
+      });
+    };
+
+    // Listen for the concierge_welcome event from the daemon.
+    const unsubscribe = amux.onAgentEvent((event: any) => {
+      console.log("[concierge] agent event received:", event?.type, event);
+      if (event?.type === "concierge_welcome") {
+        console.log("[concierge] ConciergeWelcome event! content length:", event.content?.length, "actions:", event.actions?.length);
+        applyConciergeWelcome(event);
+        void useAgentStore.getState().maybeStartOperatorProfileOnboarding();
+      }
+      if (event?.type === "operator-profile-session-started") {
+        useAgentStore.getState().applyOperatorProfileSessionStarted(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-question") {
+        useAgentStore.getState().applyOperatorProfileQuestion(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-progress") {
+        useAgentStore.getState().applyOperatorProfileProgress(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-session-completed") {
+        useAgentStore.getState().applyOperatorProfileSessionCompleted(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-summary") {
+        useAgentStore.getState().getOperatorProfileSummary().catch(() => {});
+      }
+      if (event?.type === "heartbeat_digest" && event.actionable === true) {
+        const items = Array.isArray(event.items) ? event.items : [];
+        if (items.length > 0) {
+          const body = items
+            .sort((a: any, b: any) => (a.priority ?? 99) - (b.priority ?? 99))
+            .map(
+              (item: any, i: number) =>
+                `[${i + 1}] ${item.title ?? "Unknown"}${item.suggestion ? " \u2014 " + item.suggestion : ""}`,
+            )
+            .join("\n");
+          // Per D-01: render explanation inline beneath the heartbeat action
+          const explanation = typeof event.explanation === "string" ? event.explanation : "";
+          useNotificationStore.getState().addNotification({
+            title: event.digest || "Heartbeat: items need attention",
+            body: explanation ? body + "\n" + explanation : body,
+            source: "heartbeat",
+          });
+        }
+      }
+      if (event?.type === "notification_inbox_upsert" && event.notification) {
+        useNotificationStore.getState().upsertSharedNotification(event.notification);
+      }
+      // Gateway status events (Phase 8 - Gateway Completion)
+      if (event?.type === "gateway_status") {
+        useAgentStore.getState().setGatewayStatus(
+          event.platform ?? "",
+          event.status ?? "disconnected",
+          event.last_error ?? undefined,
+          event.consecutive_failures ?? undefined,
+        );
+      }
+      // Audit event handlers (Phase 3 - Transparent Autonomy)
+      if (event?.type === "audit_action") {
+        useAuditStore.getState().addEntry({
+          id: event.id ?? "",
+          timestamp: event.timestamp ?? Date.now(),
+          actionType: event.action_type ?? "heartbeat",
+          summary: event.summary ?? "",
+          explanation: event.explanation ?? null,
+          confidence: event.confidence ?? null,
+          confidenceBand: event.confidence_band ?? null,
+          causalTraceId: event.causal_trace_id ?? null,
+          threadId: event.thread_id ?? null,
+        });
+      }
+      if (event?.type === "escalation_update") {
+        useAuditStore.getState().setEscalation({
+          threadId: event.thread_id ?? "",
+          fromLevel: event.from_level ?? "L0",
+          toLevel: event.to_level ?? "L1",
+          reason: event.reason ?? "",
+          attempts: event.attempts ?? 0,
+          auditId: event.audit_id ?? null,
+        });
+      }
+      // Tier changed events (Phase 10 - Progressive UX)
+      if (event?.type === "tier_changed" || event?.type === "tier-changed") {
+        const data = event.data ?? event;
+        const newTier = (data.new_tier ?? data.newTier) as string | undefined;
+        const validTiers: CapabilityTier[] = ["newcomer", "familiar", "power_user", "expert"];
+        if (newTier && validTiers.includes(newTier as CapabilityTier)) {
+          useTierStore.getState().setTier(newTier as CapabilityTier);
+        }
       }
     });
+
+    void useAgentStore.getState().refreshConciergeConfig?.();
+
+    const requestWelcome = async () => {
+      const profileState = useAgentStore.getState().operatorProfile;
+      if (profileState.sessionId || profileState.question || profileState.panelOpen) {
+        return;
+      }
+      if (!amux.agentRequestConciergeWelcome) {
+        console.warn("[concierge] agentRequestConciergeWelcome not available on bridge");
+        return;
+      }
+      console.log("[concierge] sending agentRequestConciergeWelcome");
+      await amux.agentRequestConciergeWelcome().catch((e: any) => {
+        console.error("[concierge] request failed:", e);
+      });
+    };
+
+    const timer = setTimeout(requestWelcome, 250);
+
+    return () => {
+      clearTimeout(timer);
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, []);
+
+  // Ctrl+Shift+A toggles the Audit Feed panel
+  useEffect(() => {
+    const handleAuditShortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === "A") {
+        e.preventDefault();
+        useAuditStore.getState().togglePanel();
+      }
+    };
+    window.addEventListener("keydown", handleAuditShortcut);
+    return () => window.removeEventListener("keydown", handleAuditShortcut);
   }, []);
 
   useEffect(() => {
@@ -131,7 +269,7 @@ export default function App() {
       )
     );
 
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     void amux?.setWindowOpacity?.(settings.opacity);
   }, [
     settings.themeName,
@@ -144,7 +282,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
+    const amux = getBridge();
     if (!amux?.onAppCommand) return;
 
     return amux.onAppCommand((command: string) => {
@@ -235,506 +373,6 @@ export default function App() {
     toggleZoom,
   ]);
 
-  const handleInboundGatewayMessage = useCallback(async (params: {
-    provider: "discord" | "whatsapp" | "slack" | "telegram";
-    channelId: string;
-    userId: string;
-    username: string;
-    text: string;
-    replyTarget: string;
-  }) => {
-    const amux = (window as any).tamux ?? (window as any).amux;
-    const settingsState = useSettingsStore.getState().settings;
-    const agentState = useAgentStore.getState();
-
-    if (!settingsState.gatewayEnabled) return;
-
-    const provider = params.provider;
-    const channelId = params.channelId.trim();
-    const userId = params.userId.trim();
-    const username = params.username.trim() || `${provider}-user`;
-    const rawContent = params.text;
-
-    if (!channelId) return;
-
-    if (provider === "discord") {
-      if (!settingsState.discordToken) return;
-
-      const allowedChannels = settingsState.discordChannelFilter
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => (entry.match(/\d{17,20}/)?.[0] ?? entry));
-
-      if (allowedChannels.length > 0 && !allowedChannels.includes(channelId)) {
-        return;
-      }
-
-      const allowedUsers = settingsState.discordAllowedUsers
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => (entry.match(/\d{17,20}/)?.[0] ?? entry));
-
-      if (allowedUsers.length > 0 && userId && !allowedUsers.includes(userId)) {
-        return;
-      }
-    }
-
-    if (provider === "slack") {
-      if (!settingsState.slackToken) return;
-
-      const allowedChannels = settingsState.slackChannelFilter
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => entry.toLowerCase());
-
-      if (allowedChannels.length > 0) {
-        const normalizedChannelId = channelId.toLowerCase();
-        const normalizedReplyTarget = params.replyTarget.toLowerCase();
-        const allowed = allowedChannels.some((entry) => (
-          entry === normalizedChannelId || entry === normalizedReplyTarget
-        ));
-        if (!allowed) return;
-      }
-    }
-
-    if (provider === "telegram") {
-      if (!settingsState.telegramToken) return;
-
-      const allowedChats = settingsState.telegramAllowedChats
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-      if (allowedChats.length > 0 && !allowedChats.includes(channelId)) {
-        return;
-      }
-    }
-
-    if (provider === "whatsapp") {
-      const allowedContacts = settingsState.whatsappAllowedContacts
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-      if (allowedContacts.length > 0) {
-        const normalizedTarget = params.replyTarget.replace(/\s+/g, "").toLowerCase();
-        const allowed = allowedContacts.some((entry) => {
-          const normalizedEntry = entry.replace(/\s+/g, "").toLowerCase();
-          return normalizedTarget.includes(normalizedEntry);
-        });
-        if (!allowed) return;
-      }
-    }
-
-    const cleaned = rawContent
-      .replace(/<@!?\d{17,20}>/g, "")
-      .replace(/^\s*amux[:,]?\s*/i, "")
-      .trim();
-
-    if (!cleaned) return;
-    const routeKey = `${provider}:${channelId}`;
-    if (gatewayInFlightRef.current.has(routeKey)) return;
-
-    gatewayInFlightRef.current.add(routeKey);
-    try {
-      const threadPrefix = `${provider}:${channelId}:`;
-      const activeThreadId = useAgentStore.getState().activeThreadId;
-      let threadId = activeThreadId ?? gatewayThreadMapRef.current[routeKey];
-      let threadExists = threadId
-        ? agentState.threads.some((thread) => thread.id === threadId)
-        : false;
-
-      if (activeThreadId && threadExists) {
-        gatewayThreadMapRef.current[routeKey] = activeThreadId;
-        persistGatewayThreadMap();
-      }
-
-      if (!threadId || !threadExists) {
-        const existingThread = agentState.threads.find((thread) => thread.title.startsWith(threadPrefix));
-        if (existingThread) {
-          threadId = existingThread.id;
-          gatewayThreadMapRef.current[routeKey] = threadId;
-          threadExists = true;
-          persistGatewayThreadMap();
-        }
-      }
-
-      if (!threadId || !threadExists) {
-        threadId = agentState.createThread({
-          workspaceId: useWorkspaceStore.getState().activeWorkspaceId,
-          title: `${threadPrefix}${username || "user"}`,
-        });
-        gatewayThreadMapRef.current[routeKey] = threadId;
-        persistGatewayThreadMap();
-      }
-
-      agentState.addMessage(threadId, {
-        role: "user",
-        content: cleaned,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        isCompactionSummary: false,
-      });
-
-      const activeProvider = agentState.agentSettings.activeProvider;
-      const providerConfig = agentState.agentSettings[activeProvider] as { baseUrl: string; model: string; apiKey: string };
-      const tools = getAvailableTools({
-        enableBashTool: agentState.agentSettings.enableBashTool,
-        gatewayEnabled: settingsState.gatewayEnabled,
-        enableVisionTool: agentState.agentSettings.enableVisionTool,
-        enableWebBrowsingTool: agentState.agentSettings.enableWebBrowsingTool,
-      });
-      const toolCapabilities = getToolCapabilityDescription(tools);
-      const hiddenGatewayContext = [
-        "[Hidden Gateway Context]",
-        `provider=${provider}`,
-        `channel=${channelId}`,
-        `user=${username}${userId ? ` (${userId})` : ""}`,
-        "You are tamux's terminal agent running inside the user's tamux terminal environment.",
-        "You can use tamux tools and terminal capabilities to help the user.",
-        "Respond as the same assistant and keep continuity for this provider thread.",
-      ].join("\n");
-
-      const systemPrompt = `${agentState.agentSettings.systemPrompt}${toolCapabilities}\n\n${hiddenGatewayContext}`;
-
-      agentState.addMessage(threadId, {
-        role: "assistant",
-        content: "",
-        provider: activeProvider,
-        model: providerConfig.model,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        isCompactionSummary: false,
-        isStreaming: true,
-      });
-
-      const maxToolLoops = Math.max(1, Math.min(100, Number(agentState.agentSettings.maxToolLoops ?? 25)));
-      let loopCount = 0;
-      let finalReply = "";
-      let apiMessages = messagesToApiFormat(useAgentStore.getState().getThreadMessages(threadId).slice(0, -1));
-      const controller = new AbortController();
-      setThreadAbortController(threadId, controller);
-      let lastPersistedReasoning: string | null = null;
-
-      const persistReasoningTrace = (reasoning: string) => {
-        const normalized = reasoning.trim();
-        if (!normalized) return;
-        if (normalized === lastPersistedReasoning) return;
-
-        const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
-        useAgentMissionStore.getState().recordCognitiveOutput({
-          paneId: thread?.paneId ?? `gateway:${provider}:${channelId}`,
-          workspaceId: thread?.workspaceId ?? null,
-          surfaceId: thread?.surfaceId ?? null,
-          sessionId: null,
-          text: `<INNER_MONOLOGUE>\n${normalized}\n</INNER_MONOLOGUE>`,
-        });
-        lastPersistedReasoning = normalized;
-      };
-
-      try {
-        while (loopCount < maxToolLoops) {
-          loopCount += 1;
-          let accumulated = "";
-          let accumulatedReasoning = "";
-          const responseStartedAt = Date.now();
-          let receivedToolCalls = false;
-          let roundToolCalls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> = [];
-
-          for await (const chunk of sendChatCompletion({
-            provider: activeProvider,
-            config: providerConfig,
-            systemPrompt,
-            messages: apiMessages,
-            streaming: true,
-            signal: controller.signal,
-            tools: tools.length > 0 ? tools : undefined,
-          })) {
-            if (chunk.type === "delta") {
-              accumulated += chunk.content;
-              if (chunk.reasoning) {
-                accumulatedReasoning += chunk.reasoning;
-              }
-              agentState.updateLastAssistantMessage(threadId, accumulated, true, {
-                reasoning: accumulatedReasoning || undefined,
-              });
-            } else if (chunk.type === "done") {
-              if (chunk.content && chunk.content !== accumulated) {
-                accumulated = chunk.content;
-              }
-              if (chunk.reasoning) {
-                accumulatedReasoning = chunk.reasoning;
-              }
-
-              persistReasoningTrace(accumulatedReasoning);
-
-              const elapsedSeconds = Math.max(0.001, (Date.now() - responseStartedAt) / 1000);
-              const outputTokens = Number(chunk.outputTokens ?? 0);
-              const inputTokens = Number(chunk.inputTokens ?? 0);
-              const totalTokens = Number(chunk.totalTokens ?? (inputTokens + outputTokens));
-              const tps = outputTokens > 0 ? outputTokens / elapsedSeconds : undefined;
-
-              agentState.updateLastAssistantMessage(threadId, accumulated || "(empty response)", false, {
-                inputTokens,
-                outputTokens,
-                totalTokens,
-                reasoning: accumulatedReasoning || undefined,
-                reasoningTokens: chunk.reasoningTokens,
-                audioTokens: chunk.audioTokens,
-                videoTokens: chunk.videoTokens,
-                cost: chunk.cost,
-                tps,
-              });
-            } else if (chunk.type === "error") {
-              accumulated = `Error: ${chunk.content}`;
-              agentState.updateLastAssistantMessage(threadId, accumulated, false);
-            } else if (chunk.type === "tool_calls" && chunk.toolCalls) {
-              receivedToolCalls = true;
-              roundToolCalls = chunk.toolCalls;
-
-              if (chunk.reasoning) {
-                accumulatedReasoning = chunk.reasoning;
-              }
-
-              if (chunk.content) {
-                accumulated = chunk.content;
-              }
-
-              persistReasoningTrace(accumulatedReasoning);
-              agentState.updateLastAssistantMessage(threadId, accumulated || "Calling tools...", false, {
-                reasoning: accumulatedReasoning || undefined,
-                inputTokens: Number(chunk.inputTokens ?? 0),
-                outputTokens: Number(chunk.outputTokens ?? 0),
-                totalTokens: Number(chunk.totalTokens ?? ((chunk.inputTokens ?? 0) + (chunk.outputTokens ?? 0))),
-                reasoningTokens: chunk.reasoningTokens,
-                audioTokens: chunk.audioTokens,
-                videoTokens: chunk.videoTokens,
-                cost: chunk.cost,
-              });
-
-              const toolResults = [];
-              for (const tc of chunk.toolCalls) {
-                agentState.addMessage(threadId, {
-                  role: "tool",
-                  content: "",
-                  toolName: tc.function.name,
-                  toolCallId: tc.id,
-                  toolArguments: tc.function.arguments,
-                  toolStatus: "requested",
-                  inputTokens: 0,
-                  outputTokens: 0,
-                  totalTokens: 0,
-                  isCompactionSummary: false,
-                });
-
-                const result = await executeTool(tc);
-                toolResults.push(result);
-                agentState.addMessage(threadId, {
-                  role: "tool",
-                  content: result.content,
-                  toolName: result.name,
-                  toolCallId: result.toolCallId,
-                  toolArguments: tc.function.arguments,
-                  toolStatus: result.content.startsWith("Error:") ? "error" : "done",
-                  inputTokens: 0,
-                  outputTokens: 0,
-                  totalTokens: 0,
-                  isCompactionSummary: false,
-                });
-              }
-
-              agentState.updateLastAssistantMessage(threadId, accumulated || "Tools executed.", false);
-
-              apiMessages = [
-                ...apiMessages,
-                {
-                  role: "assistant",
-                  content: accumulated || "",
-                  tool_calls: roundToolCalls,
-                },
-                ...toolResults.map((result) => ({
-                  role: "tool" as const,
-                  content: result.content,
-                  tool_call_id: result.toolCallId,
-                  name: result.name,
-                })),
-              ];
-
-              agentState.addMessage(threadId, {
-                role: "assistant",
-                content: "",
-                provider: activeProvider,
-                model: providerConfig.model,
-                inputTokens: 0,
-                outputTokens: 0,
-                totalTokens: 0,
-                isCompactionSummary: false,
-                isStreaming: true,
-              });
-            }
-          }
-
-          if (!receivedToolCalls) {
-            finalReply = accumulated.trim();
-            break;
-          }
-        }
-      } finally {
-        clearThreadAbortController(threadId, controller);
-      }
-
-      if (loopCount >= maxToolLoops) {
-        agentState.updateLastAssistantMessage(threadId, "(Tool execution limit reached)", false);
-        finalReply = "";
-      }
-
-      if (!finalReply) {
-        return;
-      }
-
-      if (provider === "discord") {
-        await amux?.sendDiscordMessage?.({
-          token: settingsState.discordToken,
-          channelId,
-          message: finalReply,
-        });
-      } else if (provider === "slack") {
-        await amux?.sendSlackMessage?.({
-          token: settingsState.slackToken,
-          channelId,
-          message: finalReply,
-        });
-      } else if (provider === "telegram") {
-        await amux?.sendTelegramMessage?.({
-          token: settingsState.telegramToken,
-          chatId: channelId,
-          message: finalReply,
-        });
-      } else if (provider === "whatsapp") {
-        await amux?.whatsappSend?.(params.replyTarget, finalReply);
-      }
-    } finally {
-      gatewayInFlightRef.current.delete(routeKey);
-    }
-  }, [persistGatewayThreadMap]);
-
-  useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
-    if (!amux?.ensureSlackConnected || !amux?.onSlackMessage) return;
-    if (!settings.gatewayEnabled || !settings.slackToken) return;
-
-    let disposed = false;
-    void amux.ensureSlackConnected({ token: settings.slackToken }).then((result: any) => {
-      if (disposed || result?.ok) return;
-      console.warn("Slack bridge connection failed:", result?.error ?? "unknown error");
-    });
-
-    const unsubscribe = amux.onSlackMessage((payload: any) => {
-      const channelId = String(payload?.channelId ?? "").trim();
-      const channelName = String(payload?.channelName ?? "").trim();
-      void handleInboundGatewayMessage({
-        provider: "slack",
-        channelId,
-        userId: String(payload?.userId ?? ""),
-        username: String(payload?.username ?? "slack-user"),
-        text: String(payload?.content ?? ""),
-        replyTarget: channelName || channelId,
-      });
-    });
-
-    return () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-  }, [handleInboundGatewayMessage, settings.gatewayEnabled, settings.slackToken]);
-
-  useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
-    if (!amux?.ensureTelegramConnected || !amux?.onTelegramMessage) return;
-    if (!settings.gatewayEnabled || !settings.telegramToken) return;
-
-    let disposed = false;
-    void amux.ensureTelegramConnected({ token: settings.telegramToken }).then((result: any) => {
-      if (disposed || result?.ok) return;
-      console.warn("Telegram bridge connection failed:", result?.error ?? "unknown error");
-    });
-
-    const unsubscribe = amux.onTelegramMessage((payload: any) => {
-      void handleInboundGatewayMessage({
-        provider: "telegram",
-        channelId: String(payload?.chatId ?? ""),
-        userId: String(payload?.userId ?? ""),
-        username: String(payload?.username ?? "telegram-user"),
-        text: String(payload?.content ?? ""),
-        replyTarget: String(payload?.chatId ?? ""),
-      });
-    });
-
-    return () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-  }, [handleInboundGatewayMessage, settings.gatewayEnabled, settings.telegramToken]);
-
-  useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
-    if (!amux?.ensureDiscordConnected || !amux?.onDiscordMessage) return;
-    if (!settings.gatewayEnabled || !settings.discordToken) return;
-
-    let disposed = false;
-    void amux.ensureDiscordConnected({ token: settings.discordToken }).then((result: any) => {
-      if (disposed || result?.ok) return;
-      console.warn("Discord bridge connection failed:", result?.error ?? "unknown error");
-    });
-
-    const unsubscribe = amux.onDiscordMessage((payload: any) => {
-      void handleInboundGatewayMessage({
-        provider: "discord",
-        channelId: String(payload?.channelId ?? ""),
-        userId: String(payload?.userId ?? ""),
-        username: String(payload?.username ?? "discord-user"),
-        text: String(payload?.content ?? ""),
-        replyTarget: String(payload?.channelId ?? ""),
-      });
-    });
-
-    return () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-  }, [handleInboundGatewayMessage, settings.discordToken, settings.gatewayEnabled]);
-
-  useEffect(() => {
-    const amux = (window as any).tamux ?? (window as any).amux;
-    if (!amux?.onWhatsAppMessage || !amux?.whatsappStatus) return;
-    if (!settings.gatewayEnabled) return;
-
-    let disposed = false;
-    void amux.whatsappStatus().then((status: any) => {
-      if (disposed) return;
-      if (status?.status !== "connected") return;
-    });
-
-    const unsubscribe = amux.onWhatsAppMessage((msg: any) => {
-      void handleInboundGatewayMessage({
-        provider: "whatsapp",
-        channelId: String(msg?.from ?? ""),
-        userId: String(msg?.from ?? ""),
-        username: String(msg?.pushName ?? "whatsapp-user"),
-        text: String(msg?.text ?? ""),
-        replyTarget: String(msg?.from ?? ""),
-      });
-    });
-
-    return () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-  }, [handleInboundGatewayMessage, settings.gatewayEnabled]);
-
   return (
     <div
       style={{
@@ -752,7 +390,7 @@ export default function App() {
         <MissionDeck
           workspaceName={activeWorkspace?.name ?? "No workspace"}
           surfaceName={activeSurface?.name ?? "No surface"}
-          activeProvider={activeProvider}
+          active_provider={active_provider}
           traceCount={traceCount}
           opsCount={opsCount}
           approvalCount={approvalCount}
@@ -803,13 +441,16 @@ export default function App() {
       <Suspense fallback={null}>
         {commandPaletteOpen && <CommandPalette />}
         {notificationPanelOpen && <NotificationPanel />}
+        {auditPanelOpen && <AuditPanel />}
         {commandHistoryOpen && <CommandHistoryPicker />}
         {snippetPickerOpen && <SnippetPicker />}
         {canvasOpen && <ExecutionCanvas />}
       </Suspense>
 
       <SetupOnboardingPanel />
+      <OperatorProfileOnboardingPanel />
       <AgentApprovalOverlay />
+      <ConciergeToast />
     </div>
   );
 }
@@ -817,7 +458,7 @@ export default function App() {
 function MissionDeck({
   workspaceName,
   surfaceName,
-  activeProvider,
+  active_provider,
   traceCount,
   opsCount,
   approvalCount,
@@ -829,7 +470,7 @@ function MissionDeck({
 }: {
   workspaceName: string;
   surfaceName: string;
-  activeProvider: string;
+  active_provider: string;
   traceCount: number;
   opsCount: number;
   approvalCount: number;
@@ -839,8 +480,8 @@ function MissionDeck({
   onOpenMission: () => void;
   onOpenVault: () => void;
 }) {
-  const providerText = typeof activeProvider === "string" && activeProvider.trim().length > 0
-    ? activeProvider
+  const providerText = typeof active_provider === "string" && active_provider.trim().length > 0
+    ? active_provider
     : "unknown";
 
   return (

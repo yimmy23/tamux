@@ -1,0 +1,181 @@
+impl TuiModel {
+    fn activate_feature_settings_field(&mut self, field: &str) -> bool {
+        match field {
+            "feat_tier_override" => {
+                let tiers = ["newcomer", "familiar", "power_user", "expert"];
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("tier"))
+                    .and_then(|t| t.get("user_override"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&self.tier.current_tier);
+                let current_idx = tiers.iter().position(|t| *t == current).unwrap_or(0);
+                let next = tiers[(current_idx + 1) % tiers.len()];
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/tier/user_override".to_string(),
+                    value_json: format!("\"{}\"", next),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    if raw.get("tier").is_none() {
+                        raw["tier"] = serde_json::json!({});
+                    }
+                    raw["tier"]["user_override"] = serde_json::Value::String(next.to_string());
+                }
+                self.tier.on_tier_changed(next);
+                true
+            }
+            "feat_security_level" => {
+                let levels = ["permissive", "balanced", "strict"];
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("managed_security_level"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("balanced");
+                let current_idx = levels.iter().position(|l| *l == current).unwrap_or(1);
+                let next = levels[(current_idx + 1) % levels.len()];
+                self.send_daemon_command(DaemonCommand::SetConfigItem {
+                    key_path: "/managed_security_level".to_string(),
+                    value_json: format!("\"{}\"", next),
+                });
+                if let Some(ref mut raw) = self.config.agent_config_raw {
+                    raw["managed_security_level"] = serde_json::Value::String(next.to_string());
+                }
+                true
+            }
+            "feat_heartbeat_cron" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get("cron"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("*/15 * * * *")
+                    .to_string();
+                self.settings.start_editing("feat_heartbeat_cron", &current);
+                true
+            }
+            "feat_heartbeat_quiet_start" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get("quiet_start"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("22:00")
+                    .to_string();
+                self.settings
+                    .start_editing("feat_heartbeat_quiet_start", &current);
+                true
+            }
+            "feat_heartbeat_quiet_end" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("heartbeat"))
+                    .and_then(|h| h.get("quiet_end"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("07:00")
+                    .to_string();
+                self.settings
+                    .start_editing("feat_heartbeat_quiet_end", &current);
+                true
+            }
+            "feat_decay_half_life_hours" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("consolidation"))
+                    .and_then(|c| c.get("decay_half_life_hours"))
+                    .and_then(|v| v.as_f64())
+                    .map(|v| format!("{:.0}", v))
+                    .unwrap_or_else(|| "69".to_string());
+                self.settings
+                    .start_editing("feat_decay_half_life_hours", &current);
+                true
+            }
+            "feat_heuristic_promotion_threshold" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("consolidation"))
+                    .and_then(|c| c.get("heuristic_promotion_threshold"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "5".to_string());
+                self.settings
+                    .start_editing("feat_heuristic_promotion_threshold", &current);
+                true
+            }
+            "feat_skill_promotion_threshold" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("skill_discovery"))
+                    .and_then(|s| s.get("promotion_threshold"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "3".to_string());
+                self.settings
+                    .start_editing("feat_skill_promotion_threshold", &current);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn settings_field_click_uses_toggle(&self) -> bool {
+        matches!(
+            self.current_settings_field_name(),
+            "managed_sandbox_enabled"
+                | "managed_security_level"
+                | "gateway_enabled"
+                | "web_search_enabled"
+                | "enable_streaming"
+                | "auto_retry"
+                | "enable_conversation_memory"
+                | "enable_honcho_memory"
+                | "anticipatory_enabled"
+                | "anticipatory_morning_brief"
+                | "anticipatory_predictive_hydration"
+                | "anticipatory_stuck_detection"
+                | "operator_model_enabled"
+                | "operator_model_allow_message_statistics"
+                | "operator_model_allow_approval_learning"
+                | "operator_model_allow_attention_tracking"
+                | "operator_model_allow_implicit_feedback"
+                | "collaboration_enabled"
+                | "compliance_sign_all_events"
+                | "tool_synthesis_enabled"
+                | "tool_synthesis_require_activation"
+                | "auto_compact_context"
+                | "compaction_strategy"
+                | "compaction_weles_provider"
+                | "compaction_weles_reasoning_effort"
+                | "compaction_custom_provider"
+                | "compaction_custom_auth_source"
+                | "compaction_custom_api_transport"
+                | "compaction_custom_reasoning_effort"
+                | "snapshot_auto_cleanup"
+                | "feat_tier_override"
+                | "feat_security_level"
+                | "feat_check_stale_todos"
+                | "feat_check_stuck_goals"
+                | "feat_check_unreplied_messages"
+                | "feat_check_repo_changes"
+                | "feat_consolidation_enabled"
+                | "feat_skill_discovery_enabled"
+                | "whatsapp_link_device"
+                | "whatsapp_relink_device"
+        ) || self.current_settings_field_name().starts_with("tool_")
+    }
+}

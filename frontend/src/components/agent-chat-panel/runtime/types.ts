@@ -1,0 +1,88 @@
+import type React from "react";
+import type { getTerminalController } from "@/lib/terminalRegistry";
+import type { AgentMessage, AgentThread, AgentTodoItem, useAgentStore } from "@/lib/agentStore";
+import type { GoalRun } from "@/lib/goalRuns";
+import type { useAgentMissionStore } from "@/lib/agentMissionStore";
+import type { useSnippetStore } from "@/lib/snippetStore";
+import type { useTranscriptStore } from "@/lib/transcriptStore";
+import type { useWorkspaceStore } from "@/lib/workspaceStore";
+import type { WelesHealthState } from "@/lib/agentStore/types";
+
+export type AgentChatPanelView =
+  | "threads"
+  | "chat"
+  | "trace"
+  | "usage"
+  | "context"
+  | "graph"
+  | "coding-agents"
+  | "ai-training"
+  | "tasks"
+  | "subagents";
+
+export type AgentStoreState = ReturnType<typeof useAgentStore.getState>;
+export type AgentMissionStoreState = ReturnType<typeof useAgentMissionStore.getState>;
+export type WorkspaceStoreState = ReturnType<typeof useWorkspaceStore.getState>;
+export type SnippetStoreState = ReturnType<typeof useSnippetStore.getState>;
+export type TranscriptStoreState = ReturnType<typeof useTranscriptStore.getState>;
+
+export type AgentChatPanelRuntimeValue = {
+  togglePanel: () => void;
+  activeWorkspace: ReturnType<WorkspaceStoreState["activeWorkspace"]>;
+  threads: AgentThread[];
+  activeThread: AgentThread | undefined;
+  activeThreadId: string | null;
+  createThread: AgentStoreState["createThread"];
+  deleteThread: AgentStoreState["deleteThread"];
+  setActiveThread: AgentStoreState["setActiveThread"];
+  agentSettings: AgentStoreState["agentSettings"];
+  updateAgentSetting: AgentStoreState["updateAgentSetting"];
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  messages: AgentMessage[];
+  todos: AgentTodoItem[];
+  daemonTodosByThread: Record<string, AgentTodoItem[]>;
+  goalRunsForTrace: GoalRun[];
+  allMessagesByThread: Record<string, AgentMessage[]>;
+  pendingApprovals: AgentMissionStoreState["approvals"];
+  scopedOperationalEvents: AgentMissionStoreState["operationalEvents"];
+  scopedCognitiveEvents: AgentMissionStoreState["cognitiveEvents"];
+  latestContextSnapshot: AgentMissionStoreState["contextSnapshots"][number] | undefined;
+  memory: AgentMissionStoreState["memory"];
+  updateMemory: AgentMissionStoreState["updateMemory"];
+  historySummary: AgentMissionStoreState["historySummary"];
+  historyHits: AgentMissionStoreState["historyHits"];
+  symbolHits: AgentMissionStoreState["symbolHits"];
+  snippets: SnippetStoreState["snippets"];
+  transcripts: TranscriptStoreState["transcripts"];
+  scopePaneId: string | null;
+  scopeController: ReturnType<typeof getTerminalController>;
+  input: string;
+  setInput: React.Dispatch<React.SetStateAction<string>>;
+  historyQuery: string;
+  setHistoryQuery: React.Dispatch<React.SetStateAction<string>>;
+  symbolQuery: string;
+  setSymbolQuery: React.Dispatch<React.SetStateAction<string>>;
+  view: AgentChatPanelView;
+  setView: React.Dispatch<React.SetStateAction<AgentChatPanelView>>;
+  chatBackView: AgentChatPanelView;
+  setChatBackView: React.Dispatch<React.SetStateAction<AgentChatPanelView>>;
+  usageMessageCount: number;
+  filteredThreads: AgentThread[];
+  isStreamingResponse: boolean;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  sendMessage: (text: string) => void;
+  deleteMessage: (threadId: string, messageId: string) => void;
+  stopStreaming: (threadId?: string | null) => void;
+  handleSend: () => void;
+  handleKeyDown: (event: React.KeyboardEvent) => void;
+  canStartGoalRun: boolean;
+  startGoalRunFromPrompt: (text: string) => Promise<boolean>;
+  tabItems: Array<{ id: AgentChatPanelView; label: string; count: number | null }>;
+  welesHealth: WelesHealthState | null;
+};
+
+export type NormalizeBridgePayload = (payload: any) => any;
+
+export type AppendDaemonSystemMessage = (content: string) => void;

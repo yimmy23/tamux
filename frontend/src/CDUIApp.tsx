@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getBridge } from "@/lib/bridge";
 import { AppContext, defaultAppState } from "./context/AppContext";
 import { ViewBuilderOverlay } from "./components/ViewBuilderOverlay";
 import { LoadingState } from "./components/LoadingState";
@@ -18,6 +19,9 @@ import { isCDUIViewVisible, useCDUIVisibilityFlags } from "./lib/cduiVisibility"
 import { registerAITrainingPlugin } from "./plugins/ai-training/registerPlugin";
 import { registerCodingAgentsPlugin } from "./plugins/coding-agents/registerPlugin";
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
+import { OperatorProfileOnboardingPanel } from "./components/OperatorProfileOnboardingPanel";
+import { ConciergeToast } from "./components/ConciergeToast";
+import { useAgentStore } from "./lib/agentStore";
 
 const EMBEDDED_VIEW_IDS = new Set([
   "search-overlay",
@@ -95,6 +99,70 @@ const CDUIApp = () => {
       cancelled = true;
     };
   }, [reloadViews]);
+
+  useEffect(() => {
+    const amux = getBridge();
+    if (!amux?.onAgentEvent) {
+      console.warn("[concierge] no onAgentEvent bridge available in CDUIApp");
+      return;
+    }
+
+    const applyConciergeWelcome = (event: any) => {
+      if (event?.type !== "concierge_welcome") {
+        return;
+      }
+      useAgentStore.setState({
+        conciergeWelcome: {
+          content: event.content ?? "",
+          actions: event.actions ?? [],
+        },
+      });
+    };
+
+    const unsubscribe = amux.onAgentEvent((event: any) => {
+      if (event?.type === "concierge_welcome") {
+        applyConciergeWelcome(event);
+        void useAgentStore.getState().maybeStartOperatorProfileOnboarding();
+      }
+      if (event?.type === "operator-profile-session-started") {
+        useAgentStore.getState().applyOperatorProfileSessionStarted(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-question") {
+        useAgentStore.getState().applyOperatorProfileQuestion(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-progress") {
+        useAgentStore.getState().applyOperatorProfileProgress(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-session-completed") {
+        useAgentStore.getState().applyOperatorProfileSessionCompleted(event.data ?? event);
+      }
+      if (event?.type === "operator-profile-summary") {
+        useAgentStore.getState().getOperatorProfileSummary().catch(() => {});
+      }
+    });
+
+    void useAgentStore.getState().refreshConciergeConfig?.();
+
+    const requestWelcome = async () => {
+      const profileState = useAgentStore.getState().operatorProfile;
+      if (profileState.sessionId || profileState.question || profileState.panelOpen) {
+        return;
+      }
+      if (!amux.agentRequestConciergeWelcome) {
+        return;
+      }
+      await amux.agentRequestConciergeWelcome().catch(() => {});
+    };
+
+    const timer = window.setTimeout(requestWelcome, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (views) {
@@ -292,6 +360,8 @@ const CDUIApp = () => {
       })}
       <ViewBuilderOverlay />
       <SetupOnboardingPanel />
+      <OperatorProfileOnboardingPanel />
+      <ConciergeToast />
     </AppContext.Provider>
   );
 };

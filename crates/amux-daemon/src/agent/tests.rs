@@ -1,0 +1,480 @@
+use super::*;
+use std::collections::VecDeque;
+
+fn sample_goal_run() -> GoalRun {
+    GoalRun {
+        id: "goal_test".to_string(),
+        title: "Test goal".to_string(),
+        goal: "Ship something".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Failed,
+        priority: TaskPriority::Normal,
+        created_at: 10,
+        updated_at: 30,
+        started_at: Some(20),
+        completed_at: Some(80),
+        thread_id: None,
+        session_id: Some("session-1".to_string()),
+        current_step_index: 1,
+        current_step_title: None,
+        current_step_kind: None,
+        replan_count: 1,
+        max_replans: 2,
+        plan_summary: Some("Plan".to_string()),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: Some("/tmp/skill.md".to_string()),
+        last_error: Some("child task failed".to_string()),
+        failure_cause: None,
+        child_task_ids: vec!["task-a".to_string(), "task-b".to_string()],
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: vec![
+            GoalRunStep {
+                id: "step-0".to_string(),
+                position: 0,
+                title: "Inspect".to_string(),
+                instructions: "Inspect state".to_string(),
+                kind: GoalRunStepKind::Research,
+                success_criteria: "Know what failed".to_string(),
+                session_id: None,
+                status: GoalRunStepStatus::Completed,
+                task_id: Some("task-a".to_string()),
+                summary: Some("done".to_string()),
+                error: None,
+                started_at: Some(21),
+                completed_at: Some(30),
+            },
+            GoalRunStep {
+                id: "step-1".to_string(),
+                position: 1,
+                title: "Fix".to_string(),
+                instructions: "Fix it".to_string(),
+                kind: GoalRunStepKind::Command,
+                success_criteria: "Green".to_string(),
+                session_id: Some("session-1".to_string()),
+                status: GoalRunStepStatus::Failed,
+                task_id: Some("task-b".to_string()),
+                summary: None,
+                error: Some("step failure".to_string()),
+                started_at: Some(31),
+                completed_at: Some(50),
+            },
+        ],
+        events: Vec::new(),
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: Default::default(),
+        authorship_tag: None,
+    }
+}
+
+fn sample_task(id: &str, goal_run_id: &str) -> AgentTask {
+    AgentTask {
+        id: id.to_string(),
+        title: id.to_string(),
+        description: id.to_string(),
+        status: TaskStatus::Failed,
+        priority: TaskPriority::Normal,
+        progress: 0,
+        created_at: 1,
+        started_at: Some(2),
+        completed_at: Some(3),
+        error: Some("task error".to_string()),
+        result: None,
+        thread_id: None,
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: Some("session-1".to_string()),
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("Test goal".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("Fix".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: Some("apr-1".to_string()),
+        lane_id: None,
+        last_error: Some("task error".to_string()),
+        logs: vec![AgentTaskLogEntry {
+            id: format!("log-{id}"),
+            timestamp: 4,
+            level: TaskLogLevel::Warn,
+            phase: "approval".to_string(),
+            message: "managed command paused for operator approval".to_string(),
+            details: None,
+            attempt: 0,
+        }],
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    }
+}
+
+fn sample_subagent(id: &str, parent_task_id: &str, status: TaskStatus) -> AgentTask {
+    AgentTask {
+        id: id.to_string(),
+        title: format!("Subagent {id}"),
+        description: "Child work".to_string(),
+        status,
+        priority: TaskPriority::Normal,
+        progress: 0,
+        created_at: 1,
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: None,
+        source: "subagent".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: Some(parent_task_id.to_string()),
+        parent_thread_id: Some("thread-parent".to_string()),
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    }
+}
+
+fn sample_session(session_id: &str, workspace_id: &str) -> amux_protocol::SessionInfo {
+    amux_protocol::SessionInfo {
+        id: uuid::Uuid::parse_str(session_id).expect("valid uuid"),
+        title: Some("Agent lane".to_string()),
+        cwd: Some("/tmp/repo".to_string()),
+        cols: 120,
+        rows: 40,
+        created_at: 1,
+        workspace_id: Some(workspace_id.to_string()),
+        exit_code: None,
+        is_alive: true,
+        active_command: Some("cargo test".to_string()),
+    }
+}
+
+#[test]
+fn collect_plan_issues_catches_empty_summary() {
+    let plan = GoalPlanResponse {
+        title: Some("Goal".to_string()),
+        summary: String::new(),
+        steps: vec![GoalPlanStepResponse {
+            title: "Do it".to_string(),
+            instructions: "Do it".to_string(),
+            kind: GoalRunStepKind::Command,
+            success_criteria: "Done".to_string(),
+            session_id: None,
+            llm_confidence: None,
+            llm_confidence_rationale: None,
+        }],
+        rejected_alternatives: Vec::new(),
+    };
+
+    assert!(!collect_plan_issues(&plan).is_empty());
+}
+
+#[test]
+fn retry_goal_run_step_resets_selected_step() {
+    let mut goal_run = sample_goal_run();
+
+    retry_goal_run_step(&mut goal_run, Some(1)).expect("retry should succeed");
+
+    assert_eq!(goal_run.current_step_index, 1);
+    assert_eq!(goal_run.status, GoalRunStatus::Running);
+    assert!(goal_run.completed_at.is_none());
+    assert!(goal_run.last_error.is_none());
+    assert_eq!(goal_run.steps[1].status, GoalRunStepStatus::Pending);
+    assert!(goal_run.steps[1].task_id.is_none());
+    assert!(goal_run.generated_skill_path.is_some());
+}
+
+#[test]
+fn rerun_goal_run_from_step_resets_following_steps_and_skill_output() {
+    let mut goal_run = sample_goal_run();
+
+    rerun_goal_run_from_step(&mut goal_run, Some(0)).expect("rerun should succeed");
+
+    assert_eq!(goal_run.current_step_index, 0);
+    assert_eq!(goal_run.status, GoalRunStatus::Running);
+    assert!(goal_run.completed_at.is_none());
+    assert!(goal_run.generated_skill_path.is_none());
+    assert!(goal_run.reflection_summary.is_none());
+    assert_eq!(goal_run.steps[0].status, GoalRunStepStatus::Pending);
+    assert_eq!(goal_run.steps[1].status, GoalRunStepStatus::Pending);
+}
+
+#[test]
+fn project_goal_run_snapshot_derives_metrics() {
+    let goal_run = sample_goal_run();
+    let tasks = vec![sample_task("task-b", "goal_test")];
+
+    let projected = project_goal_run_snapshot(goal_run, &tasks, 100);
+
+    assert_eq!(projected.current_step_title.as_deref(), Some("Fix"));
+    assert_eq!(projected.child_task_count, 2);
+    assert_eq!(projected.approval_count, 1);
+    assert_eq!(projected.awaiting_approval_id.as_deref(), Some("apr-1"));
+    assert_eq!(
+        projected.failure_cause.as_deref(),
+        Some("child task failed")
+    );
+    assert_eq!(projected.duration_ms, Some(60));
+}
+
+#[test]
+fn project_task_runs_exposes_parent_runtime_workspace_and_classification() {
+    let mut parent = sample_task("parent-task", "goal_test");
+    parent.title = "Implement rust file patching".to_string();
+    parent.description = "Update repo files and tests".to_string();
+    parent.status = TaskStatus::InProgress;
+    parent.source = "user".to_string();
+    parent.session_id = Some("11111111-1111-1111-1111-111111111111".to_string());
+
+    let mut child = sample_subagent("child-task", "parent-task", TaskStatus::Queued);
+    child.session_id = Some("22222222-2222-2222-2222-222222222222".to_string());
+    child.runtime = "hermes".to_string();
+
+    let runs = project_task_runs(
+        &[parent.clone(), child.clone()],
+        &[
+            sample_session("11111111-1111-1111-1111-111111111111", "workspace-parent"),
+            sample_session("22222222-2222-2222-2222-222222222222", "workspace-child"),
+        ],
+    );
+
+    let parent_run = runs
+        .iter()
+        .find(|run| run.id == parent.id)
+        .expect("parent run projected");
+    assert_eq!(parent_run.kind, AgentRunKind::Task);
+    assert_eq!(parent_run.classification, "coding");
+    assert_eq!(parent_run.workspace_id.as_deref(), Some("workspace-parent"));
+
+    let child_run = runs
+        .iter()
+        .find(|run| run.id == child.id)
+        .expect("child run projected");
+    assert_eq!(child_run.kind, AgentRunKind::Subagent);
+    assert_eq!(child_run.runtime, "hermes");
+    assert_eq!(child_run.parent_run_id.as_deref(), Some("parent-task"));
+    assert_eq!(
+        child_run.parent_title.as_deref(),
+        Some("Implement rust file patching")
+    );
+    assert_eq!(child_run.workspace_id.as_deref(), Some("workspace-child"));
+}
+
+#[test]
+fn make_goal_run_event_with_todos_preserves_snapshot() {
+    let event = make_goal_run_event_with_todos(
+        "todo",
+        "goal todo updated",
+        None,
+        Some(1),
+        vec![TodoItem {
+            id: "todo-1".to_string(),
+            content: "Inspect failing test".to_string(),
+            status: TodoStatus::InProgress,
+            position: 0,
+            step_index: Some(1),
+            created_at: 10,
+            updated_at: 20,
+        }],
+    );
+
+    assert_eq!(event.phase, "todo");
+    assert_eq!(event.step_index, Some(1));
+    assert_eq!(event.todo_snapshot.len(), 1);
+    assert_eq!(event.todo_snapshot[0].content, "Inspect failing test");
+}
+
+#[test]
+fn planner_required_for_message_detects_multi_step_requests() {
+    assert!(planner_required_for_message(
+        "Investigate the failing tests, then update the parser, and finally rerun the suite."
+    ));
+    assert!(planner_required_for_message(
+        "1. Inspect logs\n2. Find the bad config\n3. Patch it"
+    ));
+}
+
+#[test]
+fn planner_required_for_message_skips_simple_requests() {
+    assert!(!planner_required_for_message(
+        "What port is the daemon listening on?"
+    ));
+    assert!(!planner_required_for_message("Show me the last error."));
+}
+
+#[test]
+fn refresh_task_queue_state_blocks_parent_while_subagents_are_active() {
+    let mut tasks = VecDeque::from(vec![
+        AgentTask {
+            id: "parent".to_string(),
+            title: "Parent".to_string(),
+            description: "Parent".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 10,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "agent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        },
+        sample_subagent("sub-1", "parent", TaskStatus::InProgress),
+    ]);
+
+    let changed = refresh_task_queue_state(&mut tasks, 100, &[]);
+    let parent = tasks.iter().find(|task| task.id == "parent").unwrap();
+
+    assert_eq!(parent.status, TaskStatus::Blocked);
+    assert!(parent
+        .blocked_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("waiting for subagents"));
+    assert_eq!(changed.len(), 1);
+}
+
+#[test]
+fn refresh_task_queue_state_requeues_parent_after_subagents_finish() {
+    let mut tasks = VecDeque::from(vec![
+        AgentTask {
+            id: "parent".to_string(),
+            title: "Parent".to_string(),
+            description: "Parent".to_string(),
+            status: TaskStatus::Blocked,
+            priority: TaskPriority::Normal,
+            progress: 90,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: None,
+            source: "agent".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: Some("waiting for subagents: sub-1".to_string()),
+            awaiting_approval_id: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        },
+        sample_subagent("sub-1", "parent", TaskStatus::Completed),
+    ]);
+
+    let changed = refresh_task_queue_state(&mut tasks, 100, &[]);
+    let parent = tasks.iter().find(|task| task.id == "parent").unwrap();
+
+    assert_eq!(parent.status, TaskStatus::Queued);
+    assert!(parent.blocked_reason.is_none());
+    assert_eq!(changed.len(), 1);
+}

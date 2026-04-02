@@ -1,0 +1,304 @@
+impl TuiModel {
+    pub(super) fn handle_auth_settings_key(&mut self, code: KeyCode) -> bool {
+        if self.auth.login_target.is_some() {
+            match code {
+                KeyCode::Esc => {
+                    self.auth
+                        .reduce(crate::state::auth::AuthAction::CancelLogin);
+                    self.status_line = "Login cancelled".to_string();
+                    true
+                }
+                KeyCode::Enter => {
+                    self.confirm_auth_login();
+                    true
+                }
+                KeyCode::Backspace => {
+                    self.auth
+                        .reduce(crate::state::auth::AuthAction::LoginKeyBackspace);
+                    true
+                }
+                KeyCode::Left => {
+                    self.auth.login_cursor = self.auth.login_cursor.saturating_sub(1);
+                    true
+                }
+                KeyCode::Right => {
+                    self.auth.login_cursor =
+                        (self.auth.login_cursor + 1).min(self.auth.login_buffer.chars().count());
+                    true
+                }
+                KeyCode::Char(c) => {
+                    self.auth
+                        .reduce(crate::state::auth::AuthAction::LoginKeyChar(c));
+                    true
+                }
+                _ => true,
+            }
+        } else {
+            match code {
+                KeyCode::Up => {
+                    self.auth.selected = self.auth.selected.saturating_sub(1);
+                    true
+                }
+                KeyCode::Down => {
+                    if self.auth.selected + 1 < self.auth.entries.len() {
+                        self.auth.selected += 1;
+                    }
+                    true
+                }
+                KeyCode::Left => {
+                    if self.auth.actions_focused && self.auth.action_cursor > 0 {
+                        self.auth.action_cursor -= 1;
+                    } else {
+                        self.auth.actions_focused = false;
+                    }
+                    true
+                }
+                KeyCode::Right => {
+                    if self.auth.actions_focused {
+                        self.auth.action_cursor = (self.auth.action_cursor + 1).min(1);
+                    } else {
+                        self.auth.actions_focused = true;
+                    }
+                    true
+                }
+                KeyCode::Enter => {
+                    if !self.auth.actions_focused {
+                        self.auth.actions_focused = true;
+                    } else {
+                        self.run_auth_tab_action();
+                    }
+                    true
+                }
+                KeyCode::Char(' ') => {
+                    self.run_auth_tab_action();
+                    true
+                }
+                KeyCode::Char('h') => {
+                    if self.auth.actions_focused && self.auth.action_cursor > 0 {
+                        self.auth.action_cursor -= 1;
+                    } else {
+                        self.auth.actions_focused = false;
+                    }
+                    true
+                }
+                KeyCode::Char('l') => {
+                    if self.auth.actions_focused {
+                        self.auth.action_cursor = (self.auth.action_cursor + 1).min(1);
+                    } else {
+                        self.auth.actions_focused = true;
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }
+    }
+
+    pub(super) fn handle_subagent_settings_key(&mut self, code: KeyCode) -> bool {
+        if self.subagents.editor.is_some() {
+            match code {
+                KeyCode::Esc => {
+                    self.close_subagent_editor();
+                    true
+                }
+                KeyCode::Up => {
+                    if let Some(editor) = self.subagents.editor.as_mut() {
+                        editor.field = editor.field.prev();
+                    }
+                    true
+                }
+                KeyCode::Down | KeyCode::Tab => {
+                    if let Some(editor) = self.subagents.editor.as_mut() {
+                        editor.field = editor.field.next();
+                    }
+                    true
+                }
+                KeyCode::BackTab => {
+                    if let Some(editor) = self.subagents.editor.as_mut() {
+                        editor.field = editor.field.prev();
+                    }
+                    true
+                }
+                KeyCode::Left => {
+                    if let Some(editor) = self.subagents.editor.as_ref() {
+                        if matches!(
+                            editor.field,
+                            crate::state::subagents::SubAgentEditorField::Role
+                        ) {
+                            self.cycle_subagent_role(-1);
+                            return true;
+                        }
+                    }
+                    false
+                }
+                KeyCode::Right => {
+                    if let Some(editor) = self.subagents.editor.as_ref() {
+                        if matches!(
+                            editor.field,
+                            crate::state::subagents::SubAgentEditorField::Role
+                        ) {
+                            self.cycle_subagent_role(1);
+                            return true;
+                        }
+                    }
+                    false
+                }
+                KeyCode::Enter => {
+                    let Some(field) = self.subagents.editor.as_ref().map(|editor| editor.field)
+                    else {
+                        return true;
+                    };
+                    match field {
+                        crate::state::subagents::SubAgentEditorField::Name => {
+                            if self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .is_some_and(|editor| !editor.identity_is_mutable())
+                            {
+                                self.status_line =
+                                    "This sub-agent identity cannot be changed".to_string();
+                                return true;
+                            }
+                            let current = self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .map(|editor| editor.name.clone())
+                                .unwrap_or_default();
+                            self.settings.start_editing("subagent_name", &current);
+                        }
+                        crate::state::subagents::SubAgentEditorField::Provider => {
+                            self.open_subagent_provider_picker();
+                        }
+                        crate::state::subagents::SubAgentEditorField::Model => {
+                            self.open_subagent_model_picker();
+                        }
+                        crate::state::subagents::SubAgentEditorField::ReasoningEffort => {
+                            self.open_subagent_effort_picker();
+                        }
+                        crate::state::subagents::SubAgentEditorField::Role => {
+                            let current = self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .map(|editor| editor.role.clone())
+                                .unwrap_or_default();
+                            self.settings.start_editing("subagent_role", &current);
+                        }
+                        crate::state::subagents::SubAgentEditorField::SystemPrompt => {
+                            let current = self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .map(|editor| editor.system_prompt.clone())
+                                .unwrap_or_default();
+                            self.settings
+                                .start_editing("subagent_system_prompt", &current);
+                        }
+                        crate::state::subagents::SubAgentEditorField::Save => {
+                            self.commit_subagent_editor();
+                        }
+                        crate::state::subagents::SubAgentEditorField::Cancel => {
+                            self.close_subagent_editor();
+                        }
+                    }
+                    true
+                }
+                KeyCode::Char('s') => {
+                    self.commit_subagent_editor();
+                    true
+                }
+                _ => false,
+            }
+        } else {
+            match code {
+                KeyCode::Up => {
+                    self.subagents.selected = self.subagents.selected.saturating_sub(1);
+                    true
+                }
+                KeyCode::Down => {
+                    if self.subagents.selected + 1 < self.subagents.entries.len() {
+                        self.subagents.selected += 1;
+                    }
+                    true
+                }
+                KeyCode::Left => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            self.subagents.action_cursor.max(1).saturating_sub(1).max(1);
+                    }
+                    true
+                }
+                KeyCode::Right => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            (self.subagents.action_cursor.max(1) + 1).min(3);
+                    }
+                    true
+                }
+                KeyCode::Enter => {
+                    if self.subagents.entries.is_empty() {
+                        self.subagents.action_cursor = 0;
+                        self.run_subagent_action();
+                    } else if self.subagents.actions_focused {
+                        self.run_subagent_action();
+                    } else {
+                        self.subagents.action_cursor = 1;
+                        self.subagents.actions_focused = true;
+                        self.run_subagent_action();
+                    }
+                    true
+                }
+                KeyCode::Char(' ') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor = 3;
+                        self.run_subagent_action();
+                    }
+                    true
+                }
+                KeyCode::Char('a') => {
+                    self.subagents.action_cursor = 0;
+                    self.run_subagent_action();
+                    true
+                }
+                KeyCode::Char('e') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor = 1;
+                        self.run_subagent_action();
+                    }
+                    true
+                }
+                KeyCode::Delete | KeyCode::Backspace | KeyCode::Char('d') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor = 2;
+                        self.run_subagent_action();
+                    }
+                    true
+                }
+                KeyCode::Char('h') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            self.subagents.action_cursor.max(1).saturating_sub(1).max(1);
+                    }
+                    true
+                }
+                KeyCode::Char('l') => {
+                    if !self.subagents.entries.is_empty() {
+                        self.subagents.actions_focused = true;
+                        self.subagents.action_cursor =
+                            (self.subagents.action_cursor.max(1) + 1).min(3);
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }
+    }
+}

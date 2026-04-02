@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" fill="none">
+  <rect width="1280" height="820" rx="28" fill="#0E1726"/>
+  <rect x="24" y="24" width="1232" height="772" rx="24" fill="#101C2E" stroke="#24415E"/>
+  <text x="52" y="78" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="32" font-weight="700">tamux Goal Runner Operator View</text>
+  <text x="52" y="108" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="18">Schematic: queue metrics, approval-aware state, and step-level controls in one surface.</text>
+
+  <rect x="48" y="146" width="336" height="610" rx="20" fill="#15253C" stroke="#2A4A6B"/>
+  <text x="74" y="188" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="24" font-weight="700">Goal Runners</text>
+  <text x="74" y="214" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="15">Active and historical durable runs</text>
+
+  <rect x="68" y="242" width="296" height="132" rx="16" fill="#1A2F4C" stroke="#4F8FBA"/>
+  <text x="88" y="274" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="20" font-weight="700">Nightly Rust Build Triage</text>
+  <rect x="88" y="288" width="118" height="24" rx="12" fill="#163F2B"/>
+  <text x="106" y="305" fill="#9BE4B1" font-family="Arial, sans-serif" font-size="13" font-weight="700">running</text>
+  <text x="88" y="334" fill="#BFD0E4" font-family="Arial, sans-serif" font-size="15">step: reproduce failure</text>
+  <text x="88" y="358" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="14">3 child tasks  •  1 replan  •  1 approval  •  12m</text>
+
+  <rect x="68" y="392" width="296" height="116" rx="16" fill="#18283F" stroke="#32536F"/>
+  <text x="88" y="424" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="20" font-weight="700">Dependency Lock Audit</text>
+  <rect x="88" y="438" width="138" height="24" rx="12" fill="#4E3217"/>
+  <text x="106" y="455" fill="#FFD089" font-family="Arial, sans-serif" font-size="13" font-weight="700">awaiting approval</text>
+  <text x="88" y="484" fill="#BFD0E4" font-family="Arial, sans-serif" font-size="15">step: inspect prod secrets mount</text>
+
+  <rect x="68" y="526" width="296" height="116" rx="16" fill="#18283F" stroke="#32536F"/>
+  <text x="88" y="558" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="20" font-weight="700">Snapshot Recovery Drill</text>
+  <rect x="88" y="572" width="102" height="24" rx="12" fill="#3E1E28"/>
+  <text x="106" y="589" fill="#FF9CB1" font-family="Arial, sans-serif" font-size="13" font-weight="700">failed</text>
+  <text x="88" y="618" fill="#FFB4C2" font-family="Arial, sans-serif" font-size="14">failure cause: snapshot restore timed out</text>
+
+  <rect x="410" y="146" width="820" height="610" rx="20" fill="#13253A" stroke="#2A4A6B"/>
+  <text x="438" y="188" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="24" font-weight="700">Selected Run: Nightly Rust Build Triage</text>
+  <text x="438" y="214" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="15">Goal: investigate nightly build failures, fix the smallest safe issue, and save the workflow.</text>
+
+  <rect x="438" y="246" width="178" height="84" rx="14" fill="#182D48"/>
+  <text x="456" y="274" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13">Duration</text>
+  <text x="456" y="307" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="28" font-weight="700">12m</text>
+
+  <rect x="634" y="246" width="178" height="84" rx="14" fill="#182D48"/>
+  <text x="652" y="274" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13">Replans</text>
+  <text x="652" y="307" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="28" font-weight="700">1</text>
+
+  <rect x="830" y="246" width="178" height="84" rx="14" fill="#182D48"/>
+  <text x="848" y="274" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13">Child Tasks</text>
+  <text x="848" y="307" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="28" font-weight="700">3</text>
+
+  <rect x="1026" y="246" width="178" height="84" rx="14" fill="#182D48"/>
+  <text x="1044" y="274" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13">Approvals</text>
+  <text x="1044" y="307" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="28" font-weight="700">1</text>
+
+  <rect x="438" y="360" width="766" height="128" rx="16" fill="#182D48" stroke="#33597E"/>
+  <text x="462" y="390" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13">Plan Summary</text>
+  <text x="462" y="424" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="18">Reproduce the nightly failure, isolate the dependency mismatch, validate the minimal patch,</text>
+  <text x="462" y="450" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="18">and record the successful workflow as a reusable skill.</text>
+
+  <rect x="438" y="514" width="766" height="206" rx="16" fill="#16273F" stroke="#33597E"/>
+  <text x="462" y="544" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13">Plan Steps</text>
+
+  <rect x="462" y="564" width="228" height="128" rx="14" fill="#1B3658"/>
+  <text x="480" y="590" fill="#9BE4B1" font-family="Arial, sans-serif" font-size="13" font-weight="700">completed • research</text>
+  <text x="480" y="620" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="18" font-weight="700">1. Inspect CI output</text>
+  <text x="480" y="648" fill="#BFD0E4" font-family="Arial, sans-serif" font-size="14">Success: isolate the failing crate</text>
+
+  <rect x="706" y="564" width="228" height="128" rx="14" fill="#233F63" stroke="#4F8FBA"/>
+  <text x="724" y="590" fill="#6FD3FF" font-family="Arial, sans-serif" font-size="13" font-weight="700">running • command</text>
+  <text x="724" y="620" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="18" font-weight="700">2. Reproduce locally</text>
+  <text x="724" y="648" fill="#BFD0E4" font-family="Arial, sans-serif" font-size="14">Success: confirm exact mismatch</text>
+  <rect x="724" y="662" width="88" height="22" rx="11" fill="#26496F"/>
+  <text x="742" y="677" fill="#D8E9F7" font-family="Arial, sans-serif" font-size="12" font-weight="700">Retry Step</text>
+  <rect x="820" y="662" width="98" height="22" rx="11" fill="#26496F"/>
+  <text x="833" y="677" fill="#D8E9F7" font-family="Arial, sans-serif" font-size="12" font-weight="700">Rerun From Here</text>
+
+  <rect x="950" y="564" width="228" height="128" rx="14" fill="#1B3658"/>
+  <text x="968" y="590" fill="#8FA7C2" font-family="Arial, sans-serif" font-size="13" font-weight="700">pending • skill</text>
+  <text x="968" y="620" fill="#F6F3EA" font-family="Arial, sans-serif" font-size="18" font-weight="700">3. Save the workflow</text>
+  <text x="968" y="648" fill="#BFD0E4" font-family="Arial, sans-serif" font-size="14">Success: generated skill artifact</text>
+</svg>

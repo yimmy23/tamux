@@ -151,7 +151,7 @@ export const iconButtonStyle: React.CSSProperties = {
     fontSize: "var(--text-sm)",
     padding: "var(--space-1) var(--space-2)",
     borderRadius: "var(--radius-md)",
-    transition: "all var(--transition-fast)",
+    transition: "all var(--transition-fast)"
 };
 
 export const memoryAreaStyle: React.CSSProperties = {

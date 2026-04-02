@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
+import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "../lib/agentNames";
+
 const SETUP_PANEL_STATE_KEY = "tamux-setup-onboarding-state-v1";
 const SETUP_PANEL_VERSION = "1";
 const OPEN_EVENTS = ["tamux-open-setup-onboarding", "amux-open-setup-onboarding"] as const;
@@ -130,6 +132,23 @@ export function SetupOnboardingPanel() {
           <h2 style={{ margin: 0, fontSize: 24 }}>tamux Setup Assistant</h2>
           <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
             {report?.whatIsTamux ?? "tamux is an AI-native terminal multiplexer with a Rust daemon and agent workflows."}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          <div style={{ border: "1px solid rgba(255,255,255,0.09)", padding: 12, display: "grid", gap: 4 }}>
+            <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-secondary)" }}>{PRIMARY_AGENT_NAME}</span>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>Main agent runtime</span>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+              {PRIMARY_AGENT_NAME} is your primary agent for chat, tasks, provider selection, and execution.
+            </span>
+          </div>
+          <div style={{ border: "1px solid rgba(255,255,255,0.09)", padding: 12, display: "grid", gap: 4 }}>
+            <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-secondary)" }}>{CONCIERGE_AGENT_NAME}</span>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>Concierge and briefing agent</span>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+              {CONCIERGE_AGENT_NAME} handles welcomes, briefings, and guidance, and can inherit {PRIMARY_AGENT_NAME}'s provider defaults unless you override them.
+            </span>
           </div>
         </div>
 

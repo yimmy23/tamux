@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getBridge } from "./bridge";
 import { TranscriptEntry, TranscriptReason, WorkspaceId, SurfaceId, PaneId } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
 import {
@@ -20,7 +21,7 @@ type TranscriptDbApi = {
 };
 
 function getTranscriptDbApi(): TranscriptDbApi | null {
-  const api = (window as any).tamux ?? (window as any).amux;
+  const api = getBridge();
   if (!api) return null;
   return api as TranscriptDbApi;
 }
@@ -45,6 +46,13 @@ function persistTranscripts(transcripts: TranscriptEntry[]) {
       await api.dbUpsertTranscriptIndex?.(transcript);
     }
   })();
+}
+
+function persistSingleTranscript(transcript: TranscriptEntry) {
+  const api = getTranscriptDbApi();
+  if (!api?.dbUpsertTranscriptIndex) return;
+
+  void api.dbUpsertTranscriptIndex(transcript);
 }
 
 function buildFinalTranscriptFilePath(reason: TranscriptReason, paneId?: string | null) {
@@ -191,7 +199,7 @@ export const useTranscriptStore = create<TranscriptState>((set, get) => ({
     set((s) => {
       const transcripts = pruneTranscripts([entry, ...s.transcripts]);
       scheduleTextWrite(paths.filePath, opts.content, 50);
-      persistTranscripts(transcripts);
+      persistSingleTranscript(entry);
       return { transcripts };
     });
   },
@@ -224,7 +232,7 @@ export const useTranscriptStore = create<TranscriptState>((set, get) => ({
         ...s.transcripts.filter((current) => current.id !== liveId),
       ]);
       scheduleTextWrite(paths.filePath, content, 300);
-      persistTranscripts(transcripts);
+      persistSingleTranscript(entry);
       return { transcripts };
     });
   },

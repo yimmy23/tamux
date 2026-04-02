@@ -1,0 +1,443 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * AMUX-NEXT GLOBAL DESIGN SYSTEM
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 
+ * A 2026 neo-minimalist dark theme for agentic-first computing.
+ * 
+ * Design Philosophy:
+ * - Professional command center meets futuristic AI interface
+ * - Liquid glass transparencies with refined subtlety
+ * - High-density information architecture
+ * - Distinct visual identity for human vs AI vs agent states
+ * - Per-agent lane coloring for multi-agent workflows
+ * - Spatial computing ready with z-axis depth layering
+ * 
+ * Color Taxonomy:
+ * ┌─────────────┬─────────────────────────────────────────────────────────┐
+ * │ Human       │ User input, direct commands, manual overrides          │
+ * │ Agent       │ AI responses, autonomous actions, tool executions      │
+ * │ Approval    │ Gatekeeping states, permission requests, confirmations │
+ * │ Reasoning   │ AI thought traces, chain-of-thought, planning          │
+ * │ Mission     │ Active objectives, task tracking, goal states          │
+ * │ Timeline    │ Historical events, chronological markers               │
+ * └─────────────┴─────────────────────────────────────────────────────────┘
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+:root {
+  /* ═══════════════════════════════════════════════════════════════════════
+   * THEME TOKENS
+   * Core palette - Deep space progression from void to elevated
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  /* Background Scale - Void to Elevated */
+  --bg-void: #020406;
+  --bg-deep: #050810;
+  --bg-primary: #0a0f18;
+  --bg-secondary: #0f1520;
+  --bg-tertiary: #141c28;
+  --bg-surface: #1a2432;
+  --bg-elevated: #212e3e;
+  --bg-canvas: #060a10;
+  --bg-overlay: rgba(2, 4, 6, 0.92);
+  
+  /* Neutral Grays - For UI chrome */
+  --neutral-50: #f8fafc;
+  --neutral-100: #f1f5f9;
+  --neutral-200: #e2e8f0;
+  --neutral-300: #cbd5e1;
+  --neutral-400: #94a3b8;
+  --neutral-500: #64748b;
+  --neutral-600: #475569;
+  --neutral-700: #334155;
+  --neutral-800: #1e293b;
+  --neutral-900: #0f172a;
+  
+  /* Shadow Color Base */
+  --shadow-color: rgba(0, 0, 0, 0.6);
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * TEXT SYSTEM
+   * Crystal clear readability with precise contrast ratios
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --text-primary: #e8edf5;
+  --text-secondary: #9aa8ba;
+  --text-muted: rgba(154, 168, 186, 0.6);
+  --text-disabled: rgba(154, 168, 186, 0.32);
+  --text-inverse: #0a0f18;
+  
+  /* Text on accent backgrounds */
+  --text-on-accent: #0a0f18;
+  --text-on-agent: #0a0f18;
+  --text-on-human: #0a0f18;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * ACCENT SYSTEM
+   * Primary accent with neon gradients for futuristic feel
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  /* Primary Accent - Cyan-teal for general UI focus */
+  --accent: #5ee7df;
+  --accent-hover: #7aefe8;
+  --accent-soft: rgba(94, 231, 223, 0.1);
+  --accent-dim: rgba(94, 231, 223, 0.04);
+  --accent-glow: rgba(94, 231, 223, 0.2);
+  
+  /* Neon Gradient Presets */
+  --neon-gradient-cyan: linear-gradient(135deg, #5ee7df 0%, #22d3ee 100%);
+  --neon-gradient-purple: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+  --neon-gradient-pink: linear-gradient(135deg, #f472b6 0%, #ec4899 100%);
+  --neon-gradient-green: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+  --neon-gradient-amber: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  --neon-gradient-blue: linear-gradient(135deg, #82aaff 0%, #60a5fa 100%);
+  
+  /* Accent Shimmer Animation */
+  --shimmer-gradient: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * SEMANTIC COLORS - AGENT IDENTITY SYSTEM
+   * Distinct visual identities for human, AI, and system states
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  /* ─────────────────────────────────────────────────────────────────────
+   * AGENT - AI responses, autonomous actions, tool executions
+   * Cool blue - trustworthy, computational, systematic
+   * ───────────────────────────────────────────────────────────────────── */
+  --agent: #64b5f6;
+  --agent-hover: #90caf9;
+  --agent-soft: rgba(100, 181, 246, 0.12);
+  --agent-dim: rgba(100, 181, 246, 0.04);
+  --agent-glow: rgba(100, 181, 246, 0.2);
+  --agent-border: rgba(100, 181, 246, 0.3);
+  
+  /* Agent Lane Variants - For per-agent visual identity */
+  --agent-lane-1: #64b5f6;
+  --agent-lane-1-soft: rgba(100, 181, 246, 0.12);
+  --agent-lane-2: #a78bfa;
+  --agent-lane-2-soft: rgba(167, 139, 250, 0.12);
+  --agent-lane-3: #f472b6;
+  --agent-lane-3-soft: rgba(244, 114, 182, 0.12);
+  --agent-lane-4: #22d3ee;
+  --agent-lane-4-soft: rgba(34, 211, 238, 0.12);
+  --agent-lane-5: #a3e635;
+  --agent-lane-5-soft: rgba(163, 230, 53, 0.12);
+  
+  /* ─────────────────────────────────────────────────────────────────────
+   * HUMAN - User input, direct commands, manual overrides
+   * Vibrant green - organic, intentional, human agency
+   * ───────────────────────────────────────────────────────────────────── */
+  --human: #4ade80;
+  --human-hover: #86efac;
+  --human-soft: rgba(74, 222, 128, 0.12);
+  --human-dim: rgba(74, 222, 128, 0.04);
+  --human-glow: rgba(74, 222, 128, 0.2);
+  --human-border: rgba(74, 222, 128, 0.3);
+  
+  /* ─────────────────────────────────────────────────────────────────────
+   * APPROVAL - Gatekeeping, permissions, confirmations
+   * Amber gold - attention, decision point, valuable
+   * ───────────────────────────────────────────────────────────────────── */
+  --approval: #fbbf24;
+  --approval-hover: #fcd34d;
+  --approval-soft: rgba(251, 191, 36, 0.12);
+  --approval-dim: rgba(251, 191, 36, 0.04);
+  --approval-glow: rgba(251, 191, 36, 0.25);
+  --approval-border: rgba(251, 191, 36, 0.3);
+  
+  /* ─────────────────────────────────────────────────────────────────────
+   * REASONING - AI thought traces, chain-of-thought, planning
+   * Ethereal purple - contemplation, intelligence, insight
+   * ───────────────────────────────────────────────────────────────────── */
+  --reasoning: #c4b5fd;
+  --reasoning-hover: #ddd6fe;
+  --reasoning-soft: rgba(196, 181, 253, 0.12);
+  --reasoning-dim: rgba(196, 181, 253, 0.04);
+  --reasoning-glow: rgba(196, 181, 253, 0.2);
+  --reasoning-border: rgba(196, 181, 253, 0.3);
+  
+  /* ─────────────────────────────────────────────────────────────────────
+   * TIMELINE - Historical events, chronological markers
+   * Soft pink - temporal, narrative, journey
+   * ───────────────────────────────────────────────────────────────────── */
+  --timeline: #f472b6;
+  --timeline-hover: #f9a8d4;
+  --timeline-soft: rgba(244, 114, 182, 0.12);
+  --timeline-dim: rgba(244, 114, 182, 0.04);
+  --timeline-glow: rgba(244, 114, 182, 0.2);
+  --timeline-border: rgba(244, 114, 182, 0.3);
+  
+  /* ─────────────────────────────────────────────────────────────────────
+   * MISSION - Active objectives, task tracking, goals
+   * Bright cyan - active, focused, progress
+   * ───────────────────────────────────────────────────────────────────── */
+  --mission: #22d3ee;
+  --mission-hover: #67e8f9;
+  --mission-soft: rgba(34, 211, 238, 0.12);
+  --mission-dim: rgba(34, 211, 238, 0.04);
+  --mission-glow: rgba(34, 211, 238, 0.2);
+  --mission-border: rgba(34, 211, 238, 0.3);
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * STATUS COLORS
+   * System feedback states
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --success: #4ade80;
+  --success-hover: #86efac;
+  --success-soft: rgba(74, 222, 128, 0.1);
+  --success-glow: rgba(74, 222, 128, 0.2);
+  
+  --warning: #fbbf24;
+  --warning-hover: #fcd34d;
+  --warning-soft: rgba(251, 191, 36, 0.1);
+  --warning-glow: rgba(251, 191, 36, 0.2);
+  
+  --danger: #f87171;
+  --danger-hover: #fca5a5;
+  --danger-soft: rgba(248, 113, 113, 0.1);
+  --danger-glow: rgba(248, 113, 113, 0.2);
+  
+  --info: #60a5fa;
+  --info-hover: #93c5fd;
+  --info-soft: rgba(96, 165, 250, 0.1);
+  --info-glow: rgba(96, 165, 250, 0.2);
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * RISK LEVELS
+   * Security and operational risk visualization
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --risk-low: rgba(74, 222, 128, 0.08);
+  --risk-medium: rgba(251, 191, 36, 0.1);
+  --risk-high: rgba(248, 113, 113, 0.1);
+  --risk-critical: rgba(239, 68, 68, 0.15);
+  
+  /* Risk level solid colors */
+  --risk-low-solid: #4ade80;
+  --risk-medium-solid: #fbbf24;
+  --risk-high-solid: #f87171;
+  --risk-critical-solid: #ef4444;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * TYPOGRAPHY
+   * Font families, sizes, weights, and line heights
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --font-ui: "Cascadia Code", "JetBrains Mono", "Fira Code", "SF Mono",
+             "Cousine", Consolas, "Liberation Mono", monospace;
+  --font-mono: "Cascadia Code", "JetBrains Mono", "Fira Code", "SF Mono",
+               "Cousine", Consolas, "Liberation Mono", monospace;
+  --font-display: var(--font-ui);
+  
+  --text-2xs: 9px;
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12px;
+  --text-md: 13px;
+  --text-lg: 14px;
+  --text-xl: 16px;
+  --text-2xl: 18px;
+  --text-3xl: 20px;
+  --text-4xl: 24px;
+  --text-5xl: 32px;
+  
+  --font-light: 300;
+  --font-regular: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  
+  --leading-none: 1;
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+  
+  --tracking-tighter: -0.03em;
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * SPACING SYSTEM
+   * 4px base grid with consistent increments
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --space-0: 0px;
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * BORDERS & RADIUS
+   * Subtle glass edges with soft modern corners
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-focus: rgba(94, 231, 223, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-border-light: rgba(255, 255, 255, 0.12);
+  
+  --border-width-thin: 1px;
+  --border-width-medium: 2px;
+  --border-width-thick: 3px;
+  
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-full: 0px;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * DEPTH & ELEVATION
+   * Z-axis layering for spatial computing readiness
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+
+  --shadow-glow-xs: none;
+  --shadow-glow-sm: none;
+  --shadow-glow-md: none;
+  --shadow-glow-lg: none;
+  --shadow-glow-agent: none;
+  --shadow-glow-human: none;
+  --shadow-glow-approval: none;
+  
+  --depth-flat: 0;
+  --depth-raised: 1;
+  --depth-floating: 2;
+  --depth-overlay: 3;
+  --depth-modal: 4;
+  
+  --shadow-depth-flat: none;
+  --shadow-depth-raised: none;
+  --shadow-depth-floating: none;
+  --shadow-depth-overlay: none;
+  --shadow-depth-modal: none;
+  
+  --z-base: 0;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-overlay: 400;
+  --z-modal-backdrop: 500;
+  --z-modal: 600;
+  --z-popover: 700;
+  --z-tooltip: 800;
+  --z-toast: 900;
+  --z-max: 9999;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * GLASS MORPHISM
+   * Refined liquid glass effects - subtler, more professional
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --blur-xs: 0;
+  --blur-sm: 0;
+  --blur-md: 0;
+  --blur-lg: 0;
+  --blur-xl: 0;
+  --blur-2xl: 0;
+  --blur-3xl: 0;
+  --panel-blur: 0;
+
+  --glass-light: transparent;
+  --glass-medium: transparent;
+  --glass-heavy: rgba(255, 255, 255, 0.04);
+  --glass-dark: var(--bg-primary);
+  --glass-darker: var(--bg-deep);
+
+  --glass-gradient-top: none;
+  --glass-gradient-radial: none;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * LAYOUT DIMENSIONS
+   * Component heights, widths, and structural measurements
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --title-bar-height: 40px;
+  --tab-height: 32px;
+  --status-bar-height: 36px;
+  --command-bar-height: 44px;
+  
+  --sidebar-width: 44px;
+  --sidebar-collapsed-width: 4px;
+  --sidebar-expanded-width: 240px;
+  --panel-width: 520px;
+  --panel-min-width: 280px;
+  --panel-max-width: 800px;
+  
+  --mission-deck-height: 100px;
+  --mission-deck-min-height: 60px;
+  --mission-deck-max-height: 200px;
+  
+  --pane-min-width: 120px;
+  --pane-min-height: 80px;
+  
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * TRANSITIONS & ANIMATIONS
+   * Timing functions and durations
+   * ═══════════════════════════════════════════════════════════════════════ */
+  
+  --duration-instant: 50ms;
+  --duration-fast: 100ms;
+  --duration-normal: 180ms;
+  --duration-slow: 280ms;
+  --duration-slower: 400ms;
+  
+  --ease-linear: linear;
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  
+  --transition-fast: var(--duration-fast) var(--ease-out);
+  --transition-base: var(--duration-normal) var(--ease-out);
+  --transition-slow: var(--duration-slow) var(--ease-out);
+  --transition-bounce: var(--duration-slow) var(--ease-bounce);
+}

@@ -19,16 +19,22 @@ pub fn is_available() -> bool {
 /// Checkpoint (freeze) a process tree by PID.
 /// Saves process state to `dump_dir`.
 pub fn checkpoint(pid: u32, dump_dir: &Path) -> Result<bool> {
-    std::fs::create_dir_all(dump_dir)
-        .with_context(|| format!("failed to create CRIU dump directory: {}", dump_dir.display()))?;
+    std::fs::create_dir_all(dump_dir).with_context(|| {
+        format!(
+            "failed to create CRIU dump directory: {}",
+            dump_dir.display()
+        )
+    })?;
 
     let status = std::process::Command::new("criu")
         .args([
             "dump",
-            "--tree", &pid.to_string(),
-            "--images-dir", &dump_dir.to_string_lossy(),
+            "--tree",
+            &pid.to_string(),
+            "--images-dir",
+            &dump_dir.to_string_lossy(),
             "--shell-job",
-            "--leave-running",  // Don't kill the process after dumping
+            "--leave-running", // Don't kill the process after dumping
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -54,7 +60,8 @@ pub fn restore(dump_dir: &Path) -> Result<Option<u32>> {
     let output = std::process::Command::new("criu")
         .args([
             "restore",
-            "--images-dir", &dump_dir.to_string_lossy(),
+            "--images-dir",
+            &dump_dir.to_string_lossy(),
             "--shell-job",
             "--restore-detached",
         ])

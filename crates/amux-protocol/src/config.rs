@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub const DEFAULT_TCP_HOST: &str = "127.0.0.1";
@@ -84,6 +85,101 @@ pub fn log_file_path(file_name: &str) -> PathBuf {
     tamux_data_dir().join(file_name)
 }
 
+pub fn parse_whatsapp_allowed_contacts(raw: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut contacts = Vec::new();
+
+    for entry in raw.split([',', '\n']) {
+        let Some(normalized) = normalize_whatsapp_phone_like_identifier(entry) else {
+            continue;
+        };
+
+        if seen.insert(normalized.clone()) {
+            contacts.push(normalized);
+        }
+    }
+
+    contacts
+}
+
+pub fn has_whatsapp_allowed_contacts(raw: &str) -> bool {
+    raw.split([',', '\n'])
+        .any(|entry| normalize_whatsapp_phone_like_identifier(entry).is_some())
+}
+
+pub fn normalize_whatsapp_phone_like_identifier(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let candidate = if let Some(phone) = trimmed.strip_suffix("@s.whatsapp.net") {
+        phone
+    } else if let Some(phone) = trimmed.strip_suffix("@c.us") {
+        phone
+    } else if trimmed.contains('@') {
+        return None;
+    } else {
+        trimmed
+    };
+
+    let mut chars = candidate.chars().peekable();
+    let mut saw_group = false;
+
+    if matches!(chars.peek(), Some('+')) {
+        chars.next();
+    }
+
+    while chars.peek().is_some() {
+        let mut digit_count = 0;
+
+        if matches!(chars.peek(), Some('(')) {
+            chars.next();
+            while matches!(chars.peek(), Some(ch) if ch.is_ascii_digit()) {
+                chars.next();
+                digit_count += 1;
+            }
+
+            if digit_count == 0 || !matches!(chars.next(), Some(')')) {
+                return None;
+            }
+        } else {
+            while matches!(chars.peek(), Some(ch) if ch.is_ascii_digit()) {
+                chars.next();
+                digit_count += 1;
+            }
+
+            if digit_count == 0 {
+                return None;
+            }
+        }
+
+        saw_group = true;
+
+        match chars.peek() {
+            None => break,
+            Some(' ') | Some('-') => {
+                chars.next();
+                if matches!(chars.peek(), None | Some(' ') | Some('-')) {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+    }
+
+    if !saw_group {
+        return None;
+    }
+
+    let digits: String = candidate.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        Some(digits)
+    }
+}
+
 /// User-configurable settings for tamux.
 ///
 /// Config file locations:
@@ -125,6 +221,19 @@ pub struct AmuxConfig {
     /// Snapshot backend: "auto", "tar", "zfs", "btrfs". Default is "auto".
     pub snapshot_backend: Option<String>,
 
+    /// Maximum number of snapshots to keep.
+    pub snapshot_max_count: usize,
+
+    /// Maximum snapshot archive size in megabytes.
+    ///
+    /// Retention also uses this as the total budget when auto-cleanup is enabled,
+    /// so setting `snapshot_max_count = 1` gives a "replace previous snapshot"
+    /// policy with this archive-size cap.
+    pub snapshot_max_total_size_mb: u64,
+
+    /// Whether snapshot retention is enforced automatically after create().
+    pub snapshot_auto_cleanup: bool,
+
     /// Cerbos PDP endpoint for external policy evaluation (e.g. "http://localhost:3592").
     pub cerbos_endpoint: Option<String>,
 }
@@ -148,6 +257,9 @@ impl Default for AmuxConfig {
             auto_start_daemon: true,
             sandbox_enabled: true,
             snapshot_backend: None,
+            snapshot_max_count: 1,
+            snapshot_max_total_size_mb: 10_240,
+            snapshot_auto_cleanup: true,
             cerbos_endpoint: None,
         }
     }
@@ -182,13 +294,78 @@ impl AmuxConfig {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let data = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let data = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(&path, data)
     }
 
     /// Platform-specific config file path.
     pub fn config_path() -> PathBuf {
         tamux_config_path()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whatsapp_allowlist_normalize_phone_like_identifiers_conservatively() {
+        assert_eq!(
+            normalize_whatsapp_phone_like_identifier(" +1 (206) 555-0123 "),
+            Some("12065550123".to_string())
+        );
+        assert_eq!(
+            normalize_whatsapp_phone_like_identifier("12065550123@s.whatsapp.net"),
+            Some("12065550123".to_string())
+        );
+        assert_eq!(
+            normalize_whatsapp_phone_like_identifier("12065550123@c.us"),
+            Some("12065550123".to_string())
+        );
+        assert_eq!(normalize_whatsapp_phone_like_identifier(""), None);
+        assert_eq!(normalize_whatsapp_phone_like_identifier("device"), None);
+        assert_eq!(normalize_whatsapp_phone_like_identifier("1+2"), None);
+        assert_eq!(normalize_whatsapp_phone_like_identifier("++123"), None);
+        assert_eq!(normalize_whatsapp_phone_like_identifier(")(123"), None);
+        assert_eq!(normalize_whatsapp_phone_like_identifier("123)"), None);
+        assert_eq!(normalize_whatsapp_phone_like_identifier("(123"), None);
+        assert_eq!(
+            normalize_whatsapp_phone_like_identifier("+1-206-555-ABCD"),
+            None
+        );
+        assert_eq!(
+            normalize_whatsapp_phone_like_identifier("12065550123@example.com"),
+            None
+        );
+    }
+
+    #[test]
+    fn whatsapp_allowlist_parse_splits_trims_normalizes_and_deduplicates() {
+        let parsed = parse_whatsapp_allowed_contacts(
+            " +1 (206) 555-0123,\n12065550123@s.whatsapp.net\n\n+49 30 123456,+49-30-123456,invalid ",
+        );
+
+        assert_eq!(
+            parsed,
+            vec!["12065550123".to_string(), "4930123456".to_string()]
+        );
+    }
+
+    #[test]
+    fn whatsapp_allowlist_parse_ignores_empty_and_invalid_entries() {
+        let parsed = parse_whatsapp_allowed_contacts(
+            "\n, ,\ninvalid\nexample@example.com\n1+2\n++123\n)(123\n",
+        );
+
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn whatsapp_allowlist_has_contacts_only_when_normalized_entries_exist() {
+        assert!(has_whatsapp_allowed_contacts("+1 206 555 0123"));
+        assert!(has_whatsapp_allowed_contacts(
+            "invalid,\n12065550123@s.whatsapp.net"
+        ));
+        assert!(!has_whatsapp_allowed_contacts("\n , invalid , device "));
     }
 }

@@ -1,0 +1,129 @@
+import { useState } from "react";
+import { buildToolReviewPresentation } from "../toolReviewPresentation";
+import type { ToolEventGroup } from "./types";
+
+export function ToolEventRow({ group }: { group: ToolEventGroup }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const statusLabel = group.status.toUpperCase();
+  const shortId = (group.toolCallId || group.key).slice(-8);
+  const reviewPresentation = buildToolReviewPresentation(group.welesReview);
+  const reviewToneStyle = reviewPresentation?.tone === "blocked"
+    ? {
+      color: "#FFB4B4",
+      borderColor: "rgba(255, 107, 107, 0.35)",
+      background: "rgba(109, 26, 26, 0.45)",
+    }
+    : {
+      color: "#FFE1A8",
+      borderColor: "rgba(255, 184, 77, 0.35)",
+      background: "rgba(88, 57, 8, 0.38)",
+    };
+
+  return (
+    <div style={{ border: "1px solid rgba(255,255,255,0.1)", padding: 8, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word", display: "flex", flexDirection: "column", gap: 6, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.01)" }}>
+      <button
+        type="button"
+        onClick={() => setCollapsed((prev) => !prev)}
+        style={{
+          border: "none",
+          background: "transparent",
+          padding: 0,
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-sm)",
+          display: "flex",
+          alignItems: "center",
+          width: "100%",
+          gap: 8,
+        }}
+      >
+        <span style={{ color: "#DE600A" }}>{collapsed ? "▸" : "▾"}</span>
+        <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "space-between", flex: 1 }}>
+          <span>{group.toolName}</span>
+          <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8 }}>
+            {reviewPresentation && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "1px 6px",
+                  border: "1px solid",
+                  borderRadius: 999,
+                  ...reviewToneStyle,
+                }}
+              >
+                {reviewPresentation.badgeLabel}
+              </span>
+            )}
+            <span style={{ color: "#BA4400", fontSize: 11 }}>#{shortId}</span>
+            <span style={{ color: "#BA4400", fontSize: 11 }}>{statusLabel}</span>
+          </div>
+        </div>
+      </button>
+
+      {!collapsed && (
+        <div style={{ display: "grid", gap: 6 }}>
+          {reviewPresentation && (
+            <div
+              style={{
+                display: "grid",
+                gap: 6,
+                padding: 8,
+                border: "1px solid",
+                borderRadius: "var(--radius-sm)",
+                ...reviewToneStyle,
+              }}
+            >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{reviewPresentation.badgeLabel}</span>
+                {reviewPresentation.overrideLabel && (
+                  <span style={{ fontSize: 10, border: "1px solid currentColor", borderRadius: 999, padding: "1px 6px" }}>
+                    {reviewPresentation.overrideLabel}
+                  </span>
+                )}
+                {reviewPresentation.degradedLabel && (
+                  <span style={{ fontSize: 10, border: "1px solid currentColor", borderRadius: 999, padding: "1px 6px" }}>
+                    {reviewPresentation.degradedLabel}
+                  </span>
+                )}
+                {reviewPresentation.auditLabel && (
+                  <span style={{ fontSize: 10, opacity: 0.85 }}>{reviewPresentation.auditLabel}</span>
+                )}
+              </div>
+              {reviewPresentation.reasonText && (
+                <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                  {reviewPresentation.reasonText}
+                </div>
+              )}
+            </div>
+          )}
+
+          {group.toolArguments && (
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>args</div>
+              <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
+                {(() => {
+                  try {
+                    return JSON.stringify(JSON.parse(group.toolArguments), null, 2);
+                  } catch {
+                    return group.toolArguments;
+                  }
+                })()}
+              </pre>
+            </div>
+          )}
+
+          {group.resultContent && (
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>result</div>
+              <div style={{ fontSize: 12, lineHeight: 1.45, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
+                {group.resultContent}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

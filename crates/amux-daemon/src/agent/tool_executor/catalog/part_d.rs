@@ -1,0 +1,252 @@
+fn add_available_tools_part_d(
+    tools: &mut Vec<ToolDefinition>,
+    config: &AgentConfig,
+    agent_data_dir: &std::path::Path,
+    has_workspace_topology: bool,
+) {
+    if config.collaboration.enabled {
+        tools.push(tool_def("broadcast_contribution", "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "topic": { "type": "string", "description": "Short topic under discussion" },
+                "position": { "type": "string", "description": "Your current stance or recommendation" },
+                "evidence": { "type": "array", "items": { "type": "string" }, "description": "Supporting evidence bullets" },
+                "confidence": { "type": "number", "description": "Confidence in the range 0.0-1.0" }
+            },
+            "required": ["topic", "position"]
+        })));
+        tools.push(tool_def("read_peer_memory", "Read sibling subagent contributions, shared context, disagreements, and consensus for the current parent task.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope" }
+            }
+        })));
+        tools.push(tool_def("vote_on_disagreement", "Cast a weighted vote on a live subagent disagreement for the current collaboration session.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "disagreement_id": { "type": "string", "description": "Disagreement ID from read_peer_memory or list_collaboration_sessions" },
+                "position": { "type": "string", "description": "Position you vote for" },
+                "confidence": { "type": "number", "description": "Optional explicit confidence override in the range 0.0-1.0" }
+            },
+            "required": ["disagreement_id", "position"]
+        })));
+        tools.push(tool_def("list_collaboration_sessions", "Inspect live collaboration sessions, contributions, disagreements, and consensus built from subagent work.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "parent_task_id": { "type": "string", "description": "Optional parent task scope" }
+            }
+        })));
+    }
+    tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "title": { "type": "string", "description": "Short task title" },
+            "description": { "type": "string", "description": "Detailed task instructions for the daemon agent" },
+            "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Task priority" },
+            "command": { "type": "string", "description": "Optional preferred command or entrypoint" },
+            "session": { "type": "string", "description": "Optional preferred terminal session ID or substring" },
+            "dependencies": { "type": "array", "items": { "type": "string" }, "description": "Task IDs that must complete first" },
+            "scheduled_at": { "type": "integer", "description": "Optional Unix timestamp in milliseconds for when the task may start" },
+            "schedule_at": { "type": "string", "description": "Optional RFC3339 timestamp for when the task may start" },
+            "delay_seconds": { "type": "integer", "description": "Optional relative delay before the task may start" }
+        },
+        "required": ["description"]
+    })));
+    tools.push(tool_def("list_tasks", "List daemon-managed background tasks and their status, dependencies, schedule, and recent execution metadata.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "status": { "type": "string", "enum": ["queued", "in_progress", "awaiting_approval", "blocked", "failed_analyzing", "completed", "failed", "cancelled"] },
+            "limit": { "type": "integer", "description": "Maximum number of tasks to return" }
+        }
+    })));
+    tools.push(tool_def(
+        "cancel_task",
+        "Cancel a queued, blocked, running, approval-pending, or retrying background task by ID.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "task_id": { "type": "string", "description": "Task ID to cancel" }
+            },
+            "required": ["task_id"]
+        }),
+    ));
+    tools.push(tool_def("type_in_terminal", "Type text into an existing terminal session as raw keyboard input. Use this for: interactive TUI programs (codex, vim, htop), REPLs (python, node), typing commands in running shells, or any program that needs a real TTY. Text and Enter are sent with a small delay between them so TUIs process correctly. You can also send special keys like ctrl+c, escape, tab, arrow keys, etc.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "text": { "type": "string", "description": "Text to type into the terminal" },
+            "press_enter": { "type": "boolean", "description": "Whether to press Enter after typing (default: true)" },
+            "key": { "type": "string", "description": "Send a special key instead of text. Options: enter, ctrl+c, ctrl+d, ctrl+z, ctrl+l, ctrl+a, ctrl+e, ctrl+u, ctrl+k, escape, tab, up, down, left, right, backspace, delete, home, end, page_up, page_down. When 'key' is set, 'text' is ignored." },
+            "pane": { "type": "string", "description": "Pane ID or name (optional, defaults to first active session)" }
+        },
+        "required": []
+    })));
+
+    // Workspace tools — executed via WorkspaceCommand event on the frontend
+    tools.push(tool_def(
+        "list_workspaces",
+        "List workspaces, surfaces, and panes (with names and IDs).",
+        serde_json::json!({"type":"object","properties":{}}),
+    ));
+    tools.push(tool_def(
+        "create_workspace",
+        "Create a new workspace and make it active.",
+        serde_json::json!({
+            "type": "object",
+            "properties": { "name": { "type": "string", "description": "Optional workspace name" } }
+        }),
+    ));
+    tools.push(tool_def("set_active_workspace", "Set the active workspace by ID or name.", serde_json::json!({
+        "type": "object",
+        "properties": { "workspace": { "type": "string", "description": "Workspace ID or name" } },
+        "required": ["workspace"]
+    })));
+    tools.push(tool_def(
+        "create_surface",
+        "Create a new surface (tab) in a workspace.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "workspace": { "type": "string", "description": "Optional workspace ID or name" },
+                "name": { "type": "string", "description": "Optional surface name" }
+            }
+        }),
+    ));
+    tools.push(tool_def(
+        "set_active_surface",
+        "Set active surface by ID or name.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "surface": { "type": "string", "description": "Surface ID or name" },
+                "workspace": { "type": "string", "description": "Optional workspace scope" }
+            },
+            "required": ["surface"]
+        }),
+    ));
+    tools.push(tool_def("split_pane", "Split a pane horizontally or vertically. Works in BSP layout mode. In canvas mode, creates a new panel instead.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "direction": { "type": "string", "enum": ["horizontal", "vertical"] },
+            "pane": { "type": "string", "description": "Optional pane ID or name" },
+            "new_pane_name": { "type": "string", "description": "Optional name for new pane" }
+        },
+        "required": ["direction"]
+    })));
+    tools.push(tool_def(
+        "rename_pane",
+        "Rename a pane.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pane": { "type": "string", "description": "Optional pane ID or name" },
+                "name": { "type": "string", "description": "New pane name" }
+            },
+            "required": ["name"]
+        }),
+    ));
+    tools.push(tool_def("set_layout_preset", "Apply a layout preset to a surface.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "preset": { "type": "string", "enum": ["single", "2-columns", "3-columns", "grid-2x2", "main-stack"] },
+            "surface": { "type": "string", "description": "Optional surface ID or name" },
+            "workspace": { "type": "string", "description": "Optional workspace scope" }
+        },
+        "required": ["preset"]
+    })));
+    tools.push(tool_def(
+        "equalize_layout",
+        "Equalize all split ratios in a surface.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "surface": { "type": "string", "description": "Optional surface ID or name" },
+                "workspace": { "type": "string", "description": "Optional workspace scope" }
+            }
+        }),
+    ));
+    tools.push(tool_def(
+        "list_snippets",
+        "List saved snippets with names and content previews.",
+        serde_json::json!({
+            "type": "object",
+            "properties": { "owner": { "type": "string", "enum": ["user", "assistant", "both"] } }
+        }),
+    ));
+    tools.push(tool_def(
+        "create_snippet",
+        "Create a new snippet.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "content": { "type": "string" },
+                "category": { "type": "string" },
+                "description": { "type": "string" },
+                "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["name", "content"]
+        }),
+    ));
+    tools.push(tool_def("run_snippet", "Execute a snippet by ID or name in a pane.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "snippet": { "type": "string", "description": "Snippet ID or name" },
+            "pane": { "type": "string", "description": "Optional pane ID or name" },
+            "params": { "type": "object", "additionalProperties": { "type": "string" } },
+            "execute": { "type": "boolean", "description": "Append Enter after inserting (default: true)" }
+        },
+        "required": ["snippet"]
+    })));
+
+    if config.tool_synthesis.enabled {
+        tools.push(tool_def("synthesize_tool", "Generate a guarded runtime tool from a conservative CLI --help surface or a GET OpenAPI operation, then register it in the local generated-tool registry.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "kind": { "type": "string", "enum": ["cli", "openapi"], "description": "Generation source kind (default: cli)" },
+                "target": { "type": "string", "description": "CLI invocation or OpenAPI spec URL" },
+                "name": { "type": "string", "description": "Optional generated tool name override" },
+                "operation_id": { "type": "string", "description": "Optional OpenAPI operationId to select" },
+                "activate": { "type": "boolean", "description": "Activate immediately when policy allows it" }
+            },
+            "required": ["target"]
+        })));
+        tools.push(tool_def(
+            "list_generated_tools",
+            "List generated runtime tools with status, effectiveness, and promotion metadata.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        ));
+        tools.push(tool_def("promote_generated_tool", "Promote a generated runtime tool into the generated skills library when it proves useful.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "tool": { "type": "string", "description": "Generated tool ID" }
+            },
+            "required": ["tool"]
+        })));
+        tools.push(tool_def("activate_generated_tool", "Activate a newly synthesized runtime tool after review so it can appear in the callable tool surface on the next turn.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "tool": { "type": "string", "description": "Generated tool ID" }
+            },
+            "required": ["tool"]
+        })));
+        tools.extend(generated_tool_definitions(config, agent_data_dir));
+    }
+
+    // Plugin API proxy tool -- always available (PluginManager handles disabled/missing checks)
+    tools.push(tool_def(
+        "plugin_api_call",
+        "Call a plugin API endpoint. The daemon proxies the HTTP request, handles auth, rate limiting, and returns the response as text.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "plugin_name": { "type": "string", "description": "Name of the installed plugin" },
+                "endpoint_name": { "type": "string", "description": "Name of the API endpoint from the plugin manifest" },
+                "params": { "type": "object", "description": "Parameters passed to the endpoint template (optional)" }
+            },
+            "required": ["plugin_name", "endpoint_name"]
+        }),
+    ));
+}
