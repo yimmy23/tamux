@@ -607,9 +607,6 @@ impl TuiModel {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            if self.config.gateway_enabled {
-                self.config.tool_gateway = true;
-            }
         }
 
         // Hydrate tier from daemon config (override > self_assessment > "newcomer")

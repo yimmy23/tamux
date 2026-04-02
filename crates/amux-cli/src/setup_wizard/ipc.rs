@@ -142,7 +142,7 @@ pub(super) async fn read_config_key(key: &str) -> Option<String> {
     }
 }
 
-pub(super) async fn ensure_daemon_running() -> Result<()> {
+pub(crate) async fn ensure_daemon_running() -> Result<()> {
     if wizard_connect().await.is_ok() {
         return Ok(());
     }

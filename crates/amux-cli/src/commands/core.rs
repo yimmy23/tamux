@@ -32,31 +32,86 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultStartupAction {
+    ShowHelp,
+    RunSetup,
+    StartDaemonAndRetry,
+}
+
+fn default_startup_action(probe: setup_wizard::SetupProbe) -> DefaultStartupAction {
+    match probe {
+        setup_wizard::SetupProbe::Ready => DefaultStartupAction::ShowHelp,
+        setup_wizard::SetupProbe::NeedsSetup => DefaultStartupAction::RunSetup,
+        setup_wizard::SetupProbe::DaemonUnavailable => DefaultStartupAction::StartDaemonAndRetry,
+    }
+}
+
 pub(crate) async fn run_default() -> Result<()> {
     update::print_upgrade_notice_if_available(env!("CARGO_PKG_VERSION")).await;
-    let needs = setup_wizard::needs_setup_via_ipc().await;
 
-    if needs {
-        println!("Welcome to tamux! Running first-time setup...\n");
-        let action = setup_wizard::run_setup_wizard().await?;
-        match handle_post_setup_action(action) {
-            Some(LaunchTarget::Tui) => {
-                println!("\nLaunching TUI...");
-                launch_tui();
+    let mut restarted_daemon = false;
+    loop {
+        match default_startup_action(setup_wizard::probe_setup_via_ipc().await) {
+            DefaultStartupAction::ShowHelp => {
+                Cli::parse_from(["tamux", "--help"]);
+                break;
             }
-            Some(LaunchTarget::Gui) => {
-                println!("\nLaunching desktop app...");
-                launch_gui()?;
+            DefaultStartupAction::RunSetup => {
+                println!("Welcome to tamux! Running first-time setup...\n");
+                let action = setup_wizard::run_setup_wizard().await?;
+                match handle_post_setup_action(action) {
+                    Some(LaunchTarget::Tui) => {
+                        println!("\nLaunching TUI...");
+                        launch_tui();
+                    }
+                    Some(LaunchTarget::Gui) => {
+                        println!("\nLaunching desktop app...");
+                        launch_gui()?;
+                    }
+                    None => {
+                        println!("\nSetup complete. Start later with `tamux tui` or `tamux gui`.");
+                    }
+                }
+                break;
             }
-            None => {
-                println!("\nSetup complete. Start later with `tamux tui` or `tamux gui`.");
+            DefaultStartupAction::StartDaemonAndRetry => {
+                if restarted_daemon {
+                    bail!("daemon is still unreachable after startup retry");
+                }
+                setup_wizard::ensure_daemon_running().await?;
+                restarted_daemon = true;
             }
         }
-    } else {
-        Cli::parse_from(["tamux", "--help"]);
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_startup_action, DefaultStartupAction};
+    use crate::setup_wizard::SetupProbe;
+
+    #[test]
+    fn default_startup_restarts_daemon_before_considering_setup() {
+        assert_eq!(
+            default_startup_action(SetupProbe::DaemonUnavailable),
+            DefaultStartupAction::StartDaemonAndRetry
+        );
+    }
+
+    #[test]
+    fn default_startup_runs_setup_only_when_config_requires_it() {
+        assert_eq!(
+            default_startup_action(SetupProbe::NeedsSetup),
+            DefaultStartupAction::RunSetup
+        );
+        assert_eq!(
+            default_startup_action(SetupProbe::Ready),
+            DefaultStartupAction::ShowHelp
+        );
+    }
 }
 
 pub(crate) async fn run(command: Commands) -> Result<()> {

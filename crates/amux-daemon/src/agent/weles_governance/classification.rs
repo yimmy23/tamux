@@ -189,6 +189,56 @@ fn delegation_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) 
     reasons
 }
 
+fn messaging_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let has_explicit_target = match tool_name {
+        "send_slack_message" => tool_args
+            .get("channel")
+            .and_then(|value| value.as_str())
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false),
+        "send_discord_message" => ["channel_id", "user_id"]
+            .into_iter()
+            .any(|field| {
+                tool_args
+                    .get(field)
+                    .and_then(|value| value.as_str())
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+            }),
+        "send_telegram_message" => tool_args
+            .get("chat_id")
+            .and_then(|value| value.as_str())
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false),
+        "send_whatsapp_message" => ["phone", "to"]
+            .into_iter()
+            .any(|field| {
+                tool_args
+                    .get(field)
+                    .and_then(|value| value.as_str())
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+            }),
+        _ => false,
+    };
+    if has_explicit_target {
+        reasons.push("explicit message target overrides gateway defaults".to_string());
+    }
+
+    let normalized_message = tool_args
+        .get("message")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if normalized_message.contains("@everyone") || normalized_message.contains("@here") {
+        reasons.push("message contains a broadcast-style mention".to_string());
+    }
+
+    reasons
+}
+
 pub(crate) fn classify_tool_call(
     tool_name: &str,
     tool_args: &serde_json::Value,
@@ -216,8 +266,8 @@ pub(crate) fn classify_tool_call(
             | "send_whatsapp_message"
     ) {
         return WelesToolClassification {
-            class: WelesGovernanceClass::GuardAlways,
-            reasons: vec!["external message dispatch creates immediate side effects".to_string()],
+            class: WelesGovernanceClass::GuardIfSuspicious,
+            reasons: messaging_suspicion_reasons(normalized_tool.as_str(), tool_args),
         };
     }
 

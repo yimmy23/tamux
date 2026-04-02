@@ -106,12 +106,12 @@ fn activating_model_for_custom_provider_starts_inline_custom_model_edit() {
 #[test]
 fn activating_message_loop_delay_starts_inline_edit() {
     let (mut model, _daemon_rx) = make_model();
-    model
-        .settings
-        .reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
-    model.settings.reduce(SettingsAction::NavigateField(7));
+    focus_settings_field(&mut model, SettingsTab::Advanced, "message_loop_delay_ms");
 
-    assert_eq!(model.settings.current_field_name(), "message_loop_delay_ms");
+    assert_eq!(
+        model.settings.current_field_name_with_config(&model.config),
+        "message_loop_delay_ms"
+    );
 
     model.activate_settings_field();
 
@@ -272,7 +272,7 @@ fn openai_chatgpt_logout_requests_daemon_flow() {
 }
 
 #[test]
-fn openai_chatgpt_refresh_uses_daemon_status_and_neutral_message() {
+fn openai_chatgpt_second_action_requests_login_when_auth_not_available() {
     let (mut model, mut daemon_rx) = make_model();
     model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
         provider_id: "openai".to_string(),
@@ -293,15 +293,11 @@ fn openai_chatgpt_refresh_uses_daemon_status_and_neutral_message() {
     assert!(matches!(
         daemon_rx
             .try_recv()
-            .expect("expected daemon auth status command"),
-        DaemonCommand::GetOpenAICodexAuthStatus
+            .expect("expected daemon login command"),
+        DaemonCommand::LoginOpenAICodex
     ));
     assert!(daemon_rx.try_recv().is_err());
-    assert_eq!(
-        model.status_line,
-        "Refreshing ChatGPT subscription auth status..."
-    );
-    assert_ne!(model.status_line, "ChatGPT subscription auth available");
+    assert_eq!(model.status_line, "before refresh");
 }
 
 #[test]
@@ -469,4 +465,324 @@ fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() 
     assert_eq!(entry.provider, "anthropic");
     assert_eq!(entry.model, "claude-sonnet-4-5");
     assert_eq!(entry.reasoning_effort.as_deref(), Some("high"));
+}
+
+fn focus_settings_field(model: &mut TuiModel, tab: SettingsTab, field_name: &str) {
+    model.settings.reduce(SettingsAction::SwitchTab(tab));
+    let count = model.settings.field_count_with_config(&model.config);
+    for _ in 0..count {
+        if model.settings.current_field_name_with_config(&model.config) == field_name {
+            return;
+        }
+        model.settings.reduce(SettingsAction::NavigateField(1));
+    }
+    panic!("field {field_name} not found in {:?}", tab);
+}
+
+fn raw_json_string(value: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for part in path {
+        current = current.get(*part)?;
+    }
+    current.as_str().map(str::to_string)
+}
+
+fn raw_json_bool(value: &serde_json::Value, path: &[&str]) -> Option<bool> {
+    let mut current = value;
+    for part in path {
+        current = current.get(*part)?;
+    }
+    current.as_bool()
+}
+
+fn raw_json_u64(value: &serde_json::Value, path: &[&str]) -> Option<u64> {
+    let mut current = value;
+    for part in path {
+        current = current.get(*part)?;
+    }
+    current.as_u64()
+}
+
+#[test]
+fn feature_toggle_fields_emit_expected_config_updates() {
+    let cases = [
+        (
+            "feat_tier_override",
+            "/tier/user_override",
+            "\"familiar\"",
+            Some((vec!["tier", "user_override"], "familiar")),
+            None,
+        ),
+        (
+            "feat_security_level",
+            "/managed_security_level",
+            "\"strict\"",
+            Some((vec!["managed_security_level"], "strict")),
+            None,
+        ),
+        (
+            "feat_check_stale_todos",
+            "/heartbeat/check_stale_todos",
+            "false",
+            None,
+            Some((vec!["heartbeat", "check_stale_todos"], false)),
+        ),
+        (
+            "feat_check_stuck_goals",
+            "/heartbeat/check_stuck_goals",
+            "false",
+            None,
+            Some((vec!["heartbeat", "check_stuck_goals"], false)),
+        ),
+        (
+            "feat_check_unreplied_messages",
+            "/heartbeat/check_unreplied_messages",
+            "false",
+            None,
+            Some((vec!["heartbeat", "check_unreplied_messages"], false)),
+        ),
+        (
+            "feat_check_repo_changes",
+            "/heartbeat/check_repo_changes",
+            "false",
+            None,
+            Some((vec!["heartbeat", "check_repo_changes"], false)),
+        ),
+        (
+            "feat_consolidation_enabled",
+            "/consolidation/enabled",
+            "false",
+            None,
+            Some((vec!["consolidation", "enabled"], false)),
+        ),
+        (
+            "feat_skill_discovery_enabled",
+            "/skill_discovery/enabled",
+            "false",
+            None,
+            Some((vec!["skill_discovery", "enabled"], false)),
+        ),
+    ];
+
+    for (field, expected_key_path, expected_value_json, expected_string, expected_bool) in cases {
+        let (mut model, mut daemon_rx) = make_model();
+        model.config.agent_config_raw = Some(serde_json::json!({}));
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        focus_settings_field(&mut model, SettingsTab::Features, field);
+
+        let quit = model.handle_key_modal(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit, "settings modal should remain open for {field}");
+
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::SetConfigItem {
+                key_path,
+                value_json,
+            }) => {
+                assert_eq!(key_path, expected_key_path, "wrong key path for {field}");
+                assert_eq!(
+                    value_json, expected_value_json,
+                    "wrong serialized value for {field}"
+                );
+            }
+            other => panic!("expected SetConfigItem for {field}, got {other:?}"),
+        }
+
+        let raw = model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .expect("feature toggles should keep raw config");
+        if let Some((path, expected)) = expected_string {
+            assert_eq!(raw_json_string(raw, &path), Some(expected.to_string()));
+        }
+        if let Some((path, expected)) = expected_bool {
+            assert_eq!(raw_json_bool(raw, &path), Some(expected));
+        }
+    }
+}
+
+#[test]
+fn feature_edit_fields_start_with_saved_values_and_submit_expected_updates() {
+    let cases = [
+        (
+            "feat_heartbeat_cron",
+            serde_json::json!({"heartbeat": {"cron": "*/30 * * * *"}}),
+            "*/30 * * * *",
+            "/heartbeat/cron",
+            "\"*/30 * * * *\"",
+        ),
+        (
+            "feat_heartbeat_quiet_start",
+            serde_json::json!({"heartbeat": {"quiet_start": "21:30"}}),
+            "21:30",
+            "/heartbeat/quiet_start",
+            "\"21:30\"",
+        ),
+        (
+            "feat_heartbeat_quiet_end",
+            serde_json::json!({"heartbeat": {"quiet_end": "06:30"}}),
+            "06:30",
+            "/heartbeat/quiet_end",
+            "\"06:30\"",
+        ),
+        (
+            "feat_decay_half_life_hours",
+            serde_json::json!({"consolidation": {"decay_half_life_hours": 72.0}}),
+            "72",
+            "/consolidation/decay_half_life_hours",
+            "72",
+        ),
+        (
+            "feat_heuristic_promotion_threshold",
+            serde_json::json!({"consolidation": {"heuristic_promotion_threshold": 9}}),
+            "9",
+            "/consolidation/heuristic_promotion_threshold",
+            "9",
+        ),
+        (
+            "feat_skill_promotion_threshold",
+            serde_json::json!({"skill_discovery": {"promotion_threshold": 4}}),
+            "4",
+            "/skill_discovery/promotion_threshold",
+            "4",
+        ),
+    ];
+
+    for (field, raw, expected_buffer, expected_key_path, expected_value_json) in cases {
+        let (mut model, mut daemon_rx) = make_model();
+        model.config.agent_config_raw = Some(raw);
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        focus_settings_field(&mut model, SettingsTab::Features, field);
+
+        let quit = model.handle_key_modal(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit, "settings modal should stay open while starting edit for {field}");
+        assert_eq!(model.settings.editing_field(), Some(field));
+        assert_eq!(model.settings.edit_buffer(), expected_buffer);
+
+        let quit = model.handle_key_modal(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit, "settings modal should stay open while committing edit for {field}");
+        assert_eq!(model.settings.editing_field(), None);
+
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::SetConfigItem {
+                key_path,
+                value_json,
+            }) => {
+                assert_eq!(key_path, expected_key_path, "wrong key path for {field}");
+                assert_eq!(
+                    value_json, expected_value_json,
+                    "wrong serialized value for {field}"
+                );
+            }
+            other => panic!("expected SetConfigItem for {field}, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn concierge_config_serializes_all_fields() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.concierge.enabled = true;
+    model.concierge.detail_level = "daily_briefing".to_string();
+    model.concierge.provider = Some("anthropic".to_string());
+    model.concierge.model = Some("claude-sonnet-4-5".to_string());
+    model.concierge.reasoning_effort = Some("high".to_string());
+    model.concierge.auto_cleanup_on_navigate = false;
+
+    model.send_concierge_config();
+
+    let payload = match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SetConciergeConfig(payload)) => payload,
+        other => panic!("expected SetConciergeConfig, got {other:?}"),
+    };
+    let json: serde_json::Value = serde_json::from_str(&payload).expect("valid concierge json");
+    assert_eq!(json["enabled"], true);
+    assert_eq!(json["detail_level"], "daily_briefing");
+    assert_eq!(json["provider"], "anthropic");
+    assert_eq!(json["model"], "claude-sonnet-4-5");
+    assert_eq!(json["reasoning_effort"], "high");
+    assert_eq!(json["auto_cleanup_on_navigate"], false);
+}
+
+#[test]
+fn concierge_settings_fields_dispatch_expected_actions() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+
+    focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_enabled");
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SetConciergeConfig(payload)) => {
+            let json: serde_json::Value = serde_json::from_str(&payload).expect("json");
+            assert_eq!(json["enabled"], false);
+        }
+        other => panic!("expected concierge config update, got {other:?}"),
+    }
+
+    focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_detail_level");
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SetConciergeConfig(payload)) => {
+            let json: serde_json::Value = serde_json::from_str(&payload).expect("json");
+            assert_eq!(json["detail_level"], "daily_briefing");
+        }
+        other => panic!("expected concierge detail update, got {other:?}"),
+    }
+
+    focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_provider");
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+    model.close_top_modal();
+
+    focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_model");
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    model.close_top_modal();
+
+    focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_reasoning_effort");
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::EffortPicker));
 }

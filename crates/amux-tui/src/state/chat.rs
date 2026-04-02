@@ -128,6 +128,17 @@ impl ChatState {
             || self.has_running_tool_calls()
     }
 
+    fn move_thread_to_front(&mut self, thread_id: &str) {
+        let Some(index) = self.threads.iter().position(|thread| thread.id == thread_id) else {
+            return;
+        };
+        if index == 0 {
+            return;
+        }
+        let thread = self.threads.remove(index);
+        self.threads.insert(0, thread);
+    }
+
     pub fn reduce(&mut self, action: ChatAction) {
         match action {
             ChatAction::Delta { thread_id, content } => {
@@ -459,6 +470,7 @@ impl ChatState {
                     };
                     self.threads.push(thread);
                 }
+                self.move_thread_to_front(&thread_id);
                 self.active_thread_id = Some(thread_id);
             }
 

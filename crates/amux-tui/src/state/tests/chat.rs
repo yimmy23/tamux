@@ -179,6 +179,36 @@ fn thread_list_received_preserves_existing_messages_when_summary_is_empty() {
 }
 
 #[test]
+fn thread_created_moves_new_thread_to_front() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![
+        AgentThread {
+            id: "older".into(),
+            title: "Older".into(),
+            updated_at: 10,
+            ..Default::default()
+        },
+        AgentThread {
+            id: "oldest".into(),
+            title: "Oldest".into(),
+            updated_at: 5,
+            ..Default::default()
+        },
+    ]));
+
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "new".into(),
+        title: "Newest".into(),
+    });
+
+    let threads = state.threads();
+    assert_eq!(threads[0].id, "new");
+    assert_eq!(threads[1].id, "older");
+    assert_eq!(threads[2].id, "oldest");
+    assert_eq!(state.active_thread_id(), Some("new"));
+}
+
+#[test]
 fn tool_call_tracks_running_tool() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {

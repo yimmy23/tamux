@@ -69,10 +69,15 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.compliance_sign_all_events = true;
     model.config.gateway_enabled = true;
     model.config.gateway_prefix = "/tamux".to_string();
+    model.config.slack_token = "slack-secret".to_string();
     model.config.slack_channel_filter = "ops,alerts".to_string();
+    model.config.telegram_token = "telegram-secret".to_string();
     model.config.telegram_allowed_chats = "1,2".to_string();
+    model.config.discord_token = "discord-secret".to_string();
+    model.config.discord_channel_filter = "1477397308600619194".to_string();
     model.config.discord_allowed_users = "alice,bob".to_string();
     model.config.whatsapp_phone_id = "phone-1".to_string();
+    model.config.whatsapp_token = "whatsapp-secret".to_string();
     model.config.auto_compact_context = false;
     model.config.max_context_messages = 123;
     model.config.max_tool_loops = 44;
@@ -119,9 +124,15 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     assert_eq!(json["operator_model"]["enabled"], true);
     assert_eq!(json["collaboration"]["enabled"], true);
     assert_eq!(json["compliance"]["sign_all_events"], true);
+    assert_eq!(json["gateway"]["command_prefix"], "/tamux");
+    assert_eq!(json["gateway"]["slack_token"], "slack-secret");
     assert_eq!(json["gateway"]["slack_channel_filter"], "ops,alerts");
+    assert_eq!(json["gateway"]["telegram_token"], "telegram-secret");
     assert_eq!(json["gateway"]["telegram_allowed_chats"], "1,2");
+    assert_eq!(json["gateway"]["discord_token"], "discord-secret");
+    assert_eq!(json["gateway"]["discord_channel_filter"], "1477397308600619194");
     assert_eq!(json["gateway"]["discord_allowed_users"], "alice,bob");
+    assert_eq!(json["gateway"]["whatsapp_token"], "whatsapp-secret");
     assert_eq!(json["gateway"]["whatsapp_phone_id"], "phone-1");
     assert_eq!(json["auto_compact_context"], false);
     assert_eq!(json["max_context_messages"], 123);
@@ -143,6 +154,193 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
         333000
     );
     assert_eq!(json["snapshot_retention"]["max_snapshots"], 15);
+}
+
+#[test]
+fn build_config_patch_value_round_trips_daemon_backed_settings() {
+    let mut model = make_model();
+    model.config.provider = "openai".to_string();
+    model.config.base_url = "https://example.invalid/v1".to_string();
+    model.config.model = "gpt-5.4-mini".to_string();
+    model.config.reasoning_effort = "high".to_string();
+    model.config.tool_bash = false;
+    model.config.tool_file_ops = false;
+    model.config.tool_web_search = false;
+    model.config.tool_web_browse = true;
+    model.config.tool_vision = true;
+    model.config.tool_system_info = false;
+    model.config.tool_gateway = false;
+    model.config.search_provider = "exa".to_string();
+    model.config.firecrawl_api_key = "fc-secret".to_string();
+    model.config.exa_api_key = "exa-secret".to_string();
+    model.config.tavily_api_key = "tavily-secret".to_string();
+    model.config.search_max_results = 12;
+    model.config.search_timeout_secs = 45;
+    model.config.browse_provider = "chrome".to_string();
+    model.config.enable_streaming = false;
+    model.config.enable_conversation_memory = false;
+    model.config.enable_honcho_memory = true;
+    model.config.honcho_api_key = "honcho-secret".to_string();
+    model.config.honcho_base_url = "https://honcho.example".to_string();
+    model.config.honcho_workspace_id = "workspace-123".to_string();
+    model.config.anticipatory_enabled = true;
+    model.config.anticipatory_morning_brief = true;
+    model.config.anticipatory_predictive_hydration = true;
+    model.config.anticipatory_stuck_detection = true;
+    model.config.operator_model_enabled = true;
+    model.config.operator_model_allow_message_statistics = true;
+    model.config.operator_model_allow_approval_learning = true;
+    model.config.operator_model_allow_attention_tracking = true;
+    model.config.operator_model_allow_implicit_feedback = true;
+    model.config.collaboration_enabled = true;
+    model.config.compliance_mode = "soc2".to_string();
+    model.config.compliance_retention_days = 365;
+    model.config.compliance_sign_all_events = true;
+    model.config.tool_synthesis_enabled = true;
+    model.config.tool_synthesis_require_activation = false;
+    model.config.tool_synthesis_max_generated_tools = 77;
+    model.config.managed_sandbox_enabled = true;
+    model.config.managed_security_level = "moderate".to_string();
+    model.config.gateway_enabled = true;
+    model.config.gateway_prefix = "/tamux".to_string();
+    model.config.slack_token = "slack-secret".to_string();
+    model.config.slack_channel_filter = "ops,alerts".to_string();
+    model.config.telegram_token = "telegram-secret".to_string();
+    model.config.telegram_allowed_chats = "1,2".to_string();
+    model.config.discord_token = "discord-secret".to_string();
+    model.config.discord_channel_filter = "1477397308600619194".to_string();
+    model.config.discord_allowed_users = "alice,bob".to_string();
+    model.config.whatsapp_allowed_contacts = "15551234567".to_string();
+    model.config.whatsapp_token = "whatsapp-secret".to_string();
+    model.config.whatsapp_phone_id = "phone-1".to_string();
+    model.config.auto_compact_context = false;
+    model.config.max_context_messages = 123;
+    model.config.max_tool_loops = 44;
+    model.config.max_retries = 7;
+    model.config.retry_delay_ms = 9_000;
+    model.config.message_loop_delay_ms = 250;
+    model.config.tool_call_delay_ms = 750;
+    model.config.auto_retry = false;
+    model.config.context_budget_tokens = 222_000;
+    model.config.compact_threshold_pct = 91;
+    model.config.keep_recent_on_compact = 17;
+    model.config.bash_timeout_secs = 77;
+    model.config.compaction_strategy = "custom_model".to_string();
+    model.config.compaction_weles_provider = "openai".to_string();
+    model.config.compaction_weles_model = "gpt-5.4-mini".to_string();
+    model.config.compaction_weles_reasoning_effort = "medium".to_string();
+    model.config.compaction_custom_provider = "openrouter".to_string();
+    model.config.compaction_custom_base_url = "https://openrouter.ai/api/v1".to_string();
+    model.config.compaction_custom_model = "anthropic/claude-sonnet-4".to_string();
+    model.config.compaction_custom_api_key = "sk-compaction".to_string();
+    model.config.compaction_custom_assistant_id = "assist-compaction".to_string();
+    model.config.compaction_custom_auth_source = "api_key".to_string();
+    model.config.compaction_custom_api_transport = "chat_completions".to_string();
+    model.config.compaction_custom_reasoning_effort = "high".to_string();
+    model.config.compaction_custom_context_window_tokens = 333_000;
+    model.config.snapshot_max_count = 15;
+    model.config.snapshot_max_size_mb = 2_048;
+    model.config.snapshot_auto_cleanup = false;
+
+    let json = model.build_config_patch_value();
+
+    let mut reloaded = make_model();
+    reloaded.apply_config_json(&json);
+
+    assert_eq!(reloaded.config.provider, "openai");
+    assert_eq!(reloaded.config.base_url, "https://api.openai.com/v1");
+    assert_eq!(reloaded.config.model, "gpt-5.4-mini");
+    assert_eq!(reloaded.config.reasoning_effort, "high");
+    assert_eq!(reloaded.config.tool_bash, false);
+    assert_eq!(reloaded.config.tool_file_ops, false);
+    assert_eq!(reloaded.config.tool_web_search, false);
+    assert_eq!(reloaded.config.tool_web_browse, true);
+    assert_eq!(reloaded.config.tool_vision, true);
+    assert_eq!(reloaded.config.tool_system_info, false);
+    assert_eq!(reloaded.config.tool_gateway, false);
+    assert_eq!(reloaded.config.search_provider, "exa");
+    assert_eq!(reloaded.config.firecrawl_api_key, "fc-secret");
+    assert_eq!(reloaded.config.exa_api_key, "exa-secret");
+    assert_eq!(reloaded.config.tavily_api_key, "tavily-secret");
+    assert_eq!(reloaded.config.search_max_results, 12);
+    assert_eq!(reloaded.config.search_timeout_secs, 45);
+    assert_eq!(reloaded.config.browse_provider, "chrome");
+    assert_eq!(reloaded.config.enable_streaming, false);
+    assert_eq!(reloaded.config.enable_conversation_memory, false);
+    assert_eq!(reloaded.config.enable_honcho_memory, true);
+    assert_eq!(reloaded.config.honcho_api_key, "honcho-secret");
+    assert_eq!(reloaded.config.honcho_base_url, "https://honcho.example");
+    assert_eq!(reloaded.config.honcho_workspace_id, "workspace-123");
+    assert_eq!(reloaded.config.anticipatory_enabled, true);
+    assert_eq!(reloaded.config.anticipatory_morning_brief, true);
+    assert_eq!(reloaded.config.anticipatory_predictive_hydration, true);
+    assert_eq!(reloaded.config.anticipatory_stuck_detection, true);
+    assert_eq!(reloaded.config.operator_model_enabled, true);
+    assert_eq!(reloaded.config.operator_model_allow_message_statistics, true);
+    assert_eq!(reloaded.config.operator_model_allow_approval_learning, true);
+    assert_eq!(reloaded.config.operator_model_allow_attention_tracking, true);
+    assert_eq!(reloaded.config.operator_model_allow_implicit_feedback, true);
+    assert_eq!(reloaded.config.collaboration_enabled, true);
+    assert_eq!(reloaded.config.compliance_mode, "soc2");
+    assert_eq!(reloaded.config.compliance_retention_days, 365);
+    assert_eq!(reloaded.config.compliance_sign_all_events, true);
+    assert_eq!(reloaded.config.tool_synthesis_enabled, true);
+    assert_eq!(reloaded.config.tool_synthesis_require_activation, false);
+    assert_eq!(reloaded.config.tool_synthesis_max_generated_tools, 77);
+    assert_eq!(reloaded.config.managed_sandbox_enabled, true);
+    assert_eq!(reloaded.config.managed_security_level, "moderate");
+    assert_eq!(reloaded.config.gateway_enabled, true);
+    assert_eq!(reloaded.config.gateway_prefix, "/tamux");
+    assert_eq!(reloaded.config.slack_token, "slack-secret");
+    assert_eq!(reloaded.config.slack_channel_filter, "ops,alerts");
+    assert_eq!(reloaded.config.telegram_token, "telegram-secret");
+    assert_eq!(reloaded.config.telegram_allowed_chats, "1,2");
+    assert_eq!(reloaded.config.discord_token, "discord-secret");
+    assert_eq!(reloaded.config.discord_channel_filter, "1477397308600619194");
+    assert_eq!(reloaded.config.discord_allowed_users, "alice,bob");
+    assert_eq!(reloaded.config.whatsapp_allowed_contacts, "15551234567");
+    assert_eq!(reloaded.config.whatsapp_token, "whatsapp-secret");
+    assert_eq!(reloaded.config.whatsapp_phone_id, "phone-1");
+    assert_eq!(reloaded.config.auto_compact_context, false);
+    assert_eq!(reloaded.config.max_context_messages, 123);
+    assert_eq!(reloaded.config.max_tool_loops, 44);
+    assert_eq!(reloaded.config.max_retries, 7);
+    assert_eq!(reloaded.config.retry_delay_ms, 9_000);
+    assert_eq!(reloaded.config.message_loop_delay_ms, 250);
+    assert_eq!(reloaded.config.tool_call_delay_ms, 750);
+    assert_eq!(reloaded.config.auto_retry, false);
+    assert_eq!(reloaded.config.context_budget_tokens, 222_000);
+    assert_eq!(reloaded.config.compact_threshold_pct, 91);
+    assert_eq!(reloaded.config.keep_recent_on_compact, 17);
+    assert_eq!(reloaded.config.bash_timeout_secs, 77);
+    assert_eq!(reloaded.config.compaction_strategy, "custom_model");
+    assert_eq!(reloaded.config.compaction_weles_provider, "openai");
+    assert_eq!(reloaded.config.compaction_weles_model, "gpt-5.4-mini");
+    assert_eq!(reloaded.config.compaction_weles_reasoning_effort, "medium");
+    assert_eq!(reloaded.config.compaction_custom_provider, "openrouter");
+    assert_eq!(
+        reloaded.config.compaction_custom_base_url,
+        "https://openrouter.ai/api/v1"
+    );
+    assert_eq!(
+        reloaded.config.compaction_custom_model,
+        "anthropic/claude-sonnet-4"
+    );
+    assert_eq!(reloaded.config.compaction_custom_api_key, "sk-compaction");
+    assert_eq!(
+        reloaded.config.compaction_custom_assistant_id,
+        "assist-compaction"
+    );
+    assert_eq!(reloaded.config.compaction_custom_auth_source, "api_key");
+    assert_eq!(
+        reloaded.config.compaction_custom_api_transport,
+        "chat_completions"
+    );
+    assert_eq!(reloaded.config.compaction_custom_reasoning_effort, "high");
+    assert_eq!(reloaded.config.compaction_custom_context_window_tokens, 333_000);
+    assert_eq!(reloaded.config.snapshot_max_count, 15);
+    assert_eq!(reloaded.config.snapshot_max_size_mb, 2_048);
+    assert_eq!(reloaded.config.snapshot_auto_cleanup, false);
 }
 
 #[test]

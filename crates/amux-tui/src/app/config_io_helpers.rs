@@ -266,8 +266,14 @@ impl TuiModel {
         patch["context_window_tokens"] =
             serde_json::Value::from(self.effective_current_context_window() as u64);
         patch["search_provider"] = serde_json::Value::String(self.config.search_provider.clone());
+        patch["firecrawl_api_key"] =
+            serde_json::Value::String(self.config.firecrawl_api_key.clone());
+        patch["exa_api_key"] = serde_json::Value::String(self.config.exa_api_key.clone());
+        patch["tavily_api_key"] = serde_json::Value::String(self.config.tavily_api_key.clone());
         patch["search_max_results"] = serde_json::Value::from(self.config.search_max_results);
         patch["search_timeout_secs"] = serde_json::Value::from(self.config.search_timeout_secs);
+        patch["browse_provider"] =
+            serde_json::Value::String(self.config.browse_provider.clone());
         patch["enable_streaming"] = serde_json::Value::Bool(self.config.enable_streaming);
         patch["enable_conversation_memory"] =
             serde_json::Value::Bool(self.config.enable_conversation_memory);
@@ -279,20 +285,37 @@ impl TuiModel {
         patch["tool_gateway"] = serde_json::Value::Bool(self.config.tool_gateway);
         patch["tools"] = serde_json::json!({
             "bash": self.config.tool_bash,
-            "file_ops": self.config.tool_file_ops,
+            "file_operations": self.config.tool_file_ops,
             "web_search": self.config.tool_web_search,
             "web_browse": self.config.tool_web_browse,
             "vision": self.config.tool_vision,
             "system_info": self.config.tool_system_info,
-            "gateway": self.config.tool_gateway,
+            "gateway_messaging": self.config.tool_gateway,
+        });
+        patch["anticipatory"] = serde_json::json!({
+            "enabled": self.config.anticipatory_enabled,
+            "morning_brief": self.config.anticipatory_morning_brief,
+            "predictive_hydration": self.config.anticipatory_predictive_hydration,
+            "stuck_detection": self.config.anticipatory_stuck_detection,
         });
         patch["collaboration"] =
             serde_json::json!({ "enabled": self.config.collaboration_enabled });
-        patch["operator_model"] =
-            serde_json::json!({ "enabled": self.config.operator_model_enabled });
+        patch["operator_model"] = serde_json::json!({
+            "enabled": self.config.operator_model_enabled,
+            "allow_message_statistics": self.config.operator_model_allow_message_statistics,
+            "allow_approval_learning": self.config.operator_model_allow_approval_learning,
+            "allow_attention_tracking": self.config.operator_model_allow_attention_tracking,
+            "allow_implicit_feedback": self.config.operator_model_allow_implicit_feedback,
+        });
         patch["compliance"] = serde_json::json!({
             "mode": normalize_compliance_mode(&self.config.compliance_mode),
+            "retention_days": self.config.compliance_retention_days,
             "sign_all_events": self.config.compliance_sign_all_events,
+        });
+        patch["tool_synthesis"] = serde_json::json!({
+            "enabled": self.config.tool_synthesis_enabled,
+            "require_activation": self.config.tool_synthesis_require_activation,
+            "max_generated_tools": self.config.tool_synthesis_max_generated_tools,
         });
         patch["managed_execution"] = serde_json::json!({
             "sandbox_enabled": self.config.managed_sandbox_enabled,
@@ -300,10 +323,15 @@ impl TuiModel {
         });
         patch["gateway"] = serde_json::json!({
             "enabled": self.config.gateway_enabled,
-            "prefix": self.config.gateway_prefix,
+            "command_prefix": self.config.gateway_prefix,
+            "slack_token": self.config.slack_token,
             "slack_channel_filter": self.config.slack_channel_filter,
+            "telegram_token": self.config.telegram_token,
             "telegram_allowed_chats": self.config.telegram_allowed_chats,
+            "discord_token": self.config.discord_token,
+            "discord_channel_filter": self.config.discord_channel_filter,
             "discord_allowed_users": self.config.discord_allowed_users,
+            "whatsapp_token": self.config.whatsapp_token,
             "whatsapp_phone_id": self.config.whatsapp_phone_id,
             "whatsapp_allowed_contacts": self.config.whatsapp_allowed_contacts,
         });
