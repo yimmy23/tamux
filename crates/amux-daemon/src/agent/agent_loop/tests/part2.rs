@@ -648,7 +648,7 @@ async fn anthropic_transport_retry_restarts_with_fresh_runner_state() {
     config.api_transport = ApiTransport::ChatCompletions;
     config.auto_retry = true;
     config.max_retries = 1;
-    config.retry_delay_ms = 10;
+    config.retry_delay_ms = 200;
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
     let thread_id = "thread-anthropic-fresh-retry";
@@ -749,7 +749,7 @@ async fn anthropic_outer_auto_retry_restarts_with_fresh_runner_state() {
     config.api_transport = ApiTransport::ChatCompletions;
     config.auto_retry = true;
     config.max_retries = 0;
-    config.retry_delay_ms = 10;
+    config.retry_delay_ms = 200;
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
     let thread_id = "thread-anthropic-outer-fresh-retry";

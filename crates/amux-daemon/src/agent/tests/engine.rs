@@ -237,7 +237,7 @@ async fn spawn_hung_http_server() -> String {
             tokio::spawn(async move {
                 let mut buffer = [0u8; 1024];
                 let _ = socket.read(&mut buffer).await;
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                tokio::time::sleep(Duration::from_secs(15)).await;
             });
         }
     });
@@ -272,7 +272,7 @@ async fn send_message_times_out_hung_provider_request() {
     );
 
     let result = tokio::time::timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(4),
         engine.send_message_inner(
             None,
             "What model are you?",

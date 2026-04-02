@@ -306,3 +306,19 @@ fn managed_execution_routes_policy_risky_commands_to_managed_path() {
     })));
     assert!(!command_matches_policy_risk("echo hello"));
 }
+
+#[test]
+fn managed_execution_keeps_yolo_shell_commands_headless() {
+    assert!(!should_use_managed_execution(&serde_json::json!({
+        "command": "python3 -c \"print('hi')\"",
+        "security_level": "yolo"
+    })));
+    assert!(!should_use_managed_execution(&serde_json::json!({
+        "command": "rm -rf /tmp/tamux-yolo-test",
+        "security_level": "yolo"
+    })));
+    assert!(should_use_managed_execution(&serde_json::json!({
+        "command": "rm -rf /tmp/tamux-highest-test",
+        "security_level": "highest"
+    })));
+}

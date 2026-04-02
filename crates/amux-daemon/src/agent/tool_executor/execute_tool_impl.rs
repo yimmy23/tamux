@@ -248,6 +248,7 @@ pub fn execute_tool<'a>(
             tool_call.function.name.as_str(),
             "bash_command" | "execute_managed_command" | "enqueue_task" | "spawn_subagent"
         )
+        && !trusted_weles_internal_task
         && agent.get_todos(thread_id).await.is_empty()
         && (task_id.is_some() || planner_required_before_governance)
     {

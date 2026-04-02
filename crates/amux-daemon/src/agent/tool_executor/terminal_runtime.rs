@@ -187,17 +187,17 @@ fn should_use_managed_execution_for_surface(
         return true;
     }
 
-    if matches!(
-        args.get("security_level").and_then(|value| value.as_str()),
-        Some("highest" | "yolo")
-    ) {
+    let security_level = args.get("security_level").and_then(|value| value.as_str());
+
+    if matches!(security_level, Some("highest")) {
         return true;
     }
 
-    if args
-        .get("command")
-        .and_then(|value| value.as_str())
-        .is_some_and(command_matches_policy_risk)
+    if !matches!(security_level, Some("yolo"))
+        && args
+            .get("command")
+            .and_then(|value| value.as_str())
+            .is_some_and(command_matches_policy_risk)
     {
         return true;
     }
