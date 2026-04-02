@@ -33,7 +33,8 @@ fn render_plugins_tab<'a>(
             } else {
                 match plugin.auth_status.as_str() {
                     "connected" => "OK".to_string(),
-                    "expired" => "Expired".to_string(),
+                    "refreshable" => "Auto-refresh".to_string(),
+                    "needs_reconnect" => "Reconnect".to_string(),
                     _ => "Setup".to_string(),
                 }
             };
@@ -42,7 +43,8 @@ fn render_plugins_tab<'a>(
             } else {
                 match plugin.auth_status.as_str() {
                     "connected" => Style::default().fg(Color::Green),
-                    "expired" => Style::default().fg(Color::Yellow),
+                    "refreshable" => Style::default().fg(Color::Yellow),
+                    "needs_reconnect" => Style::default().fg(Color::Red),
                     _ => theme.fg_dim,
                 }
             };
@@ -200,10 +202,10 @@ fn render_plugins_tab<'a>(
             } else {
                 theme.fg_dim
             };
-            let connect_label = if plugin.auth_status == "connected" {
-                "[Reconnect]"
-            } else {
+            let connect_label = if plugin.auth_status == "not_configured" {
                 "[Connect]"
+            } else {
+                "[Reconnect]"
             };
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
@@ -238,4 +240,3 @@ fn mask_api_key(key: &str) -> String {
         prefix, suffix
     )
 }
-

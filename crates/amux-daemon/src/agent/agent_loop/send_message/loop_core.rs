@@ -282,22 +282,55 @@ impl<'a> SendMessageRunner<'a> {
                                     ),
                                 );
                             }
-                            if self.config.auto_retry && is_transient_retry_message(&message) {
-                                let delay_ms = 30_000u64;
+                            if self.task_id.is_none()
+                                && self.config.auto_retry
+                                && is_transient_retry_message(&message)
+                                && self.scheduled_retry_cycles == 0
+                            {
+                                let delay_ms = if cfg!(test) {
+                                    u64::from(self.config.retry_delay_ms).max(1)
+                                } else {
+                                    30_000u64
+                                };
+                                let attempt = self.scheduled_retry_cycles.saturating_add(1);
+                                let max_retries = 1;
                                 let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
                                     thread_id: self.tid.clone(),
                                     phase: "waiting".to_string(),
-                                    attempt: self.config.max_retries,
-                                    max_retries: self.config.max_retries,
+                                    attempt,
+                                    max_retries,
                                     delay_ms,
                                     failure_class: retry_failure_class_from_message(&message).to_string(),
                                     message: visible_message.clone(),
                                 });
                                 self.retry_status_visible = true;
+                                self.scheduled_retry_cycles = attempt;
                                 tokio::select! {
                                     _ = self.stream_cancel_token.cancelled() => {
                                         self.was_cancelled = true;
                                         break;
+                                    }
+                                    _ = self.stream_retry_now.notified() => {
+                                        let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
+                                            thread_id: self.tid.clone(),
+                                            phase: "retrying".to_string(),
+                                            attempt,
+                                            max_retries,
+                                            delay_ms: 0,
+                                            failure_class: retry_failure_class_from_message(&message).to_string(),
+                                            message: visible_message.clone(),
+                                        });
+                                        return Ok(StreamIteration {
+                                            prepared_request,
+                                            llm_started_at,
+                                            first_token_at,
+                                            effective_transport_for_turn,
+                                            accumulated_content,
+                                            accumulated_reasoning,
+                                            final_chunk: None,
+                                            stream_timed_out: true,
+                                            retry_loop: true,
+                                        });
                                     }
                                     _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {
                                         return Ok(StreamIteration {

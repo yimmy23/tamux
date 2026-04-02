@@ -175,6 +175,29 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse heartbeat items: {}", err),
                 }
             }
+            DaemonMessage::AgentEventRows { events_json } => {
+                match serde_json::from_str::<Vec<amux_protocol::AgentEventRow>>(&events_json) {
+                    Ok(rows) => {
+                        let notifications = rows
+                            .into_iter()
+                            .filter_map(|row| {
+                                if row.category != "notification" {
+                                    return None;
+                                }
+                                serde_json::from_str::<amux_protocol::InboxNotification>(
+                                    &row.payload_json,
+                                )
+                                .ok()
+                            })
+                            .collect::<Vec<_>>();
+                        let _ = event_tx
+                            .send(ClientEvent::NotificationSnapshot(notifications))
+                            .await;
+                    }
+                    Err(err) => warn!("Failed to parse agent event rows: {}", err),
+                }
+            }
+            DaemonMessage::AgentDbMessageAck => {}
             DaemonMessage::SessionSpawned { id } => {
                 let _ = event_tx
                     .send(ClientEvent::SessionSpawned {

@@ -44,7 +44,7 @@ export function TitleBar() {
   const notificationPanelOpen = useWorkspaceStore((s) => s.notificationPanelOpen);
   const approvals = useAgentMissionStore((s) => s.approvals);
   const cognitiveEvents = useAgentMissionStore((s) => s.cognitiveEvents);
-  const notifications = useNotificationStore((s) => s.notifications);
+  const unreadNotifications = useNotificationStore((s) => s.unreadCount);
   const active_provider = useAgentStore((s) => s.agentSettings.active_provider);
   const bindings = useKeybindStore((s) => s.bindings);
   const [platform, setPlatform] = useState<string | null>(null);
@@ -56,11 +56,6 @@ export function TitleBar() {
     [approvals],
   );
   const traceCount = cognitiveEvents.length;
-  const unreadNotifications = useMemo(
-    () => notifications.filter((entry) => !entry.isRead).length,
-    [notifications],
-  );
-
   const shortcutFor = useCallback(
     (action: string): string | undefined => bindings.find((binding) => binding.action === action)?.combo,
     [bindings],

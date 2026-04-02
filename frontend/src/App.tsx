@@ -106,6 +106,7 @@ export default function App() {
   // may not be open when the app loads.
   useEffect(() => {
     const amux = getBridge();
+    void useNotificationStore.getState().loadSharedNotifications();
     if (!amux?.onAgentEvent) {
       console.warn("[concierge] no onAgentEvent bridge available");
       return;
@@ -163,6 +164,9 @@ export default function App() {
             source: "heartbeat",
           });
         }
+      }
+      if (event?.type === "notification_inbox_upsert" && event.notification) {
+        useNotificationStore.getState().upsertSharedNotification(event.notification);
       }
       // Gateway status events (Phase 8 - Gateway Completion)
       if (event?.type === "gateway_status") {

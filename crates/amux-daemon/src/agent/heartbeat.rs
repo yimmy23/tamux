@@ -114,6 +114,14 @@ impl AgentEngine {
                         .copied()
                         .unwrap_or(checks_config.repo_changes_priority_weight)
                 });
+            let effective_plugin_auth_weight = checks_config
+                .plugin_auth_priority_override
+                .unwrap_or_else(|| {
+                    learned_weights
+                        .get(&HeartbeatCheckType::PluginAuth)
+                        .copied()
+                        .unwrap_or(checks_config.plugin_auth_priority_weight)
+                });
 
             drop(learned_weights);
 
@@ -145,6 +153,11 @@ impl AgentEngine {
                 && should_run_check(effective_repo_weight, cycle_count)
             {
                 check_results.push(self.check_repo_changes().await);
+            }
+            if checks_config.plugin_auth_enabled
+                && should_run_check(effective_plugin_auth_weight, cycle_count)
+            {
+                check_results.push(self.check_plugin_auth().await);
             }
         }
 
@@ -300,6 +313,7 @@ impl AgentEngine {
                     "unreplied messages",
                 ),
                 (HeartbeatCheckType::RepoChanges, "repo changes"),
+                (HeartbeatCheckType::PluginAuth, "plugin auth"),
             ];
             for (check_type, check_name) in &check_names {
                 if let Some(&weight) = weights.get(check_type) {

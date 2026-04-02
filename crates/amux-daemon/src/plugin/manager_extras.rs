@@ -1,5 +1,65 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PluginAuthStatus {
+    NotConfigured,
+    Connected,
+    ExpiringSoon,
+    Refreshable,
+    NeedsReconnect,
+}
+
+impl PluginAuthStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotConfigured => "not_configured",
+            Self::Connected => "connected",
+            Self::ExpiringSoon => "expiring_soon",
+            Self::Refreshable => "refreshable",
+            Self::NeedsReconnect => "needs_reconnect",
+        }
+    }
+}
+
+const PLUGIN_AUTH_EXPIRING_SOON_SECS: i64 = 15 * 60;
+
+pub(crate) fn auth_status_from_expiry_and_refresh_token(
+    expires_at: Option<&str>,
+    has_refresh_token: bool,
+) -> PluginAuthStatus {
+    match expires_at {
+        None => PluginAuthStatus::Connected,
+        Some(expires_at) => match chrono::DateTime::parse_from_rfc3339(expires_at) {
+            Ok(dt) => {
+                let expires_at = dt.with_timezone(&chrono::Utc);
+                let now = chrono::Utc::now();
+                if expires_at <= now {
+                    if has_refresh_token {
+                        PluginAuthStatus::Refreshable
+                    } else {
+                        PluginAuthStatus::NeedsReconnect
+                    }
+                } else if !has_refresh_token
+                    && expires_at <= now + chrono::Duration::seconds(PLUGIN_AUTH_EXPIRING_SOON_SECS)
+                {
+                    PluginAuthStatus::ExpiringSoon
+                } else {
+                    PluginAuthStatus::Connected
+                }
+            }
+            Err(_) => PluginAuthStatus::Connected,
+        },
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PluginAuthHealthIssue {
+    pub plugin_name: String,
+    pub status: PluginAuthStatus,
+    pub message: String,
+    pub auto_action_attempted: bool,
+}
+
 impl PluginManager {
     pub(super) async fn check_plugin_enabled(
         &self,
@@ -44,6 +104,143 @@ impl PluginManager {
         let plugins = self.plugins.read().await;
         let mut registry = self.command_registry.write().await;
         registry.rebuild_from_plugins(&plugins);
+    }
+
+    pub(crate) async fn monitor_auth_health(&self) -> Vec<PluginAuthHealthIssue> {
+        let plugins = self.plugins.read().await;
+        let oauth_plugins: Vec<(String, manifest::AuthSection)> = plugins
+            .iter()
+            .filter_map(|(name, plugin)| {
+                plugin
+                    .manifest
+                    .auth
+                    .as_ref()
+                    .filter(|auth| auth.auth_type == "oauth2")
+                    .map(|auth| (name.clone(), auth.clone()))
+            })
+            .collect();
+        drop(plugins);
+
+        let data_dir = self.plugins_dir.parent().unwrap_or(Path::new("."));
+        let encryption_key = match crypto::load_or_create_key(data_dir) {
+            Ok(key) => Some(key),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load plugin auth encryption key");
+                None
+            }
+        };
+
+        let mut issues = Vec::new();
+        for (plugin_name, manifest_auth) in oauth_plugins {
+            let access_cred = match self
+                .persistence
+                .get_credential(&plugin_name, "access_token")
+                .await
+            {
+                Ok(value) => value,
+                Err(e) => {
+                    tracing::warn!(plugin = %plugin_name, error = %e, "failed to read access token");
+                    continue;
+                }
+            };
+            let Some((_, expires_at)) = access_cred else {
+                continue;
+            };
+
+            let has_refresh_token = match self
+                .persistence
+                .get_credential(&plugin_name, "refresh_token")
+                .await
+            {
+                Ok(value) => value.is_some(),
+                Err(e) => {
+                    tracing::warn!(plugin = %plugin_name, error = %e, "failed to read refresh token");
+                    false
+                }
+            };
+
+            match auth_status_from_expiry_and_refresh_token(expires_at.as_deref(), has_refresh_token)
+            {
+                PluginAuthStatus::Connected | PluginAuthStatus::NotConfigured => {}
+                PluginAuthStatus::ExpiringSoon => issues.push(PluginAuthHealthIssue {
+                    plugin_name: plugin_name.clone(),
+                    status: PluginAuthStatus::ExpiringSoon,
+                    message: "Access token expires soon and no refresh token is stored. Reconnect this plugin before it expires.".to_string(),
+                    auto_action_attempted: false,
+                }),
+                PluginAuthStatus::NeedsReconnect => issues.push(PluginAuthHealthIssue {
+                    plugin_name: plugin_name.clone(),
+                    status: PluginAuthStatus::NeedsReconnect,
+                    message: "Access token expired and no refresh token is stored. Reconnect this plugin.".to_string(),
+                    auto_action_attempted: false,
+                }),
+                PluginAuthStatus::Refreshable => {
+                    let Some(key) = encryption_key.as_ref() else {
+                        issues.push(PluginAuthHealthIssue {
+                            plugin_name: plugin_name.clone(),
+                            status: PluginAuthStatus::Refreshable,
+                            message: "Access token expired, but the daemon could not load the encryption key to auto-refresh it. Reconnect this plugin.".to_string(),
+                            auto_action_attempted: true,
+                        });
+                        continue;
+                    };
+
+                    let settings = self
+                        .persistence
+                        .get_settings(&plugin_name)
+                        .await
+                        .unwrap_or_default();
+                    let manifest_auth = Some(manifest_auth.clone());
+                    let lock = self.get_refresh_lock(&plugin_name).await;
+                    let _guard = lock.lock().await;
+
+                    let access_cred = self
+                        .persistence
+                        .get_credential(&plugin_name, "access_token")
+                        .await
+                        .ok()
+                        .flatten();
+                    let Some((_, expires_at)) = access_cred else {
+                        continue;
+                    };
+                    let has_refresh_token = self
+                        .persistence
+                        .get_credential(&plugin_name, "refresh_token")
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
+                    if auth_status_from_expiry_and_refresh_token(
+                        expires_at.as_deref(),
+                        has_refresh_token,
+                    ) != PluginAuthStatus::Refreshable
+                    {
+                        continue;
+                    }
+
+                    if let Err(e) = self
+                        .try_refresh_token(&plugin_name, &manifest_auth, &settings, key)
+                        .await
+                    {
+                        tracing::warn!(
+                            plugin = %plugin_name,
+                            error = %e,
+                            "plugin auth maintenance auto-refresh failed"
+                        );
+                        issues.push(PluginAuthHealthIssue {
+                            plugin_name: plugin_name.clone(),
+                            status: PluginAuthStatus::Refreshable,
+                            message: format!(
+                                "Access token expired and auto-refresh failed: {e}. Monitoring will keep retrying; reconnect if this persists."
+                            ),
+                            auto_action_attempted: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        issues
     }
 
     pub async fn start_oauth_flow_for_plugin(

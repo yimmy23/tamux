@@ -13,6 +13,7 @@ impl TuiModel {
             approval: approval::ApprovalState::new(),
             anticipatory: AnticipatoryState::new(),
             audit: crate::state::audit::AuditState::new(),
+            notifications: notifications::NotificationsState::new(),
             settings: settings::SettingsState::new(),
             plugin_settings: settings::PluginSettingsState::new(),
             auth: AuthState::new(),
@@ -51,9 +52,11 @@ impl TuiModel {
             input_notice: None,
             pending_chat_action_confirm: None,
             chat_action_confirm_accept_selected: true,
+            retry_wait_start_selected: false,
             held_key_modifiers: KeyModifiers::NONE,
             attachments: Vec::new(),
             queued_prompts: Vec::new(),
+            queued_prompt_action: QueuedPromptAction::SendNow,
             operator_profile: OperatorProfileOnboardingState::default(),
             cancelled_thread_id: None,
             ignore_pending_concierge_welcome: false,
@@ -112,6 +115,29 @@ impl TuiModel {
 
     fn assistant_busy(&self) -> bool {
         self.chat.is_streaming() || self.agent_activity.is_some()
+    }
+
+    fn queue_barrier_active(&self) -> bool {
+        self.chat.has_running_tool_calls()
+    }
+
+    fn clear_expired_queued_prompt_copy_feedback(&mut self) {
+        for prompt in &mut self.queued_prompts {
+            prompt.clear_expired_copy_feedback(self.tick_counter);
+        }
+    }
+
+    fn sync_queued_prompt_modal_state(&mut self) {
+        if self.modal.top() != Some(modal::ModalKind::QueuedPrompts) {
+            return;
+        }
+
+        if self.queued_prompts.is_empty() {
+            self.close_top_modal();
+            return;
+        }
+
+        self.modal.set_picker_item_count(self.queued_prompts.len());
     }
 
     fn actions_bar_visible(&self) -> bool {
@@ -393,6 +419,9 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::GetConciergeConfig);
         if matches!(tab, SettingsTab::Gateway) {
             self.send_daemon_command(DaemonCommand::WhatsAppLinkStatus);
+        } else if matches!(tab, SettingsTab::Plugins) {
+            self.plugin_settings.list_mode = true;
+            self.send_daemon_command(DaemonCommand::PluginList);
         }
     }
 

@@ -1,5 +1,6 @@
 use super::*;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 fn make_todo(id: &str, content: &str, status: TodoStatus, updated_at: u64) -> TodoItem {
     TodoItem {
@@ -345,4 +346,135 @@ async fn heartbeat_checks_independent() {
         HeartbeatCheckType::UnrepliedGatewayMessages
     );
     assert_eq!(repo.check_type, HeartbeatCheckType::RepoChanges);
+}
+
+fn oauth_plugin_manifest(name: &str, token_url: &str) -> String {
+    serde_json::json!({
+        "name": name,
+        "version": "1.0.0",
+        "schema_version": 1,
+        "auth": {
+            "type": "oauth2",
+            "authorization_url": "https://example.com/oauth/authorize",
+            "token_url": token_url,
+            "scopes": ["scope.read"],
+            "pkce": true
+        }
+    })
+    .to_string()
+}
+
+async fn attach_plugin_manager_with_oauth_plugin(
+    engine: &Arc<AgentEngine>,
+    plugin_name: &str,
+    manifest_json: &str,
+    expired: bool,
+    with_refresh_token: bool,
+) {
+    let root = tempfile::TempDir::new().expect("tempdir should succeed");
+    let plugins_dir = root.path().join("plugins");
+    let plugin_dir = plugins_dir.join(plugin_name);
+    std::fs::create_dir_all(&plugin_dir).expect("plugin dir should be created");
+    std::fs::write(plugin_dir.join("plugin.json"), manifest_json).expect("manifest should write");
+
+    let history = Arc::new(
+        crate::history::HistoryStore::new_test_store(root.path())
+            .await
+            .expect("test history store should initialize"),
+    );
+    let plugin_manager = Arc::new(crate::plugin::PluginManager::new(
+        history.clone(),
+        plugins_dir,
+    ));
+    let (loaded, skipped) = plugin_manager.load_all_from_disk().await;
+    assert_eq!(loaded, 1);
+    assert_eq!(skipped, 0);
+
+    let expires_at = if expired {
+        (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339()
+    } else {
+        (chrono::Utc::now() + chrono::Duration::minutes(30)).to_rfc3339()
+    };
+    let created_at = chrono::Utc::now().to_rfc3339();
+    history
+        .conn
+        .call({
+            let plugin_name = plugin_name.to_string();
+            let expires_at = expires_at.clone();
+            let created_at = created_at.clone();
+            move |conn| {
+                conn.execute(
+                    "INSERT INTO plugin_credentials (plugin_name, credential_type, encrypted_value, expires_at, created_at, updated_at)
+                     VALUES (?1, 'access_token', ?2, ?3, ?4, ?4)",
+                    rusqlite::params![plugin_name, vec![1_u8, 2, 3], expires_at, created_at],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .expect("access token should insert");
+
+    if with_refresh_token {
+        let created_at = chrono::Utc::now().to_rfc3339();
+        history
+            .conn
+            .call({
+                let plugin_name = plugin_name.to_string();
+                move |conn| {
+                    conn.execute(
+                        "INSERT INTO plugin_credentials (plugin_name, credential_type, encrypted_value, expires_at, created_at, updated_at)
+                         VALUES (?1, 'refresh_token', ?2, NULL, ?3, ?3)",
+                        rusqlite::params![plugin_name, vec![9_u8, 9, 9], created_at],
+                    )?;
+                    Ok(())
+                }
+            })
+            .await
+            .expect("refresh token should insert");
+    }
+
+    engine
+        .plugin_manager
+        .set(plugin_manager)
+        .unwrap_or_else(|_| panic!("plugin manager should set once"));
+}
+
+#[tokio::test]
+async fn heartbeat_checks_plugin_auth_detects_plugins_that_need_reconnect() {
+    let engine = make_test_engine(HashMap::new(), VecDeque::new(), HashMap::new()).await;
+    attach_plugin_manager_with_oauth_plugin(
+        &engine,
+        "needs-reconnect-plugin",
+        &oauth_plugin_manifest("needs-reconnect-plugin", "https://example.com/oauth/token"),
+        true,
+        false,
+    )
+    .await;
+
+    let result = engine.check_plugin_auth().await;
+
+    assert_eq!(result.check_type, HeartbeatCheckType::PluginAuth);
+    assert_eq!(result.items_found, 1);
+    assert!(result.summary.contains("need reconnect"));
+    assert!(result.details[0].context.contains("Reconnect"));
+}
+
+#[tokio::test]
+async fn heartbeat_checks_plugin_auth_reports_failed_auto_refresh_attempts() {
+    let engine = make_test_engine(HashMap::new(), VecDeque::new(), HashMap::new()).await;
+    attach_plugin_manager_with_oauth_plugin(
+        &engine,
+        "refreshable-plugin",
+        &oauth_plugin_manifest("refreshable-plugin", "https://example.com/oauth/token"),
+        true,
+        true,
+    )
+    .await;
+
+    let result = engine.check_plugin_auth().await;
+
+    assert_eq!(result.check_type, HeartbeatCheckType::PluginAuth);
+    assert_eq!(result.items_found, 1);
+    assert!(result.summary.contains("refresh failed"));
+    assert!(result.details[0].context.contains("auto-refresh"));
 }

@@ -234,6 +234,8 @@ impl DaemonClient {
             | DaemonMessage::AgentConfigResponse { .. }
             | DaemonMessage::AgentModelsResponse { .. }
             | DaemonMessage::AgentHeartbeatItems { .. }
+            | DaemonMessage::AgentEventRows { .. }
+            | DaemonMessage::AgentDbMessageAck
             | DaemonMessage::SessionSpawned { .. }
             | DaemonMessage::ApprovalRequired { .. }
             | DaemonMessage::ApprovalResolved { .. }) => {

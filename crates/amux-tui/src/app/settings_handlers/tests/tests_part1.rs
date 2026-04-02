@@ -242,3 +242,100 @@
         assert_eq!(model.config.provider, "github-copilot");
         assert_eq!(model.config.api_transport, "responses");
     }
+
+    #[test]
+    fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() {
+        let (mut model, mut daemon_rx) = make_model();
+        model.subagents.entries = vec![crate::state::SubAgentEntry {
+            id: "weles_builtin".to_string(),
+            name: "WELES".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("code_review".to_string()),
+            enabled: true,
+            builtin: true,
+            immutable_identity: true,
+            disable_allowed: false,
+            delete_allowed: false,
+            protected_reason: Some("Protected builtin".to_string()),
+            reasoning_effort: Some("medium".to_string()),
+            raw_json: Some(serde_json::json!({
+                "id": "weles_builtin",
+                "name": "WELES",
+                "provider": "openai",
+                "model": "gpt-5.4-mini",
+                "role": "code_review",
+                "enabled": true,
+                "builtin": true,
+                "immutable_identity": true,
+                "disable_allowed": false,
+                "delete_allowed": false,
+                "protected_reason": "Protected builtin",
+                "reasoning_effort": "medium",
+                "created_at": 1
+            })),
+        }];
+
+        let mut editor = crate::state::subagents::SubAgentEditorState::new(
+            Some("weles_builtin".to_string()),
+            1,
+            "anthropic".to_string(),
+            "claude-sonnet-4-5".to_string(),
+        );
+        editor.name = "WELES".to_string();
+        editor.role = "code_review".to_string();
+        editor.enabled = true;
+        editor.builtin = true;
+        editor.immutable_identity = true;
+        editor.disable_allowed = false;
+        editor.delete_allowed = false;
+        editor.protected_reason = Some("Protected builtin".to_string());
+        editor.reasoning_effort = Some("high".to_string());
+        editor.raw_json = Some(serde_json::json!({
+            "id": "weles_builtin",
+            "name": "WELES",
+            "provider": "openai",
+            "model": "gpt-5.4-mini",
+            "role": "code_review",
+            "enabled": true,
+            "builtin": true,
+            "immutable_identity": true,
+            "disable_allowed": false,
+            "delete_allowed": false,
+            "protected_reason": "Protected builtin",
+            "reasoning_effort": "medium",
+            "created_at": 1
+        }));
+        model.subagents.editor = Some(editor);
+
+        model.commit_subagent_editor();
+
+        let command = daemon_rx
+            .try_recv()
+            .expect("expected sub-agent update command");
+        let DaemonCommand::SetSubAgent(payload) = command else {
+            panic!("expected SetSubAgent command");
+        };
+        let saved: serde_json::Value =
+            serde_json::from_str(&payload).expect("payload should be valid json");
+        assert_eq!(saved.get("provider").and_then(|value| value.as_str()), Some("anthropic"));
+        assert_eq!(
+            saved.get("model").and_then(|value| value.as_str()),
+            Some("claude-sonnet-4-5")
+        );
+        assert_eq!(
+            saved.get("reasoning_effort")
+                .and_then(|value| value.as_str()),
+            Some("high")
+        );
+
+        let entry = model
+            .subagents
+            .entries
+            .iter()
+            .find(|entry| entry.id == "weles_builtin")
+            .expect("updated entry should remain present");
+        assert_eq!(entry.provider, "anthropic");
+        assert_eq!(entry.model, "claude-sonnet-4-5");
+        assert_eq!(entry.reasoning_effort.as_deref(), Some("high"));
+    }

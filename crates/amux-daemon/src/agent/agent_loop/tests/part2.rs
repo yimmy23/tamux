@@ -344,6 +344,69 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
 }
 
 #[tokio::test]
+async fn auto_retry_wait_finishes_after_one_scheduled_retry_cycle() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let mut config = AgentConfig::default();
+    config.provider = "custom".to_string();
+    config.base_url = spawn_transient_transport_failure_server(request_counter.clone()).await;
+    config.model = "gpt-4.1".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = true;
+    config.max_retries = 1;
+    config.retry_delay_ms = 100;
+    config.providers.insert(
+        "custom".to_string(),
+        ProviderConfig {
+            base_url: config.base_url.clone(),
+            model: config.model.clone(),
+            api_key: config.api_key.clone(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        },
+    );
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let task = tokio::spawn({
+        let engine = engine.clone();
+        async move {
+            engine
+                .send_message_inner(None, "hello", None, None, None, None, None, true)
+                .await
+        }
+    });
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("turn should stop retrying and finish");
+    let joined = result.expect("join send task");
+    let error = match joined {
+        Ok(_) => panic!("transient failures should still fail the turn"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(
+        message.contains("LLM error")
+            || message.contains("transport error")
+            || message.contains("timed out"),
+        "unexpected error: {message}"
+    );
+    assert_eq!(
+        request_counter.load(Ordering::SeqCst),
+        4,
+        "expected one bounded retry plus one scheduled retry cycle"
+    );
+}
+
+#[tokio::test]
 async fn structured_upstream_diagnostics_are_not_persisted_or_streamed_to_user() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

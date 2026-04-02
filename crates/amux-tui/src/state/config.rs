@@ -213,7 +213,7 @@ impl ConfigState {
             max_context_messages: 100,
             max_tool_loops: 25,
             max_retries: 3,
-            retry_delay_ms: 2000,
+            retry_delay_ms: 5_000,
             auto_retry: true,
             context_window_tokens: 128_000,
             context_budget_tokens: 100000,

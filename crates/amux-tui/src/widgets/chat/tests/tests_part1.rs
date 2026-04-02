@@ -303,6 +303,16 @@ fn hit_test_returns_tool_file_path_target() {
             Position::new(no_x, no_y),
         );
         assert_eq!(hit, Some(ChatHitTarget::RetryStop));
+
+        let yes_x = inner.x + (content_start + 1) as u16;
+        let yes_hit = hit_test(
+            area,
+            &chat,
+            &ThemeTokens::default(),
+            20,
+            Position::new(yes_x, no_y),
+        );
+        assert_eq!(yes_hit, Some(ChatHitTarget::RetryStartNow));
     }
 
     #[test]
@@ -519,4 +529,3 @@ fn hit_test_returns_tool_file_path_target() {
             "mouse selection should paint a visible highlight in the buffer"
         );
     }
-

@@ -309,8 +309,17 @@ impl TuiModel {
             "whatsapp_phone_id": self.config.whatsapp_phone_id,
             "whatsapp_allowed_contacts": self.config.whatsapp_allowed_contacts,
         });
+        patch["auto_compact_context"] = serde_json::Value::Bool(self.config.auto_compact_context);
         patch["max_context_messages"] = serde_json::Value::from(self.config.max_context_messages);
+        patch["max_tool_loops"] = serde_json::Value::from(self.config.max_tool_loops);
+        patch["max_retries"] = serde_json::Value::from(self.config.max_retries);
+        patch["retry_delay_ms"] = serde_json::Value::from(self.config.retry_delay_ms);
+        patch["auto_retry"] = serde_json::Value::Bool(self.config.auto_retry);
         patch["context_budget_tokens"] = serde_json::Value::from(self.config.context_budget_tokens);
+        patch["compact_threshold_pct"] = serde_json::Value::from(self.config.compact_threshold_pct);
+        patch["keep_recent_on_compact"] =
+            serde_json::Value::from(self.config.keep_recent_on_compact);
+        patch["bash_timeout_seconds"] = serde_json::Value::from(self.config.bash_timeout_secs);
         patch["snapshot_retention"] = serde_json::json!({
             "max_snapshots": self.config.snapshot_max_count,
             "max_total_size_mb": self.config.snapshot_max_size_mb,

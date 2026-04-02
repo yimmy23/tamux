@@ -96,6 +96,12 @@ impl ChatState {
         &self.active_tool_calls
     }
 
+    pub fn has_running_tool_calls(&self) -> bool {
+        self.active_tool_calls
+            .iter()
+            .any(|tc| tc.status == ToolCallStatus::Running)
+    }
+
     pub fn scroll_offset(&self) -> usize {
         self.scroll_offset
     }
@@ -119,10 +125,7 @@ impl ChatState {
     pub fn is_streaming(&self) -> bool {
         !self.streaming_content.is_empty()
             || !self.streaming_reasoning.is_empty()
-            || self
-                .active_tool_calls
-                .iter()
-                .any(|tc| tc.status == ToolCallStatus::Running)
+            || self.has_running_tool_calls()
     }
 
     pub fn reduce(&mut self, action: ChatAction) {

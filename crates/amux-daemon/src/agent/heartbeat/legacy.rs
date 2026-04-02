@@ -79,6 +79,25 @@ impl AgentEngine {
                     severity: NotificationSeverity::Alert,
                     channels: item.notify_channels.clone(),
                 });
+                let now_ts = now as i64;
+                let _ = self
+                    .upsert_inbox_notification(amux_protocol::InboxNotification {
+                        id: format!("heartbeat-alert:{}", item.id),
+                        source: "heartbeat".to_string(),
+                        kind: "heartbeat_alert".to_string(),
+                        title: format!("Heartbeat Alert: {}", item.label),
+                        body: item.last_message.clone().unwrap_or_default(),
+                        subtitle: Some("heartbeat".to_string()),
+                        severity: "alert".to_string(),
+                        created_at: now_ts,
+                        updated_at: now_ts,
+                        read_at: None,
+                        archived_at: None,
+                        deleted_at: None,
+                        actions: Vec::new(),
+                        metadata_json: None,
+                    })
+                    .await;
             }
         }
 

@@ -73,8 +73,16 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.telegram_allowed_chats = "1,2".to_string();
     model.config.discord_allowed_users = "alice,bob".to_string();
     model.config.whatsapp_phone_id = "phone-1".to_string();
+    model.config.auto_compact_context = false;
     model.config.max_context_messages = 123;
+    model.config.max_tool_loops = 44;
+    model.config.max_retries = 7;
+    model.config.retry_delay_ms = 9_000;
+    model.config.auto_retry = false;
     model.config.context_budget_tokens = 222_000;
+    model.config.compact_threshold_pct = 91;
+    model.config.keep_recent_on_compact = 17;
+    model.config.bash_timeout_secs = 77;
     model.config.snapshot_max_count = 15;
     model.config.agent_config_raw = Some(serde_json::json!({
         "agent_name": "Tamux",
@@ -100,8 +108,16 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     assert_eq!(json["gateway"]["telegram_allowed_chats"], "1,2");
     assert_eq!(json["gateway"]["discord_allowed_users"], "alice,bob");
     assert_eq!(json["gateway"]["whatsapp_phone_id"], "phone-1");
+    assert_eq!(json["auto_compact_context"], false);
     assert_eq!(json["max_context_messages"], 123);
+    assert_eq!(json["max_tool_loops"], 44);
+    assert_eq!(json["max_retries"], 7);
+    assert_eq!(json["retry_delay_ms"], 9000);
+    assert_eq!(json["auto_retry"], false);
     assert_eq!(json["context_budget_tokens"], 222000);
+    assert_eq!(json["compact_threshold_pct"], 91);
+    assert_eq!(json["keep_recent_on_compact"], 17);
+    assert_eq!(json["bash_timeout_seconds"], 77);
     assert_eq!(json["snapshot_retention"]["max_snapshots"], 15);
 }
 
@@ -124,6 +140,25 @@ fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport
 
     assert_eq!(model.config.provider, "github-copilot");
     assert_eq!(model.config.api_transport, "responses");
+}
+
+#[test]
+fn apply_config_json_uses_daemon_retry_delay_default_when_missing() {
+    let mut model = make_model();
+
+    model.apply_config_json(&serde_json::json!({
+        "provider": "openai",
+        "providers": {
+            "openai": {
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-5.4",
+                "auth_source": "api_key",
+                "api_transport": "responses"
+            }
+        }
+    }));
+
+    assert_eq!(model.config.retry_delay_ms, 5_000);
 }
 
 #[test]

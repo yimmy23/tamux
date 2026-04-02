@@ -379,3 +379,37 @@
         assert_eq!(model.chat.selected_message_action(), 1);
     }
 
+    #[test]
+    fn retry_wait_keyboard_can_select_yes_and_trigger_immediate_retry() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.focus = FocusArea::Chat;
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        model.handle_retry_status_event(
+            "thread-1".to_string(),
+            "waiting".to_string(),
+            1,
+            1,
+            30_000,
+            "transport".to_string(),
+            "upstream transport error".to_string(),
+        );
+
+        let handled = model.handle_key(KeyCode::Left, KeyModifiers::NONE);
+        assert!(!handled);
+
+        let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(!handled);
+
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::RetryStreamNow { thread_id }) => assert_eq!(thread_id, "thread-1"),
+            other => panic!("expected retry-now command, got {:?}", other),
+        }
+    }

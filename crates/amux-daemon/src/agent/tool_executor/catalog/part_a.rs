@@ -59,7 +59,7 @@ fn add_available_tools_part_a(
 
         tools.push(tool_def(
             "write_file",
-            "Write content to a file through an existing terminal session managed by tamux. This runs in the terminal's environment, not in a daemon-native filesystem context. For complex or large content, prefer the built-in Python-based writer instead of shell heredocs or heavy escaping.",
+            "Write content to a file. Supports JSON args or a multipart-style payload with path/file parts so larger content does not have to fit inside one giant JSON string.",
             serde_json::json!({
                 "type": "object",
                 "properties": {

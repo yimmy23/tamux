@@ -304,6 +304,167 @@ impl AgentEngine {
             details,
         }
     }
+
+    pub(super) async fn check_plugin_auth(&self) -> HeartbeatCheckResult {
+        let Some(plugin_manager) = self.plugin_manager.get() else {
+            return HeartbeatCheckResult {
+                check_type: HeartbeatCheckType::PluginAuth,
+                items_found: 0,
+                summary: "Plugin auth monitoring unavailable.".into(),
+                details: vec![],
+            };
+        };
+
+        let issues = plugin_manager.monitor_auth_health().await;
+        self.sync_plugin_auth_notifications(&issues).await;
+        let details: Vec<CheckDetail> = issues
+            .iter()
+            .map(|issue| {
+                let (severity, label) = match issue.status {
+                    crate::plugin::PluginAuthStatus::ExpiringSoon => (
+                        CheckSeverity::Medium,
+                        format!("{} expires soon", issue.plugin_name),
+                    ),
+                    crate::plugin::PluginAuthStatus::NeedsReconnect => (
+                        CheckSeverity::High,
+                        format!("{} needs reconnect", issue.plugin_name),
+                    ),
+                    crate::plugin::PluginAuthStatus::Refreshable => (
+                        CheckSeverity::Medium,
+                        format!("{} auto-refresh failed", issue.plugin_name),
+                    ),
+                    crate::plugin::PluginAuthStatus::Connected
+                    | crate::plugin::PluginAuthStatus::NotConfigured => {
+                        (CheckSeverity::Low, issue.plugin_name.clone())
+                    }
+                };
+                CheckDetail {
+                    id: issue.plugin_name.clone(),
+                    label,
+                    age_hours: 0.0,
+                    severity,
+                    context: issue.message.clone(),
+                }
+            })
+            .collect();
+
+        let summary = if details.is_empty() {
+            "Plugin auth healthy.".to_string()
+        } else if details.iter().any(|detail| {
+            matches!(
+                detail.severity,
+                CheckSeverity::High | CheckSeverity::Critical
+            )
+        }) {
+            format!("{} plugin(s) need reconnect", details.len())
+        } else if details
+            .iter()
+            .any(|detail| detail.label.contains("expires soon"))
+        {
+            format!("{} plugin(s) expire soon", details.len())
+        } else {
+            format!("{} plugin auto-refresh failed", details.len())
+        };
+
+        HeartbeatCheckResult {
+            check_type: HeartbeatCheckType::PluginAuth,
+            items_found: details.len(),
+            summary,
+            details,
+        }
+    }
+
+    async fn sync_plugin_auth_notifications(
+        &self,
+        issues: &[crate::plugin::PluginAuthHealthIssue],
+    ) {
+        let now = now_millis() as i64;
+        let existing = self.history.list_notifications(true, Some(500)).await;
+        let Ok(existing) = existing else {
+            return;
+        };
+        let existing_by_id: std::collections::HashMap<String, amux_protocol::InboxNotification> =
+            existing
+                .iter()
+                .cloned()
+                .map(|notification| (notification.id.clone(), notification))
+                .collect();
+        let active_notifications: Vec<amux_protocol::InboxNotification> = issues
+            .iter()
+            .map(|issue| {
+                let (kind, title, severity) = match issue.status {
+                    crate::plugin::PluginAuthStatus::ExpiringSoon => (
+                        "plugin_expiring_soon",
+                        format!("{} expires soon", issue.plugin_name),
+                        "warning",
+                    ),
+                    crate::plugin::PluginAuthStatus::NeedsReconnect => (
+                        "plugin_needs_reconnect",
+                        format!("{} needs reconnect", issue.plugin_name),
+                        "error",
+                    ),
+                    crate::plugin::PluginAuthStatus::Refreshable => (
+                        "plugin_refresh_failed",
+                        format!("{} auto-refresh failed", issue.plugin_name),
+                        "warning",
+                    ),
+                    crate::plugin::PluginAuthStatus::Connected
+                    | crate::plugin::PluginAuthStatus::NotConfigured => {
+                        ("plugin_auth", issue.plugin_name.clone(), "info")
+                    }
+                };
+                let id = format!("plugin-auth:{kind}:{}", issue.plugin_name);
+                let existing = existing_by_id.get(&id);
+                amux_protocol::InboxNotification {
+                    id,
+                    source: "plugin_auth".to_string(),
+                    kind: kind.to_string(),
+                    title,
+                    body: issue.message.clone(),
+                    subtitle: Some(issue.plugin_name.clone()),
+                    severity: severity.to_string(),
+                    created_at: existing
+                        .map(|notification| notification.created_at)
+                        .unwrap_or(now),
+                    updated_at: now,
+                    read_at: existing.and_then(|notification| notification.read_at),
+                    archived_at: None,
+                    deleted_at: None,
+                    actions: vec![crate::notifications::plugin_settings_action(
+                        &issue.plugin_name,
+                    )],
+                    metadata_json: Some(
+                        serde_json::json!({
+                            "plugin_name": issue.plugin_name,
+                            "status": issue.status.as_str(),
+                            "auto_action_attempted": issue.auto_action_attempted,
+                        })
+                        .to_string(),
+                    ),
+                }
+            })
+            .collect();
+
+        for notification in &active_notifications {
+            let _ = self.upsert_inbox_notification(notification.clone()).await;
+        }
+
+        let active_ids: std::collections::HashSet<&str> = active_notifications
+            .iter()
+            .map(|notification| notification.id.as_str())
+            .collect();
+
+        for mut notification in existing.into_iter().filter(|notification| {
+            notification.source == "plugin_auth"
+                && notification.archived_at.is_none()
+                && notification.deleted_at.is_none()
+                && !active_ids.contains(notification.id.as_str())
+        }) {
+            notification.archived_at = Some(now);
+            notification.updated_at = now;
+            let _ = self.upsert_inbox_notification(notification).await;
+        }
+    }
 }
 
 #[cfg(test)]

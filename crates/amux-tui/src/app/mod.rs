@@ -118,6 +118,63 @@ struct PendingChatActionConfirm {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct QueuedPrompt {
+    pub(crate) text: String,
+    copied_until_tick: Option<u64>,
+}
+
+impl QueuedPrompt {
+    pub(crate) fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            copied_until_tick: None,
+        }
+    }
+
+    pub(crate) fn is_copied(&self, current_tick: u64) -> bool {
+        self.copied_until_tick
+            .is_some_and(|expires_at| current_tick < expires_at)
+    }
+
+    fn mark_copied(&mut self, expires_at_tick: u64) {
+        self.copied_until_tick = Some(expires_at_tick);
+    }
+
+    fn clear_expired_copy_feedback(&mut self, current_tick: u64) {
+        if self
+            .copied_until_tick
+            .is_some_and(|expires_at| current_tick >= expires_at)
+        {
+            self.copied_until_tick = None;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QueuedPromptAction {
+    SendNow,
+    Copy,
+    Delete,
+}
+
+impl QueuedPromptAction {
+    const ALL: [QueuedPromptAction; 3] = [
+        QueuedPromptAction::SendNow,
+        QueuedPromptAction::Copy,
+        QueuedPromptAction::Delete,
+    ];
+
+    fn step(self, delta: i32) -> Self {
+        let current = Self::ALL
+            .iter()
+            .position(|action| *action == self)
+            .unwrap_or(0) as i32;
+        let next = (current + delta).clamp(0, (Self::ALL.len() - 1) as i32) as usize;
+        Self::ALL[next]
+    }
+}
+
+#[derive(Clone, Debug)]
 struct OperatorProfileQuestionVm {
     session_id: String,
     question_id: String,
@@ -157,6 +214,7 @@ pub struct TuiModel {
     approval: approval::ApprovalState,
     anticipatory: AnticipatoryState,
     pub audit: crate::state::audit::AuditState,
+    notifications: notifications::NotificationsState,
     settings: settings::SettingsState,
     pub plugin_settings: settings::PluginSettingsState,
     pub auth: AuthState,
@@ -215,13 +273,15 @@ pub struct TuiModel {
     input_notice: Option<InputNotice>,
     pending_chat_action_confirm: Option<PendingChatActionConfirm>,
     chat_action_confirm_accept_selected: bool,
+    retry_wait_start_selected: bool,
     held_key_modifiers: KeyModifiers,
 
     // Pending file attachments (prepended to next submitted message)
     attachments: Vec<Attachment>,
 
-    // Queue of prompts submitted while streaming (auto-sent after TurnDone)
-    queued_prompts: Vec<String>,
+    // Queue of prompts submitted while tool execution is still in flight.
+    queued_prompts: Vec<QueuedPrompt>,
+    queued_prompt_action: QueuedPromptAction,
 
     operator_profile: OperatorProfileOnboardingState,
 

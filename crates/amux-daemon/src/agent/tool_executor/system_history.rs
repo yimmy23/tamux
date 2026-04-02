@@ -234,7 +234,7 @@ async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<
 
 async fn execute_notify(
     args: &serde_json::Value,
-    event_tx: &broadcast::Sender<AgentEvent>,
+    agent: &AgentEngine,
 ) -> Result<String> {
     let title = args
         .get("title")
@@ -248,12 +248,38 @@ async fn execute_notify(
         _ => NotificationSeverity::Info,
     };
 
-    let _ = event_tx.send(AgentEvent::Notification {
+    let _ = agent.event_tx.send(AgentEvent::Notification {
         title: title.into(),
         body: message.into(),
         severity,
         channels: vec!["in-app".into()],
     });
+
+    let now = crate::agent::now_millis() as i64;
+    let _ = agent
+        .upsert_inbox_notification(amux_protocol::InboxNotification {
+            id: format!("tool-notify:{}", uuid::Uuid::new_v4()),
+            source: "tool".to_string(),
+            kind: "tool_notify_user".to_string(),
+            title: title.to_string(),
+            body: message.to_string(),
+            subtitle: Some("agent tool".to_string()),
+            severity: match severity {
+                NotificationSeverity::Info => "info",
+                NotificationSeverity::Warning => "warning",
+                NotificationSeverity::Alert => "alert",
+                NotificationSeverity::Error => "error",
+            }
+            .to_string(),
+            created_at: now,
+            updated_at: now,
+            read_at: None,
+            archived_at: None,
+            deleted_at: None,
+            actions: Vec::new(),
+            metadata_json: None,
+        })
+        .await;
 
     Ok(format!("Notification sent: {title}"))
 }
@@ -340,4 +366,3 @@ async fn execute_update_memory(
     )
     .await
 }
-

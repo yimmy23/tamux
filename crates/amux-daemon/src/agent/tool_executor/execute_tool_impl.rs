@@ -1,3 +1,66 @@
+async fn maybe_bootstrap_todo_plan_for_background_tool(
+    agent: &AgentEngine,
+    thread_id: &str,
+    task_id: Option<&str>,
+    tool_name: &str,
+    args: &serde_json::Value,
+) -> bool {
+    let (content, status, notice_message) = match tool_name {
+        "spawn_subagent" => {
+            let title = args
+                .get("title")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("Track delegated child work");
+            (
+                title.to_string(),
+                TodoStatus::InProgress,
+                format!("Bootstrapped plan tracking for delegated work: {title}"),
+            )
+        }
+        "enqueue_task" => {
+            let summary = args
+                .get("title")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    args.get("description")
+                        .and_then(|value| value.as_str())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                })
+                .unwrap_or("Track queued background work");
+            (
+                summary.to_string(),
+                TodoStatus::Pending,
+                format!("Bootstrapped plan tracking for queued work: {summary}"),
+            )
+        }
+        _ => return false,
+    };
+
+    let now = super::now_millis();
+    agent
+        .replace_thread_todos(
+            thread_id,
+            vec![TodoItem {
+                id: format!("todo_{}", uuid::Uuid::new_v4()),
+                content,
+                status,
+                position: 0,
+                step_index: None,
+                created_at: now,
+                updated_at: now,
+            }],
+            task_id,
+        )
+        .await;
+    agent.emit_workflow_notice(thread_id, "plan_bootstrap", notice_message, None);
+    true
+}
+
 pub fn execute_tool<'a>(
     tool_call: &'a ToolCall,
     agent: &'a AgentEngine,
@@ -188,6 +251,15 @@ pub fn execute_tool<'a>(
         && agent.get_todos(thread_id).await.is_empty()
         && (task_id.is_some() || planner_required_before_governance)
     {
+        let bootstrapped = maybe_bootstrap_todo_plan_for_background_tool(
+            agent,
+            thread_id,
+            task_id,
+            tool_call.function.name.as_str(),
+            &dispatch_args,
+        )
+        .await;
+        if !bootstrapped {
             return ToolResult {
                 tool_call_id: tool_call.id.clone(),
                 name: tool_call.function.name.clone(),
@@ -196,6 +268,7 @@ pub fn execute_tool<'a>(
                 weles_review: Some(governance_decision.review.clone()),
                 pending_approval: None,
             };
+        }
     }
 
     // UNCR-02: Pre-execution confidence warning for Safety-domain tools.
@@ -369,7 +442,7 @@ pub fn execute_tool<'a>(
         "session_search" => execute_session_search(&args, session_manager).await,
         "agent_query_memory" => execute_agent_query_memory(&args, agent).await,
         "onecontext_search" => execute_onecontext_search(&args).await,
-        "notify_user" => execute_notify(&args, event_tx).await,
+        "notify_user" => execute_notify(&args, agent).await,
         "update_todo" => execute_update_todo(&args, agent, thread_id, task_id).await,
         "update_memory" => {
             execute_update_memory(&args, agent, thread_id, task_id, agent_data_dir).await

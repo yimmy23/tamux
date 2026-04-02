@@ -257,20 +257,22 @@ impl AgentEngine {
     pub(super) async fn begin_stream_cancellation(
         &self,
         thread_id: &str,
-    ) -> (u64, CancellationToken) {
+    ) -> (u64, CancellationToken, Arc<tokio::sync::Notify>) {
         let generation = self.stream_generation.fetch_add(1, Ordering::Relaxed);
         let token = CancellationToken::new();
+        let retry_now = Arc::new(tokio::sync::Notify::new());
         let mut streams = self.stream_cancellations.lock().await;
         if let Some(previous) = streams.insert(
             thread_id.to_string(),
             StreamCancellationEntry {
                 generation,
                 token: token.clone(),
+                retry_now: retry_now.clone(),
             },
         ) {
             previous.token.cancel();
         }
-        (generation, token)
+        (generation, token, retry_now)
     }
 
     pub(super) async fn finish_stream_cancellation(&self, thread_id: &str, generation: u64) {
@@ -291,6 +293,19 @@ impl AgentEngine {
         };
         if let Some(token) = token {
             token.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn retry_stream_now(&self, thread_id: &str) -> bool {
+        let retry_now = {
+            let streams = self.stream_cancellations.lock().await;
+            streams.get(thread_id).map(|entry| entry.retry_now.clone())
+        };
+        if let Some(retry_now) = retry_now {
+            retry_now.notify_one();
             true
         } else {
             false

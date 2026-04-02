@@ -1,6 +1,43 @@
 use super::*;
 
 impl HistoryStore {
+    pub async fn upsert_notification(
+        &self,
+        notification: &amux_protocol::InboxNotification,
+    ) -> Result<()> {
+        let row = crate::notifications::notification_event_row(notification)?;
+        self.upsert_agent_event(&row).await
+    }
+
+    pub async fn list_notifications(
+        &self,
+        include_inactive: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<amux_protocol::InboxNotification>> {
+        let rows = self
+            .list_agent_events(
+                Some(crate::notifications::NOTIFICATION_CATEGORY),
+                None,
+                limit,
+            )
+            .await?;
+        let mut notifications: Vec<amux_protocol::InboxNotification> = rows
+            .iter()
+            .filter_map(crate::notifications::parse_notification_row)
+            .filter(|notification| {
+                include_inactive
+                    || (notification.archived_at.is_none() && notification.deleted_at.is_none())
+            })
+            .collect();
+        notifications.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| right.created_at.cmp(&left.created_at))
+        });
+        Ok(notifications)
+    }
+
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
         let entry = entry.clone();
         self.conn.call(move |conn| {

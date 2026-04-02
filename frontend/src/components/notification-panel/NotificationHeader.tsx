@@ -4,13 +4,13 @@ export function NotificationHeader({
     unreadCount,
     totalCount,
     markAllRead,
-    clearAll,
+    archiveRead,
     close,
 }: {
     unreadCount: number;
     totalCount: number;
     markAllRead: () => void;
-    clearAll: () => void;
+    archiveRead: () => void;
     close: () => void;
 }) {
     return (
@@ -28,8 +28,8 @@ export function NotificationHeader({
                     <span style={{ fontSize: 20, fontWeight: 800 }}>Notifications</span>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={markAllRead} style={actionBtnStyle} title="Mark all read">Read</button>
-                    <button onClick={clearAll} style={actionBtnStyle} title="Clear all">Purge</button>
+                    <button onClick={markAllRead} style={actionBtnStyle} title="Mark all read">Read All</button>
+                    <button onClick={archiveRead} style={actionBtnStyle} title="Archive read notifications">Archive Read</button>
                     <button onClick={close} style={actionBtnStyle} title="Close">✕</button>
                 </div>
             </div>

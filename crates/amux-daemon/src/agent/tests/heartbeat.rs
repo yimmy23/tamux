@@ -213,11 +213,12 @@ fn custom_item_not_due_with_global_interval() {
 fn all_checks_enabled_by_default() {
     let config = HeartbeatChecksConfig::default();
     let checks = enabled_checks(&config);
-    assert_eq!(checks.len(), 4);
+    assert_eq!(checks.len(), 5);
     assert!(checks.contains(&HeartbeatCheckType::StaleTodos));
     assert!(checks.contains(&HeartbeatCheckType::StuckGoalRuns));
     assert!(checks.contains(&HeartbeatCheckType::UnrepliedGatewayMessages));
     assert!(checks.contains(&HeartbeatCheckType::RepoChanges));
+    assert!(checks.contains(&HeartbeatCheckType::PluginAuth));
 }
 
 #[test]
@@ -227,6 +228,7 @@ fn only_enabled_checks_are_included() {
         stuck_goals_enabled: false,
         unreplied_messages_enabled: false,
         repo_changes_enabled: true,
+        plugin_auth_enabled: false,
         ..HeartbeatChecksConfig::default()
     };
     let checks = enabled_checks(&config);
@@ -244,6 +246,7 @@ fn no_checks_when_all_disabled() {
         stuck_goals_enabled: false,
         unreplied_messages_enabled: false,
         repo_changes_enabled: false,
+        plugin_auth_enabled: false,
         ..HeartbeatChecksConfig::default()
     };
     let checks = enabled_checks(&config);

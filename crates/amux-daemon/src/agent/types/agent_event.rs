@@ -130,6 +130,9 @@ pub enum AgentEvent {
         severity: NotificationSeverity,
         channels: Vec<String>,
     },
+    NotificationInboxUpsert {
+        notification: amux_protocol::InboxNotification,
+    },
     /// Request to send a message via a gateway platform (Slack/Discord/Telegram/WhatsApp).
     GatewaySend {
         platform: String,

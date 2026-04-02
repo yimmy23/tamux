@@ -24,12 +24,11 @@ export function StatusBar() {
   const ws = useWorkspaceStore((s) => s.activeWorkspace());
   const zoomedPaneId = useWorkspaceStore((s) => s.zoomedPaneId);
   const toggleNotificationPanel = useWorkspaceStore((s) => s.toggleNotificationPanel);
-  const notifications = useNotificationStore((s) => s.notifications);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
   const themeName = useSettingsStore((s) => s.settings.themeName);
   const sandboxEnabled = useSettingsStore((s) => s.settings.sandboxEnabled);
   const snapshotBackend = useSettingsStore((s) => s.settings.snapshotBackend);
   const gatewayEnabled = useAgentStore((s) => s.agentSettings.gateway_enabled);
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
   const activity = useStatusStore((s) => s.activity);
   const activeGoalRunTitle = useStatusStore((s) => s.activeGoalRunTitle);
   const providerHealth = useStatusStore((s) => s.providerHealth);

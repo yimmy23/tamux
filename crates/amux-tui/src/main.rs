@@ -245,6 +245,9 @@ fn start_daemon_bridge(
                             DaemonCommand::StopStream { thread_id } => {
                                 let _ = client.stop_stream(thread_id);
                             }
+                            DaemonCommand::RetryStreamNow { thread_id } => {
+                                let _ = client.retry_stream_now(thread_id);
+                            }
                             DaemonCommand::DeleteMessages { thread_id, message_ids } => {
                                 let _ = client.delete_messages(thread_id, message_ids);
                             }
@@ -395,6 +398,12 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::PluginOAuthStart(name) => {
                                 let _ = client.plugin_oauth_start(name);
+                            }
+                            DaemonCommand::ListNotifications => {
+                                let _ = client.list_notifications();
+                            }
+                            DaemonCommand::UpsertNotification(notification) => {
+                                let _ = client.upsert_notification(notification);
                             }
                             DaemonCommand::WhatsAppLinkStart => {
                                 let _ = client.whatsapp_link_start();

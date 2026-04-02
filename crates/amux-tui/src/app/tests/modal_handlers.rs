@@ -1,4 +1,5 @@
 use super::*;
+use ratatui::layout::Rect;
 use tokio::sync::mpsc::unbounded_channel;
 
 fn make_model() -> (
@@ -534,6 +535,168 @@ fn thread_picker_mouse_click_switches_to_rarog_tab() {
         model.modal.thread_picker_tab(),
         modal::ThreadPickerTab::Rarog
     );
+}
+
+#[test]
+fn ctrl_q_opens_queued_prompts_modal() {
+    let (mut model, _daemon_rx) = make_model();
+    model.queued_prompts.push(QueuedPrompt::new("steer prompt"));
+
+    let quit = model.handle_key(KeyCode::Char('q'), KeyModifiers::CONTROL);
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::QueuedPrompts));
+    assert_eq!(model.modal.picker_cursor(), 0);
+}
+
+#[test]
+fn queued_prompts_modal_send_now_stops_stream_and_sends_selected_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.handle_tool_call_event(
+        "thread-1".to_string(),
+        "call-1".to_string(),
+        "bash_command".to_string(),
+        "{\"command\":\"pwd\"}".to_string(),
+        None,
+    );
+    model
+        .queued_prompts
+        .push(QueuedPrompt::new("send this now"));
+    model.open_queued_prompts_modal();
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::QueuedPrompts,
+    );
+
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::StopStream { thread_id }) => assert_eq!(thread_id, "thread-1"),
+        other => panic!("expected stop-stream before send-now, got {:?}", other),
+    }
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SendMessage {
+            thread_id, content, ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(content, "send this now");
+        }
+        other => panic!("expected send-now prompt dispatch, got {:?}", other),
+    }
+    assert!(model.queued_prompts.is_empty());
+}
+
+#[test]
+fn queued_prompts_modal_copy_marks_item_as_copied_for_five_seconds() {
+    let (mut model, _daemon_rx) = make_model();
+    model.queued_prompts.push(QueuedPrompt::new("copy me"));
+    model.open_queued_prompts_modal();
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::QueuedPrompts,
+    );
+    assert!(!quit);
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::QueuedPrompts,
+    );
+    assert!(!quit);
+    assert!(model.queued_prompts[0].is_copied(model.tick_counter));
+
+    for _ in 0..100 {
+        model.on_tick();
+    }
+    assert!(!model.queued_prompts[0].is_copied(model.tick_counter));
+}
+
+#[test]
+fn queued_prompts_modal_delete_action_removes_clicked_item() {
+    let (mut model, _daemon_rx) = make_model();
+    model.queued_prompts.push(QueuedPrompt::new("delete me"));
+    model.open_queued_prompts_modal();
+    let (_, overlay_area) = model
+        .current_modal_area()
+        .expect("queued prompts modal should be visible");
+
+    let delete_pos = (overlay_area.y..overlay_area.y.saturating_add(overlay_area.height))
+        .find_map(|row| {
+            (overlay_area.x..overlay_area.x.saturating_add(overlay_area.width)).find_map(|column| {
+                let pos = Position::new(column, row);
+                if widgets::queued_prompts::hit_test(
+                    overlay_area,
+                    &model.queued_prompts,
+                    model.modal.picker_cursor(),
+                    model.tick_counter,
+                    pos,
+                ) == Some(widgets::queued_prompts::QueuedPromptsHitTarget::Action {
+                    message_index: 0,
+                    action: QueuedPromptAction::Delete,
+                }) {
+                    Some(pos)
+                } else {
+                    None
+                }
+            })
+        })
+        .expect("delete action should be clickable");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: delete_pos.x,
+        row: delete_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert!(model.queued_prompts.is_empty());
+    assert!(model.modal.top().is_none());
+}
+
+#[test]
+fn clicking_footer_queue_indicator_opens_queued_prompts_modal() {
+    let (mut model, _daemon_rx) = make_model();
+    model.queued_prompts.push(QueuedPrompt::new("preview me"));
+
+    let status_area = Rect::new(0, model.height.saturating_sub(1), model.width, 1);
+    let queue_pos = (status_area.x..status_area.x.saturating_add(status_area.width))
+        .find_map(|column| {
+            let pos = Position::new(column, status_area.y);
+            if widgets::footer::status_bar_hit_test(
+                status_area,
+                model.connected,
+                model.last_error.is_some(),
+                model.queued_prompts.len(),
+                pos,
+            ) == Some(widgets::footer::StatusBarHitTarget::QueuedPrompts)
+            {
+                Some(pos)
+            } else {
+                None
+            }
+        })
+        .expect("queue indicator should be clickable");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: queue_pos.x,
+        row: queue_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::QueuedPrompts));
 }
 
 #[test]

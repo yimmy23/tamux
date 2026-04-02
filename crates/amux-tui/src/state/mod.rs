@@ -9,6 +9,7 @@ pub mod config;
 pub mod input;
 pub mod input_refs;
 pub mod modal;
+pub mod notifications;
 pub mod settings;
 pub mod sidebar;
 pub mod subagents;
@@ -67,6 +68,9 @@ pub enum DaemonCommand {
         session_id: Option<String>,
     },
     StopStream {
+        thread_id: String,
+    },
+    RetryStreamNow {
         thread_id: String,
     },
     FetchModels {
@@ -171,6 +175,8 @@ pub enum DaemonCommand {
     PluginListCommands,
     // OAuth (Plan 18-03)
     PluginOAuthStart(String),
+    ListNotifications,
+    UpsertNotification(amux_protocol::InboxNotification),
 }
 
 // ── Placeholder sub-action enums ──────────────────────────────────────────────
@@ -194,6 +200,8 @@ pub use config::{ConfigAction, ConfigState};
 pub use input::{InputAction, InputMode, InputState};
 #[allow(unused_imports)]
 pub use modal::{CommandItem, ModalAction, ModalKind, ModalState};
+#[allow(unused_imports)]
+pub use notifications::{NotificationsAction, NotificationsState};
 #[allow(unused_imports)]
 pub use settings::{SettingsAction, SettingsState, SettingsTab};
 #[allow(unused_imports)]

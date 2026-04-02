@@ -421,6 +421,141 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
 }
 
 #[test]
+fn queued_prompt_flushes_after_last_tool_result_before_turn_done() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.handle_client_event(ClientEvent::ToolCall {
+        thread_id: "thread-1".to_string(),
+        call_id: "call-1".to_string(),
+        name: "bash_command".to_string(),
+        arguments: "{\"command\":\"pwd\"}".to_string(),
+        weles_review: None,
+    });
+
+    model.submit_prompt("stay on the migration task".to_string());
+    assert_eq!(model.queued_prompts.len(), 1);
+    assert!(daemon_rx.try_recv().is_err());
+
+    model.handle_client_event(ClientEvent::ToolResult {
+        thread_id: "thread-1".to_string(),
+        call_id: "call-1".to_string(),
+        name: "bash_command".to_string(),
+        content: "/repo".to_string(),
+        is_error: false,
+        weles_review: None,
+    });
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SendMessage {
+            thread_id, content, ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(content, "stay on the migration task");
+        }
+        other => panic!("expected queued send after tool result, got {:?}", other),
+    }
+    assert!(
+        model.queued_prompts.is_empty(),
+        "queued prompt should flush as soon as the last tool finishes"
+    );
+}
+
+#[test]
+fn prompt_during_text_stream_without_running_tools_sends_immediately() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "Partial answer".to_string(),
+    });
+    assert!(
+        model.chat.active_tool_calls().is_empty(),
+        "plain streaming should not fabricate running tools"
+    );
+
+    model.submit_prompt("switch to the auth bug instead".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SendMessage {
+            thread_id, content, ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(content, "switch to the auth bug instead");
+        }
+        other => panic!(
+            "expected immediate send when no tool is running, got {:?}",
+            other
+        ),
+    }
+    assert!(
+        model.queued_prompts.is_empty(),
+        "message should not be queued once tool execution has finished"
+    );
+}
+
+#[test]
+fn follow_up_prompt_after_cancel_keeps_processing_new_events_on_same_thread() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "Partial answer".to_string(),
+    });
+    model.cancelled_thread_id = Some("thread-1".to_string());
+    model.chat.reduce(chat::ChatAction::ForceStopStreaming);
+
+    model.submit_prompt("follow up".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SendMessage {
+            thread_id, content, ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(content, "follow up");
+        }
+        other => panic!("expected follow-up send on same thread, got {:?}", other),
+    }
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "Visible answer".to_string(),
+    });
+
+    assert_eq!(
+        model.chat.streaming_content(),
+        "Visible answer",
+        "new stream chunks on the same thread should not be dropped after a cancelled turn"
+    );
+}
+
+#[test]
 fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, mut daemon_rx) = unbounded_channel();

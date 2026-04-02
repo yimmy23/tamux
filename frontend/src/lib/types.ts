@@ -99,11 +99,25 @@ export interface PaneInfo {
 // ---------------------------------------------------------------------------
 // Notifications (OSC 9, 99, 777)
 // ---------------------------------------------------------------------------
-export type NotificationSource = "osc9" | "osc99" | "osc777" | "cli" | "system" | "approval" | "heartbeat" | "audit";
+export type NotificationSource =
+  | "osc9"
+  | "osc99"
+  | "osc777"
+  | "cli"
+  | "system"
+  | "approval"
+  | "heartbeat"
+  | "audit"
+  | "plugin_auth"
+  | "tool"
+  | (string & {});
 
 export interface NotificationAction {
   id: string;
   label: string;
+  actionType?: string | null;
+  target?: string | null;
+  payloadJson?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +171,14 @@ export interface TerminalNotification {
   timestamp: number;
   source: NotificationSource;
   actions?: NotificationAction[];
+  severity?: string | null;
+  kind?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+  archivedAt?: number | null;
+  deletedAt?: number | null;
+  metadataJson?: string | null;
+  persistent?: boolean;
 }
 
 // ---------------------------------------------------------------------------

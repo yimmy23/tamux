@@ -81,6 +81,10 @@ impl TuiModel {
             }
             return false;
         }
+        if code == KeyCode::Char('q') && ctrl {
+            self.open_queued_prompts_modal();
+            return false;
+        }
         if let Some(modal_kind) = self.modal.top() {
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
@@ -100,6 +104,43 @@ impl TuiModel {
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.execute_concierge_action(self.concierge.selected_action);
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        if self.focus == FocusArea::Chat
+            && self
+                .chat
+                .retry_status()
+                .is_some_and(|status| matches!(status.phase, chat::RetryPhase::Waiting))
+        {
+            match code {
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.retry_wait_start_selected = true;
+                    self.status_line = "Retry prompt: Yes now".to_string();
+                    return false;
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    self.retry_wait_start_selected = false;
+                    self.status_line = "Retry prompt: No".to_string();
+                    return false;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
+                        if self.retry_wait_start_selected {
+                            self.send_daemon_command(DaemonCommand::RetryStreamNow { thread_id });
+                            self.status_line = "Retrying now…".to_string();
+                            self.agent_activity = Some("retrying".to_string());
+                        } else {
+                            self.cancelled_thread_id = Some(thread_id.clone());
+                            self.chat.reduce(chat::ChatAction::ForceStopStreaming);
+                            self.agent_activity = None;
+                            self.send_daemon_command(DaemonCommand::StopStream { thread_id });
+                            self.status_line = "Stopped retry loop".to_string();
+                        }
+                    }
                     return false;
                 }
                 _ => {}
@@ -161,6 +202,9 @@ impl TuiModel {
                     .reduce(modal::ModalAction::Push(modal::ModalKind::GoalPicker));
                 self.sync_goal_picker_item_count();
                 self.focus = FocusArea::Chat;
+            }
+            KeyCode::Char('i') if ctrl => {
+                self.toggle_notifications_modal();
             }
             KeyCode::Char('b') if ctrl => {
                 let current = self.show_sidebar_override.unwrap_or(self.width >= 80);

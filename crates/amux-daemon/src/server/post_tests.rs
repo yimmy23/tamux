@@ -9,6 +9,7 @@ fn should_forward_agent_event(
             crate::agent::types::AgentEvent::HeartbeatResult { .. }
                 | crate::agent::types::AgentEvent::HeartbeatDigest { .. }
                 | crate::agent::types::AgentEvent::Notification { .. }
+                | crate::agent::types::AgentEvent::NotificationInboxUpsert { .. }
                 | crate::agent::types::AgentEvent::AnticipatoryUpdate { .. }
                 | crate::agent::types::AgentEvent::ConciergeWelcome { .. }
                 | crate::agent::types::AgentEvent::ProviderCircuitOpen { .. }
@@ -275,4 +276,3 @@ async fn accept_loop_tcp(
 // ---------------------------------------------------------------------------
 // Connection handler — generic over any AsyncRead + AsyncWrite stream
 // ---------------------------------------------------------------------------
-

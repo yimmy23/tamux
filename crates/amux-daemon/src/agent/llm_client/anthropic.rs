@@ -1,20 +1,26 @@
-async fn run_anthropic(
+fn anthropic_messages_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{}/messages", base)
+    } else {
+        format!("{}/v1/messages", base)
+    }
+}
+
+fn provider_requires_fresh_anthropic_connection(provider: &str) -> bool {
+    matches!(provider, "minimax" | "minimax-coding-plan")
+}
+
+fn build_anthropic_request(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
-    tx: &mpsc::Sender<Result<CompletionChunk>>,
-) -> Result<()> {
-    let base = config.base_url.trim_end_matches('/');
-    let url = if base.ends_with("/v1") {
-        format!("{}/messages", base)
-    } else {
-        format!("{}/v1/messages", base)
-    };
+) -> Result<reqwest::Request> {
+    let url = anthropic_messages_url(&config.base_url);
 
-    // Convert messages to Anthropic format
     let anthropic_messages = build_anthropic_messages(messages);
 
     let mut body = serde_json::json!({
@@ -67,15 +73,34 @@ async fn run_anthropic(
             "fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14",
         );
     }
-    let response = apply_dashscope_coding_plan_sdk_headers(
+    request = apply_dashscope_coding_plan_sdk_headers(
         request,
         provider,
         &config.base_url,
         ApiType::Anthropic,
     )
-    .body(body.to_string())
-    .send()
-    .await?;
+    .body(body.to_string());
+
+    if provider_requires_fresh_anthropic_connection(provider) {
+        request = request
+            .header(reqwest::header::CONNECTION, "close")
+            .version(reqwest::Version::HTTP_11);
+    }
+
+    request.build().map_err(Into::into)
+}
+
+async fn run_anthropic(
+    client: &reqwest::Client,
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    tx: &mpsc::Sender<Result<CompletionChunk>>,
+) -> Result<()> {
+    let request = build_anthropic_request(client, provider, config, system_prompt, messages, tools)?;
+    let response = client.execute(request).await?;
 
     if !response.status().is_success() {
         let status = response.status();

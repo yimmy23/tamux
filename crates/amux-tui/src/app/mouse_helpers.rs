@@ -85,8 +85,17 @@ impl TuiModel {
                 self.chat.select_message(Some(message_index));
                 self.open_chat_tool_file_preview(message_index);
             }
+            Some(chat::ChatHitTarget::RetryStartNow) => {
+                if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
+                    self.retry_wait_start_selected = true;
+                    self.send_daemon_command(DaemonCommand::RetryStreamNow { thread_id });
+                    self.status_line = "Retrying now…".to_string();
+                    self.agent_activity = Some("retrying".to_string());
+                }
+            }
             Some(chat::ChatHitTarget::RetryStop) => {
                 if let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) {
+                    self.retry_wait_start_selected = false;
                     self.cancelled_thread_id = Some(thread_id.clone());
                     self.chat.reduce(chat::ChatAction::ForceStopStreaming);
                     self.agent_activity = None;
@@ -150,11 +159,16 @@ impl TuiModel {
                 modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
+                | modal::ModalKind::QueuedPrompts
                 | modal::ModalKind::ProviderPicker
                 | modal::ModalKind::ModelPicker
                 | modal::ModalKind::OpenAIAuth
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(-1));
+                }
+                modal::ModalKind::Notifications => {
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::Navigate(-1));
                 }
                 _ => {}
             },
@@ -162,11 +176,16 @@ impl TuiModel {
                 modal::ModalKind::CommandPalette
                 | modal::ModalKind::ThreadPicker
                 | modal::ModalKind::GoalPicker
+                | modal::ModalKind::QueuedPrompts
                 | modal::ModalKind::ProviderPicker
                 | modal::ModalKind::ModelPicker
                 | modal::ModalKind::OpenAIAuth
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(1));
+                }
+                modal::ModalKind::Notifications => {
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::Navigate(1));
                 }
                 _ => {}
             },
@@ -177,10 +196,12 @@ impl TuiModel {
                         | modal::ModalKind::CommandPalette
                         | modal::ModalKind::ThreadPicker
                         | modal::ModalKind::GoalPicker
+                        | modal::ModalKind::QueuedPrompts
                         | modal::ModalKind::ProviderPicker
                         | modal::ModalKind::ModelPicker
                         | modal::ModalKind::OpenAIAuth
                         | modal::ModalKind::ErrorViewer
+                        | modal::ModalKind::Notifications
                         | modal::ModalKind::EffortPicker
                         | modal::ModalKind::ChatActionConfirm
                 ) {
@@ -305,6 +326,58 @@ impl TuiModel {
                         None => {}
                     }
                 }
+                modal::ModalKind::Notifications => {
+                    if let Some(target) = widgets::notifications::hit_test(
+                        overlay_area,
+                        &self.notifications,
+                        Position::new(mouse.column, mouse.row),
+                    ) {
+                        match target {
+                            widgets::notifications::NotificationsHitTarget::MarkAllRead => {
+                                self.mark_all_notifications_read();
+                            }
+                            widgets::notifications::NotificationsHitTarget::ArchiveRead => {
+                                self.archive_read_notifications();
+                            }
+                            widgets::notifications::NotificationsHitTarget::Close => {
+                                self.close_top_modal();
+                            }
+                            widgets::notifications::NotificationsHitTarget::Row(index) => {
+                                self.notifications
+                                    .reduce(crate::state::NotificationsAction::Select(index));
+                                if let Some(id) = self
+                                    .notifications
+                                    .selected_item()
+                                    .map(|notification| notification.id.clone())
+                                {
+                                    self.toggle_notification_expand(id);
+                                }
+                            }
+                            widgets::notifications::NotificationsHitTarget::ToggleExpand(id) => {
+                                self.toggle_notification_expand(id);
+                            }
+                            widgets::notifications::NotificationsHitTarget::MarkRead(id) => {
+                                self.mark_notification_read(&id);
+                            }
+                            widgets::notifications::NotificationsHitTarget::Archive(id) => {
+                                self.archive_notification(&id);
+                            }
+                            widgets::notifications::NotificationsHitTarget::Delete(id) => {
+                                self.delete_notification(&id);
+                            }
+                            widgets::notifications::NotificationsHitTarget::Action {
+                                notification_id,
+                                action_index,
+                            } => {
+                                self.execute_notification_action(
+                                    &notification_id,
+                                    "",
+                                    Some(action_index),
+                                );
+                            }
+                        }
+                    }
+                }
                 modal::ModalKind::CommandPalette => {
                     let inner = Block::default()
                         .borders(Borders::ALL)
@@ -374,6 +447,29 @@ impl TuiModel {
                         if row_idx < visible_len {
                             self.modal_navigate_to(visible_start + row_idx);
                             self.handle_modal_enter(kind);
+                        }
+                    }
+                }
+                modal::ModalKind::QueuedPrompts => {
+                    if let Some(target) = widgets::queued_prompts::hit_test(
+                        overlay_area,
+                        &self.queued_prompts,
+                        self.modal.picker_cursor(),
+                        self.tick_counter,
+                        Position::new(mouse.column, mouse.row),
+                    ) {
+                        match target {
+                            widgets::queued_prompts::QueuedPromptsHitTarget::Row(index) => {
+                                self.modal_navigate_to(index);
+                            }
+                            widgets::queued_prompts::QueuedPromptsHitTarget::Action {
+                                message_index,
+                                action,
+                            } => {
+                                self.modal_navigate_to(message_index);
+                                self.queued_prompt_action = action;
+                                self.execute_selected_queued_prompt_action();
+                            }
                         }
                     }
                 }

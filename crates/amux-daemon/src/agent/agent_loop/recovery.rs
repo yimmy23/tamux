@@ -125,6 +125,8 @@ pub(super) fn retry_failure_class_from_message(message: &str) -> &'static str {
     } else if lower.contains("timed out") || lower.contains("timeout") {
         "timeout"
     } else if lower.contains("connection")
+        || lower.contains("error sending request for url")
+        || lower.contains("invalid http version parsed")
         || lower.contains("broken pipe")
         || lower.contains("unexpected eof")
         || lower.contains("reset")
@@ -149,6 +151,8 @@ pub(super) fn is_transient_retry_message(message: &str) -> bool {
         || lower.contains("timed out")
         || lower.contains("timeout")
         || lower.contains("connection")
+        || lower.contains("error sending request for url")
+        || lower.contains("invalid http version parsed")
         || lower.contains("broken pipe")
         || lower.contains("unexpected eof")
         || lower.contains("overloaded")
@@ -208,5 +212,18 @@ fn classify_fixable_upstream_recovery(
             })
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_transient_retry_message, retry_failure_class_from_message};
+
+    #[test]
+    fn transient_retry_message_recognizes_reqwest_send_request_failures() {
+        let message = "minimax-coding-plan transport error: error sending request for url (https://api.minimax.io/anthropic/v1/messages): client error (SendRequest): invalid HTTP version parsed";
+
+        assert!(is_transient_retry_message(message));
+        assert_eq!(retry_failure_class_from_message(message), "transport");
     }
 }

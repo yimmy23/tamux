@@ -108,7 +108,15 @@ impl TuiModel {
             ])
             .split(area);
 
-        widgets::header::render(frame, chunks[0], &self.config, &self.chat, &self.theme);
+        widgets::header::render(
+            frame,
+            chunks[0],
+            &self.config,
+            &self.chat,
+            &self.theme,
+            self.notifications.unread_count(),
+            self.modal.top() == Some(modal::ModalKind::Notifications),
+        );
 
         if let Some(sidebar_area) = layout.sidebar {
             match &self.main_pane_view {
@@ -288,11 +296,13 @@ impl TuiModel {
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
+                modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
                 modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
                 modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
                 modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
                 modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
                 modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
+                modal::ModalKind::Notifications => render_helpers::centered_rect(70, 78, area),
                 modal::ModalKind::WhatsAppLink => render_helpers::centered_rect(70, 80, area),
                 modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
                     render_helpers::centered_rect(40, 35, area)
@@ -320,6 +330,17 @@ impl TuiModel {
                         overlay_area,
                         &self.tasks,
                         &self.modal,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::QueuedPrompts => {
+                    widgets::queued_prompts::render(
+                        frame,
+                        overlay_area,
+                        &self.queued_prompts,
+                        self.modal.picker_cursor(),
+                        self.queued_prompt_action,
+                        self.tick_counter,
                         &self.theme,
                     );
                 }
@@ -402,6 +423,14 @@ impl TuiModel {
                         &self.theme,
                     );
                 }
+                modal::ModalKind::Notifications => {
+                    widgets::notifications::render(
+                        frame,
+                        overlay_area,
+                        &self.notifications,
+                        &self.theme,
+                    );
+                }
                 modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {}
                 modal::ModalKind::Help => {
                     render_helpers::render_help_modal(frame, overlay_area, &self.theme);
@@ -423,11 +452,13 @@ impl TuiModel {
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
+            modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
             modal::ModalKind::ProviderPicker => render_helpers::centered_rect(35, 65, area),
             modal::ModalKind::ModelPicker => render_helpers::centered_rect(45, 50, area),
             modal::ModalKind::OpenAIAuth => render_helpers::centered_rect(70, 35, area),
             modal::ModalKind::ErrorViewer => render_helpers::centered_rect(70, 45, area),
             modal::ModalKind::EffortPicker => render_helpers::centered_rect(35, 30, area),
+            modal::ModalKind::Notifications => render_helpers::centered_rect(70, 78, area),
             modal::ModalKind::WhatsAppLink => render_helpers::centered_rect(70, 80, area),
             modal::ModalKind::ToolsPicker | modal::ModalKind::ViewPicker => {
                 render_helpers::centered_rect(40, 35, area)

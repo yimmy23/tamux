@@ -4,6 +4,7 @@ mod git;
 mod history;
 mod lsp_client;
 mod network;
+mod notifications;
 mod osc;
 pub mod plugin;
 mod policy;

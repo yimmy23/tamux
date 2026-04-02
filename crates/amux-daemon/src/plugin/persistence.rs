@@ -331,44 +331,37 @@ impl PluginPersistence {
     }
 
     /// Compute auth status for a plugin based on credential state.
-    /// Returns "connected", "expired", or "not_configured".
+    /// Returns "connected", "refreshable", "needs_reconnect", or "not_configured".
     /// No decryption needed -- just checks row existence and expiry.
     pub async fn get_auth_status(&self, plugin_name: &str) -> Result<String> {
         let plugin_name = plugin_name.to_string();
         self.history
             .conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
+                let mut access_stmt = conn.prepare(
                     "SELECT expires_at FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'access_token'",
                 )?;
-                let row = stmt
+                let access_row = access_stmt
                     .query_row(params![plugin_name], |row| {
                         Ok(row.get::<_, Option<String>>(0)?)
                     })
                     .optional()?;
-                match row {
-                    Some(Some(expires_at)) => {
-                        // Check if expired
-                        match chrono::DateTime::parse_from_rfc3339(&expires_at) {
-                            Ok(dt) => {
-                                if dt > chrono::Utc::now() {
-                                    Ok("connected".to_string())
-                                } else {
-                                    Ok("expired".to_string())
-                                }
-                            }
-                            Err(_) => {
-                                // Unparseable expiry -- treat as connected
-                                Ok("connected".to_string())
-                            }
-                        }
-                    }
-                    Some(None) => {
-                        // Row exists but no expiry -- treat as connected
-                        Ok("connected".to_string())
-                    }
-                    None => Ok("not_configured".to_string()),
-                }
+                let mut refresh_stmt = conn.prepare(
+                    "SELECT 1 FROM plugin_credentials WHERE plugin_name = ?1 AND credential_type = 'refresh_token' LIMIT 1",
+                )?;
+                let has_refresh_token = refresh_stmt
+                    .query_row(params![plugin_name], |_row| Ok(()))
+                    .optional()?
+                    .is_some();
+
+                let status = match access_row {
+                    Some(expires_at) => super::manager_extras::auth_status_from_expiry_and_refresh_token(
+                        expires_at.as_deref(),
+                        has_refresh_token,
+                    ),
+                    None => super::manager_extras::PluginAuthStatus::NotConfigured,
+                };
+                Ok(status.as_str().to_string())
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

@@ -220,3 +220,83 @@
         assert_eq!(classify_freshness(Some("not-a-date")), "unknown");
         assert_eq!(classify_freshness(None), "unknown");
     }
+
+    #[tokio::test]
+    async fn spawn_subagent_bootstraps_todos_for_planned_chat_threads() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-planned-subagents";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    title: "Parallel skill work".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "Investigate the failing tests, then update the parser, and finally rerun the suite.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-spawn-subagent-bootstrap".to_string(),
+            ToolFunction {
+                name: "spawn_subagent".to_string(),
+                arguments: serde_json::json!({
+                    "title": "Write foundational skill files",
+                    "description": "Create the foundational skill files in parallel so the parent can integrate the batches."
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "spawn_subagent should bootstrap plan state instead of failing: {}",
+            result.content
+        );
+        assert!(result.content.contains("Spawned subagent"));
+
+        let todos = engine.get_todos(thread_id).await;
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].status, TodoStatus::InProgress);
+        assert!(
+            todos[0].content.contains("Write foundational skill files"),
+            "bootstrap todo should reflect the delegated work"
+        );
+
+        let tasks = engine.list_tasks().await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].source, "subagent");
+        assert_eq!(tasks[0].parent_thread_id.as_deref(), Some(thread_id));
+    }

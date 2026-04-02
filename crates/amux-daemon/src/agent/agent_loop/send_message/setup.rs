@@ -107,7 +107,8 @@ impl<'a> SendMessageRunner<'a> {
                 }
             };
 
-        let (stream_generation, stream_cancel_token) = engine.begin_stream_cancellation(&tid).await;
+        let (stream_generation, stream_cancel_token, stream_retry_now) =
+            engine.begin_stream_cancellation(&tid).await;
         let onecontext_bootstrap = if is_new_thread {
             engine
                 .onecontext_bootstrap_for_new_thread(stored_user_content)
@@ -433,6 +434,7 @@ impl<'a> SendMessageRunner<'a> {
             max_loops,
             stream_generation,
             stream_cancel_token,
+            stream_retry_now,
             loop_count: 0,
             was_cancelled: false,
             interrupted_for_approval: false,
@@ -456,6 +458,7 @@ impl<'a> SendMessageRunner<'a> {
             tool_ack_emitted: false,
             tool_sequence_repaired: false,
             retry_status_visible: false,
+            scheduled_retry_cycles: 0,
             assistant_output_visible: false,
             tool_side_effect_committed: false,
             attempted_recovery_signatures: std::collections::HashSet::new(),

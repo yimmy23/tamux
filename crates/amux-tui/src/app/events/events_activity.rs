@@ -69,6 +69,7 @@ impl TuiModel {
             is_error,
             weles_review,
         });
+        self.dispatch_next_queued_prompt_if_ready();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -110,10 +111,7 @@ impl TuiModel {
             reasoning,
         });
 
-        if !self.queued_prompts.is_empty() {
-            let next_prompt = self.queued_prompts.remove(0);
-            self.submit_prompt(next_prompt);
-        }
+        self.dispatch_next_queued_prompt_if_ready();
     }
 
     pub(in crate::app) fn handle_operator_profile_session_started_event(
@@ -290,11 +288,13 @@ impl TuiModel {
         if phase == "cleared" {
             self.chat
                 .reduce(chat::ChatAction::ClearRetryStatus { thread_id });
+            self.retry_wait_start_selected = false;
             if !self.chat.is_streaming() {
                 self.agent_activity = None;
             }
             return;
         }
+        self.retry_wait_start_selected = false;
         self.agent_activity = Some(match phase.as_str() {
             "waiting" => "retry wait".to_string(),
             _ => "retrying".to_string(),

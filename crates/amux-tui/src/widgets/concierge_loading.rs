@@ -20,10 +20,10 @@ fn morph_phase(tick: u64) -> usize {
 
 fn stage_label(tick: u64) -> &'static str {
     match (tick / 28) % 4 {
-        0 => "Reading the thread surface",
-        1 => "Cross-linking recent memory",
-        2 => "Merging human and machine cues",
-        _ => "Composing the welcome handoff",
+        0 => "Reading the ember-thread",
+        1 => "Gathering sparks from recent memory",
+        2 => "Braiding omen, memory, and intent",
+        _ => "Threading the welcome from flame",
     }
 }
 
@@ -49,6 +49,59 @@ fn orbit_line(width: usize, tick: u64, reverse: bool) -> String {
     chars[primary] = 'o';
     chars[secondary] = 'o';
     chars.into_iter().collect()
+}
+
+fn rarog_frame(tick: u64) -> &'static [&'static str] {
+    match morph_phase(tick) {
+        0 => &[
+            ".....        .-\\^^^/-.        .....",
+            "....       .' _\\#/#_ '.       ....",
+            "...       /  /(o o)\\  \\       ...",
+            "..       |   |  >  |   |       ..",
+            "..       |   | /_\\ |   |       ..",
+            "...       \\   \\_#_/   /       ...",
+            "....    .-'-._/###\\_.-'-.    ....",
+            ".....   \\___/|###|\\___/   .....",
+            ".....       /_|#|_\\       .....",
+            ".....         /_\\         .....",
+        ],
+        1 => &[
+            ".....        .-\\^*^/-.        .....",
+            "....       .' _\\#/#_ '.       ....",
+            "...       /  /(o O)\\  \\       ...",
+            "..       |   |  >  |   |       ..",
+            "..       |   | \\_/ |   |       ..",
+            "...       \\   \\_#_/   /       ...",
+            "....    .-'-._/*#*\\_.-'-.    ....",
+            ".....   \\___/|###|\\___/   .....",
+            ".....       /_|*|_\\       .....",
+            ".....         /_\\         .....",
+        ],
+        2 => &[
+            ".....        .-\\#^#/-.        .....",
+            "....       .' _\\|#|_ '.       ....",
+            "...       /  /(O O)\\  \\       ...",
+            "..       |   | \\/> |   |       ..",
+            "..       |   | /#\\ |   |       ..",
+            "...       \\   \\_#_/   /       ...",
+            "....    .-'-._/###\\_.-'-.    ....",
+            ".....   \\___/|#=#|\\___/   .....",
+            ".....       /_|#|_\\       .....",
+            ".....         /#\\         .....",
+        ],
+        _ => &[
+            ".....        .-\\@#@/-.        .....",
+            "....       .' _\\|#|_ '.       ....",
+            "...       /  /(0 0)\\  \\       ...",
+            "..       |   |  >> |   |       ..",
+            "..       |   | \\#/ |   |       ..",
+            "...       \\   \\_#_/   /       ...",
+            "....    .-'-._/#=#\\_.-'-.    ....",
+            ".....   \\___/|###|\\___/   .....",
+            ".....       /_|#|_\\       .....",
+            ".....         /#\\         .....",
+        ],
+    }
 }
 
 fn portrait_frame(tick: u64) -> &'static [&'static str] {
@@ -130,13 +183,13 @@ fn styled_glyph_line(text: &str, theme: &ThemeTokens) -> Line<'static> {
 }
 
 pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens, tick: u64) {
-    if area.width < 56 || area.height < 12 {
+    if area.width < 56 || area.height < 16 {
         return;
     }
 
     frame.render_widget(Clear, area);
 
-    let inner = lower_centered_rect(64, 12, area);
+    let inner = lower_centered_rect(64, 16, area);
     let orbit_width = inner.width.saturating_sub(6) as usize;
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
@@ -148,7 +201,7 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens, tick: u64) {
         &orbit_line(orbit_width, tick, false),
         theme,
     ));
-    for row in portrait_frame(tick) {
+    for row in rarog_frame(tick) {
         lines.push(styled_glyph_line(row, theme));
     }
     lines.push(styled_glyph_line(
@@ -156,7 +209,7 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens, tick: u64) {
         theme,
     ));
     lines.push(Line::from(Span::styled(
-        "dotfield sync: human intuition <-> machine recall",
+        "ember sync: human intuition <-> fire-memory",
         theme.fg_dim,
     )));
 
@@ -169,10 +222,10 @@ mod tests {
 
     #[test]
     fn stage_label_cycles_through_loading_states() {
-        assert_eq!(stage_label(0), "Reading the thread surface");
-        assert_eq!(stage_label(28), "Cross-linking recent memory");
-        assert_eq!(stage_label(56), "Merging human and machine cues");
-        assert_eq!(stage_label(84), "Composing the welcome handoff");
+        assert_eq!(stage_label(0), "Reading the ember-thread");
+        assert_eq!(stage_label(28), "Gathering sparks from recent memory");
+        assert_eq!(stage_label(56), "Braiding omen, memory, and intent");
+        assert_eq!(stage_label(84), "Threading the welcome from flame");
     }
 
     #[test]

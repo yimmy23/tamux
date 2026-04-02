@@ -171,6 +171,92 @@ impl TuiModel {
             .set_picker_item_count(self.filtered_goal_runs().len() + 1);
     }
 
+    pub(crate) fn open_queued_prompts_modal(&mut self) {
+        if self.queued_prompts.is_empty() {
+            self.status_line = "No queued messages".to_string();
+            return;
+        }
+        if self.modal.top() != Some(modal::ModalKind::QueuedPrompts) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::QueuedPrompts));
+        }
+        self.modal.set_picker_item_count(self.queued_prompts.len());
+        self.queued_prompt_action = QueuedPromptAction::SendNow;
+    }
+
+    fn queue_prompt(&mut self, prompt: String) {
+        self.queued_prompts.push(QueuedPrompt::new(prompt));
+        self.status_line = format!("QUEUED ({})", self.queued_prompts.len());
+        self.sync_queued_prompt_modal_state();
+    }
+
+    fn pop_next_queued_prompt(&mut self) -> Option<QueuedPrompt> {
+        if self.queued_prompts.is_empty() {
+            return None;
+        }
+        let prompt = self.queued_prompts.remove(0);
+        self.sync_queued_prompt_modal_state();
+        Some(prompt)
+    }
+
+    fn remove_queued_prompt_at(&mut self, index: usize) -> Option<QueuedPrompt> {
+        if index >= self.queued_prompts.len() {
+            return None;
+        }
+        let prompt = self.queued_prompts.remove(index);
+        self.sync_queued_prompt_modal_state();
+        Some(prompt)
+    }
+
+    pub(super) fn dispatch_next_queued_prompt_if_ready(&mut self) {
+        if self.queue_barrier_active() {
+            return;
+        }
+        if let Some(prompt) = self.pop_next_queued_prompt() {
+            self.submit_prompt(prompt.text);
+        }
+    }
+
+    fn interrupt_current_stream(&mut self) {
+        let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
+            return;
+        };
+        self.cancelled_thread_id = Some(thread_id.clone());
+        self.chat.reduce(chat::ChatAction::ForceStopStreaming);
+        self.agent_activity = None;
+        self.pending_stop = false;
+        self.send_daemon_command(DaemonCommand::StopStream { thread_id });
+    }
+
+    pub(super) fn execute_selected_queued_prompt_action(&mut self) {
+        let index = self.modal.picker_cursor();
+        let action = self.queued_prompt_action;
+        match action {
+            QueuedPromptAction::SendNow => {
+                let Some(prompt) = self.remove_queued_prompt_at(index) else {
+                    return;
+                };
+                if self.assistant_busy() {
+                    self.interrupt_current_stream();
+                }
+                self.submit_prompt(prompt.text);
+            }
+            QueuedPromptAction::Copy => {
+                let Some(prompt) = self.queued_prompts.get_mut(index) else {
+                    return;
+                };
+                conversion::copy_to_clipboard(&prompt.text);
+                prompt.mark_copied(self.tick_counter.saturating_add(100));
+                self.status_line = "Copied queued message".to_string();
+            }
+            QueuedPromptAction::Delete => {
+                if self.remove_queued_prompt_at(index).is_some() {
+                    self.status_line = "Removed queued message".to_string();
+                }
+            }
+        }
+    }
+
     pub(super) fn open_new_goal_view(&mut self) {
         self.cleanup_concierge_on_navigate();
         self.main_pane_view = MainPaneView::GoalComposer;
@@ -364,9 +450,8 @@ impl TuiModel {
             self.status_line = "Not connected to daemon".to_string();
             return;
         }
-        if self.assistant_busy() {
-            self.queued_prompts.push(prompt);
-            self.status_line = format!("QUEUED ({})", self.queued_prompts.len());
+        if self.queue_barrier_active() {
+            self.queue_prompt(prompt);
             return;
         }
 
@@ -393,6 +478,9 @@ impl TuiModel {
             input_refs::append_referenced_files_footer(&content_with_attachments, &cwd);
 
         let thread_id = self.chat.active_thread_id().map(String::from);
+        if thread_id.as_deref() == self.cancelled_thread_id.as_deref() {
+            self.cancelled_thread_id = None;
+        }
         if thread_id.is_none() {
             self.chat.reduce(chat::ChatAction::ThreadCreated {
                 thread_id: format!("local-{}", self.tick_counter),

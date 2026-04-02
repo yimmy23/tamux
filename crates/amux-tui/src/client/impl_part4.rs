@@ -165,6 +165,17 @@ impl DaemonClient {
                     })
                     .await;
             }
+            "notification_inbox_upsert" => {
+                if let Some(notification) = event
+                    .get("notification")
+                    .cloned()
+                    .and_then(|raw| serde_json::from_value::<amux_protocol::InboxNotification>(raw).ok())
+                {
+                    let _ = event_tx
+                        .send(ClientEvent::NotificationUpsert(notification))
+                        .await;
+                }
+            }
             "weles_health_update" => {
                 let _ = event_tx
                     .send(ClientEvent::WelesHealthUpdate {
@@ -484,6 +495,34 @@ impl DaemonClient {
     pub fn request_work_context(&self, thread_id: impl Into<String>) -> Result<()> {
         self.send(ClientMessage::AgentGetWorkContext {
             thread_id: thread_id.into(),
+        })
+    }
+
+    pub fn list_notifications(&self) -> Result<()> {
+        self.send(ClientMessage::ListAgentEvents {
+            category: Some("notification".to_string()),
+            pane_id: None,
+            limit: Some(500),
+        })
+    }
+
+    pub fn upsert_notification(
+        &self,
+        notification: amux_protocol::InboxNotification,
+    ) -> Result<()> {
+        let event_row = amux_protocol::AgentEventRow {
+            id: notification.id.clone(),
+            category: "notification".to_string(),
+            kind: notification.kind.clone(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            session_id: None,
+            payload_json: serde_json::to_string(&notification)?,
+            timestamp: notification.updated_at,
+        };
+        self.send(ClientMessage::UpsertAgentEvent {
+            event_json: serde_json::to_string(&event_row)?,
         })
     }
 

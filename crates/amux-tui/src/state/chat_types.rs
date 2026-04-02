@@ -73,6 +73,7 @@ pub enum ChatHitTarget {
     ToolFilePath {
         message_index: usize,
     },
+    RetryStartNow,
     RetryStop,
     MessageAction {
         message_index: usize,

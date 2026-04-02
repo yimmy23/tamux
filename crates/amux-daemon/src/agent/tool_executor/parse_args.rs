@@ -21,8 +21,8 @@ fn parse_tool_args(
     tool_name: &str,
     raw_arguments: &str,
 ) -> std::result::Result<serde_json::Value, String> {
-    if tool_name == "create_file" {
-        if let Ok(args) = parse_create_file_multipart_args(raw_arguments) {
+    if matches!(tool_name, "create_file" | "write_file") {
+        if let Ok(args) = parse_file_multipart_args(raw_arguments) {
             return Ok(args);
         }
     }
@@ -37,7 +37,7 @@ fn parse_tool_args(
     })
 }
 
-fn parse_create_file_multipart_args(raw_arguments: &str) -> Result<serde_json::Value> {
+fn parse_file_multipart_args(raw_arguments: &str) -> Result<serde_json::Value> {
     let trimmed = raw_arguments.trim();
     if trimmed.is_empty() || trimmed.starts_with('{') {
         anyhow::bail!("not a multipart payload");
@@ -171,4 +171,3 @@ fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {
 // ---------------------------------------------------------------------------
 // Tool implementations
 // ---------------------------------------------------------------------------
-

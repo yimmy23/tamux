@@ -2,6 +2,8 @@
 
 tamux is an AI-native terminal multiplexer with workspaces, panes, a Rust daemon, and an Electron desktop UI. The daemon now also owns long-running goal runners that can plan work, enqueue child tasks, pause for approval, and persist what they learn.
 
+For providers, configuration, shortcuts, release packaging, plugin installation, and MCP registration, see [reference.md](reference.md).
+
 ## Install Locations
 
 - **Desktop app binaries (packaged):** inside application resources (`resources/bin` on desktop builds).

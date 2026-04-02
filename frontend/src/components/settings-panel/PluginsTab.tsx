@@ -15,18 +15,24 @@ import {
 // AuthStatusBadge
 // ---------------------------------------------------------------------------
 
-type AuthStatus = "not_configured" | "connected" | "expired";
+type AuthStatus =
+  | "not_configured"
+  | "connected"
+  | "refreshable"
+  | "needs_reconnect";
 
 const AUTH_DOT_COLORS: Record<AuthStatus, string> = {
   not_configured: "var(--text-muted)",
   connected: "var(--success)",
-  expired: "var(--warning)",
+  refreshable: "var(--warning)",
+  needs_reconnect: "var(--danger)",
 };
 
 const AUTH_LABELS: Record<AuthStatus, string> = {
   not_configured: "Not configured",
   connected: "Connected",
-  expired: "Expired -- Reconnect",
+  refreshable: "Refreshing automatically",
+  needs_reconnect: "Reconnect required",
 };
 
 function AuthStatusBadge({ hasAuth, authStatus = "not_configured" }: {
@@ -307,7 +313,7 @@ function PluginCard({ plugin }: { plugin: PluginInfoItem }) {
                   void store.startOAuth(plugin.name);
                 }}
               >
-                {authStatus === "expired" ? "Reconnect" : "Connect"}
+                {authStatus === "not_configured" ? "Connect" : "Reconnect"}
               </button>
             </div>
           ) : null}

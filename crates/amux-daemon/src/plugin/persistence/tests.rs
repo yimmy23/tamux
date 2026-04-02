@@ -240,3 +240,53 @@ async fn upsert_updates_existing_record() {
     assert_eq!(plugins[0].version, "2.0.0");
     assert_eq!(plugins[0].updated_at, "2026-06-01T00:00:00Z");
 }
+
+#[tokio::test]
+async fn auth_status_is_refreshable_when_access_token_expired_but_refresh_token_exists() {
+    let persistence = PluginPersistence::new(make_test_history().await);
+    persistence
+        .upsert_plugin(&sample_record("oauth-plugin"))
+        .await
+        .unwrap();
+
+    let expired_at = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+    persistence
+        .upsert_credential(
+            "oauth-plugin",
+            "access_token",
+            b"encrypted-access",
+            Some(&expired_at),
+        )
+        .await
+        .unwrap();
+    persistence
+        .upsert_credential("oauth-plugin", "refresh_token", b"encrypted-refresh", None)
+        .await
+        .unwrap();
+
+    let status = persistence.get_auth_status("oauth-plugin").await.unwrap();
+    assert_eq!(status, "refreshable");
+}
+
+#[tokio::test]
+async fn auth_status_needs_reconnect_when_access_token_expired_without_refresh_token() {
+    let persistence = PluginPersistence::new(make_test_history().await);
+    persistence
+        .upsert_plugin(&sample_record("oauth-plugin"))
+        .await
+        .unwrap();
+
+    let expired_at = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+    persistence
+        .upsert_credential(
+            "oauth-plugin",
+            "access_token",
+            b"encrypted-access",
+            Some(&expired_at),
+        )
+        .await
+        .unwrap();
+
+    let status = persistence.get_auth_status("oauth-plugin").await.unwrap();
+    assert_eq!(status, "needs_reconnect");
+}

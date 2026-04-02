@@ -42,6 +42,7 @@ pub enum HeartbeatCheckType {
     StuckGoalRuns,
     UnrepliedGatewayMessages,
     RepoChanges,
+    PluginAuth,
     SkillLifecycle,
 }
 
@@ -95,6 +96,8 @@ pub struct HeartbeatChecksConfig {
     pub unreplied_message_threshold_hours: u64,
     #[serde(default = "default_true")]
     pub repo_changes_enabled: bool,
+    #[serde(default = "default_true")]
+    pub plugin_auth_enabled: bool,
     #[serde(default)]
     pub stale_todos_cron: Option<String>,
     #[serde(default)]
@@ -103,6 +106,8 @@ pub struct HeartbeatChecksConfig {
     pub unreplied_messages_cron: Option<String>,
     #[serde(default)]
     pub repo_changes_cron: Option<String>,
+    #[serde(default)]
+    pub plugin_auth_cron: Option<String>,
     // Per D-06: Per-check priority weights (0.0-1.0). 1.0 = every cycle.
     #[serde(default = "default_priority_weight")]
     pub stale_todos_priority_weight: f64,
@@ -112,6 +117,8 @@ pub struct HeartbeatChecksConfig {
     pub unreplied_messages_priority_weight: f64,
     #[serde(default = "default_priority_weight")]
     pub repo_changes_priority_weight: f64,
+    #[serde(default = "default_priority_weight")]
+    pub plugin_auth_priority_weight: f64,
     // Per D-11: Per-check priority overrides (pin to specific weight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale_todos_priority_override: Option<f64>,
@@ -121,6 +128,8 @@ pub struct HeartbeatChecksConfig {
     pub unreplied_messages_priority_override: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_changes_priority_override: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_auth_priority_override: Option<f64>,
     /// Per D-11: Global reset action — when true, resets all learned priority weights to 1.0.
     #[serde(default)]
     pub reset_learned_priorities: bool,
@@ -223,18 +232,22 @@ impl Default for HeartbeatChecksConfig {
             unreplied_messages_enabled: true,
             unreplied_message_threshold_hours: default_unreplied_threshold_hours(),
             repo_changes_enabled: true,
+            plugin_auth_enabled: true,
             stale_todos_cron: None,
             stuck_goals_cron: None,
             unreplied_messages_cron: None,
             repo_changes_cron: None,
+            plugin_auth_cron: None,
             stale_todos_priority_weight: default_priority_weight(),
             stuck_goals_priority_weight: default_priority_weight(),
             unreplied_messages_priority_weight: default_priority_weight(),
             repo_changes_priority_weight: default_priority_weight(),
+            plugin_auth_priority_weight: default_priority_weight(),
             stale_todos_priority_override: None,
             stuck_goals_priority_override: None,
             unreplied_messages_priority_override: None,
             repo_changes_priority_override: None,
+            plugin_auth_priority_override: None,
             reset_learned_priorities: false,
         }
     }
@@ -339,4 +352,3 @@ pub enum CompletionChunk {
         message: String,
     },
 }
-

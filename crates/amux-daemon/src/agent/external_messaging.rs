@@ -35,7 +35,8 @@ impl AgentEngine {
             None
         };
 
-        let (stream_generation, stream_cancel_token) = self.begin_stream_cancellation(&tid).await;
+        let (stream_generation, stream_cancel_token, _stream_retry_now) =
+            self.begin_stream_cancellation(&tid).await;
 
         // Ensure tamux-mcp is configured in the external agent's MCP settings
         {

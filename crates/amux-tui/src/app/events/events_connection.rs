@@ -12,6 +12,7 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
         self.send_daemon_command(DaemonCommand::ListSubAgents);
         self.send_daemon_command(DaemonCommand::GetConciergeConfig);
+        self.send_daemon_command(DaemonCommand::ListNotifications);
         self.send_daemon_command(DaemonCommand::PluginList);
         self.send_daemon_command(DaemonCommand::PluginListCommands);
         let cwd = std::env::current_dir()

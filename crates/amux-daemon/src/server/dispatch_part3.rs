@@ -136,6 +136,15 @@ if matches!(
                     match serde_json::from_str::<amux_protocol::AgentEventRow>(&event_json) {
                         Ok(event) => match manager.upsert_agent_event(&event).await {
                             Ok(()) => {
+                                if let Some(notification) =
+                                    crate::notifications::parse_notification_row(&event)
+                                {
+                                    let _ = agent
+                                        .event_sender()
+                                        .send(crate::agent::types::AgentEvent::NotificationInboxUpsert {
+                                            notification,
+                                        });
+                                }
                                 framed.send(DaemonMessage::AgentDbMessageAck).await?;
                             }
                             Err(e) => {
@@ -442,6 +451,10 @@ if matches!(
                 ClientMessage::AgentStopStream { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
                     let _ = agent.stop_stream(&thread_id).await;
+                }
+                ClientMessage::AgentRetryStreamNow { thread_id } => {
+                    client_agent_threads.insert(thread_id.clone());
+                    let _ = agent.retry_stream_now(&thread_id).await;
                 }
 
             _ => unreachable!("message chunk should be exhaustive"),

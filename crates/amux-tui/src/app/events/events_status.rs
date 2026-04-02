@@ -111,6 +111,28 @@ impl TuiModel {
         }
     }
 
+    pub(in crate::app) fn handle_notification_snapshot_event(
+        &mut self,
+        notifications: Vec<amux_protocol::InboxNotification>,
+    ) {
+        self.notifications
+            .reduce(crate::state::NotificationsAction::Replace(notifications));
+    }
+
+    pub(in crate::app) fn handle_notification_upsert_event(
+        &mut self,
+        notification: amux_protocol::InboxNotification,
+    ) {
+        let previous_unread = self.notifications.unread_count();
+        let title = notification.title.clone();
+        self.notifications
+            .reduce(crate::state::NotificationsAction::Upsert(notification));
+        let unread = self.notifications.unread_count();
+        if unread > previous_unread {
+            self.status_line = format!("🔔 {}", title);
+        }
+    }
+
     pub(in crate::app) fn handle_audit_entry_event(
         &mut self,
         id: String,

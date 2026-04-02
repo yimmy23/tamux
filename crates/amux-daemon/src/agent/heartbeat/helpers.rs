@@ -77,6 +77,7 @@ pub(super) fn parse_digest_items(response: &str) -> Vec<HeartbeatDigestItem> {
                     HeartbeatCheckType::UnrepliedGatewayMessages
                 }
                 "repochanges" | "repo_changes" => HeartbeatCheckType::RepoChanges,
+                "pluginauth" | "plugin_auth" => HeartbeatCheckType::PluginAuth,
                 _ => HeartbeatCheckType::StaleTodos,
             };
             let title = line
@@ -103,6 +104,7 @@ pub(super) fn check_type_to_action_type(check_type: &HeartbeatCheckType) -> &'st
         HeartbeatCheckType::StuckGoalRuns => "stuck_goal",
         HeartbeatCheckType::UnrepliedGatewayMessages => "unreplied_message",
         HeartbeatCheckType::RepoChanges => "repo_change",
+        HeartbeatCheckType::PluginAuth => "plugin_auth",
         HeartbeatCheckType::SkillLifecycle => "skill_lifecycle",
     }
 }
@@ -120,6 +122,9 @@ pub(super) fn enabled_checks(config: &HeartbeatChecksConfig) -> Vec<HeartbeatChe
     }
     if config.repo_changes_enabled {
         checks.push(HeartbeatCheckType::RepoChanges);
+    }
+    if config.plugin_auth_enabled {
+        checks.push(HeartbeatCheckType::PluginAuth);
     }
     checks
 }

@@ -18,6 +18,7 @@ Requires a running amux daemon (connects via Unix socket or TCP).
 | Tab / Shift+Tab | Cycle focus: Chat → Sidebar → Input |
 | Ctrl+P | Open command palette |
 | Ctrl+T | Open thread picker |
+| Ctrl+Q | Open queued messages |
 | Ctrl+B | Toggle sidebar visibility |
 | / | Open command palette |
 
@@ -37,7 +38,7 @@ Requires a running amux daemon (connects via Unix socket or TCP).
 | Key | Action |
 |-----|--------|
 | Enter | Send message |
-| Ctrk+Enter | Insert newline |
+| Ctrl+Enter | Insert newline |
 | ← → ↑ ↓ | Move cursor in textarea |
 | Ctrl+Backspace / Ctrl+W | Delete word backwards |
 | Ctrl+U | Clear input |
@@ -48,6 +49,7 @@ Requires a running amux daemon (connects via Unix socket or TCP).
 |-----|--------|
 | Esc | Show stop prompt |
 | Esc Esc | Force stop (within 2s) |
+| Queue modal | ↑ / ↓ select message, ← / → choose action, Enter executes |
 
 ### Error
 | Key | Action |

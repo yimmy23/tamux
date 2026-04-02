@@ -41,14 +41,6 @@ impl TuiModel {
             .get("name")
             .and_then(|value| value.as_str())
             .map(str::to_string);
-        let existing_provider = raw
-            .get("provider")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        let existing_model = raw
-            .get("model")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
         if let Some(obj) = raw.as_object_mut() {
             obj.insert("id".to_string(), serde_json::Value::String(id));
             let name = if editor.identity_is_mutable() {
@@ -56,11 +48,15 @@ impl TuiModel {
             } else {
                 existing_name.unwrap_or_else(|| editor.name.trim().to_string())
             };
-            let provider = existing_provider.unwrap_or_else(|| editor.provider.clone());
-            let model = existing_model.unwrap_or_else(|| editor.model.clone());
             obj.insert("name".to_string(), serde_json::Value::String(name));
-            obj.insert("provider".to_string(), serde_json::Value::String(provider));
-            obj.insert("model".to_string(), serde_json::Value::String(model));
+            obj.insert(
+                "provider".to_string(),
+                serde_json::Value::String(editor.provider.clone()),
+            );
+            obj.insert(
+                "model".to_string(),
+                serde_json::Value::String(editor.model.clone()),
+            );
             obj.insert("role".to_string(), role);
             obj.insert("system_prompt".to_string(), system_prompt);
             obj.insert(

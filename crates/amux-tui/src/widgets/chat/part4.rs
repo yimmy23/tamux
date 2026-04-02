@@ -115,12 +115,16 @@ pub fn hit_test(
                     let yes_label =
                         format!("[Yes {}s]", retry_wait_remaining_secs(status, current_tick));
                     let yes_width = UnicodeWidthStr::width(yes_label.as_str());
+                    if action_col < yes_width {
+                        Some(ChatHitTarget::RetryStartNow)
+                    } else {
                     let no_start = yes_width.saturating_add(1);
                     let no_width = UnicodeWidthStr::width("[No]");
                     if action_col >= no_start && action_col < no_start.saturating_add(no_width) {
                         Some(ChatHitTarget::RetryStop)
                     } else {
                         None
+                    }
                     }
                 }
             }
@@ -175,4 +179,3 @@ pub fn render(
     };
     render_snapshot(frame, &snapshot, chat, mouse_selection);
 }
-

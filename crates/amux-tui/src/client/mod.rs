@@ -291,6 +291,8 @@ pub enum ClientEvent {
         success: bool,
         error: Option<String>,
     },
+    NotificationSnapshot(Vec<amux_protocol::InboxNotification>),
+    NotificationUpsert(amux_protocol::InboxNotification),
 
     Error(String),
 }

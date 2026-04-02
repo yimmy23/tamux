@@ -12,6 +12,11 @@ use crate::app::Attachment;
 use crate::state::input::{InputMode, InputState};
 use crate::theme::ThemeTokens;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusBarHitTarget {
+    QueuedPrompts,
+}
+
 fn to_core_color(color: Color) -> CoreColor {
     match color {
         Color::Reset => CoreColor::Reset,
@@ -437,6 +442,9 @@ pub fn render_status_bar(
             format!(" queued({queued_count})"),
             theme.fg_dim,
         ));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled("ctrl+q", theme.fg_active));
+        spans.push(Span::styled(":queue", theme.fg_dim));
     }
 
     spans.push(Span::raw("    "));
@@ -459,6 +467,38 @@ pub fn render_status_bar(
 
     let line = Line::from(spans);
     frame.render_widget(Paragraph::new(vec![line]), area);
+}
+
+pub fn status_bar_hit_test(
+    area: Rect,
+    connected: bool,
+    has_error: bool,
+    queued_count: usize,
+    position: Position,
+) -> Option<StatusBarHitTarget> {
+    if queued_count == 0 || position.y != area.y {
+        return None;
+    }
+
+    let mut x = area.x;
+    x = x.saturating_add(1);
+    x = x.saturating_add(1);
+    x = x.saturating_add(" daemon".chars().count() as u16);
+
+    if has_error {
+        x = x.saturating_add(2);
+        x = x.saturating_add(1);
+        x = x.saturating_add(" error".chars().count() as u16);
+    }
+
+    let _ = connected;
+    x = x.saturating_add(2);
+    let queued_width = 1 + format!(" queued({queued_count})").chars().count() as u16;
+    if position.x >= x && position.x < x.saturating_add(queued_width) {
+        return Some(StatusBarHitTarget::QueuedPrompts);
+    }
+
+    None
 }
 
 #[cfg(test)]

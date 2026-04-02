@@ -25,6 +25,7 @@ impl TuiModel {
     pub fn on_tick(&mut self) {
         self.tick_counter = self.tick_counter.saturating_add(1);
         self.chat.clear_expired_copy_feedback(self.tick_counter);
+        self.clear_expired_queued_prompt_copy_feedback();
         if self.pending_stop && !self.pending_stop_active() {
             self.pending_stop = false;
         }
@@ -415,6 +416,12 @@ impl TuiModel {
                 error,
             } => {
                 self.handle_plugin_oauth_complete_event(name, success, error);
+            }
+            ClientEvent::NotificationSnapshot(notifications) => {
+                self.handle_notification_snapshot_event(notifications);
+            }
+            ClientEvent::NotificationUpsert(notification) => {
+                self.handle_notification_upsert_event(notification);
             }
             ClientEvent::Error(message) => {
                 self.handle_error_event(message);

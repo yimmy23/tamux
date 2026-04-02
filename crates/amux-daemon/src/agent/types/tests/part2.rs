@@ -198,6 +198,15 @@
     }
 
     #[test]
+    fn heartbeat_check_type_plugin_auth_serializes() {
+        let check = HeartbeatCheckType::PluginAuth;
+        assert_eq!(serde_json::to_string(&check).unwrap(), r#""plugin_auth""#);
+        let roundtripped: HeartbeatCheckType =
+            serde_json::from_str(r#""plugin_auth""#).unwrap();
+        assert_eq!(roundtripped, HeartbeatCheckType::PluginAuth);
+    }
+
+    #[test]
     fn skill_maturity_status_as_str() {
         assert_eq!(SkillMaturityStatus::Draft.as_str(), "draft");
         assert_eq!(SkillMaturityStatus::Testing.as_str(), "testing");

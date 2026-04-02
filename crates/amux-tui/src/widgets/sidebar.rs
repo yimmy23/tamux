@@ -372,9 +372,7 @@ pub fn render(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // status line (activity + tier)
             Constraint::Length(1), // tab bar
-            Constraint::Length(1), // tab hints
             Constraint::Min(1),    // body
             Constraint::Length(gw_height),
             Constraint::Length(ra_height),
@@ -383,18 +381,10 @@ pub fn render(
         .split(area);
 
     // Agent status line at the very top
-    frame.render_widget(
-        Paragraph::new(agent_status_line(
-            agent_activity,
-            &tier.current_tier,
-            weles_health,
-        )),
-        chunks[0],
-    );
 
     for (tab, cell) in [
-        (SidebarTab::Files, tab_cells(chunks[1])[0]),
-        (SidebarTab::Todos, tab_cells(chunks[1])[1]),
+        (SidebarTab::Files, tab_cells(chunks[0])[0]),
+        (SidebarTab::Todos, tab_cells(chunks[0])[1]),
     ] {
         let style = if sidebar.active_tab() == tab {
             theme.fg_active.bg(Color::Indexed(236))
@@ -407,24 +397,23 @@ pub fn render(
             cell,
         );
     }
-    frame.render_widget(Paragraph::new(tab_hint_line(theme)), chunks[2]);
 
-    let rows = rows_for_thread(tasks, sidebar, thread_id, theme, chunks[3].width as usize);
-    let scroll = resolved_scroll(&rows, sidebar, chunks[3].height as usize);
+    let rows = rows_for_thread(tasks, sidebar, thread_id, theme, chunks[1].width as usize);
+    let scroll = resolved_scroll(&rows, sidebar, chunks[1].height as usize);
     let paragraph = Paragraph::new(rows.into_iter().map(|row| row.line).collect::<Vec<_>>())
         .scroll((scroll as u16, 0));
-    frame.render_widget(paragraph, chunks[3]);
+    frame.render_widget(paragraph, chunks[1]);
 
     if !gw_lines.is_empty() {
-        frame.render_widget(Paragraph::new(gw_lines), chunks[4]);
+        frame.render_widget(Paragraph::new(gw_lines), chunks[2]);
     }
 
     if !ra_lines.is_empty() {
-        frame.render_widget(Paragraph::new(ra_lines), chunks[5]);
+        frame.render_widget(Paragraph::new(ra_lines), chunks[3]);
     }
 
     if !tier_lines.is_empty() {
-        frame.render_widget(Paragraph::new(tier_lines), chunks[6]);
+        frame.render_widget(Paragraph::new(tier_lines), chunks[4]);
     }
 }
 
@@ -462,22 +451,13 @@ pub fn hit_test(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // status line
             Constraint::Length(1), // tab bar
-            Constraint::Length(1), // tab hints
             Constraint::Min(1),    // body
         ])
         .split(area);
 
-    // Click on status line — no action
     if mouse.y == chunks[0].y {
-        return None;
-    }
-    if mouse.y == chunks[1].y {
-        return tab_hit_test(chunks[1], mouse.x).map(SidebarHitTarget::Tab);
-    }
-    if mouse.y == chunks[2].y {
-        return None;
+        return tab_hit_test(chunks[0], mouse.x).map(SidebarHitTarget::Tab);
     }
 
     let rows = rows_for_thread(
@@ -485,10 +465,10 @@ pub fn hit_test(
         sidebar,
         thread_id,
         &ThemeTokens::default(),
-        chunks[3].width as usize,
+        chunks[1].width as usize,
     );
-    let scroll = resolved_scroll(&rows, sidebar, chunks[3].height as usize);
-    let row_idx = scroll + mouse.y.saturating_sub(chunks[3].y) as usize;
+    let scroll = resolved_scroll(&rows, sidebar, chunks[1].height as usize);
+    let row_idx = scroll + mouse.y.saturating_sub(chunks[1].y) as usize;
     let row = rows.get(row_idx)?;
     if let Some(path) = &row.file_path {
         Some(SidebarHitTarget::File(path.clone()))

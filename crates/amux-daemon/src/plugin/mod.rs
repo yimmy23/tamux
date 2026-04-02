@@ -24,6 +24,7 @@ use manager_extras::{extract_settings_schema, to_plugin_info_from_record};
 
 pub use api_proxy::PluginApiError;
 pub use loader::LoadedPlugin;
+pub(crate) use manager_extras::{PluginAuthHealthIssue, PluginAuthStatus};
 pub use persistence::{PluginPersistence, PluginRecord};
 
 /// Manages plugin lifecycle: loading, validation, persistence, queries, and API proxy.

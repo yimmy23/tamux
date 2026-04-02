@@ -13,6 +13,76 @@ impl TuiModel {
         modifiers: KeyModifiers,
         kind: modal::ModalKind,
     ) -> bool {
+        if kind == modal::ModalKind::Notifications {
+            match code {
+                KeyCode::Esc => {
+                    self.close_top_modal();
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::Navigate(-1));
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.notifications
+                        .reduce(crate::state::NotificationsAction::Navigate(1));
+                }
+                KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('e') => {
+                    if let Some(id) = self
+                        .notifications
+                        .selected_item()
+                        .map(|notification| notification.id.clone())
+                    {
+                        self.toggle_notification_expand(id);
+                    }
+                }
+                KeyCode::Char('r') => {
+                    if let Some(id) = self
+                        .notifications
+                        .selected_item()
+                        .map(|notification| notification.id.clone())
+                    {
+                        self.mark_notification_read(&id);
+                    }
+                }
+                KeyCode::Char('a') => {
+                    if let Some(id) = self
+                        .notifications
+                        .selected_item()
+                        .map(|notification| notification.id.clone())
+                    {
+                        self.archive_notification(&id);
+                    }
+                }
+                KeyCode::Char('x') => {
+                    if let Some(id) = self
+                        .notifications
+                        .selected_item()
+                        .map(|notification| notification.id.clone())
+                    {
+                        self.delete_notification(&id);
+                    }
+                }
+                KeyCode::Char('o') => {
+                    if let Some(notification_id) = self
+                        .notifications
+                        .selected_item()
+                        .filter(|notification| !notification.actions.is_empty())
+                        .map(|notification| notification.id.clone())
+                    {
+                        self.execute_notification_action(&notification_id, "", Some(0));
+                    }
+                }
+                KeyCode::Char('A') if modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.archive_read_notifications();
+                }
+                KeyCode::Char('R') if modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.mark_all_notifications_read();
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         if kind == modal::ModalKind::Settings {
             if matches!(
                 code,
@@ -434,6 +504,29 @@ impl TuiModel {
                 }
                 _ => {}
             }
+        }
+
+        if kind == modal::ModalKind::QueuedPrompts {
+            match code {
+                KeyCode::Esc => self.close_top_modal(),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.modal.reduce(modal::ModalAction::Navigate(-1));
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.modal.reduce(modal::ModalAction::Navigate(1));
+                }
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.queued_prompt_action = self.queued_prompt_action.step(-1);
+                }
+                KeyCode::Right | KeyCode::Char('l') => {
+                    self.queued_prompt_action = self.queued_prompt_action.step(1);
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.execute_selected_queued_prompt_action();
+                }
+                _ => {}
+            }
+            return false;
         }
 
         if kind == modal::ModalKind::ChatActionConfirm {

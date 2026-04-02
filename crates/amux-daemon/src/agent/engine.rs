@@ -23,6 +23,7 @@ pub(super) struct SendMessageOutcome {
 pub struct StreamCancellationEntry {
     pub generation: u64,
     pub token: CancellationToken,
+    pub retry_now: Arc<tokio::sync::Notify>,
 }
 
 pub struct ThreadRepoWatcher {

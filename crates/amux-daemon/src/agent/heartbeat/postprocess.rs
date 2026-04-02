@@ -146,6 +146,7 @@ impl AgentEngine {
                 "unreplied_message",
             ),
             (HeartbeatCheckType::RepoChanges, "repo_change"),
+            (HeartbeatCheckType::PluginAuth, "plugin_auth"),
         ];
 
         let decay_rate = 0.05;

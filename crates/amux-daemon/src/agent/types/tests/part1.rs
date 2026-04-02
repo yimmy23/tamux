@@ -67,15 +67,18 @@ fn heartbeat_checks_config_deserializes_from_empty_json() {
     assert!(cfg.unreplied_messages_enabled);
     assert_eq!(cfg.unreplied_message_threshold_hours, 1);
     assert!(cfg.repo_changes_enabled);
+    assert!(cfg.plugin_auth_enabled);
     assert!(cfg.stale_todos_cron.is_none());
     assert!(cfg.stuck_goals_cron.is_none());
     assert!(cfg.unreplied_messages_cron.is_none());
     assert!(cfg.repo_changes_cron.is_none());
+    assert!(cfg.plugin_auth_cron.is_none());
     // BEAT-06: Priority weight fields default to 1.0
     assert!((cfg.stale_todos_priority_weight - 1.0).abs() < f64::EPSILON);
     assert!((cfg.stuck_goals_priority_weight - 1.0).abs() < f64::EPSILON);
     assert!((cfg.unreplied_messages_priority_weight - 1.0).abs() < f64::EPSILON);
     assert!((cfg.repo_changes_priority_weight - 1.0).abs() < f64::EPSILON);
+    assert!((cfg.plugin_auth_priority_weight - 1.0).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -85,6 +88,7 @@ fn heartbeat_checks_config_priority_overrides_default_none() {
     assert!(cfg.stuck_goals_priority_override.is_none());
     assert!(cfg.unreplied_messages_priority_override.is_none());
     assert!(cfg.repo_changes_priority_override.is_none());
+    assert!(cfg.plugin_auth_priority_override.is_none());
     assert!(!cfg.reset_learned_priorities);
 }
 
@@ -113,6 +117,10 @@ fn heartbeat_check_type_serializes_to_snake_case() {
     assert_eq!(
         serde_json::to_string(&HeartbeatCheckType::RepoChanges).unwrap(),
         "\"repo_changes\""
+    );
+    assert_eq!(
+        serde_json::to_string(&HeartbeatCheckType::PluginAuth).unwrap(),
+        "\"plugin_auth\""
     );
 }
 
@@ -248,6 +256,49 @@ fn agent_event_weles_health_update_serde_roundtrip() {
             assert_eq!(
                 reason.as_deref(),
                 Some("WELES review unavailable for guarded actions")
+            );
+        }
+        _ => panic!("wrong variant after deserialize"),
+    }
+}
+
+#[test]
+fn agent_event_notification_inbox_upsert_serde_roundtrip() {
+    let event = AgentEvent::NotificationInboxUpsert {
+        notification: amux_protocol::InboxNotification {
+            id: "plugin-auth:gmail".to_string(),
+            source: "plugin_auth".to_string(),
+            kind: "plugin_needs_reconnect".to_string(),
+            title: "Gmail needs reconnect".to_string(),
+            body: "Reconnect Gmail to keep using the plugin.".to_string(),
+            subtitle: Some("plugin auth".to_string()),
+            severity: "warning".to_string(),
+            created_at: 100,
+            updated_at: 200,
+            read_at: None,
+            archived_at: None,
+            deleted_at: None,
+            actions: vec![amux_protocol::InboxNotificationAction {
+                id: "open_plugin_settings".to_string(),
+                label: "Open plugin settings".to_string(),
+                action_type: "open_plugin_settings".to_string(),
+                target: Some("gmail".to_string()),
+                payload_json: None,
+            }],
+            metadata_json: None,
+        },
+    };
+
+    let json = serde_json::to_string(&event).unwrap();
+    let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+    match parsed {
+        AgentEvent::NotificationInboxUpsert { notification } => {
+            assert_eq!(notification.id, "plugin-auth:gmail");
+            assert_eq!(notification.kind, "plugin_needs_reconnect");
+            assert_eq!(notification.actions.len(), 1);
+            assert_eq!(
+                notification.actions[0].target.as_deref(),
+                Some("gmail")
             );
         }
         _ => panic!("wrong variant after deserialize"),

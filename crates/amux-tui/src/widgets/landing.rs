@@ -5,6 +5,17 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::theme::ThemeTokens;
 
+const SVAROG_FRESCO_STATIC: &[&str] = &[
+    ":::::       .-#===#-.       :::::",
+    "::::       /  |_|_|  \\       ::::",
+    ":::       |  ( o o )  |       :::",
+    "::        |    \\#/    |        ::",
+    "::        |     |     |        ::",
+    "::        |    /#\\    |        ::",
+    ":::        \\   ###   /        :::",
+    "::::        `-.___.-'        ::::",
+];
+
 fn content_width(line: &Line<'_>) -> u16 {
     let width = line
         .spans
@@ -87,33 +98,40 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
 
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    lines.push(Line::from(vec![
-        Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
-        Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
-        Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
-        Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
-        Span::styled(" T A M U X ", theme.accent_primary),
-        Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
-        Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
-        Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
-        Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
-    ]));
-    lines.push(Line::from(Span::styled(
-        "think \u{00b7} plan \u{00b7} ship",
-        theme.fg_dim,
-    )));
+    for row in SVAROG_FRESCO_STATIC {
+        lines.push(Line::from(Span::styled(
+            *row,
+            theme.fg_dim.add_modifier(Modifier::BOLD),
+        )));
+    }
+
+    // lines.push(Line::from(vec![
+    //     Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
+    //     Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
+    //     Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
+    //     Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
+    //     Span::styled(" T A M U X ", theme.accent_primary),
+    //     Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
+    //     Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
+    //     Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
+    //     Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
+    // ]));
+    // lines.push(Line::from(Span::styled(
+    //     "think \u{00b7} plan \u{00b7} ship",
+    //     theme.fg_dim,
+    // )));
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled(
-        "Clean thread. No concierge noise. Type to begin.",
-        theme.fg_dim,
-    )));
+    // lines.push(Line::from(Span::styled(
+    //     "Clean thread. Svarog is here. Type to begin.",
+    //     theme.fg_dim,
+    // )));
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
-        Span::styled("[ Think ]", theme.accent_primary),
+        Span::styled("Fire is lit.", theme.fg_dim),
         Span::raw("  "),
-        Span::styled("[ Plan ]", theme.accent_secondary),
+        Span::styled("Svarog awaits.", theme.accent_secondary),
         Span::raw("  "),
-        Span::styled("[ Ship ]", theme.fg_active),
+        Span::styled("Type to begin.", theme.fg_dim),
     ]));
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
@@ -228,7 +246,7 @@ mod tests {
             .expect("tag row should be rendered");
         let body_row = rows
             .iter()
-            .find(|row| row.contains("Clean thread. No concierge noise. Type to begin."))
+            .find(|row| row.contains("Clean thread. Svarog is here. Type to begin."))
             .expect("body row should be rendered");
 
         let tag_start = tag_row

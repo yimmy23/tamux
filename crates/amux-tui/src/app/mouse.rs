@@ -28,6 +28,37 @@ impl TuiModel {
             return;
         }
 
+        let header_area = Rect::new(0, 0, self.width, 3);
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            if let Some(widgets::header::HeaderHitTarget::NotificationBell) =
+                widgets::header::hit_test(
+                    header_area,
+                    self.notifications.unread_count(),
+                    Position::new(mouse.column, mouse.row),
+                )
+            {
+                self.toggle_notifications_modal();
+                self.input.set_mode(input::InputMode::Insert);
+                return;
+            }
+        }
+
+        let status_area = Rect::new(0, self.height.saturating_sub(1), self.width, 1);
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            if widgets::footer::status_bar_hit_test(
+                status_area,
+                self.connected,
+                self.last_error.is_some(),
+                self.queued_prompts.len(),
+                Position::new(mouse.column, mouse.row),
+            ) == Some(widgets::footer::StatusBarHitTarget::QueuedPrompts)
+            {
+                self.open_queued_prompts_modal();
+                self.input.set_mode(input::InputMode::Insert);
+                return;
+            }
+        }
+
         let layout = self.pane_layout();
         let chat_area = layout.chat;
         let sidebar_area = layout.sidebar.unwrap_or_default();

@@ -55,6 +55,7 @@ pub enum ClientMessage {
     AgentSendMessage { thread_id: Option<String>, content: String, session_id: Option<String>, context_messages_json: Option<String> },
     AgentDirectMessage { target: String, thread_id: Option<String>, content: String, session_id: Option<String> },
     AgentStopStream { thread_id: String },
+    AgentRetryStreamNow { thread_id: String },
     AgentListThreads,
     AgentGetThread { thread_id: String },
     AgentDeleteThread { thread_id: String },

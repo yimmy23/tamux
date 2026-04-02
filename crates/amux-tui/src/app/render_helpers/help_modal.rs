@@ -30,6 +30,10 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
             Span::styled("Open thread picker", theme.fg_dim),
         ]),
         Line::from(vec![
+            Span::styled("  Ctrl+Q           ", theme.fg_active),
+            Span::styled("Open queued messages", theme.fg_dim),
+        ]),
+        Line::from(vec![
             Span::styled("  Ctrl+G           ", theme.fg_active),
             Span::styled("Toggle Goal Runner view", theme.fg_dim),
         ]),
@@ -128,6 +132,10 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
         Line::from(vec![
             Span::styled("  Esc Esc          ", theme.fg_active),
             Span::styled("Force stop stream (double press within 2s)", theme.fg_dim),
+        ]),
+        Line::from(vec![
+            Span::styled("  Queue modal      ", theme.fg_active),
+            Span::styled("↑↓ select  ←→ action  Enter run", theme.fg_dim),
         ]),
         Line::raw(""),
         Line::from(Span::styled("  Error", theme.accent_primary)),
