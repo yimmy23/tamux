@@ -14,6 +14,8 @@ fn configurable_channel_capacity() {
         ConciergeDetailLevel::ContextSummary
     );
     assert_eq!(parsed.retry_delay_ms, 5_000);
+    assert_eq!(parsed.message_loop_delay_ms, 500);
+    assert_eq!(parsed.tool_call_delay_ms, 500);
 
     // Test serde roundtrip with custom values
     let json = r#"{"pty_channel_capacity": 2048, "agent_event_channel_capacity": 1024}"#;
@@ -50,6 +52,13 @@ fn alibaba_coding_plan_switches_to_anthropic_for_anthropic_base_url() {
 fn default_retry_delay_is_five_seconds() {
     let parsed: AgentConfig = serde_json::from_str("{}").unwrap();
     assert_eq!(parsed.retry_delay_ms, 5_000);
+}
+
+#[test]
+fn default_sleep_delays_are_half_second() {
+    let parsed: AgentConfig = serde_json::from_str("{}").unwrap();
+    assert_eq!(parsed.message_loop_delay_ms, 500);
+    assert_eq!(parsed.tool_call_delay_ms, 500);
 }
 
 /// FOUN-04: Circuit breaker AgentEvent variants serialize and deserialize correctly.
@@ -296,10 +305,7 @@ fn agent_event_notification_inbox_upsert_serde_roundtrip() {
             assert_eq!(notification.id, "plugin-auth:gmail");
             assert_eq!(notification.kind, "plugin_needs_reconnect");
             assert_eq!(notification.actions.len(), 1);
-            assert_eq!(
-                notification.actions[0].target.as_deref(),
-                Some("gmail")
-            );
+            assert_eq!(notification.actions[0].target.as_deref(), Some("gmail"));
         }
         _ => panic!("wrong variant after deserialize"),
     }

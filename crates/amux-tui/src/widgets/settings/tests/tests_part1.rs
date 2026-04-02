@@ -121,6 +121,43 @@ fn gateway_tab_contains_selectable_link_device_row() {
 }
 
 #[test]
+fn advanced_tab_renders_sleep_delay_rows() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Advanced,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(7));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Message Loop (ms):"));
+    assert!(text.contains("Tool Call Gap (ms):"));
+}
+
+#[test]
 fn auth_tab_shows_chatgpt_logout_when_daemon_auth_is_available() {
     let settings = SettingsState::new();
     let mut config = ConfigState::new();

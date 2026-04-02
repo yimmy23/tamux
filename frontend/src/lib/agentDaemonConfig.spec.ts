@@ -79,3 +79,21 @@ assert(
   unsupportedBackendConfig.auth_source === "api_key",
   "Daemon config should not emit ChatGPT subscription auth for non-daemon-backed execution",
 );
+
+const configuredDelaySettings = {
+  ...DEFAULT_AGENT_SETTINGS,
+  message_loop_delay_ms: 250,
+  tool_call_delay_ms: 750,
+};
+
+const configuredDelayDaemonConfig = buildDaemonAgentConfig(configuredDelaySettings);
+
+assert(
+  configuredDelayDaemonConfig.message_loop_delay_ms === 250,
+  "Daemon config should forward message loop delay settings",
+);
+
+assert(
+  configuredDelayDaemonConfig.tool_call_delay_ms === 750,
+  "Daemon config should forward tool call delay settings",
+);

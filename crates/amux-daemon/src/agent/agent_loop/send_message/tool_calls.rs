@@ -1,7 +1,11 @@
 use super::*;
 
-pub(super) fn inter_tool_call_delay(index: usize) -> Option<std::time::Duration> {
-    (index > 0).then(|| std::time::Duration::from_millis(500))
+pub(super) fn inter_tool_call_delay(
+    index: usize,
+    configured_delay_ms: u64,
+) -> Option<std::time::Duration> {
+    (index > 0 && configured_delay_ms > 0)
+        .then(|| std::time::Duration::from_millis(configured_delay_ms))
 }
 
 impl<'a> SendMessageRunner<'a> {
@@ -72,7 +76,7 @@ impl<'a> SendMessageRunner<'a> {
                 break;
             }
 
-            if let Some(delay) = inter_tool_call_delay(index) {
+            if let Some(delay) = inter_tool_call_delay(index, self.config.tool_call_delay_ms) {
                 tokio::time::sleep(delay).await;
             }
 
@@ -461,9 +465,10 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn inter_tool_call_delay_is_half_second_between_consecutive_tools() {
-        assert_eq!(inter_tool_call_delay(0), None);
-        assert_eq!(inter_tool_call_delay(1), Some(Duration::from_millis(500)));
-        assert_eq!(inter_tool_call_delay(2), Some(Duration::from_millis(500)));
+    fn inter_tool_call_delay_uses_configured_delay_between_consecutive_tools() {
+        assert_eq!(inter_tool_call_delay(0, 500), None);
+        assert_eq!(inter_tool_call_delay(1, 500), Some(Duration::from_millis(500)));
+        assert_eq!(inter_tool_call_delay(2, 500), Some(Duration::from_millis(500)));
+        assert_eq!(inter_tool_call_delay(1, 0), None);
     }
 }

@@ -398,6 +398,9 @@ impl TuiModel {
         self.config.max_tool_loops = get_u32("max_tool_loops", "max_tool_loops", 25);
         self.config.max_retries = get_u32("max_retries", "max_retries", 3);
         self.config.retry_delay_ms = get_u32("retry_delay_ms", "retry_delay_ms", 5_000);
+        self.config.message_loop_delay_ms =
+            get_u32("message_loop_delay_ms", "message_loop_delay_ms", 500);
+        self.config.tool_call_delay_ms = get_u32("tool_call_delay_ms", "tool_call_delay_ms", 500);
         self.config.auto_retry = get_bool("auto_retry", "auto_retry", true);
         self.config.context_budget_tokens =
             get_u32("context_budget_tokens", "context_budget_tokens", 100000);

@@ -83,6 +83,10 @@ export function AgentTab({
         : effectiveAuthSource === "github_copilot"
             ? Boolean(activeProviderAuthState?.authenticated)
             : Boolean(providerConfig.api_key);
+    const daemonDelayControlsDisabled = settings.agent_backend === "openclaw" || settings.agent_backend === "hermes";
+    const daemonDelayInputStyle = daemonDelayControlsDisabled
+        ? { ...inputStyle, width: 80, opacity: 0.6, cursor: "not-allowed" as const }
+        : { ...inputStyle, width: 80 };
 
     useEffect(() => {
         void refreshProviderAuthStates();
@@ -711,6 +715,45 @@ export function AgentTab({
                     <NumberInput value={settings.retry_delay_ms} min={100} max={60000} step={100}
                         onChange={(value) => updateSetting("retry_delay_ms", value)} />
                 </SettingRow>
+                <SettingRow label="Message Loop Delay (ms)">
+                    <input
+                        type="number"
+                        value={settings.message_loop_delay_ms}
+                        min={0}
+                        max={60000}
+                        step={100}
+                        disabled={daemonDelayControlsDisabled}
+                        onChange={(event) => {
+                            const nextValue = Number.parseFloat(event.target.value);
+                            if (!Number.isNaN(nextValue)) {
+                                updateSetting("message_loop_delay_ms", nextValue);
+                            }
+                        }}
+                        style={daemonDelayInputStyle}
+                    />
+                </SettingRow>
+                <SettingRow label="Tool Call Gap (ms)">
+                    <input
+                        type="number"
+                        value={settings.tool_call_delay_ms}
+                        min={0}
+                        max={60000}
+                        step={100}
+                        disabled={daemonDelayControlsDisabled}
+                        onChange={(event) => {
+                            const nextValue = Number.parseFloat(event.target.value);
+                            if (!Number.isNaN(nextValue)) {
+                                updateSetting("tool_call_delay_ms", nextValue);
+                            }
+                        }}
+                        style={daemonDelayInputStyle}
+                    />
+                </SettingRow>
+                {daemonDelayControlsDisabled ? (
+                    <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                        These delay controls only affect the tamux daemon runtime. {settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"} uses its own pacing rules.
+                    </div>
+                ) : null}
                 <SettingRow label="Auto Retry">
                     <Toggle value={settings.auto_retry}
                         onChange={(value) => updateSetting("auto_retry", value)} />

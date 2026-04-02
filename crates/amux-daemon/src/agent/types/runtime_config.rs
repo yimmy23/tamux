@@ -67,6 +67,12 @@ fn default_max_retries() -> u32 {
 fn default_retry_delay_ms() -> u64 {
     5000
 }
+fn default_message_loop_delay_ms() -> u64 {
+    500
+}
+fn default_tool_call_delay_ms() -> u64 {
+    500
+}
 fn default_auto_retry() -> bool {
     true
 }
@@ -156,6 +162,8 @@ impl Default for AgentConfig {
             max_tool_loops: default_max_tool_loops(),
             max_retries: default_max_retries(),
             retry_delay_ms: default_retry_delay_ms(),
+            message_loop_delay_ms: default_message_loop_delay_ms(),
+            tool_call_delay_ms: default_tool_call_delay_ms(),
             auto_retry: default_auto_retry(),
             auto_compact_context: default_auto_compact_context(),
             max_context_messages: default_max_context_messages(),

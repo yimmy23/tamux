@@ -48,8 +48,7 @@ fn render_advanced_value<'a>(
     theme: &ThemeTokens,
 ) {
     let is_selected = settings.field_cursor() == field_idx;
-    let is_editing =
-        settings.is_editing() && settings.editing_field() == Some(field_name);
+    let is_editing = settings.is_editing() && settings.editing_field() == Some(field_name);
     let marker = if is_selected { "> " } else { "  " };
     let marker_style = if is_selected {
         theme.accent_primary
@@ -185,10 +184,32 @@ fn render_advanced_tab<'a>(
         "  [Enter: edit]",
         theme,
     );
+    render_advanced_value(
+        &mut lines,
+        settings,
+        config,
+        8,
+        "Message Loop (ms):",
+        config.message_loop_delay_ms.to_string(),
+        "message_loop_delay_ms",
+        "  [Enter: edit]",
+        theme,
+    );
+    render_advanced_value(
+        &mut lines,
+        settings,
+        config,
+        9,
+        "Tool Call Gap (ms):",
+        config.tool_call_delay_ms.to_string(),
+        "tool_call_delay_ms",
+        "  [Enter: edit]",
+        theme,
+    );
     render_advanced_toggle(
         &mut lines,
         settings,
-        8,
+        10,
         "Auto Retry",
         config.auto_retry,
         theme,
@@ -197,7 +218,7 @@ fn render_advanced_tab<'a>(
         &mut lines,
         settings,
         config,
-        9,
+        11,
         "Context Len Tok: ",
         config.context_window_tokens.to_string(),
         "context_window_tokens",
@@ -212,7 +233,7 @@ fn render_advanced_tab<'a>(
         &mut lines,
         settings,
         config,
-        10,
+        12,
         "Budget Tokens:   ",
         config.context_budget_tokens.to_string(),
         "context_budget_tokens",
@@ -223,7 +244,7 @@ fn render_advanced_tab<'a>(
         &mut lines,
         settings,
         config,
-        11,
+        13,
         "Compact Thres %: ",
         config.compact_threshold_pct.to_string(),
         "compact_threshold_pct",
@@ -234,7 +255,7 @@ fn render_advanced_tab<'a>(
         &mut lines,
         settings,
         config,
-        12,
+        14,
         "Keep Recent:     ",
         config.keep_recent_on_compact.to_string(),
         "keep_recent_on_compact",
@@ -245,7 +266,7 @@ fn render_advanced_tab<'a>(
         &mut lines,
         settings,
         config,
-        13,
+        15,
         "Bash Timeout (s):",
         config.bash_timeout_secs.to_string(),
         "bash_timeout_secs",
@@ -265,7 +286,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                14,
+                16,
                 "WELES Provider: ",
                 config.compaction_weles_provider.clone(),
                 "compaction_weles_provider",
@@ -276,7 +297,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                15,
+                17,
                 "WELES Model:    ",
                 config.compaction_weles_model.clone(),
                 "compaction_weles_model",
@@ -287,21 +308,21 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                16,
+                18,
                 "WELES Reasoning:",
                 config.compaction_weles_reasoning_effort.clone(),
                 "compaction_weles_reasoning_effort",
                 "  [Enter/Space: cycle]",
                 theme,
             );
-            17
+            19
         }
         "custom_model" => {
             render_advanced_value(
                 &mut lines,
                 settings,
                 config,
-                14,
+                16,
                 "Custom Provider:",
                 config.compaction_custom_provider.clone(),
                 "compaction_custom_provider",
@@ -312,7 +333,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                15,
+                17,
                 "Custom Base URL:",
                 config.compaction_custom_base_url.clone(),
                 "compaction_custom_base_url",
@@ -323,7 +344,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                16,
+                18,
                 "Custom Auth:    ",
                 config.compaction_custom_auth_source.clone(),
                 "compaction_custom_auth_source",
@@ -334,7 +355,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                17,
+                19,
                 "Custom Model:   ",
                 config.compaction_custom_model.clone(),
                 "compaction_custom_model",
@@ -345,7 +366,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                18,
+                20,
                 "Custom Transport:",
                 config.compaction_custom_api_transport.clone(),
                 "compaction_custom_api_transport",
@@ -356,7 +377,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                19,
+                21,
                 "Custom API Key: ",
                 if config.compaction_custom_api_key.is_empty() {
                     "(empty)".to_string()
@@ -371,7 +392,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                20,
+                22,
                 "Assistant ID:   ",
                 if config.compaction_custom_assistant_id.is_empty() {
                     "(empty)".to_string()
@@ -386,7 +407,7 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                21,
+                23,
                 "Custom Reasoning:",
                 config.compaction_custom_reasoning_effort.clone(),
                 "compaction_custom_reasoning_effort",
@@ -397,21 +418,21 @@ fn render_advanced_tab<'a>(
                 &mut lines,
                 settings,
                 config,
-                22,
+                24,
                 "Custom Ctx Tok: ",
                 config.compaction_custom_context_window_tokens.to_string(),
                 "compaction_custom_context_window_tokens",
                 "  [Enter: edit]",
                 theme,
             );
-            23
+            25
         }
         _ => {
             lines.push(Line::from(Span::styled(
                 "  Heuristic compaction uses the built-in rule based summary path.",
                 theme.fg_dim,
             )));
-            14
+            16
         }
     };
 
