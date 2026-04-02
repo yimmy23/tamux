@@ -1,6 +1,6 @@
 {
   "name": "tamux",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The Agent That Lives - daemon-first AI agent runtime",
   "license": "MIT",
   "homepage": "https://tamux.app",
@@ -18,6 +18,9 @@
   "cpu": ["x64", "arm64"],
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
   },
   "files": [
     "install.js",

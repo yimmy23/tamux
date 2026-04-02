@@ -72,12 +72,14 @@ del /Q "%OUT_DIR%\amux*" >nul 2>nul
 
 copy /Y "%PROJECT_ROOT%\target\release\tamux-daemon.exe" "%OUT_DIR%\" >nul
 copy /Y "%PROJECT_ROOT%\target\release\tamux.exe"        "%OUT_DIR%\" >nul
+copy /Y "%PROJECT_ROOT%\target\release\tamux-tui.exe"    "%OUT_DIR%\" >nul 2>nul
 copy /Y "%PROJECT_ROOT%\target\release\tamux-mcp.exe"    "%OUT_DIR%\" >nul 2>nul
 copy /Y "%PROJECT_ROOT%\target\release\tamux-gateway.exe" "%OUT_DIR%\" >nul 2>nul
 
 REM Copy daemon + CLI into frontend/dist for Electron bundling
 copy /Y "%OUT_DIR%\tamux-daemon.exe" "%PROJECT_ROOT%\frontend\dist\" >nul
 copy /Y "%OUT_DIR%\tamux.exe"        "%PROJECT_ROOT%\frontend\dist\" >nul
+copy /Y "%OUT_DIR%\tamux-tui.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
 if exist "%PROJECT_ROOT%\docs\getting-started.md" (
     copy /Y "%PROJECT_ROOT%\docs\getting-started.md" "%OUT_DIR%\GETTING_STARTED.md" >nul
     copy /Y "%PROJECT_ROOT%\docs\getting-started.md" "%PROJECT_ROOT%\frontend\dist\GETTING_STARTED.md" >nul
@@ -152,6 +154,7 @@ echo.
 echo  Binaries:
 echo    tamux.exe             CLI
 echo    tamux-daemon.exe      Daemon
+echo    tamux-tui.exe         TUI
 echo    tamux-mcp.exe         MCP server
 echo    tamux-gateway.exe     Chat gateway
 echo.

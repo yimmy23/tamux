@@ -169,7 +169,7 @@ find "$OUT_DIR" -maxdepth 1 -type f \( -name "tamux*" -o -name "amux*" -o -name 
 
 TARGET_DIR="$PROJECT_ROOT/target/$TARGET/release"
 
-for bin in tamux-daemon tamux tamux-mcp tamux-gateway; do
+for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
     if [[ -f "$TARGET_DIR/${bin}.exe" ]]; then
         cp "$TARGET_DIR/${bin}.exe" "$OUT_DIR/"
         echo "  Collected ${bin}.exe"
@@ -179,6 +179,7 @@ done
 # Copy daemon + CLI to frontend/dist for Electron
 cp "$OUT_DIR/tamux-daemon.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
 cp "$OUT_DIR/tamux.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/tamux-tui.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
 if [[ -f "$PROJECT_ROOT/docs/getting-started.md" ]]; then
     cp "$PROJECT_ROOT/docs/getting-started.md" "$OUT_DIR/GETTING_STARTED.md"
     cp "$PROJECT_ROOT/docs/getting-started.md" "$PROJECT_ROOT/frontend/dist/GETTING_STARTED.md"
@@ -283,7 +284,7 @@ done
 
 if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
     notes_file="$OUT_DIR/RELEASE_NOTES.md"
-    checksums_file="$OUT_DIR/SHA256SUMS.txt"
+    checksums_file="$OUT_DIR/SHA256SUMS-windows-${ARCH}.txt"
     bundle_file="$OUT_DIR/tamux-${APP_VERSION}-windows-${ARCH}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"

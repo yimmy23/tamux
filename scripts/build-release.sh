@@ -203,7 +203,7 @@ else
     TARGET_DIR="$PROJECT_ROOT/target/release"
 fi
 
-for bin in tamux-daemon tamux tamux-mcp tamux-gateway; do
+for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
     if [[ -f "$TARGET_DIR/${bin}${EXE}" ]]; then
         cp "$TARGET_DIR/${bin}${EXE}" "$OUT_DIR/"
         ok_msg "Collected ${bin}${EXE}"
@@ -212,7 +212,7 @@ done
 
 # Copy to frontend/dist for Electron bundling
 if [[ -d "$PROJECT_ROOT/frontend/dist" ]]; then
-    for bin in tamux-daemon tamux; do
+    for bin in tamux-daemon tamux tamux-tui; do
         if [[ -f "$OUT_DIR/${bin}${EXE}" ]]; then
             cp "$OUT_DIR/${bin}${EXE}" "$PROJECT_ROOT/frontend/dist/"
         fi
@@ -336,7 +336,7 @@ done
 
 if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
     notes_file="$OUT_DIR/RELEASE_NOTES.md"
-    checksums_file="$OUT_DIR/SHA256SUMS.txt"
+    checksums_file="$OUT_DIR/SHA256SUMS-${OS,,}-${ARCH}.txt"
     bundle_file="$OUT_DIR/tamux-${APP_VERSION}-${OS,,}-${ARCH}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"

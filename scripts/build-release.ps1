@@ -221,6 +221,7 @@ $targetDir = if ($Target) { Join-Path $ProjectRoot "target" $Target "release" } 
 $binaries = @(
     @{ Name = "tamux-daemon"; Desc = "Daemon" },
     @{ Name = "tamux";        Desc = "CLI" },
+    @{ Name = "tamux-tui";    Desc = "TUI" },
     @{ Name = "tamux-mcp";    Desc = "MCP server" },
     @{ Name = "tamux-gateway"; Desc = "Chat gateway" }
 )
@@ -243,7 +244,7 @@ foreach ($bin in $binaries) {
 # Copy to frontend/dist for Electron bundling
 $distDir = Join-Path $FrontendDir "dist"
 if (Test-Path $distDir) {
-    foreach ($name in @("tamux-daemon.exe", "tamux.exe")) {
+    foreach ($name in @("tamux-daemon.exe", "tamux.exe", "tamux-tui.exe")) {
         $src = Join-Path $OutDir $name
         if (Test-Path $src) { Copy-Item $src $distDir -Force }
     }

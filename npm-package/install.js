@@ -8,7 +8,6 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
-const { execFileSync } = require("child_process");
 
 const VERSION = require("./package.json").version;
 const BIN_DIR = path.join(__dirname, "bin");
@@ -18,11 +17,31 @@ const GITHUB_OWNER = "mkurman";
 const GITHUB_REPO = "tamux";
 
 const PLATFORM_MAP = {
-  "linux-x64": "linux-x64",
-  "linux-arm64": "linux-arm64",
-  "darwin-arm64": "darwin-arm64",
-  "darwin-x64": "darwin-x64",
-  "win32-x64": "windows-x64",
+  "linux-x64": {
+    archivePlatform: "linux-x86_64",
+    checksumPlatform: "linux-x86_64",
+    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui"],
+  },
+  "linux-arm64": {
+    archivePlatform: "linux-aarch64",
+    checksumPlatform: "linux-aarch64",
+    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui"],
+  },
+  "darwin-arm64": {
+    archivePlatform: "darwin-arm64",
+    checksumPlatform: "darwin-arm64",
+    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui"],
+  },
+  "darwin-x64": {
+    archivePlatform: "darwin-x86_64",
+    checksumPlatform: "darwin-x86_64",
+    requiredBinaries: ["tamux", "tamux-daemon", "tamux-tui"],
+  },
+  "win32-x64": {
+    archivePlatform: "windows-x64",
+    checksumPlatform: "windows-x64",
+    requiredBinaries: ["tamux.exe", "tamux-daemon.exe", "tamux-tui.exe"],
+  },
 };
 
 const BASE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/v${VERSION}`;
@@ -115,38 +134,113 @@ function parseChecksumFile(content, filename) {
   return null;
 }
 
-async function main() {
-  var key = os.platform() + "-" + os.arch();
+function getReleaseAssetInfo(platform, arch, version) {
+  var key = platform + "-" + arch;
   var target = PLATFORM_MAP[key];
+  var resolvedVersion = version || VERSION;
+
+  if (!target) {
+    return null;
+  }
+
+  return {
+    archiveName:
+      "tamux-" + resolvedVersion + "-" + target.archivePlatform + ".zip",
+    checksumName: "SHA256SUMS-" + target.checksumPlatform + ".txt",
+    bundleChecksumName: "SHA256SUMS.txt",
+    requiredBinaries: target.requiredBinaries.slice(),
+  };
+}
+
+function extractRequiredBinaries(archiveData, releaseInfo) {
+  var AdmZip = require("adm-zip");
+  var archive = new AdmZip(archiveData);
+  var entries = archive.getEntries();
+
+  for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
+    var binaryName = releaseInfo.requiredBinaries[i];
+    var entry = entries.find(function (item) {
+      return item.entryName === binaryName;
+    });
+
+    if (!entry) {
+      throw new Error(
+        "Release bundle is missing required binary " + binaryName
+      );
+    }
+
+    fs.writeFileSync(path.join(BIN_DIR, binaryName), entry.getData());
+  }
+}
+
+async function verifyExtractedBinaries(checksumsData, releaseInfo) {
+  for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
+    var binaryName = releaseInfo.requiredBinaries[i];
+    var expectedHash = parseChecksumFile(checksumsData, binaryName);
+    if (!expectedHash) {
+      throw new Error(
+        "Could not find checksum for required binary " + binaryName
+      );
+    }
+
+    var binaryPath = path.join(BIN_DIR, binaryName);
+    if (!fs.existsSync(binaryPath)) {
+      throw new Error("Required binary was not extracted: " + binaryName);
+    }
+
+    var valid = await verifyChecksum(binaryPath, expectedHash);
+    if (!valid) {
+      throw new Error("SHA256 checksum mismatch for " + binaryName);
+    }
+  }
+}
+
+function cleanupExtractedBinaries(releaseInfo) {
+  if (!releaseInfo) {
+    return;
+  }
+
+  for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
+    try {
+      fs.unlinkSync(path.join(BIN_DIR, releaseInfo.requiredBinaries[i]));
+    } catch (_e) {
+      /* ignore cleanup errors */
+    }
+  }
+}
+
+async function main() {
+  var releaseInfo = getReleaseAssetInfo(os.platform(), os.arch(), VERSION);
+  var platformKey = os.platform() + "-" + os.arch();
+  var targetLabel = releaseInfo
+    ? releaseInfo.archiveName
+        .replace("tamux-" + VERSION + "-", "")
+        .replace(/\.zip$/, "")
+    : "unsupported";
 
   // --dry-run: print platform detection info and exit without downloading
   if (process.argv.includes("--dry-run")) {
     console.log("tamux install.js dry-run");
-    console.log("  platform key: " + key);
-    console.log("  target:       " + (target || "unsupported"));
+    console.log("  platform key: " + platformKey);
+    console.log("  target:       " + targetLabel);
     console.log("  version:      " + VERSION);
     console.log("  bin dir:      " + BIN_DIR);
-    if (target) {
-      var tarball = "tamux-binaries-v" + VERSION + "-" + target + ".tar.gz";
-      console.log("  download URL: " + BASE_URL + "/" + tarball);
-      console.log("  checksum URL: " + BASE_URL + "/SHA256SUMS-" + target + ".txt");
+    if (releaseInfo) {
+      console.log("  download URL: " + BASE_URL + "/" + releaseInfo.archiveName);
+      console.log("  checksum URL: " + BASE_URL + "/" + releaseInfo.checksumName);
     }
     process.exit(0);
   }
 
-  if (!target) {
+  if (!releaseInfo) {
     console.warn(
-      "tamux: unsupported platform " + key + ", skipping binary download"
+      "tamux: unsupported platform " + platformKey + ", skipping binary download"
     );
     process.exit(0);
   }
 
-  var tarballName =
-    "tamux-binaries-v" + VERSION + "-" + target + ".tar.gz";
-  var checksumsName = "SHA256SUMS-" + target + ".txt";
-  var tarballUrl = BASE_URL + "/" + tarballName;
-  var checksumsUrl = BASE_URL + "/" + checksumsName;
-  var tmpPath = path.join(os.tmpdir(), tarballName);
+  var archiveUrl = BASE_URL + "/" + releaseInfo.archiveName;
+  var checksumsUrl = BASE_URL + "/" + releaseInfo.checksumName;
 
   // 1. Ensure bin directory exists
   fs.mkdirSync(BIN_DIR, { recursive: true });
@@ -154,56 +248,32 @@ async function main() {
   // 2. Download SHA256SUMS file
   console.log("tamux: downloading checksums...");
   var checksumsData = await download(checksumsUrl);
-  var expectedHash = parseChecksumFile(checksumsData, tarballName);
-  if (!expectedHash) {
-    console.warn(
-      "tamux: could not find checksum for " +
-        tarballName +
-        " in SHA256SUMS, skipping verification"
-    );
-  }
 
-  // 3. Download tarball
-  console.log("tamux: downloading binaries for " + target + "...");
-  var tarballData = await download(tarballUrl);
-  fs.writeFileSync(tmpPath, tarballData);
+  // 3. Download bundle zip
+  console.log("tamux: downloading binaries for " + releaseInfo.archiveName + "...");
+  try {
+    var archiveData = await download(archiveUrl);
 
-  // 4. Verify SHA256 checksum
-  if (expectedHash) {
+    // 4. Extract required binaries and verify them against the published manifest
+    console.log("tamux: extracting binaries...");
+    extractRequiredBinaries(archiveData, releaseInfo);
+
     console.log("tamux: verifying SHA256 checksum...");
-    var valid = await verifyChecksum(tmpPath, expectedHash);
-    if (!valid) {
-      console.warn("tamux: SHA256 checksum mismatch, skipping extraction");
-      try {
-        fs.unlinkSync(tmpPath);
-      } catch (_e) {
-        /* ignore cleanup errors */
-      }
-      process.exit(0);
-    }
+    await verifyExtractedBinaries(checksumsData, releaseInfo);
     console.log("tamux: checksum OK");
+  } catch (err) {
+    cleanupExtractedBinaries(releaseInfo);
+    throw err;
   }
 
-  // 5. Extract tarball
-  console.log("tamux: extracting binaries...");
-  execFileSync("tar", ["xzf", tmpPath, "-C", BIN_DIR]);
-
-  // 6. Set executable permissions (Unix only)
+  // 5. Set executable permissions (Unix only)
   if (os.platform() !== "win32") {
-    var binaries = ["tamux-daemon", "tamux", "tamux-tui"];
-    for (var i = 0; i < binaries.length; i++) {
-      var binPath = path.join(BIN_DIR, binaries[i]);
+    for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
+      var binPath = path.join(BIN_DIR, releaseInfo.requiredBinaries[i]);
       if (fs.existsSync(binPath)) {
         fs.chmodSync(binPath, 0o755);
       }
     }
-  }
-
-  // 7. Clean up temp file
-  try {
-    fs.unlinkSync(tmpPath);
-  } catch (_e) {
-    /* ignore cleanup errors */
   }
 
   console.log("tamux: installation complete");
@@ -212,6 +282,8 @@ async function main() {
 module.exports = main;
 module.exports.GITHUB_OWNER = GITHUB_OWNER;
 module.exports.GITHUB_REPO = GITHUB_REPO;
+module.exports.getReleaseAssetInfo = getReleaseAssetInfo;
+module.exports.parseChecksumFile = parseChecksumFile;
 
 // Auto-run only when executed directly (postinstall) or via tryFallbackDownload,
 // not when required just for the exported constants.
