@@ -321,9 +321,11 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
           )}
           {tab === "auth" && <ProviderAuthTab />}
           {tab === "agent" && (
-            <TierGatedSection requiredTier="familiar" label="Goal Runs & Agent Configuration">
-              <AgentTab settings={agentSettings} updateSetting={updateAgentSetting} resetSettings={resetAgentSettings} />
-            </TierGatedSection>
+            <AgentTab
+              settings={agentSettings}
+              updateSetting={updateAgentSetting}
+              resetSettings={resetAgentSettings}
+            />
           )}
           {tab === "concierge" && <ConciergeSection />}
           {tab === "subagents" && (
