@@ -152,7 +152,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::SubAgentModel
                     | SettingsPickerTarget::SubAgentReasoningEffort
                     | SettingsPickerTarget::ConciergeModel
-                    | SettingsPickerTarget::ConciergeReasoningEffort => {}
+                    | SettingsPickerTarget::ConciergeReasoningEffort
+                    | SettingsPickerTarget::CompactionWelesReasoningEffort
+                    | SettingsPickerTarget::CompactionCustomReasoningEffort => {}
                 }
             } else {
                 model.status_line = "No authenticated providers available".to_string();
@@ -232,7 +234,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     | SettingsPickerTarget::SubAgentProvider
                     | SettingsPickerTarget::SubAgentReasoningEffort
                     | SettingsPickerTarget::ConciergeProvider
-                    | SettingsPickerTarget::ConciergeReasoningEffort => {}
+                    | SettingsPickerTarget::ConciergeReasoningEffort
+                    | SettingsPickerTarget::CompactionWelesReasoningEffort
+                    | SettingsPickerTarget::CompactionCustomReasoningEffort => {}
                 }
             }
             model.settings_picker_target = None;
@@ -278,6 +282,32 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             "Rarog effort: none".to_string()
                         } else {
                             format!("Rarog effort: {}", effort)
+                        };
+                    }
+                    Some(SettingsPickerTarget::CompactionWelesReasoningEffort) => {
+                        model.config.compaction_weles_reasoning_effort = if effort.is_empty() {
+                            "none".to_string()
+                        } else {
+                            effort.to_string()
+                        };
+                        model.sync_config_to_daemon();
+                        model.status_line = if effort.is_empty() {
+                            "Compaction WELES effort: none".to_string()
+                        } else {
+                            format!("Compaction WELES effort: {}", effort)
+                        };
+                    }
+                    Some(SettingsPickerTarget::CompactionCustomReasoningEffort) => {
+                        model.config.compaction_custom_reasoning_effort = if effort.is_empty() {
+                            "none".to_string()
+                        } else {
+                            effort.to_string()
+                        };
+                        model.sync_config_to_daemon();
+                        model.status_line = if effort.is_empty() {
+                            "Compaction custom effort: none".to_string()
+                        } else {
+                            format!("Compaction custom effort: {}", effort)
                         };
                     }
                     _ => {

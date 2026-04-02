@@ -15,6 +15,32 @@ import type {
 
 import { PRIMARY_AGENT_NAME } from "../agentNames.ts";
 
+export type CompactionStrategy = "heuristic" | "weles" | "custom_model";
+
+export interface AgentCompactionWelesSettings {
+  provider: AgentProviderId;
+  model: string;
+  reasoning_effort: AgentSettings["reasoning_effort"];
+}
+
+export interface AgentCompactionCustomModelSettings {
+  provider: AgentProviderId;
+  base_url: string;
+  model: string;
+  api_key: string;
+  assistant_id: string;
+  auth_source: AuthSource;
+  api_transport: ApiTransportMode;
+  context_window_tokens: number;
+  reasoning_effort: AgentSettings["reasoning_effort"];
+}
+
+export interface AgentCompactionSettings {
+  strategy: CompactionStrategy;
+  weles: AgentCompactionWelesSettings;
+  custom_model: AgentCompactionCustomModelSettings;
+}
+
 export interface AgentSettings {
   enabled: boolean;
   agent_name: string;
@@ -102,6 +128,7 @@ export interface AgentSettings {
   context_budget_tokens: number;
   compact_threshold_pct: number;
   keep_recent_on_compact: number;
+  compaction: AgentCompactionSettings;
   agent_backend: AgentBackend;
 }
 
@@ -192,6 +219,25 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   context_budget_tokens: 100000,
   compact_threshold_pct: 80,
   keep_recent_on_compact: 10,
+  compaction: {
+    strategy: "heuristic",
+    weles: {
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      reasoning_effort: "medium",
+    },
+    custom_model: {
+      provider: "openai",
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-5.4-mini",
+      api_key: "",
+      assistant_id: "",
+      auth_source: "api_key",
+      api_transport: "responses",
+      context_window_tokens: 128000,
+      reasoning_effort: "high",
+    },
+  },
   agent_backend: "daemon",
 };
 
@@ -228,6 +274,11 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   context_budget_tokens?: number;
   compact_threshold_pct?: number;
   keep_recent_on_compact?: number;
+  compaction?: {
+    strategy?: CompactionStrategy;
+    weles?: Partial<AgentCompactionWelesSettings>;
+    custom_model?: Partial<AgentCompactionCustomModelSettings>;
+  };
   agent_backend?: AgentBackend | string;
   enable_honcho_memory?: boolean;
   honcho_api_key?: string;
@@ -355,6 +406,43 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     context_budget_tokens: source.context_budget_tokens ?? DEFAULT_AGENT_SETTINGS.context_budget_tokens,
     compact_threshold_pct: source.compact_threshold_pct ?? DEFAULT_AGENT_SETTINGS.compact_threshold_pct,
     keep_recent_on_compact: source.keep_recent_on_compact ?? DEFAULT_AGENT_SETTINGS.keep_recent_on_compact,
+    compaction: {
+      strategy: source.compaction?.strategy ?? DEFAULT_AGENT_SETTINGS.compaction.strategy,
+      weles: {
+        provider: normalizeAgentProviderId(
+          source.compaction?.weles?.provider ?? DEFAULT_AGENT_SETTINGS.compaction.weles.provider,
+        ),
+        model: source.compaction?.weles?.model ?? DEFAULT_AGENT_SETTINGS.compaction.weles.model,
+        reasoning_effort: (source.compaction?.weles?.reasoning_effort
+          ?? DEFAULT_AGENT_SETTINGS.compaction.weles.reasoning_effort) as AgentSettings["reasoning_effort"],
+      },
+      custom_model: {
+        provider: normalizeAgentProviderId(
+          source.compaction?.custom_model?.provider ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.provider,
+        ),
+        base_url: source.compaction?.custom_model?.base_url ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.base_url,
+        model: source.compaction?.custom_model?.model ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.model,
+        api_key: source.compaction?.custom_model?.api_key ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.api_key,
+        assistant_id: source.compaction?.custom_model?.assistant_id ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.assistant_id,
+        auth_source: normalizeAuthSource(
+          normalizeAgentProviderId(
+            source.compaction?.custom_model?.provider ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.provider,
+          ),
+          source.compaction?.custom_model?.auth_source ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.auth_source,
+        ),
+        api_transport: normalizeApiTransport(
+          normalizeAgentProviderId(
+            source.compaction?.custom_model?.provider ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.provider,
+          ),
+          source.compaction?.custom_model?.api_transport ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.api_transport,
+        ),
+        context_window_tokens:
+          source.compaction?.custom_model?.context_window_tokens
+          ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.context_window_tokens,
+        reasoning_effort: (source.compaction?.custom_model?.reasoning_effort
+          ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.reasoning_effort) as AgentSettings["reasoning_effort"],
+      },
+    },
     enable_honcho_memory: source.enable_honcho_memory ?? DEFAULT_AGENT_SETTINGS.enable_honcho_memory,
     honcho_api_key: source.honcho_api_key ?? DEFAULT_AGENT_SETTINGS.honcho_api_key,
     honcho_base_url: source.honcho_base_url ?? DEFAULT_AGENT_SETTINGS.honcho_base_url,

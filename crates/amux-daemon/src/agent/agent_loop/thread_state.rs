@@ -120,6 +120,9 @@ impl AgentEngine {
                 api_transport,
                 response_id,
                 reasoning,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: now_millis(),
             });
             thread.total_input_tokens += input_tokens;

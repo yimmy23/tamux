@@ -10,6 +10,9 @@ pub(super) struct ParsedMessageMetadata {
     pub weles_review: Option<WelesReviewMeta>,
     pub api_transport: Option<ApiTransport>,
     pub response_id: Option<String>,
+    pub message_kind: AgentMessageKind,
+    pub compaction_strategy: Option<CompactionStrategy>,
+    pub compaction_payload: Option<String>,
 }
 
 pub(super) struct ParsedThreadMetadata {
@@ -44,6 +47,15 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         .as_ref()
         .and_then(|value| value.get("weles_review"))
         .and_then(|value| serde_json::from_value::<WelesReviewMeta>(value.clone()).ok());
+    let message_kind = metadata
+        .as_ref()
+        .and_then(|value| value.get("message_kind"))
+        .and_then(|value| serde_json::from_value::<AgentMessageKind>(value.clone()).ok())
+        .unwrap_or_default();
+    let compaction_strategy = metadata
+        .as_ref()
+        .and_then(|value| value.get("compaction_strategy"))
+        .and_then(|value| serde_json::from_value::<CompactionStrategy>(value.clone()).ok());
 
     ParsedMessageMetadata {
         tool_call_id: get_str("tool_call_id"),
@@ -53,6 +65,9 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         weles_review,
         api_transport,
         response_id: get_str("response_id"),
+        message_kind,
+        compaction_strategy,
+        compaction_payload: get_str("compaction_payload"),
     }
 }
 
@@ -101,6 +116,9 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "weles_review": message.weles_review,
         "api_transport": message.api_transport,
         "response_id": message.response_id,
+        "message_kind": message.message_kind,
+        "compaction_strategy": message.compaction_strategy,
+        "compaction_payload": message.compaction_payload,
     }))
     .ok()
 }

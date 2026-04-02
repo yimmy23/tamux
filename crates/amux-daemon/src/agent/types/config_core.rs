@@ -96,6 +96,8 @@ pub struct AgentConfig {
     pub compact_threshold_pct: u32,
     #[serde(default = "default_keep_recent_on_compact")]
     pub keep_recent_on_compact: u32,
+    #[serde(default)]
+    pub compaction: CompactionConfig,
     #[serde(default = "default_task_poll_secs")]
     pub task_poll_interval_secs: u64,
     #[serde(default = "default_heartbeat_mins")]
@@ -195,6 +197,83 @@ pub struct AgentConfig {
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionStrategy {
+    #[default]
+    Heuristic,
+    Weles,
+    CustomModel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CompactionConfig {
+    #[serde(default)]
+    pub strategy: CompactionStrategy,
+    #[serde(default)]
+    pub weles: WelesCompactionConfig,
+    #[serde(default)]
+    pub custom_model: CustomModelCompactionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WelesCompactionConfig {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "default_weles_compaction_reasoning_effort")]
+    pub reasoning_effort: String,
+}
+
+impl Default for WelesCompactionConfig {
+    fn default() -> Self {
+        Self {
+            provider: String::new(),
+            model: String::new(),
+            reasoning_effort: default_weles_compaction_reasoning_effort(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomModelCompactionConfig {
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub assistant_id: String,
+    #[serde(default = "default_auth_source")]
+    pub auth_source: AuthSource,
+    #[serde(default = "default_api_transport")]
+    pub api_transport: ApiTransport,
+    #[serde(default = "default_reasoning_effort")]
+    pub reasoning_effort: String,
+    #[serde(default = "default_context_window_tokens")]
+    pub context_window_tokens: u32,
+}
+
+impl Default for CustomModelCompactionConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider(),
+            base_url: String::new(),
+            model: String::new(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: default_auth_source(),
+            api_transport: default_api_transport(),
+            reasoning_effort: default_reasoning_effort(),
+            context_window_tokens: default_context_window_tokens(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

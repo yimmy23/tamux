@@ -135,7 +135,7 @@ impl TuiModel {
 
     pub(super) fn settings_field_click_uses_toggle(&self) -> bool {
         matches!(
-            self.settings.current_field_name(),
+            self.current_settings_field_name(),
             "managed_sandbox_enabled"
                 | "managed_security_level"
                 | "gateway_enabled"
@@ -158,6 +158,13 @@ impl TuiModel {
                 | "tool_synthesis_enabled"
                 | "tool_synthesis_require_activation"
                 | "auto_compact_context"
+                | "compaction_strategy"
+                | "compaction_weles_provider"
+                | "compaction_weles_reasoning_effort"
+                | "compaction_custom_provider"
+                | "compaction_custom_auth_source"
+                | "compaction_custom_api_transport"
+                | "compaction_custom_reasoning_effort"
                 | "snapshot_auto_cleanup"
                 | "feat_tier_override"
                 | "feat_security_level"
@@ -169,6 +176,6 @@ impl TuiModel {
                 | "feat_skill_discovery_enabled"
                 | "whatsapp_link_device"
                 | "whatsapp_relink_device"
-        ) || self.settings.current_field_name().starts_with("tool_")
+        ) || self.current_settings_field_name().starts_with("tool_")
     }
 }

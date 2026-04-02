@@ -142,9 +142,8 @@ impl TuiModel {
 
     pub(in super::super) fn settings_navigate_to(&mut self, target: usize) {
         let current = self.settings.field_cursor();
-        self.settings.reduce(SettingsAction::NavigateField(
-            target as i32 - current as i32,
-        ));
+        self.settings
+            .navigate_field(target as i32 - current as i32, self.settings_field_count());
     }
 
     pub(super) fn handle_modal_mouse(&mut self, mouse: MouseEvent) {

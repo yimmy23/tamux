@@ -186,7 +186,7 @@ pub fn render(
 pub fn hit_test(
     area: Rect,
     settings: &SettingsState,
-    _config: &ConfigState,
+    config: &ConfigState,
     auth: &crate::state::auth::AuthState,
     subagents: &SubAgentsState,
     mouse: Position,
@@ -226,7 +226,7 @@ pub fn hit_test(
         return None;
     }
 
-    if let Some((line, col)) = editing_cursor_hit_test(chunks[2], settings, mouse) {
+    if let Some((line, col)) = editing_cursor_hit_test(chunks[2], settings, config, mouse) {
         return Some(SettingsHitTarget::EditCursor { line, col });
     }
 
@@ -239,7 +239,7 @@ pub fn hit_test(
     }
 
     let row = mouse.y.saturating_sub(chunks[2].y) as usize;
-    match settings_row_hit(settings, subagents, row) {
+    match settings_row_hit(settings, config, subagents, row) {
         Some((_, Some(subagent_index))) => {
             Some(SettingsHitTarget::SubAgentListItem(subagent_index))
         }
@@ -359,6 +359,7 @@ fn render_tabs_line(
 fn editing_cursor_hit_test(
     content_area: Rect,
     settings: &SettingsState,
+    config: &ConfigState,
     mouse: Position,
 ) -> Option<(usize, usize)> {
     let field = settings.editing_field()?;
@@ -377,10 +378,9 @@ fn editing_cursor_hit_test(
         return Some((line, col));
     }
 
-    let (field_row, start_col) = single_line_edit_layout(settings, field)?;
+    let (field_row, start_col) = single_line_edit_layout(settings, config, field)?;
     if row == field_row {
         return Some((0, rel_x.saturating_sub(start_col)));
     }
     None
 }
-

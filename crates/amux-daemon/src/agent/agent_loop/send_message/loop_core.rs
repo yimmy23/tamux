@@ -14,6 +14,18 @@ fn provider_uses_anthropic_api(config: &AgentConfig, provider_config: &ProviderC
 
 impl<'a> SendMessageRunner<'a> {
     async fn prepare_request(&mut self) -> Result<PreparedLlmRequest> {
+        if self
+            .engine
+            .maybe_persist_compaction_artifact(
+                &self.tid,
+                self.task_id,
+                &self.config,
+                &self.provider_config,
+            )
+            .await?
+        {
+            self.recorded_compaction_provenance = true;
+        }
         let threads = self.engine.threads.read().await;
         let thread = match threads.get(&self.tid) {
             Some(thread) => thread,

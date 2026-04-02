@@ -88,6 +88,9 @@ fn default_compact_threshold_pct() -> u32 {
 fn default_keep_recent_on_compact() -> u32 {
     10
 }
+fn default_weles_compaction_reasoning_effort() -> String {
+    "medium".into()
+}
 fn default_task_poll_secs() -> u64 {
     10
 }
@@ -160,6 +163,7 @@ impl Default for AgentConfig {
             context_window_tokens: default_context_window_tokens(),
             compact_threshold_pct: default_compact_threshold_pct(),
             keep_recent_on_compact: default_keep_recent_on_compact(),
+            compaction: CompactionConfig::default(),
             task_poll_interval_secs: default_task_poll_secs(),
             heartbeat_interval_mins: default_heartbeat_mins(),
             heartbeat_cron: None,

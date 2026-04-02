@@ -48,6 +48,7 @@ export function MessageBubble({
   onRegenerate?: () => void;
   onDelete?: () => void;
 }) {
+  const isCompactionArtifact = message.messageKind === "compaction_artifact";
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isTool = message.role === "tool";
@@ -55,6 +56,7 @@ export function MessageBubble({
   const toolStatusLabel = message.toolStatus ? message.toolStatus.toUpperCase() : "DONE";
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expandedCompaction, setExpandedCompaction] = useState(false);
   const displayContent = (() => {
     if (!isUser || typeof message.content !== "string") return message.content;
     if (!message.content.startsWith("[Gateway Context]")) return message.content;
@@ -71,6 +73,69 @@ export function MessageBubble({
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  if (isCompactionArtifact) {
+    const visibleContent = expandedCompaction || message.content.length <= 280
+      ? message.content
+      : `${message.content.slice(0, 280).trimEnd()}...`;
+
+    return (
+      <div
+        style={{
+          width: "100%",
+          borderTop: "1px solid color-mix(in srgb, var(--text-muted) 35%, transparent)",
+          borderBottom: "1px solid color-mix(in srgb, var(--text-muted) 35%, transparent)",
+          padding: "var(--space-3) 0",
+          display: "grid",
+          gap: "var(--space-2)",
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <div style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+          ---- auto compaction ----
+        </div>
+        <div style={{ fontSize: "var(--text-sm)", lineHeight: 1.6, whiteSpace: "pre-wrap", color: "var(--text-secondary)" }}>
+          {visibleContent || "rule based"}
+        </div>
+        {message.content.length > 280 && (
+          <button
+            onClick={() => setExpandedCompaction((current) => !current)}
+            style={{
+              background: "transparent",
+              border: "1px solid var(--glass-border)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "4px 8px",
+              width: "fit-content",
+            }}
+          >
+            {expandedCompaction ? "Collapse" : "Expand"}
+          </button>
+        )}
+        <div style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+          ------------------------
+        </div>
+        {hovered && !message.isStreaming && (
+          <div
+            style={{
+              display: "flex",
+              gap: 2,
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--glass-border)",
+              borderRadius: "var(--radius-sm)",
+              padding: 2,
+              width: "fit-content",
+            }}
+          >
+            <ActionBtn label={copied ? "Copied!" : "Copy"} onClick={handleCopy} />
+            {onDelete && <ActionBtn label="Delete" onClick={onDelete} />}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>

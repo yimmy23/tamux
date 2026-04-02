@@ -1,6 +1,6 @@
 impl TuiModel {
     pub(super) fn toggle_settings_field(&mut self) {
-        let field = self.settings.current_field_name().to_string();
+        let field = self.current_settings_field_name().to_string();
         match field.as_str() {
             "managed_sandbox_enabled" => {
                 self.config.managed_sandbox_enabled = !self.config.managed_sandbox_enabled;
@@ -102,6 +102,15 @@ impl TuiModel {
             "auto_compact_context" => {
                 self.config.auto_compact_context = !self.config.auto_compact_context;
                 self.sync_config_to_daemon();
+            }
+            "compaction_strategy"
+            | "compaction_weles_provider"
+            | "compaction_weles_reasoning_effort"
+            | "compaction_custom_provider"
+            | "compaction_custom_auth_source"
+            | "compaction_custom_api_transport"
+            | "compaction_custom_reasoning_effort" => {
+                self.activate_settings_field();
             }
             "snapshot_auto_cleanup" => {
                 self.config.snapshot_auto_cleanup = !self.config.snapshot_auto_cleanup;

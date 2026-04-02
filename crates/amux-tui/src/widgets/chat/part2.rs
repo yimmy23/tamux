@@ -40,6 +40,19 @@ fn build_rendered_lines(
             }
 
             let block_style = message_block_style(msg, theme);
+            let render_compaction_artifact = msg.message_kind == "compaction_artifact";
+            if render_compaction_artifact {
+                for (line, kind) in msg_lines.into_iter().zip(kinds.into_iter()) {
+                    all_lines.push(RenderedChatLine {
+                        line,
+                        message_index: Some(idx),
+                        kind,
+                    });
+                }
+                let end = all_lines.len();
+                message_line_ranges.push((start, end));
+                continue;
+            }
             for _ in 0..MESSAGE_PADDING_Y {
                 all_lines.push(RenderedChatLine {
                     line: blank_message_line(inner_width, block_style),

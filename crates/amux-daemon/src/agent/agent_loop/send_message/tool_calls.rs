@@ -242,6 +242,9 @@ impl<'a> SendMessageRunner<'a> {
                 api_transport: Some(effective_transport_for_turn),
                 response_id,
                 reasoning: msg_reasoning,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: now_millis(),
             });
             thread.total_input_tokens += input_tokens.unwrap_or(0);
@@ -286,6 +289,9 @@ impl<'a> SendMessageRunner<'a> {
                 api_transport: None,
                 response_id: None,
                 reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: now_millis(),
             });
         }

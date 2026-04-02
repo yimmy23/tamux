@@ -83,6 +83,19 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.compact_threshold_pct = 91;
     model.config.keep_recent_on_compact = 17;
     model.config.bash_timeout_secs = 77;
+    model.config.compaction_strategy = "custom_model".to_string();
+    model.config.compaction_weles_provider = "openai".to_string();
+    model.config.compaction_weles_model = "gpt-5.4-mini".to_string();
+    model.config.compaction_weles_reasoning_effort = "medium".to_string();
+    model.config.compaction_custom_provider = "openrouter".to_string();
+    model.config.compaction_custom_base_url = "https://openrouter.ai/api/v1".to_string();
+    model.config.compaction_custom_model = "anthropic/claude-sonnet-4".to_string();
+    model.config.compaction_custom_api_key = "sk-compaction".to_string();
+    model.config.compaction_custom_assistant_id = "assist-compaction".to_string();
+    model.config.compaction_custom_auth_source = "api_key".to_string();
+    model.config.compaction_custom_api_transport = "chat_completions".to_string();
+    model.config.compaction_custom_reasoning_effort = "high".to_string();
+    model.config.compaction_custom_context_window_tokens = 333_000;
     model.config.snapshot_max_count = 15;
     model.config.agent_config_raw = Some(serde_json::json!({
         "agent_name": "Tamux",
@@ -118,6 +131,16 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     assert_eq!(json["compact_threshold_pct"], 91);
     assert_eq!(json["keep_recent_on_compact"], 17);
     assert_eq!(json["bash_timeout_seconds"], 77);
+    assert_eq!(json["compaction"]["strategy"], "custom_model");
+    assert_eq!(json["compaction"]["weles"]["model"], "gpt-5.4-mini");
+    assert_eq!(
+        json["compaction"]["custom_model"]["provider"],
+        "openrouter"
+    );
+    assert_eq!(
+        json["compaction"]["custom_model"]["context_window_tokens"],
+        333000
+    );
     assert_eq!(json["snapshot_retention"]["max_snapshots"], 15);
 }
 
@@ -159,6 +182,70 @@ fn apply_config_json_uses_daemon_retry_delay_default_when_missing() {
     }));
 
     assert_eq!(model.config.retry_delay_ms, 5_000);
+}
+
+#[test]
+fn apply_config_json_loads_nested_compaction_settings() {
+    let mut model = make_model();
+
+    model.apply_config_json(&serde_json::json!({
+        "provider": "openai",
+        "providers": {
+            "openai": {
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-5.4",
+                "auth_source": "api_key",
+                "api_transport": "responses"
+            }
+        },
+        "builtin_sub_agents": {
+            "weles": {
+                "provider": "openai",
+                "model": "gpt-5.4-mini",
+                "reasoning_effort": "medium"
+            }
+        },
+        "compaction": {
+            "strategy": "custom_model",
+            "weles": {
+                "provider": "openai",
+                "model": "gpt-5.4-mini",
+                "reasoning_effort": "medium"
+            },
+            "custom_model": {
+                "provider": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "model": "anthropic/claude-sonnet-4",
+                "api_key": "sk-compaction",
+                "assistant_id": "assistant-compaction",
+                "auth_source": "api_key",
+                "api_transport": "chat_completions",
+                "reasoning_effort": "xhigh",
+                "context_window_tokens": 222000
+            }
+        }
+    }));
+
+    assert_eq!(model.config.compaction_strategy, "custom_model");
+    assert_eq!(model.config.compaction_weles_provider, "openai");
+    assert_eq!(model.config.compaction_weles_model, "gpt-5.4-mini");
+    assert_eq!(model.config.compaction_custom_provider, "openrouter");
+    assert_eq!(
+        model.config.compaction_custom_base_url,
+        "https://openrouter.ai/api/v1"
+    );
+    assert_eq!(
+        model.config.compaction_custom_model,
+        "anthropic/claude-sonnet-4"
+    );
+    assert_eq!(model.config.compaction_custom_api_key, "sk-compaction");
+    assert_eq!(
+        model.config.compaction_custom_assistant_id,
+        "assistant-compaction"
+    );
+    assert_eq!(model.config.compaction_custom_api_transport, "chat_completions");
+    assert_eq!(model.config.compaction_custom_reasoning_effort, "xhigh");
+    assert_eq!(model.config.compaction_custom_context_window_tokens, 222000);
 }
 
 #[test]

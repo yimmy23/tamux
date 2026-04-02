@@ -281,6 +281,21 @@ fn render_compact(
 ) {
     let content_width = width.max(1);
 
+    if msg.message_kind == "compaction_artifact" {
+        lines.push(Line::from(Span::styled(
+            "---- auto compaction ----",
+            theme.fg_dim,
+        )));
+        for line in wrap_text(&msg.content, content_width) {
+            lines.push(Line::from(Span::styled(line, theme.fg_active)));
+        }
+        lines.push(Line::from(Span::styled(
+            "------------------------",
+            theme.fg_dim,
+        )));
+        return;
+    }
+
     // TOOL messages: compact one-liner or expanded with args + result
     if msg.role == MessageRole::Tool {
         if let Some(name) = &msg.tool_name {

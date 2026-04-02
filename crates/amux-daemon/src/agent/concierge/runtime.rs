@@ -232,6 +232,9 @@ impl ConciergeEngine {
                 api_transport: None,
                 response_id: None,
                 reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: super::super::now_millis(),
             });
             thread.updated_at = super::super::now_millis();

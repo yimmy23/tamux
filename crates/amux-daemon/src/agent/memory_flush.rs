@@ -188,9 +188,10 @@ impl AgentEngine {
     ) -> Option<(Vec<AgentMessage>, usize)> {
         let threads = self.threads.read().await;
         let thread = threads.get(thread_id)?;
+        let (window_start, _) = active_compaction_window(&thread.messages);
         let candidate = compaction_candidate(&thread.messages, config, provider_config)?;
         Some((
-            thread.messages[..candidate.split_at].to_vec(),
+            thread.messages[window_start..window_start + candidate.split_at].to_vec(),
             candidate.target_tokens,
         ))
     }

@@ -1,6 +1,6 @@
 impl TuiModel {
     pub(super) fn activate_settings_field(&mut self) {
-        let field = self.settings.current_field_name().to_string();
+        let field = self.current_settings_field_name().to_string();
         match field.as_str() {
             "provider" => {
                 self.settings_picker_target = Some(SettingsPickerTarget::Provider);
@@ -285,6 +285,90 @@ impl TuiModel {
             "bash_timeout_secs" => self.settings.start_editing(
                 "bash_timeout_secs",
                 &self.config.bash_timeout_secs.to_string(),
+            ),
+            "compaction_strategy" => self.cycle_compaction_strategy(),
+            "compaction_weles_provider" => {
+                self.config.compaction_weles_provider =
+                    Self::cycle_provider_id(&self.config.compaction_weles_provider);
+                if self.config.compaction_weles_model.trim().is_empty() {
+                    self.config.compaction_weles_model =
+                        providers::default_model_for_provider_auth(
+                            &self.config.compaction_weles_provider,
+                            "api_key",
+                        );
+                }
+                self.sync_config_to_daemon();
+            }
+            "compaction_weles_model" => self.settings.start_editing(
+                "compaction_weles_model",
+                &self.config.compaction_weles_model.clone(),
+            ),
+            "compaction_weles_reasoning_effort" => {
+                self.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesReasoningEffort);
+                self.execute_command("effort");
+            }
+            "compaction_custom_provider" => {
+                let next = Self::cycle_provider_id(&self.config.compaction_custom_provider);
+                self.apply_compaction_custom_provider(&next);
+                self.sync_config_to_daemon();
+            }
+            "compaction_custom_base_url" => self.settings.start_editing(
+                "compaction_custom_base_url",
+                &self.config.compaction_custom_base_url.clone(),
+            ),
+            "compaction_custom_auth_source" => {
+                let supported =
+                    providers::supported_auth_sources_for(&self.config.compaction_custom_provider);
+                let current_idx = supported
+                    .iter()
+                    .position(|source| *source == self.config.compaction_custom_auth_source)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % supported.len().max(1);
+                self.config.compaction_custom_auth_source = supported
+                    .get(next_idx)
+                    .copied()
+                    .unwrap_or("api_key")
+                    .to_string();
+                self.sync_config_to_daemon();
+            }
+            "compaction_custom_model" => self.settings.start_editing(
+                "compaction_custom_model",
+                &self.config.compaction_custom_model.clone(),
+            ),
+            "compaction_custom_api_transport" => {
+                let supported =
+                    providers::supported_transports_for(&self.config.compaction_custom_provider);
+                let current_idx = supported
+                    .iter()
+                    .position(|transport| *transport == self.config.compaction_custom_api_transport)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % supported.len().max(1);
+                self.config.compaction_custom_api_transport = supported
+                    .get(next_idx)
+                    .copied()
+                    .unwrap_or("chat_completions")
+                    .to_string();
+                self.sync_config_to_daemon();
+            }
+            "compaction_custom_api_key" => self.settings.start_editing(
+                "compaction_custom_api_key",
+                &self.config.compaction_custom_api_key.clone(),
+            ),
+            "compaction_custom_assistant_id" => self.settings.start_editing(
+                "compaction_custom_assistant_id",
+                &self.config.compaction_custom_assistant_id.clone(),
+            ),
+            "compaction_custom_reasoning_effort" => {
+                self.settings_picker_target =
+                    Some(SettingsPickerTarget::CompactionCustomReasoningEffort);
+                self.execute_command("effort");
+            }
+            "compaction_custom_context_window_tokens" => self.settings.start_editing(
+                "compaction_custom_context_window_tokens",
+                &self
+                    .config
+                    .compaction_custom_context_window_tokens
+                    .to_string(),
             ),
             "snapshot_max_count" => self.settings.start_editing(
                 "snapshot_max_count",

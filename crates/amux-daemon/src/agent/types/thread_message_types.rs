@@ -54,6 +54,12 @@ pub struct AgentMessage {
     pub response_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
+    #[serde(default)]
+    pub message_kind: AgentMessageKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_strategy: Option<CompactionStrategy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_payload: Option<String>,
     pub timestamp: u64,
 }
 
@@ -80,9 +86,20 @@ impl AgentMessage {
             api_transport: None,
             response_id: None,
             reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
             timestamp: now,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentMessageKind {
+    #[default]
+    Normal,
+    CompactionArtifact,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

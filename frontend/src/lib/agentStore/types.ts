@@ -181,6 +181,9 @@ export interface AgentMessage {
   cost?: number;
   tps?: number;
   isCompactionSummary: boolean;
+  messageKind?: "normal" | "compaction_artifact";
+  compactionStrategy?: "heuristic" | "weles" | "custom_model";
+  compactionPayload?: string;
   isStreaming?: boolean;
 }
 

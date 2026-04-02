@@ -71,6 +71,9 @@ export type RemoteAgentMessageRecord = {
   output_tokens?: number | null;
   reasoning?: string | null;
   timestamp?: number | null;
+  message_kind?: "normal" | "compaction_artifact";
+  compaction_strategy?: "heuristic" | "weles" | "custom_model" | null;
+  compaction_payload?: string | null;
 };
 
 export type RemoteAgentThreadRecord = {
@@ -195,7 +198,10 @@ export function buildHydratedRemoteMessage(
     outputTokens: Number(message.output_tokens ?? 0),
     totalTokens: Number(message.input_tokens ?? 0) + Number(message.output_tokens ?? 0),
     reasoning: typeof message.reasoning === "string" ? message.reasoning : undefined,
-    isCompactionSummary: false,
+    isCompactionSummary: message.message_kind === "compaction_artifact",
+    messageKind: message.message_kind ?? "normal",
+    compactionStrategy: message.compaction_strategy ?? undefined,
+    compactionPayload: typeof message.compaction_payload === "string" ? message.compaction_payload : undefined,
     isStreaming: false,
   };
 }
@@ -239,7 +245,7 @@ export function buildHydratedRemoteThread(
       totalInputTokens,
       totalOutputTokens,
       totalTokens: totalInputTokens + totalOutputTokens,
-      compactionCount: 0,
+      compactionCount: messages.filter((message) => message.messageKind === "compaction_artifact").length,
       lastMessagePreview: messages[messages.length - 1]?.content?.slice(0, 100) ?? "",
       upstreamThreadId: typeof thread.upstream_thread_id === "string" ? thread.upstream_thread_id : null,
       upstreamTransport: typeof thread.upstream_transport === "string"
@@ -356,6 +362,9 @@ export function serializeMessage(message: AgentMessage): AgentDbMessageRecord {
       cost: message.cost ?? null,
       tps: message.tps ?? null,
       isCompactionSummary: message.isCompactionSummary,
+      messageKind: message.messageKind ?? "normal",
+      compactionStrategy: message.compactionStrategy ?? null,
+      compactionPayload: message.compactionPayload ?? null,
       isStreaming: message.isStreaming ?? false,
     }),
   };
@@ -451,6 +460,18 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
     cost: (metadata.cost as number) ?? undefined,
     tps: (metadata.tps as number) ?? undefined,
     isCompactionSummary: Boolean(metadata.isCompactionSummary),
+    messageKind:
+      metadata.messageKind === "compaction_artifact" ? "compaction_artifact" : "normal",
+    compactionStrategy:
+      metadata.compactionStrategy === "heuristic"
+        || metadata.compactionStrategy === "weles"
+        || metadata.compactionStrategy === "custom_model"
+        ? metadata.compactionStrategy
+        : undefined,
+    compactionPayload:
+      typeof metadata.compactionPayload === "string"
+        ? metadata.compactionPayload
+        : undefined,
     isStreaming: Boolean(metadata.isStreaming),
   };
 }

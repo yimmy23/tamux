@@ -52,6 +52,9 @@ fn assistant_message(content: &str, timestamp: u64) -> AgentMessage {
         api_transport: None,
         response_id: None,
         reasoning: None,
+        message_kind: AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
         timestamp,
     }
 }

@@ -184,7 +184,7 @@ impl HistoryStore {
         let limit = limit.unwrap_or(500).max(1) as i64;
         let mut stmt = conn.prepare(
             "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
-             FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at ASC LIMIT ?2",
+             FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at ASC, rowid ASC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![thread_id, limit], map_agent_message)?;
         Ok(rows.filter_map(|row| row.ok()).collect())
@@ -202,7 +202,7 @@ impl HistoryStore {
                 let limit = limit.clamp(1, 1000) as i64;
                 let mut stmt = conn.prepare(
                     "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json \
-                     FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+                     FROM agent_messages WHERE thread_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2",
                 )?;
                 let rows = stmt.query_map(params![thread_id, limit], map_agent_message)?;
                 let mut messages: Vec<AgentDbMessage> = rows.filter_map(|row| row.ok()).collect();

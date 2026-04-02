@@ -140,6 +140,9 @@ impl AgentEngine {
                     api_transport: metadata.api_transport,
                     response_id: metadata.response_id,
                     reasoning: msg.reasoning.clone(),
+                    message_kind: metadata.message_kind,
+                    compaction_strategy: metadata.compaction_strategy,
+                    compaction_payload: metadata.compaction_payload,
                     timestamp: msg.created_at as u64,
                 })
             })
@@ -277,6 +280,9 @@ impl AgentEngine {
                     api_transport: metadata.api_transport,
                     response_id: metadata.response_id,
                     reasoning: msg.reasoning,
+                    message_kind: metadata.message_kind,
+                    compaction_strategy: metadata.compaction_strategy,
+                    compaction_payload: metadata.compaction_payload,
                     timestamp: msg.created_at as u64,
                 })
             })

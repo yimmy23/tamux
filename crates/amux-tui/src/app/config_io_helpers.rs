@@ -318,6 +318,31 @@ impl TuiModel {
         patch["keep_recent_on_compact"] =
             serde_json::Value::from(self.config.keep_recent_on_compact);
         patch["bash_timeout_seconds"] = serde_json::Value::from(self.config.bash_timeout_secs);
+        patch["compaction"] = serde_json::json!({
+            "strategy": self.config.compaction_strategy,
+            "weles": {
+                "provider": self.config.compaction_weles_provider,
+                "model": self.config.compaction_weles_model,
+                "reasoning_effort": self.config.compaction_weles_reasoning_effort,
+            },
+            "custom_model": {
+                "provider": self.config.compaction_custom_provider,
+                "base_url": self.config.compaction_custom_base_url,
+                "model": self.config.compaction_custom_model,
+                "api_key": self.config.compaction_custom_api_key,
+                "assistant_id": self.config.compaction_custom_assistant_id,
+                "auth_source": normalize_provider_auth_source(
+                    &self.config.compaction_custom_provider,
+                    &self.config.compaction_custom_auth_source,
+                ),
+                "api_transport": normalize_provider_transport(
+                    &self.config.compaction_custom_provider,
+                    &self.config.compaction_custom_api_transport,
+                ),
+                "reasoning_effort": self.config.compaction_custom_reasoning_effort,
+                "context_window_tokens": self.config.compaction_custom_context_window_tokens,
+            },
+        });
         patch["snapshot_retention"] = serde_json::json!({
             "max_snapshots": self.config.snapshot_max_count,
             "max_total_size_mb": self.config.snapshot_max_size_mb,

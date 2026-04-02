@@ -25,6 +25,9 @@
                 api_transport: None,
                 response_id: None,
                 reasoning: None,
+                message_kind: crate::agent::types::AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: 42,
             },
             AgentMessage {
@@ -44,6 +47,9 @@
                 api_transport: None,
                 response_id: None,
                 reasoning: None,
+                message_kind: crate::agent::types::AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: 43,
             },
         ];

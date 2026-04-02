@@ -3,6 +3,8 @@
 #[path = "settings_cursor.rs"]
 mod cursor;
 
+use crate::state::config::ConfigState;
+
 // ── SettingsTab ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +94,87 @@ fn field_uses_textarea(field: &str) -> bool {
 }
 
 impl SettingsState {
+    fn advanced_field_names_for_strategy(strategy: &str) -> &'static [&'static str] {
+        const HEURISTIC_FIELDS: &[&str] = &[
+            "managed_sandbox_enabled",
+            "managed_security_level",
+            "auto_compact_context",
+            "compaction_strategy",
+            "max_context_messages",
+            "max_tool_loops",
+            "max_retries",
+            "retry_delay_ms",
+            "auto_retry",
+            "context_window_tokens",
+            "context_budget_tokens",
+            "compact_threshold_pct",
+            "keep_recent_on_compact",
+            "bash_timeout_secs",
+            "snapshot_auto_cleanup",
+            "snapshot_max_count",
+            "snapshot_max_size_mb",
+            "snapshot_stats",
+        ];
+        const WELES_FIELDS: &[&str] = &[
+            "managed_sandbox_enabled",
+            "managed_security_level",
+            "auto_compact_context",
+            "compaction_strategy",
+            "max_context_messages",
+            "max_tool_loops",
+            "max_retries",
+            "retry_delay_ms",
+            "auto_retry",
+            "context_window_tokens",
+            "context_budget_tokens",
+            "compact_threshold_pct",
+            "keep_recent_on_compact",
+            "bash_timeout_secs",
+            "compaction_weles_provider",
+            "compaction_weles_model",
+            "compaction_weles_reasoning_effort",
+            "snapshot_auto_cleanup",
+            "snapshot_max_count",
+            "snapshot_max_size_mb",
+            "snapshot_stats",
+        ];
+        const CUSTOM_FIELDS: &[&str] = &[
+            "managed_sandbox_enabled",
+            "managed_security_level",
+            "auto_compact_context",
+            "compaction_strategy",
+            "max_context_messages",
+            "max_tool_loops",
+            "max_retries",
+            "retry_delay_ms",
+            "auto_retry",
+            "context_window_tokens",
+            "context_budget_tokens",
+            "compact_threshold_pct",
+            "keep_recent_on_compact",
+            "bash_timeout_secs",
+            "compaction_custom_provider",
+            "compaction_custom_base_url",
+            "compaction_custom_auth_source",
+            "compaction_custom_model",
+            "compaction_custom_api_transport",
+            "compaction_custom_api_key",
+            "compaction_custom_assistant_id",
+            "compaction_custom_reasoning_effort",
+            "compaction_custom_context_window_tokens",
+            "snapshot_auto_cleanup",
+            "snapshot_max_count",
+            "snapshot_max_size_mb",
+            "snapshot_stats",
+        ];
+
+        match strategy {
+            "weles" => WELES_FIELDS,
+            "custom_model" => CUSTOM_FIELDS,
+            _ => HEURISTIC_FIELDS,
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             active_tab: SettingsTab::Auth,
@@ -288,20 +371,21 @@ impl SettingsState {
                 0 => "managed_sandbox_enabled",
                 1 => "managed_security_level",
                 2 => "auto_compact_context",
-                3 => "max_context_messages",
-                4 => "max_tool_loops",
-                5 => "max_retries",
-                6 => "retry_delay_ms",
-                7 => "auto_retry",
-                8 => "context_window_tokens",
-                9 => "context_budget_tokens",
-                10 => "compact_threshold_pct",
-                11 => "keep_recent_on_compact",
-                12 => "bash_timeout_secs",
-                13 => "snapshot_auto_cleanup",
-                14 => "snapshot_max_count",
-                15 => "snapshot_max_size_mb",
-                16 => "snapshot_stats",
+                3 => "compaction_strategy",
+                4 => "max_context_messages",
+                5 => "max_tool_loops",
+                6 => "max_retries",
+                7 => "retry_delay_ms",
+                8 => "auto_retry",
+                9 => "context_window_tokens",
+                10 => "context_budget_tokens",
+                11 => "compact_threshold_pct",
+                12 => "keep_recent_on_compact",
+                13 => "bash_timeout_secs",
+                14 => "snapshot_auto_cleanup",
+                15 => "snapshot_max_count",
+                16 => "snapshot_max_size_mb",
+                17 => "snapshot_stats",
                 _ => "",
             },
             SettingsTab::Plugins => {
@@ -310,6 +394,16 @@ impl SettingsState {
                 "plugin_field"
             }
         }
+    }
+
+    pub fn current_field_name_with_config<'a>(&'a self, config: &'a ConfigState) -> &'a str {
+        if self.active_tab == SettingsTab::Advanced {
+            return Self::advanced_field_names_for_strategy(&config.compaction_strategy)
+                .get(self.field_cursor)
+                .copied()
+                .unwrap_or("snapshot_stats");
+        }
+        self.current_field_name()
     }
 
     /// Number of navigable fields in the current tab (for cursor clamping).
@@ -325,8 +419,23 @@ impl SettingsState {
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 5,
             SettingsTab::Features => 14,
-            SettingsTab::Advanced => 17,
+            SettingsTab::Advanced => 18,
             SettingsTab::Plugins => 1,
+        }
+    }
+
+    pub fn field_count_with_config(&self, config: &ConfigState) -> usize {
+        if self.active_tab == SettingsTab::Advanced {
+            return Self::advanced_field_names_for_strategy(&config.compaction_strategy).len();
+        }
+        self.field_count()
+    }
+
+    pub fn clamp_field_cursor(&mut self, field_count: usize) {
+        if field_count == 0 {
+            self.field_cursor = 0;
+        } else {
+            self.field_cursor = self.field_cursor.min(field_count.saturating_sub(1));
         }
     }
 

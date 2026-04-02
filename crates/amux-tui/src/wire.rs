@@ -64,6 +64,12 @@ pub struct AgentMessage {
     #[serde(default)]
     pub is_streaming: bool,
     #[serde(default)]
+    pub message_kind: String,
+    #[serde(default)]
+    pub compaction_strategy: Option<String>,
+    #[serde(default)]
+    pub compaction_payload: Option<String>,
+    #[serde(default)]
     pub timestamp: u64,
 }
 

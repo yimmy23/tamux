@@ -1,4 +1,57 @@
 impl TuiModel {
+    pub(super) fn current_settings_field_name(&self) -> &str {
+        self.settings.current_field_name_with_config(&self.config)
+    }
+
+    pub(super) fn settings_field_count(&self) -> usize {
+        self.settings.field_count_with_config(&self.config)
+    }
+
+    pub(super) fn clamp_settings_cursor(&mut self) {
+        self.settings
+            .clamp_field_cursor(self.settings.field_count_with_config(&self.config));
+    }
+
+    pub(super) fn cycle_compaction_strategy(&mut self) {
+        self.config.compaction_strategy = match self.config.compaction_strategy.as_str() {
+            "heuristic" => "weles".to_string(),
+            "weles" => "custom_model".to_string(),
+            _ => "heuristic".to_string(),
+        };
+        self.clamp_settings_cursor();
+        self.sync_config_to_daemon();
+    }
+
+    pub(super) fn cycle_provider_id(current: &str) -> String {
+        let providers = providers::PROVIDERS;
+        let current_idx = providers
+            .iter()
+            .position(|provider| provider.id == current)
+            .unwrap_or(0);
+        providers[(current_idx + 1) % providers.len()].id.to_string()
+    }
+
+    pub(super) fn apply_compaction_custom_provider(&mut self, provider_id: &str) {
+        self.config.compaction_custom_provider = provider_id.to_string();
+        self.config.compaction_custom_base_url = providers::find_by_id(provider_id)
+            .map(|provider| provider.default_base_url.to_string())
+            .unwrap_or_default();
+        self.config.compaction_custom_auth_source =
+            providers::default_auth_source_for(provider_id).to_string();
+        self.config.compaction_custom_api_transport =
+            providers::default_transport_for(provider_id).to_string();
+        self.config.compaction_custom_model =
+            providers::default_model_for_provider_auth(provider_id, "api_key");
+        self.config.compaction_custom_context_window_tokens = if provider_id == "custom" {
+            128_000
+        } else {
+            providers::known_context_window_for(provider_id, &self.config.compaction_custom_model)
+                .unwrap_or(128_000)
+        };
+        self.config.compaction_custom_api_key.clear();
+        self.config.compaction_custom_assistant_id.clear();
+    }
+
     fn whatsapp_linking_allowed(&self) -> bool {
         amux_protocol::has_whatsapp_allowed_contacts(&self.config.whatsapp_allowed_contacts)
     }

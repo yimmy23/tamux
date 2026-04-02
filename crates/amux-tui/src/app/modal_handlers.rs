@@ -224,6 +224,21 @@ impl TuiModel {
                             "base_url" => self.config.base_url = value,
                             "api_key" => self.config.api_key = value,
                             "assistant_id" => self.config.assistant_id = value,
+                            "compaction_weles_model" => {
+                                self.config.compaction_weles_model = value.trim().to_string()
+                            }
+                            "compaction_custom_base_url" => {
+                                self.config.compaction_custom_base_url = value
+                            }
+                            "compaction_custom_model" => {
+                                self.config.compaction_custom_model = value.trim().to_string()
+                            }
+                            "compaction_custom_api_key" => {
+                                self.config.compaction_custom_api_key = value
+                            }
+                            "compaction_custom_assistant_id" => {
+                                self.config.compaction_custom_assistant_id = value
+                            }
                             "custom_model_entry" => {
                                 let trimmed = value.trim();
                                 let (name, model_id) =
@@ -328,6 +343,12 @@ impl TuiModel {
                             "bash_timeout_secs" => {
                                 if let Ok(n) = value.parse::<u32>() {
                                     self.config.bash_timeout_secs = n.clamp(5, 300);
+                                }
+                            }
+                            "compaction_custom_context_window_tokens" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.compaction_custom_context_window_tokens =
+                                        n.clamp(1000, 2_000_000);
                                 }
                             }
                             "snapshot_max_count" => {
@@ -559,11 +580,11 @@ impl TuiModel {
                     return false;
                 }
                 KeyCode::Down => {
-                    self.settings.reduce(SettingsAction::NavigateField(1));
+                    self.settings.navigate_field(1, self.settings_field_count());
                     return false;
                 }
                 KeyCode::Up => {
-                    self.settings.reduce(SettingsAction::NavigateField(-1));
+                    self.settings.navigate_field(-1, self.settings_field_count());
                     return false;
                 }
                 KeyCode::Enter => {

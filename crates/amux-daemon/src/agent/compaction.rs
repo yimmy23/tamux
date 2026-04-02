@@ -1,8 +1,12 @@
 //! Context compaction — token-aware message compression for LLM requests.
 
-use super::llm_client::{messages_to_api_format, ApiMessage};
-use super::types::*;
-use super::{APPROX_CHARS_PER_TOKEN, MIN_CONTEXT_TARGET_TOKENS};
+use super::*;
+use super::llm_client::messages_to_api_format;
+
+const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
+const COMPACTION_NOTICE_KIND: &str = "auto-compaction";
+const COMPACTION_EXACT_MESSAGE_MAX: usize = 24;
+const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context for future continuity. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, and important factual state. Return only the compacted carry-forward text as plain text. Do not add markdown fences, headings, or commentary about the compaction process.";
 
 pub(super) struct PreparedLlmRequest {
     pub messages: Vec<ApiMessage>,
@@ -18,7 +22,45 @@ pub(super) struct CompactionCandidate {
 }
 
 pub(super) fn message_is_compaction_summary(message: &AgentMessage) -> bool {
-    message.content.starts_with("[Compacted earlier context]")
+    message.message_kind == AgentMessageKind::CompactionArtifact
+        || message.content.starts_with("[Compacted earlier context]")
+}
+
+fn latest_compaction_artifact_index(messages: &[AgentMessage]) -> Option<usize> {
+    messages.iter().rposition(message_is_compaction_summary)
+}
+
+pub(super) fn active_compaction_window(messages: &[AgentMessage]) -> (usize, &[AgentMessage]) {
+    match latest_compaction_artifact_index(messages) {
+        Some(index) => (index, &messages[index..]),
+        None => (0, messages),
+    }
+}
+
+fn compaction_runtime_content<'a>(message: &'a AgentMessage) -> &'a str {
+    if message_is_compaction_summary(message) {
+        message
+            .compaction_payload
+            .as_deref()
+            .filter(|payload| !payload.trim().is_empty())
+            .unwrap_or_else(|| message.content.as_str())
+    } else {
+        message.content.as_str()
+    }
+}
+
+fn materialize_compaction_message(message: &AgentMessage) -> AgentMessage {
+    let mut materialized = message.clone();
+    materialized.content = compaction_runtime_content(message).to_string();
+    materialized
+}
+
+fn active_request_messages(messages: &[AgentMessage]) -> Vec<AgentMessage> {
+    let (_, active_messages) = active_compaction_window(messages);
+    active_messages
+        .iter()
+        .map(materialize_compaction_message)
+        .collect()
 }
 
 pub(super) fn prepare_llm_request(
@@ -138,6 +180,7 @@ pub(super) fn compact_messages_for_request(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> Vec<AgentMessage> {
+    let runtime_messages = active_request_messages(messages);
     let Some(candidate) = compaction_candidate(messages, config, provider_config) else {
         // Even when compaction is disabled, enforce a hard token limit
         // so we never exceed the model's context window.
@@ -148,11 +191,11 @@ pub(super) fn compact_messages_for_request(
                 .context_window_tokens
                 .max(config.context_window_tokens),
         ) as usize;
-        let current = estimate_message_tokens(messages);
+        let current = estimate_message_tokens(&runtime_messages);
         if current > model_window {
-            return hard_truncate_to_fit(messages, model_window);
+            return hard_truncate_to_fit(&runtime_messages, model_window);
         }
-        return messages.to_vec();
+        return runtime_messages;
     };
     let max_messages = config.max_context_messages.max(1) as usize;
     let split_at = candidate.split_at;
@@ -160,7 +203,7 @@ pub(super) fn compact_messages_for_request(
     let mut has_summary = false;
 
     if split_at > 0 {
-        let summary = build_compaction_summary(&messages[..split_at], candidate.target_tokens);
+        let summary = build_compaction_summary(&runtime_messages[..split_at], candidate.target_tokens);
         if !summary.is_empty() {
             has_summary = true;
             compacted.push(AgentMessage {
@@ -180,12 +223,15 @@ pub(super) fn compact_messages_for_request(
                 api_transport: None,
                 response_id: None,
                 reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
                 timestamp: messages[split_at - 1].timestamp,
             });
         }
     }
 
-    compacted.extend(messages[split_at..].iter().cloned());
+    compacted.extend(runtime_messages[split_at..].iter().cloned());
     trim_compacted_messages(
         &mut compacted,
         max_messages,
@@ -200,21 +246,22 @@ pub(super) fn compaction_candidate(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> Option<CompactionCandidate> {
-    if messages.is_empty() || !config.auto_compact_context {
+    let (_, active_messages) = active_compaction_window(messages);
+    if active_messages.is_empty() || !config.auto_compact_context {
         return None;
     }
 
     let max_messages = config.max_context_messages.max(1) as usize;
     let target_tokens = effective_context_target_tokens(config, provider_config);
-    if messages.len() <= max_messages && estimate_message_tokens(messages) <= target_tokens {
+    if active_messages.len() <= max_messages && estimate_message_tokens(active_messages) <= target_tokens {
         return None;
     }
 
     let keep_recent = config
         .keep_recent_on_compact
         .max(1)
-        .min(messages.len() as u32) as usize;
-    let mut split_at = messages.len().saturating_sub(keep_recent);
+        .min(active_messages.len() as u32) as usize;
+    let mut split_at = active_messages.len().saturating_sub(keep_recent);
     if split_at == 0 {
         return None;
     }
@@ -222,7 +269,7 @@ pub(super) fn compaction_candidate(
     // Never split inside a tool-call / tool-result pair.
     // If the first kept message is a tool result, move split_at back to include
     // the assistant message that made the tool call.
-    while split_at > 0 && messages[split_at].role == MessageRole::Tool {
+    while split_at > 0 && active_messages[split_at].role == MessageRole::Tool {
         split_at -= 1;
     }
     if split_at == 0 {
@@ -300,7 +347,7 @@ pub(super) fn estimate_message_tokens(messages: &[AgentMessage]) -> usize {
 }
 
 pub(super) fn estimate_single_message_tokens(message: &AgentMessage) -> usize {
-    let mut chars = message.content.chars().count();
+    let mut chars = compaction_runtime_content(message).chars().count();
 
     if let Some(tool_calls) = &message.tool_calls {
         chars += tool_calls
@@ -392,11 +439,423 @@ fn summarize_compacted_message(message: &AgentMessage) -> String {
         }
     }
 
-    let content = super::goal_parsing::summarize_text(&message.content, 160);
+    let content = super::goal_parsing::summarize_text(compaction_runtime_content(message), 160);
     if details.is_empty() {
         format!("{role}: {content}")
     } else {
         format!("{role} [{details}]: {content}")
+    }
+}
+
+fn select_compaction_transport(provider_id: &str, provider_config: &ProviderConfig) -> ApiTransport {
+    if provider_id == "openai" && provider_config.auth_source == AuthSource::ChatgptSubscription {
+        return ApiTransport::Responses;
+    }
+
+    let selected = if provider_supports_transport(provider_id, provider_config.api_transport) {
+        provider_config.api_transport
+    } else {
+        default_api_transport_for_provider(provider_id)
+    };
+
+    match selected {
+        ApiTransport::NativeAssistant => {
+            if provider_supports_transport(provider_id, ApiTransport::Responses) {
+                ApiTransport::Responses
+            } else {
+                ApiTransport::ChatCompletions
+            }
+        }
+        other => other,
+    }
+}
+
+fn build_llm_compaction_messages(
+    messages: &[AgentMessage],
+    target_tokens: usize,
+) -> Vec<ApiMessage> {
+    let source_messages = messages
+        .iter()
+        .map(materialize_compaction_message)
+        .collect::<Vec<_>>();
+    let use_exact_messages = source_messages.len() <= COMPACTION_EXACT_MESSAGE_MAX
+        && estimate_message_tokens(&source_messages) <= target_tokens.saturating_mul(4).max(2_048);
+
+    let mut api_messages = if use_exact_messages {
+        messages_to_api_format(&source_messages)
+    } else {
+        vec![ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text(format!(
+                "Older context to compact:\n\n{}",
+                build_compaction_summary(&source_messages, target_tokens.saturating_mul(2))
+            )),
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }]
+    };
+
+    api_messages.push(ApiMessage {
+        role: "user".to_string(),
+        content: ApiContent::Text(
+            "Compress the supplied older context into a concise carry-forward note. Preserve requests, constraints, decisions, tool outcomes, errors worth remembering, and any unresolved next steps. Return only the compacted text."
+                .to_string(),
+        ),
+        tool_call_id: None,
+        name: None,
+        tool_calls: None,
+    });
+    api_messages
+}
+
+impl AgentEngine {
+    pub(super) async fn maybe_persist_compaction_artifact(
+        &self,
+        thread_id: &str,
+        task_id: Option<&str>,
+        config: &AgentConfig,
+        provider_config: &ProviderConfig,
+    ) -> Result<bool> {
+        let snapshot = {
+            let threads = self.threads.read().await;
+            threads.get(thread_id).cloned()
+        };
+        let Some(thread) = snapshot else {
+            return Ok(false);
+        };
+        let (window_start, _) = active_compaction_window(&thread.messages);
+        let Some(candidate) = compaction_candidate(&thread.messages, config, provider_config) else {
+            return Ok(false);
+        };
+        let split_at = window_start + candidate.split_at;
+        let source_messages = thread.messages[window_start..split_at].to_vec();
+        let message_count = thread.messages.len();
+
+        let (artifact, strategy_used, fallback_notice) = self
+            .build_compaction_artifact(&source_messages, candidate.target_tokens, config)
+            .await?;
+
+        {
+            let mut threads = self.threads.write().await;
+            let Some(thread) = threads.get_mut(thread_id) else {
+                return Ok(false);
+            };
+            let (window_start, _) = active_compaction_window(&thread.messages);
+            let Some(current_candidate) =
+                compaction_candidate(&thread.messages, config, provider_config)
+            else {
+                return Ok(false);
+            };
+            let current_split_at = window_start + current_candidate.split_at;
+            thread.messages.insert(current_split_at, artifact);
+            thread.updated_at = now_millis();
+        }
+
+        self.persist_thread_by_id(thread_id).await;
+        self.record_provenance_event(
+            "context_compressed",
+            "thread context was compacted for an LLM request",
+            serde_json::json!({
+                "thread_id": thread_id,
+                "split_at": split_at,
+                "target_tokens": candidate.target_tokens,
+                "message_count": message_count,
+                "strategy": strategy_used,
+            }),
+            None,
+            task_id,
+            Some(thread_id),
+            None,
+            None,
+        )
+        .await;
+        let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+            thread_id: thread_id.to_string(),
+        });
+        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+            thread_id: thread_id.to_string(),
+            kind: COMPACTION_NOTICE_KIND.to_string(),
+            message: format!(
+                "Auto compaction applied using {}.",
+                serde_json::to_string(&strategy_used)
+                    .unwrap_or_else(|_| "\"heuristic\"".to_string())
+                    .trim_matches('"')
+            ),
+            details: None,
+        });
+        if let Some(fallback_notice) = fallback_notice {
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                thread_id: thread_id.to_string(),
+                kind: COMPACTION_NOTICE_KIND.to_string(),
+                message: fallback_notice,
+                details: None,
+            });
+        }
+        Ok(true)
+    }
+
+    async fn build_compaction_artifact(
+        &self,
+        messages: &[AgentMessage],
+        target_tokens: usize,
+        config: &AgentConfig,
+    ) -> Result<(AgentMessage, CompactionStrategy, Option<String>)> {
+        let heuristic_payload = build_compaction_summary(messages, target_tokens);
+        let heuristic_payload = if heuristic_payload.trim().is_empty() {
+            "Older context compacted for continuity.".to_string()
+        } else {
+            heuristic_payload
+        };
+
+        let mut strategy_used = config.compaction.strategy;
+        let mut fallback_notice = None;
+        let payload = match strategy_used {
+            CompactionStrategy::Heuristic => heuristic_payload.clone(),
+            CompactionStrategy::Weles => {
+                let (provider_id, provider_config) = self.resolve_weles_compaction_provider(config)?;
+                match self
+                    .run_llm_compaction(&provider_id, &provider_config, messages, target_tokens)
+                    .await
+                {
+                    Ok(payload) if !payload.trim().is_empty() => payload,
+                    Ok(_) | Err(_) => {
+                        strategy_used = CompactionStrategy::Heuristic;
+                        fallback_notice =
+                            Some("WELES compaction failed; fell back to rule based compaction.".to_string());
+                        heuristic_payload.clone()
+                    }
+                }
+            }
+            CompactionStrategy::CustomModel => {
+                let (provider_id, provider_config) =
+                    self.resolve_custom_model_compaction_provider(config)?;
+                match self
+                    .run_llm_compaction(&provider_id, &provider_config, messages, target_tokens)
+                    .await
+                {
+                    Ok(payload) if !payload.trim().is_empty() => payload,
+                    Ok(_) | Err(_) => {
+                        strategy_used = CompactionStrategy::Heuristic;
+                        fallback_notice = Some(
+                            "Custom-model compaction failed; fell back to rule based compaction."
+                                .to_string(),
+                        );
+                        heuristic_payload.clone()
+                    }
+                }
+            }
+        };
+
+        let visible_content = match strategy_used {
+            CompactionStrategy::Heuristic => HEURISTIC_COMPACTION_VISIBLE_TEXT.to_string(),
+            CompactionStrategy::Weles | CompactionStrategy::CustomModel => payload.clone(),
+        };
+
+        Ok((
+            AgentMessage {
+                id: generate_message_id(),
+                role: MessageRole::Assistant,
+                content: visible_content,
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                message_kind: AgentMessageKind::CompactionArtifact,
+                compaction_strategy: Some(strategy_used),
+                compaction_payload: Some(payload),
+                timestamp: messages.last().map(|message| message.timestamp).unwrap_or_else(now_millis),
+            },
+            strategy_used,
+            fallback_notice,
+        ))
+    }
+
+    async fn run_llm_compaction(
+        &self,
+        provider_id: &str,
+        provider_config: &ProviderConfig,
+        messages: &[AgentMessage],
+        target_tokens: usize,
+    ) -> Result<String> {
+        let transport = select_compaction_transport(provider_id, provider_config);
+        let api_messages = build_llm_compaction_messages(messages, target_tokens);
+        self.check_circuit_breaker(provider_id).await?;
+
+        let mut stream = send_completion_request(
+            &self.http_client,
+            provider_id,
+            provider_config,
+            COMPACTION_MODEL_SYSTEM_PROMPT,
+            &api_messages,
+            &[],
+            transport,
+            None,
+            None,
+            RetryStrategy::DurableRateLimited,
+        );
+        let mut content = String::new();
+        let mut reasoning = String::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(value) => value,
+                Err(error) => {
+                    self.record_llm_outcome(provider_id, false).await;
+                    return Err(error);
+                }
+            };
+            match chunk {
+                CompletionChunk::Delta {
+                    content: delta,
+                    reasoning: reasoning_delta,
+                } => {
+                    content.push_str(&delta);
+                    if let Some(reasoning_delta) = reasoning_delta {
+                        reasoning.push_str(&reasoning_delta);
+                    }
+                }
+                CompletionChunk::Done {
+                    content: done,
+                    reasoning: done_reasoning,
+                    ..
+                } => {
+                    self.record_llm_outcome(provider_id, true).await;
+                    if let Some(done_reasoning) = done_reasoning {
+                        reasoning = done_reasoning;
+                    }
+                    let final_content = if done.is_empty() { content } else { done };
+                    let trimmed = final_content.trim();
+                    if !trimmed.is_empty() {
+                        return Ok(trimmed.to_string());
+                    }
+                    if !reasoning.trim().is_empty() {
+                        return Ok(reasoning.trim().to_string());
+                    }
+                    anyhow::bail!("compaction LLM returned empty output");
+                }
+                CompletionChunk::Error { message } => {
+                    self.record_llm_outcome(provider_id, false).await;
+                    anyhow::bail!(message);
+                }
+                CompletionChunk::ToolCalls { .. } => {
+                    self.record_llm_outcome(provider_id, true).await;
+                    anyhow::bail!("compaction LLM unexpectedly returned tool calls");
+                }
+                CompletionChunk::TransportFallback { .. } | CompletionChunk::Retry { .. } => {}
+            }
+        }
+
+        if !content.trim().is_empty() {
+            return Ok(content.trim().to_string());
+        }
+        anyhow::bail!("compaction LLM returned empty output")
+    }
+
+    fn resolve_weles_compaction_provider(
+        &self,
+        config: &AgentConfig,
+    ) -> Result<(String, ProviderConfig)> {
+        let provider_id = config
+            .compaction
+            .weles
+            .provider
+            .trim()
+            .to_string();
+        let provider_id = if provider_id.is_empty() {
+            config
+                .builtin_sub_agents
+                .weles
+                .provider
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| config.provider.clone())
+        } else {
+            provider_id
+        };
+        let model = config.compaction.weles.model.trim().to_string();
+        let model = if model.is_empty() {
+            config
+                .builtin_sub_agents
+                .weles
+                .model
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| config.model.clone())
+        } else {
+            model
+        };
+        let reasoning_effort = config.compaction.weles.reasoning_effort.trim().to_string();
+        let reasoning_effort = if reasoning_effort.is_empty() {
+            config
+                .builtin_sub_agents
+                .weles
+                .reasoning_effort
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "medium".to_string())
+        } else {
+            reasoning_effort
+        };
+        let mut provider_config =
+            resolve_provider_config_for(config, &provider_id, Some(model.as_str()))?;
+        provider_config.reasoning_effort = reasoning_effort;
+        provider_config.response_schema = None;
+        Ok((provider_id, provider_config))
+    }
+
+    fn resolve_custom_model_compaction_provider(
+        &self,
+        config: &AgentConfig,
+    ) -> Result<(String, ProviderConfig)> {
+        let custom = &config.compaction.custom_model;
+        let mut runtime_config = config.clone();
+        runtime_config.providers.clear();
+        if !custom.provider.trim().is_empty() {
+            runtime_config.provider = custom.provider.trim().to_string();
+        }
+        if !custom.base_url.trim().is_empty() {
+            runtime_config.base_url = custom.base_url.trim().to_string();
+        }
+        if !custom.model.trim().is_empty() {
+            runtime_config.model = custom.model.trim().to_string();
+        }
+        if !custom.api_key.trim().is_empty() {
+            runtime_config.api_key = custom.api_key.clone();
+        }
+        if !custom.assistant_id.trim().is_empty() {
+            runtime_config.assistant_id = custom.assistant_id.clone();
+        }
+        runtime_config.auth_source = custom.auth_source;
+        runtime_config.api_transport = custom.api_transport;
+        if !custom.reasoning_effort.trim().is_empty() {
+            runtime_config.reasoning_effort = custom.reasoning_effort.clone();
+        }
+        if custom.context_window_tokens > 0 {
+            runtime_config.context_window_tokens = custom.context_window_tokens;
+        }
+
+        let provider_id = runtime_config.provider.trim().to_string();
+        if provider_id.is_empty() {
+            anyhow::bail!("custom compaction provider is not configured");
+        }
+        let model = runtime_config.model.trim().to_string();
+        if model.is_empty() {
+            anyhow::bail!("custom compaction model is not configured");
+        }
+
+        let mut provider_config =
+            resolve_provider_config_for(&runtime_config, &provider_id, Some(model.as_str()))?;
+        provider_config.response_schema = None;
+        Ok((provider_id, provider_config))
     }
 }
 

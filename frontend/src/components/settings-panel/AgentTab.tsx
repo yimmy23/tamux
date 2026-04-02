@@ -681,6 +681,20 @@ export function AgentTab({
                 <SettingRow label="Auto Compact">
                     <Toggle value={settings.auto_compact_context} onChange={(value) => updateSetting("auto_compact_context", value)} />
                 </SettingRow>
+                <SettingRow label="Strategy">
+                    <select
+                        value={settings.compaction.strategy}
+                        onChange={(e) => updateSetting("compaction", {
+                            ...settings.compaction,
+                            strategy: e.target.value as AgentSettings["compaction"]["strategy"],
+                        })}
+                        style={inputStyle}
+                    >
+                        <option value="heuristic">Heuristic</option>
+                        <option value="weles">WELES</option>
+                        <option value="custom_model">Custom model</option>
+                    </select>
+                </SettingRow>
                 <SettingRow label="Max Context Messages">
                     <NumberInput value={settings.max_context_messages} min={10} max={500}
                         onChange={(value) => updateSetting("max_context_messages", value)} />
@@ -713,6 +727,170 @@ export function AgentTab({
                     <NumberInput value={settings.keep_recent_on_compact} min={1} max={50}
                         onChange={(value) => updateSetting("keep_recent_on_compact", value)} />
                 </SettingRow>
+
+                {settings.compaction.strategy === "weles" ? (
+                    <>
+                        <SettingRow label="WELES Provider">
+                            <SelectInput
+                                value={settings.compaction.weles.provider}
+                                options={allProviderOptions.map((provider) => provider.id)}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    weles: { ...settings.compaction.weles, provider: value as AgentProviderId },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="WELES Model">
+                            <TextInput
+                                value={settings.compaction.weles.model}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    weles: { ...settings.compaction.weles, model: value },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="WELES Reasoning">
+                            <select
+                                value={settings.compaction.weles.reasoning_effort}
+                                onChange={(e) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    weles: {
+                                        ...settings.compaction.weles,
+                                        reasoning_effort: e.target.value as AgentSettings["reasoning_effort"],
+                                    },
+                                })}
+                                style={inputStyle}
+                            >
+                                <option value="none">none</option>
+                                <option value="minimal">minimal</option>
+                                <option value="low">low</option>
+                                <option value="medium">medium</option>
+                                <option value="high">high</option>
+                                <option value="xhigh">xhigh</option>
+                            </select>
+                        </SettingRow>
+                    </>
+                ) : null}
+
+                {settings.compaction.strategy === "custom_model" ? (
+                    <>
+                        <SettingRow label="Custom Provider">
+                            <SelectInput
+                                value={settings.compaction.custom_model.provider}
+                                options={allProviderOptions.map((provider) => provider.id)}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: { ...settings.compaction.custom_model, provider: value as AgentProviderId },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="Custom Base URL">
+                            <TextInput
+                                value={settings.compaction.custom_model.base_url}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: { ...settings.compaction.custom_model, base_url: value },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="Custom Model">
+                            <TextInput
+                                value={settings.compaction.custom_model.model}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: { ...settings.compaction.custom_model, model: value },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="Custom API Key">
+                            <PasswordInput
+                                value={settings.compaction.custom_model.api_key}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: { ...settings.compaction.custom_model, api_key: value },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="Custom Assistant ID">
+                            <TextInput
+                                value={settings.compaction.custom_model.assistant_id}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: { ...settings.compaction.custom_model, assistant_id: value },
+                                })}
+                            />
+                        </SettingRow>
+                        <SettingRow label="Custom Auth">
+                            <select
+                                value={settings.compaction.custom_model.auth_source}
+                                onChange={(e) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: {
+                                        ...settings.compaction.custom_model,
+                                        auth_source: e.target.value as AgentSettings["compaction"]["custom_model"]["auth_source"],
+                                    },
+                                })}
+                                style={inputStyle}
+                            >
+                                <option value="api_key">api_key</option>
+                                <option value="chatgpt_subscription">chatgpt_subscription</option>
+                                <option value="github_copilot">github_copilot</option>
+                            </select>
+                        </SettingRow>
+                        <SettingRow label="Custom Transport">
+                            <select
+                                value={settings.compaction.custom_model.api_transport}
+                                onChange={(e) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: {
+                                        ...settings.compaction.custom_model,
+                                        api_transport: e.target.value as AgentSettings["compaction"]["custom_model"]["api_transport"],
+                                    },
+                                })}
+                                style={inputStyle}
+                            >
+                                <option value="responses">responses</option>
+                                <option value="chat_completions">chat_completions</option>
+                                <option value="native_assistant">native_assistant</option>
+                            </select>
+                        </SettingRow>
+                        <SettingRow label="Custom Reasoning">
+                            <select
+                                value={settings.compaction.custom_model.reasoning_effort}
+                                onChange={(e) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: {
+                                        ...settings.compaction.custom_model,
+                                        reasoning_effort: e.target.value as AgentSettings["reasoning_effort"],
+                                    },
+                                })}
+                                style={inputStyle}
+                            >
+                                <option value="none">none</option>
+                                <option value="minimal">minimal</option>
+                                <option value="low">low</option>
+                                <option value="medium">medium</option>
+                                <option value="high">high</option>
+                                <option value="xhigh">xhigh</option>
+                            </select>
+                        </SettingRow>
+                        <SettingRow label="Custom Context Window">
+                            <NumberInput
+                                value={settings.compaction.custom_model.context_window_tokens}
+                                min={1000}
+                                max={2000000}
+                                step={1000}
+                                onChange={(value) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    custom_model: {
+                                        ...settings.compaction.custom_model,
+                                        context_window_tokens: value,
+                                    },
+                                })}
+                            />
+                        </SettingRow>
+                    </>
+                ) : null}
             </Section>
 
             <div style={{ marginTop: 12 }}>

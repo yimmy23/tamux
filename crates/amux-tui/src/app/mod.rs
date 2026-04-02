@@ -89,6 +89,8 @@ enum SettingsPickerTarget {
     ConciergeProvider,
     ConciergeModel,
     ConciergeReasoningEffort,
+    CompactionWelesReasoningEffort,
+    CompactionCustomReasoningEffort,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
