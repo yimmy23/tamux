@@ -82,6 +82,10 @@ pub struct AgentConfig {
     pub max_retries: u32,
     #[serde(default = "default_retry_delay_ms")]
     pub retry_delay_ms: u64,
+    #[serde(default = "default_message_loop_delay_ms")]
+    pub message_loop_delay_ms: u64,
+    #[serde(default = "default_tool_call_delay_ms")]
+    pub tool_call_delay_ms: u64,
     #[serde(default = "default_auto_retry")]
     pub auto_retry: bool,
     #[serde(default = "default_auto_compact_context")]

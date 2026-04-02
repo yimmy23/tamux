@@ -78,6 +78,8 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.max_tool_loops = 44;
     model.config.max_retries = 7;
     model.config.retry_delay_ms = 9_000;
+    model.config.message_loop_delay_ms = 250;
+    model.config.tool_call_delay_ms = 750;
     model.config.auto_retry = false;
     model.config.context_budget_tokens = 222_000;
     model.config.compact_threshold_pct = 91;
@@ -126,6 +128,8 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     assert_eq!(json["max_tool_loops"], 44);
     assert_eq!(json["max_retries"], 7);
     assert_eq!(json["retry_delay_ms"], 9000);
+    assert_eq!(json["message_loop_delay_ms"], 250);
+    assert_eq!(json["tool_call_delay_ms"], 750);
     assert_eq!(json["auto_retry"], false);
     assert_eq!(json["context_budget_tokens"], 222000);
     assert_eq!(json["compact_threshold_pct"], 91);
@@ -182,6 +186,8 @@ fn apply_config_json_uses_daemon_retry_delay_default_when_missing() {
     }));
 
     assert_eq!(model.config.retry_delay_ms, 5_000);
+    assert_eq!(model.config.message_loop_delay_ms, 500);
+    assert_eq!(model.config.tool_call_delay_ms, 500);
 }
 
 #[test]

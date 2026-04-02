@@ -316,6 +316,16 @@ impl TuiModel {
                                     self.config.retry_delay_ms = n.clamp(100, 60000);
                                 }
                             }
+                            "message_loop_delay_ms" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.message_loop_delay_ms = n.clamp(0, 60000);
+                                }
+                            }
+                            "tool_call_delay_ms" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.tool_call_delay_ms = n.clamp(0, 60000);
+                                }
+                            }
                             "context_window_tokens" => {
                                 if self.config.provider == "custom" {
                                     if let Ok(n) = value.parse::<u32>() {

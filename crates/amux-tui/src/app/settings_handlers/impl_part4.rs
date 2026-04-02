@@ -266,6 +266,14 @@ impl TuiModel {
             "retry_delay_ms" => self
                 .settings
                 .start_editing("retry_delay_ms", &self.config.retry_delay_ms.to_string()),
+            "message_loop_delay_ms" => self.settings.start_editing(
+                "message_loop_delay_ms",
+                &self.config.message_loop_delay_ms.to_string(),
+            ),
+            "tool_call_delay_ms" => self.settings.start_editing(
+                "tool_call_delay_ms",
+                &self.config.tool_call_delay_ms.to_string(),
+            ),
             "auto_retry" => {
                 self.config.auto_retry = !self.config.auto_retry;
                 self.sync_config_to_daemon();
@@ -464,5 +472,4 @@ impl TuiModel {
             _ => {}
         }
     }
-
 }

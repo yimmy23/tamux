@@ -1,7 +1,11 @@
 use super::*;
 
-pub(super) fn inter_request_delay(loop_count: u32) -> Option<std::time::Duration> {
-    (loop_count > 1).then(|| std::time::Duration::from_millis(500))
+pub(super) fn inter_request_delay(
+    loop_count: u32,
+    configured_delay_ms: u64,
+) -> Option<std::time::Duration> {
+    (loop_count > 1 && configured_delay_ms > 0)
+        .then(|| std::time::Duration::from_millis(configured_delay_ms))
 }
 
 fn provider_uses_anthropic_api(config: &AgentConfig, provider_config: &ProviderConfig) -> bool {
@@ -87,7 +91,7 @@ impl<'a> SendMessageRunner<'a> {
 
     pub(super) async fn stream_once(&mut self) -> Result<StreamIteration> {
         let prepared_request = self.prepare_request().await?;
-        if let Some(delay) = inter_request_delay(self.loop_count) {
+        if let Some(delay) = inter_request_delay(self.loop_count, self.config.message_loop_delay_ms) {
             tokio::time::sleep(delay).await;
         }
 
@@ -663,8 +667,9 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn inter_request_delay_is_half_second_after_first_loop() {
-        assert_eq!(inter_request_delay(1), None);
-        assert_eq!(inter_request_delay(2), Some(Duration::from_millis(500)));
+    fn inter_request_delay_uses_configured_delay_after_first_loop() {
+        assert_eq!(inter_request_delay(1, 500), None);
+        assert_eq!(inter_request_delay(2, 500), Some(Duration::from_millis(500)));
+        assert_eq!(inter_request_delay(2, 0), None);
     }
 }

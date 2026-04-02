@@ -104,6 +104,25 @@ fn activating_model_for_custom_provider_starts_inline_custom_model_edit() {
 }
 
 #[test]
+fn activating_message_loop_delay_starts_inline_edit() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
+    model.settings.reduce(SettingsAction::NavigateField(7));
+
+    assert_eq!(model.settings.current_field_name(), "message_loop_delay_ms");
+
+    model.activate_settings_field();
+
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("message_loop_delay_ms")
+    );
+    assert_eq!(model.settings.edit_buffer(), "500");
+}
+
+#[test]
 fn whatsapp_link_device_requires_allowed_contacts() {
     let (mut model, mut daemon_rx) = make_model();
     model
