@@ -80,7 +80,7 @@ To index this skill library with context7, point the resolver at this directory:
   "libraries": [
     {
       "name": "tamux",
-      "path": "docs/skills",
+      "path": "skills",
       "entrypoint": "README.md"
     }
   ]

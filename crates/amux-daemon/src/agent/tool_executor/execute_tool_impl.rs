@@ -437,6 +437,7 @@ pub fn execute_tool<'a>(
         "apply_patch" => execute_apply_patch(&args).await,
         "search_files" => execute_search_files(&args).await,
         "get_system_info" => execute_system_info().await,
+        "get_current_datetime" => execute_current_datetime().await,
         "list_processes" => execute_list_processes(&args).await,
         "search_history" => execute_search_history(&args, session_manager).await,
         "fetch_gateway_history" => execute_fetch_gateway_history(&args, agent, thread_id).await,

@@ -199,31 +199,7 @@ const bridgeApi = {
         ipcRenderer.on('window-state', (_e, state) => cb(state));
         return () => ipcRenderer.removeAllListeners('window-state');
     },
-    ensureDiscordConnected: (payload) => ipcRenderer.invoke('discord-ensure-connected', payload),
     sendDiscordMessage: (payload) => ipcRenderer.invoke('discord-send-message', payload),
-    onDiscordMessage: (cb) => {
-        const listener = (_event, msg) => cb(msg);
-        ipcRenderer.on('discord-message', listener);
-        return () => ipcRenderer.removeListener('discord-message', listener);
-    },
-
-    // Slack bridge
-    ensureSlackConnected: (payload) => ipcRenderer.invoke('slack-ensure-connected', payload),
-    sendSlackMessage: (payload) => ipcRenderer.invoke('slack-send-message', payload),
-    onSlackMessage: (cb) => {
-        const listener = (_event, msg) => cb(msg);
-        ipcRenderer.on('slack-message', listener);
-        return () => ipcRenderer.removeListener('slack-message', listener);
-    },
-
-    // Telegram bridge
-    ensureTelegramConnected: (payload) => ipcRenderer.invoke('telegram-ensure-connected', payload),
-    sendTelegramMessage: (payload) => ipcRenderer.invoke('telegram-send-message', payload),
-    onTelegramMessage: (cb) => {
-        const listener = (_event, msg) => cb(msg);
-        ipcRenderer.on('telegram-message', listener);
-        return () => ipcRenderer.removeListener('telegram-message', listener);
-    },
 
     // WhatsApp link bridge (daemon protocol by default, Electron sidecar via fallback flag)
     whatsappConnect: () => ipcRenderer.invoke('whatsapp-connect'),

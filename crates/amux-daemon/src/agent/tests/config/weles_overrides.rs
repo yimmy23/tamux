@@ -131,6 +131,7 @@ async fn set_sub_agent_clears_optional_weles_overrides_when_reverted_to_defaults
         effective.tool_whitelist.as_deref(),
         Some(
             &[
+                "get_current_datetime".to_string(),
                 "list_files".to_string(),
                 "read_file".to_string(),
                 "search_files".to_string(),

@@ -108,6 +108,7 @@ async fn list_sub_agents_always_includes_weles_builtin_with_main_defaults() {
         weles.tool_whitelist.as_deref(),
         Some(
             &[
+                "get_current_datetime".to_string(),
                 "list_files".to_string(),
                 "read_file".to_string(),
                 "search_files".to_string(),

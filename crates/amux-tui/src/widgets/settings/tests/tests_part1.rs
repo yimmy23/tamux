@@ -121,6 +121,50 @@ fn gateway_tab_contains_selectable_link_device_row() {
 }
 
 #[test]
+fn auth_tab_shows_chatgpt_logout_when_daemon_auth_is_available() {
+    let settings = SettingsState::new();
+    let mut config = ConfigState::new();
+    config.chatgpt_auth_available = true;
+    let modal = ModalState::new();
+    let mut auth = crate::state::auth::AuthState::new();
+    auth.loaded = true;
+    auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: "openai".to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: false,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        text.contains("[API Key] [Logout]"),
+        "expected ChatGPT action to switch to logout, got: {text}"
+    );
+}
+
+#[test]
 fn gateway_tab_shows_connected_whatsapp_status_and_split_actions() {
     let mut settings = SettingsState::new();
     settings.reduce(crate::state::settings::SettingsAction::SwitchTab(

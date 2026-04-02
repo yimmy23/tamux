@@ -1,0 +1,283 @@
+import type { CSSProperties } from "react";
+import { useAgentMissionStore } from "@/lib/agentMissionStore";
+import { useWorkspaceStore } from "@/lib/workspaceStore";
+import type { AgentSettings } from "@/lib/agentStore";
+import { AgentExecutionGraph } from "@/components/AgentExecutionGraph";
+import { AITrainingView } from "../AITrainingView";
+import { ChatView } from "../ChatView";
+import { CodingAgentsView } from "../CodingAgentsView";
+import { ContextView } from "../ContextView";
+import { SubagentsView } from "../SubagentsView";
+import { TasksView } from "../TasksView";
+import { MetricRibbon, SectionTitle, iconButtonStyle } from "../shared";
+import { ThreadList } from "../ThreadList";
+import { TraceView } from "../TraceView";
+import { UsageView } from "../UsageView";
+import { useAgentChatPanelRuntime } from "./context";
+
+export function AgentChatPanelScaffold({ style, className }: { style?: CSSProperties; className?: string }) {
+  return (
+    <div
+      style={{
+        width: 560,
+        minWidth: 380,
+        maxWidth: 820,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--bg-primary)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-xl)",
+        overflow: "hidden",
+        ...(style ?? {}),
+      }}
+      className={className}
+    >
+      <AgentChatPanelTabs />
+      <AgentChatPanelHeader />
+      <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
+        <AgentChatPanelCurrentSurface />
+      </div>
+    </div>
+  );
+}
+
+export function AgentChatPanelHeader() {
+  const runtime = useAgentChatPanelRuntime();
+  const { view, activeThread, setActiveThread, setView, chatBackView, setChatBackView, togglePanel, createThread } = runtime;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        padding: "var(--space-4)",
+        paddingBottom: "var(--space-2)",
+        borderBottom: "1px solid var(--border)",
+        flexShrink: 0,
+        background: "var(--bg-secondary)",
+        gap: "var(--space-2)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-3)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            {view === "chat" && activeThread && (
+              <button
+                onClick={() => {
+                  setActiveThread(null);
+                  setView(chatBackView);
+                }}
+                style={iconButtonStyle}
+                title="Back to threads"
+              >
+                ←
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <button
+            onClick={() => {
+              const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+              createThread({ workspaceId });
+              setChatBackView("threads");
+              setView("chat");
+            }}
+            style={{ ...iconButtonStyle, minWidth: 120, color: "var(--success)", borderColor: "var(--success-soft)" }}
+            title="New thread"
+          >
+            + New session
+          </button>
+          <button onClick={togglePanel} style={{ ...iconButtonStyle, minWidth: 40 }} title="Close">
+            ☰
+          </button>
+        </div>
+      </div>
+
+      <div style={{ justifyContent: "center", display: "flex", alignItems: "center" }}>
+        <span style={{ fontSize: "var(--text-md)", fontWeight: 700 }}>
+          {view === "threads" ? "Live Intelligence Surfaces" : activeThread?.title ?? "Conversation Lane"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function AgentChatPanelTabs() {
+  const { tabItems, view, setView } = useAgentChatPanelRuntime();
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--space-1)",
+        padding: "var(--space-2) var(--space-3)",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--bg-secondary)",
+        overflowX: "auto",
+      }}
+    >
+      {tabItems.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => setView(tab.id)}
+          style={{
+            padding: "var(--space-1) var(--space-3)",
+            borderRadius: "var(--radius-full)",
+            border: "1px solid",
+            borderColor: view === tab.id ? "var(--accent-soft)" : "transparent",
+            background: view === tab.id ? "var(--accent-soft)" : "transparent",
+            color: view === tab.id ? "var(--accent)" : "var(--text-muted)",
+            fontSize: "var(--text-xs)",
+            fontWeight: 500,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            transition: "all var(--transition-fast)",
+          }}
+        >
+          {tab.label}
+          {tab.count !== null && <span style={{ marginLeft: "var(--space-1)", opacity: 0.7 }}>{tab.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function AgentChatPanelCurrentSurface() {
+  const { view, setView, setChatBackView } = useAgentChatPanelRuntime();
+
+  if (view === "threads") return <AgentChatPanelThreadsSurface />;
+  if (view === "chat") return <AgentChatPanelChatSurface />;
+  if (view === "trace") return <AgentChatPanelTraceSurface />;
+  if (view === "usage") return <AgentChatPanelUsageSurface />;
+  if (view === "context") return <AgentChatPanelContextSurface />;
+  if (view === "coding-agents") return <AgentChatPanelCodingAgentsSurface />;
+  if (view === "ai-training") return <AgentChatPanelAITrainingSurface />;
+  if (view === "tasks") return <TasksView onOpenThreadView={() => { setChatBackView("tasks"); setView("chat"); }} />;
+  if (view === "subagents") return <SubagentsView onOpenThreadView={() => { setChatBackView("subagents"); setView("chat"); }} onOpenTasksView={() => setView("tasks")} />;
+  return <AgentChatPanelGraphSurface />;
+}
+
+export function AgentChatPanelThreadsSurface() {
+  const { filteredThreads, searchQuery, setSearchQuery, setActiveThread, setView, setChatBackView, deleteThread } = useAgentChatPanelRuntime();
+
+  return (
+    <ThreadList
+      threads={filteredThreads}
+      searchQuery={searchQuery}
+      onSearch={setSearchQuery}
+      onSelect={(thread) => {
+        setActiveThread(thread.id);
+        setChatBackView("threads");
+        setView("chat");
+      }}
+      onDelete={deleteThread}
+    />
+  );
+}
+
+export function AgentChatPanelChatSurface() {
+  const runtime = useAgentChatPanelRuntime();
+  return (
+    <ChatView
+      messages={runtime.messages}
+      todos={runtime.todos}
+      input={runtime.input}
+      setInput={runtime.setInput}
+      inputRef={runtime.inputRef}
+      onKeyDown={runtime.handleKeyDown}
+      agentSettings={runtime.agentSettings}
+      isStreamingResponse={runtime.isStreamingResponse}
+      activeThread={runtime.activeThread}
+      messagesEndRef={runtime.messagesEndRef}
+      onSendMessage={runtime.sendMessage}
+      onStopStreaming={() => runtime.stopStreaming(runtime.activeThreadId)}
+      onDeleteMessage={(messageId) => {
+        const tid = runtime.activeThreadId;
+        if (tid) runtime.deleteMessage(tid, messageId);
+      }}
+      onUpdateReasoningEffort={(value) => runtime.updateAgentSetting("reasoning_effort", value as AgentSettings["reasoning_effort"])}
+      canStartGoalRun={runtime.canStartGoalRun}
+      onStartGoalRun={runtime.startGoalRunFromPrompt}
+      welesHealth={runtime.welesHealth}
+    />
+  );
+}
+
+export function AgentChatPanelTraceSurface() {
+  const { scopedOperationalEvents, scopedCognitiveEvents, pendingApprovals, daemonTodosByThread, goalRunsForTrace } = useAgentChatPanelRuntime();
+  return (
+    <TraceView
+      operationalEvents={scopedOperationalEvents}
+      cognitiveEvents={scopedCognitiveEvents}
+      pendingApprovals={pendingApprovals}
+      todosByThread={daemonTodosByThread}
+      goalRuns={goalRunsForTrace}
+    />
+  );
+}
+
+export function AgentChatPanelUsageSurface() {
+  const { threads, allMessagesByThread } = useAgentChatPanelRuntime();
+  return <UsageView threads={threads} messagesByThread={allMessagesByThread} />;
+}
+
+export function AgentChatPanelContextSurface() {
+  const runtime = useAgentChatPanelRuntime();
+  return (
+    <ContextView
+      agentSettings={runtime.agentSettings}
+      snippets={runtime.snippets}
+      transcripts={runtime.transcripts}
+      scopePaneId={runtime.scopePaneId}
+      threads={runtime.threads}
+      activeThreadId={runtime.activeThreadId}
+      latestContextSnapshot={runtime.latestContextSnapshot}
+      memory={runtime.memory}
+      updateMemory={runtime.updateMemory}
+      historyQuery={runtime.historyQuery}
+      setHistoryQuery={runtime.setHistoryQuery}
+      historySummary={runtime.historySummary}
+      historyHits={runtime.historyHits}
+      symbolQuery={runtime.symbolQuery}
+      setSymbolQuery={runtime.setSymbolQuery}
+      symbolHits={runtime.symbolHits}
+      scopeController={runtime.scopeController}
+    />
+  );
+}
+
+export function AgentChatPanelGraphSurface() {
+  const { scopedOperationalEvents, approvals, scopePaneId } = useAgentChatPanelGraphData();
+
+  return (
+    <div style={{ padding: "var(--space-4)", height: "100%", overflow: "auto" }}>
+      <MetricRibbon
+        items={[
+          { label: "Commands", value: String(scopedOperationalEvents.filter((event) => event.kind === "command-started").length) },
+          { label: "Approvals", value: String(approvals.length) },
+          { label: "Scope", value: scopePaneId ?? "all panes" },
+        ]}
+      />
+      <SectionTitle title="Execution Graph" subtitle="Visualized command pipeline" />
+      <AgentExecutionGraph paneId={scopePaneId} />
+    </div>
+  );
+}
+
+export function AgentChatPanelCodingAgentsSurface() {
+  return <CodingAgentsView />;
+}
+
+export function AgentChatPanelAITrainingSurface() {
+  return <AITrainingView />;
+}
+
+function useAgentChatPanelGraphData() {
+  const { scopedOperationalEvents, scopePaneId } = useAgentChatPanelRuntime();
+  const approvals = useAgentMissionStore((state) => state.approvals);
+  return { scopedOperationalEvents, approvals, scopePaneId };
+}

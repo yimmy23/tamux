@@ -3,10 +3,12 @@ import { getDaemonOwnedAuthCapability } from "@/lib/agentDaemonConfig";
 import { getBridge } from "@/lib/bridge";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
+import { resolveOpenAIProviderRowState } from "./providerAuthRowState";
 import { Section, inputStyle, smallBtnStyle } from "./shared";
 
 export function ProviderAuthTab() {
     const agentBackend = useAgentStore((s) => s.agentSettings.agent_backend);
+    const agentSettings = useAgentStore((s) => s.agentSettings);
     const providerAuthStates = useAgentStore((s) => s.providerAuthStates);
     const refreshProviderAuthStates = useAgentStore((s) => s.refreshProviderAuthStates);
     const validateProvider = useAgentStore((s) => s.validateProvider);
@@ -205,9 +207,18 @@ export function ProviderAuthTab() {
                         const vr = validationResult[state.provider_id];
                         const isOpenAI = state.provider_id === "openai";
                         const isGithubCopilot = state.provider_id === "github-copilot";
-                        const usesChatgptSubscription = isOpenAI && state.auth_source === "chatgpt_subscription";
                         const canUseChatgptSubscription = isOpenAI && authCapability.chatgptSubscriptionAvailable;
-                        const hasStoredChatgptAuth = isOpenAI && chatgptAuthStatus?.available === true;
+                        const configuredOpenAIAuthSource = isOpenAI
+                            ? agentSettings.openai?.auth_source ?? state.auth_source
+                            : state.auth_source;
+                        const rowState = resolveOpenAIProviderRowState({
+                            providerId: state.provider_id,
+                            providerAuthenticated: state.authenticated,
+                            providerAuthSource: state.auth_source as any,
+                            selectedAuthSource: configuredOpenAIAuthSource as any,
+                            chatgptAvailable: chatgptAuthStatus?.available === true,
+                        });
+                        const isOpenAIApiKeyExpanded = isExpanded && rowState.showApiKeyLogin;
                         const authButtonLabel = isGithubCopilot ? "Token" : "API Key";
                         const keyPlaceholder = isOpenAI
                             ? "OpenAI API Key"
@@ -231,11 +242,11 @@ export function ProviderAuthTab() {
                                             width: 8,
                                             height: 8,
                                             borderRadius: "50%",
-                                            background: state.authenticated ? "#4ade80" : "#6b7280",
+                                            background: rowState.authenticated ? "#4ade80" : "#6b7280",
                                             flexShrink: 0,
                                         }} />
                                         <span style={{ fontSize: 12, fontWeight: 600 }}>{state.provider_name}</span>
-                                        {state.authenticated && (
+                                        {rowState.authenticated && (
                                             <span style={{
                                                 fontSize: 10,
                                                 color: "var(--text-secondary)",
@@ -248,8 +259,43 @@ export function ProviderAuthTab() {
                                         )}
                                     </div>
                                     <div style={{ display: "flex", gap: 4 }}>
-                                        {state.authenticated ? (
+                                        {isOpenAI ? (
                                             <>
+                                                {rowState.showApiKeyLogin ? (
+                                                    <button
+                                                        onClick={() => {
+                                                            setLoginTarget(isOpenAIApiKeyExpanded ? null : state.provider_id);
+                                                            setLoginKey("");
+                                                        }}
+                                                        style={{ ...smallBtnStyle, fontSize: 10 }}
+                                                    >
+                                                        {isOpenAIApiKeyExpanded ? "Cancel" : authButtonLabel}
+                                                    </button>
+                                                ) : rowState.showApiKeyLogout ? (
+                                                    <button
+                                                        onClick={() => handleLogout(state.provider_id)}
+                                                        style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}
+                                                    >
+                                                        Logout
+                                                    </button>
+                                                ) : null}
+                                                {canUseChatgptSubscription && rowState.showChatgptLogin ? (
+                                                    <button
+                                                        onClick={handleChatgptLogin}
+                                                        disabled={chatgptAuthBusy}
+                                                        style={{ ...smallBtnStyle, fontSize: 10, color: "var(--accent)" }}
+                                                    >
+                                                        {chatgptAuthBusy ? "..." : "ChatGPT Login"}
+                                                    </button>
+                                                ) : null}
+                                                {canUseChatgptSubscription && rowState.showChatgptLogout ? (
+                                                    <button
+                                                        onClick={handleChatgptLogout}
+                                                        style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}
+                                                    >
+                                                        Logout
+                                                    </button>
+                                                ) : null}
                                                 <button
                                                     onClick={() => handleTest(state.provider_id)}
                                                     disabled={validating === state.provider_id}
@@ -257,16 +303,10 @@ export function ProviderAuthTab() {
                                                 >
                                                     {validating === state.provider_id ? "Testing..." : "Test"}
                                                 </button>
-                                                <button
-                                                    onClick={() => isOpenAI ? handleChatgptLogout() : handleLogout(state.provider_id)}
-                                                    style={{ ...smallBtnStyle, fontSize: 10, color: "#ef4444" }}
-                                                >
-                                                    Logout
-                                                </button>
                                             </>
                                         ) : (
                                             <>
-                                                {!usesChatgptSubscription && (
+                                                {rowState.showApiKeyLogin && (
                                                     <button
                                                         onClick={() => {
                                                             setLoginTarget(isExpanded ? null : state.provider_id);
@@ -277,24 +317,17 @@ export function ProviderAuthTab() {
                                                         {isExpanded ? "Cancel" : authButtonLabel}
                                                     </button>
                                                 )}
-                                                {canUseChatgptSubscription && usesChatgptSubscription && (
-                                                    <button
-                                                        onClick={handleChatgptLogin}
-                                                        disabled={chatgptAuthBusy}
-                                                        style={{ ...smallBtnStyle, fontSize: 10, color: "var(--accent)" }}
-                                                    >
-                                                        {chatgptAuthBusy ? "..." : "ChatGPT Login"}
-                                                    </button>
-                                                )}
+                                                <button
+                                                    onClick={() => handleTest(state.provider_id)}
+                                                    disabled={validating === state.provider_id}
+                                                    style={{ ...smallBtnStyle, fontSize: 10 }}
+                                                >
+                                                    {validating === state.provider_id ? "Testing..." : "Test"}
+                                                </button>
                                             </>
                                         )}
                                         </div>
                                 </div>
-                                {isOpenAI && hasStoredChatgptAuth && !usesChatgptSubscription && (
-                                    <div style={{ fontSize: 10, marginTop: 4, color: "var(--text-secondary)" }}>
-                                        ChatGPT auth is connected in the daemon, but OpenAI is currently set to API Key mode. Switch OpenAI Auth to ChatGPT Subscription in Agent settings to use it.
-                                    </div>
-                                )}
                                 {vr && (
                                     <div style={{
                                         fontSize: 10,
@@ -327,7 +360,7 @@ export function ProviderAuthTab() {
                                         <span style={{ marginLeft: 8, color: "var(--text-secondary)" }}>Waiting for confirmation...</span>
                                     </div>
                                 )}
-                                {isExpanded && !usesChatgptSubscription && (
+                                {isOpenAIApiKeyExpanded || (isExpanded && !isOpenAI && rowState.showApiKeyLogin) ? (
                                     <div style={{
                                         display: "flex",
                                         gap: 6,
@@ -353,7 +386,7 @@ export function ProviderAuthTab() {
                                             Save
                                         </button>
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                         );
                     })}

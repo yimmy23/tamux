@@ -4,6 +4,35 @@ use super::agent_identity::{CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME};
 use super::memory_curation_guidance;
 use super::types::*;
 
+const LOCAL_SKILL_WORKFLOW_PROMPT: &str =
+    "## Local Skills Workflow\n\
+     - Before non-trivial work, call `list_skills` to inspect reusable local skills.\n\
+     - If a relevant skill exists, call `read_skill` before executing commands or spawning tasks.\n\
+     - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
+     - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n";
+
+fn build_time_context_prompt() -> String {
+    format!(
+        "## Time Context\n- Current local day: {}\n- Use this when reasoning about today, freshness, and schedule-sensitive work.\n",
+        chrono::Local::now().format("%A, %Y-%m-%d")
+    )
+}
+
+fn append_prompt_section_if_missing(prompt: &mut String, marker: &str, section: &str) {
+    if prompt.contains(marker) {
+        return;
+    }
+    if !prompt.is_empty() {
+        if prompt.ends_with("\n\n") {
+        } else if prompt.ends_with('\n') {
+            prompt.push('\n');
+        } else {
+            prompt.push_str("\n\n");
+        }
+    }
+    prompt.push_str(section);
+}
+
 pub(super) fn build_system_prompt(
     config: &AgentConfig,
     base: &str,
@@ -230,13 +259,15 @@ pub(super) fn build_runtime_identity_prompt(
     provider_id: &str,
     model_id: &str,
 ) -> String {
-    format!(
+    let mut prompt = format!(
         "## Runtime Identity\n\
          - You are {agent_name} in tamux.\n\
          - Active provider: {provider_id}\n\
          - Active model: {model_id}\n\
          - If the operator asks which provider or model you are currently using, answer with these exact runtime values unless the task explicitly tells you otherwise."
-    )
+    );
+    append_prompt_section_if_missing(&mut prompt, "## Time Context", &build_time_context_prompt());
+    prompt
 }
 
 pub(crate) fn build_weles_governance_runtime_prompt(
@@ -259,11 +290,23 @@ pub(crate) fn build_weles_governance_runtime_prompt(
     );
     prompt.push_str("\n\n");
     prompt.push_str(&super::weles_governance::build_weles_governance_identity_prompt());
+    append_prompt_section_if_missing(&mut prompt, "## Time Context", &build_time_context_prompt());
+    append_prompt_section_if_missing(
+        &mut prompt,
+        "## Local Skills Workflow",
+        LOCAL_SKILL_WORKFLOW_PROMPT,
+    );
     prompt
 }
 
 pub(super) fn build_concierge_runtime_identity_prompt(provider_id: &str, model_id: &str) -> String {
-    build_runtime_identity_prompt(CONCIERGE_AGENT_NAME, provider_id, model_id)
+    let mut prompt = build_runtime_identity_prompt(CONCIERGE_AGENT_NAME, provider_id, model_id);
+    append_prompt_section_if_missing(
+        &mut prompt,
+        "## Local Skills Workflow",
+        LOCAL_SKILL_WORKFLOW_PROMPT,
+    );
+    prompt
 }
 
 /// Build the "Learned Patterns" section content from reliable heuristics.
@@ -402,6 +445,10 @@ pub(super) fn build_external_agent_prompt(
         memory_paths.soul_path.display(),
         memory_paths.user_path.display(),
     ));
+    context_parts.push(format!(
+        "Time context:\n- Current local day: {}\n",
+        chrono::Local::now().format("%A, %Y-%m-%d")
+    ));
     if !super::agent_identity::is_main_agent_scope(agent_scope_id) {
         context_parts
             .push("USER.md is shared across agents and read-only for this scope.\n".to_string());
@@ -476,5 +523,40 @@ fn collect_skill_stems(root: &std::path::Path, dir: &std::path::Path, out: &mut 
                 .unwrap_or("skill")
                 .to_string(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concierge_runtime_identity_prompt_includes_current_day_and_skill_guidance() {
+        let prompt = build_concierge_runtime_identity_prompt("openai", "gpt-5.4");
+
+        assert!(prompt.contains("## Time Context"));
+        assert!(prompt.contains("Current local day:"));
+        assert!(prompt.contains("list_skills"));
+        assert!(prompt.contains("read_skill"));
+        assert!(prompt.contains("onecontext_search"));
+    }
+
+    #[test]
+    fn weles_governance_runtime_prompt_includes_current_day_and_skill_guidance() {
+        let prompt = build_weles_governance_runtime_prompt(
+            &AgentConfig::default(),
+            "apply_patch",
+            &serde_json::json!({"file": "src/main.rs"}),
+            amux_protocol::SecurityLevel::Moderate,
+            &[],
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("## Time Context"));
+        assert!(prompt.contains("Current local day:"));
+        assert!(prompt.contains("list_skills"));
+        assert!(prompt.contains("read_skill"));
+        assert!(prompt.contains("onecontext_search"));
     }
 }

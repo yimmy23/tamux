@@ -143,6 +143,32 @@ fn openai_auth_modal_enter_uses_daemon_provided_url() {
 }
 
 #[test]
+fn openai_auth_modal_copy_uses_shared_clipboard_helper() {
+    let (mut model, _daemon_rx) = make_model();
+    crate::app::conversion::reset_last_copied_text();
+    model.openai_auth_url = Some("https://auth.openai.com/oauth/authorize?flow=daemon".to_string());
+    model.openai_auth_status_text =
+        Some("Open this URL in your browser to complete ChatGPT authentication.".to_string());
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::OpenAIAuth));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('c'),
+        KeyModifiers::NONE,
+        modal::ModalKind::OpenAIAuth,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        crate::app::conversion::last_copied_text().as_deref(),
+        Some("https://auth.openai.com/oauth/authorize?flow=daemon")
+    );
+    assert_eq!(model.status_line, "Copied ChatGPT login URL to clipboard");
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::OpenAIAuth));
+}
+
+#[test]
 fn command_palette_plugins_install_seeds_terminal_command() {
     let (mut model, _daemon_rx) = make_model();
     model
@@ -803,7 +829,9 @@ fn notifications_modal_left_right_changes_header_focus_and_enter_uses_it() {
     let (mut model, _daemon_rx) = make_model();
     model
         .notifications
-        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+        .reduce(crate::state::NotificationsAction::Replace(vec![
+            sample_notification(None),
+        ]));
     model.toggle_notifications_modal();
 
     assert_eq!(
@@ -836,7 +864,9 @@ fn notifications_modal_down_clears_header_focus_and_enter_expands_row() {
     let (mut model, _daemon_rx) = make_model();
     model
         .notifications
-        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+        .reduce(crate::state::NotificationsAction::Replace(vec![
+            sample_notification(None),
+        ]));
     model.toggle_notifications_modal();
 
     let quit = model.handle_key_modal(
@@ -861,7 +891,9 @@ fn notifications_modal_tab_switches_between_header_and_row_actions() {
     let (mut model, _daemon_rx) = make_model();
     model
         .notifications
-        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+        .reduce(crate::state::NotificationsAction::Replace(vec![
+            sample_notification(None),
+        ]));
     model.toggle_notifications_modal();
 
     assert_eq!(
@@ -897,7 +929,9 @@ fn notifications_modal_row_action_focus_uses_left_right_and_enter() {
     let (mut model, _daemon_rx) = make_model();
     model
         .notifications
-        .reduce(crate::state::NotificationsAction::Replace(vec![sample_notification(None)]));
+        .reduce(crate::state::NotificationsAction::Replace(vec![
+            sample_notification(None),
+        ]));
     model.toggle_notifications_modal();
 
     let quit = model.handle_key_modal(
@@ -922,11 +956,9 @@ fn notifications_modal_row_action_focus_uses_left_right_and_enter() {
         modal::ModalKind::Notifications,
     );
     assert!(!quit);
-    assert!(
-        model
-            .notifications
-            .selected_item()
-            .and_then(|notification| notification.read_at)
-            .is_some()
-    );
+    assert!(model
+        .notifications
+        .selected_item()
+        .and_then(|notification| notification.read_at)
+        .is_some());
 }

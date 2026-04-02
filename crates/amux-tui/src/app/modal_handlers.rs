@@ -22,7 +22,9 @@ impl TuiModel {
                     if self.notifications.selected_row_action_index().is_some() {
                         let header_action = self.notifications.first_enabled_header_action();
                         self.notifications
-                            .reduce(crate::state::NotificationsAction::FocusHeader(header_action));
+                            .reduce(crate::state::NotificationsAction::FocusHeader(
+                                header_action,
+                            ));
                     } else {
                         let row_action = self.notifications.first_enabled_row_action_index();
                         self.notifications.reduce(
@@ -683,10 +685,8 @@ impl TuiModel {
                 }
                 KeyCode::Char('c') | KeyCode::Char('C') => {
                     if let Some(url) = self.openai_auth_url.as_deref() {
-                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                            let _ = clipboard.set_text(url.to_string());
-                            self.status_line = "Copied ChatGPT login URL to clipboard".to_string();
-                        }
+                        conversion::copy_to_clipboard(url);
+                        self.status_line = "Copied ChatGPT login URL to clipboard".to_string();
                     }
                 }
                 KeyCode::Char('o') | KeyCode::Char('O') | KeyCode::Enter => {

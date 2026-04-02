@@ -230,87 +230,49 @@ pub(super) fn skills_dir(agent_data_dir: &std::path::Path) -> std::path::PathBuf
 
 /// Seed built-in skill documents into `~/.tamux/skills/builtin/`.
 pub(super) fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
-    static BUILTIN_SKILLS: &[(&str, &str)] = &[
-        (
-            "builtin/README.md",
-            include_str!("../../../../docs/skills/README.md"),
-        ),
-        (
-            "builtin/cheatsheet.md",
-            include_str!("../../../../docs/skills/cheatsheet.md"),
-        ),
-        (
-            "builtin/connection/setup.md",
-            include_str!("../../../../docs/skills/connection/setup.md"),
-        ),
-        (
-            "builtin/operating/terminals.md",
-            include_str!("../../../../docs/skills/operating/terminals.md"),
-        ),
-        (
-            "builtin/operating/browser.md",
-            include_str!("../../../../docs/skills/operating/browser.md"),
-        ),
-        (
-            "builtin/operating/tasks.md",
-            include_str!("../../../../docs/skills/operating/tasks.md"),
-        ),
-        (
-            "builtin/operating/goals.md",
-            include_str!("../../../../docs/skills/operating/goals.md"),
-        ),
-        (
-            "builtin/operating/memory.md",
-            include_str!("../../../../docs/skills/operating/memory.md"),
-        ),
-        (
-            "builtin/operating/workspaces.md",
-            include_str!("../../../../docs/skills/operating/workspaces.md"),
-        ),
-        (
-            "builtin/operating/safety.md",
-            include_str!("../../../../docs/skills/operating/safety.md"),
-        ),
-        (
-            "builtin/operating/messaging.md",
-            include_str!("../../../../docs/skills/operating/messaging.md"),
-        ),
-        (
-            "builtin/operating/observability.md",
-            include_str!("../../../../docs/skills/operating/observability.md"),
-        ),
-        (
-            "builtin/building/plugin-development.md",
-            include_str!("../../../../docs/skills/building/plugin-development.md"),
-        ),
-        (
-            "builtin/setup/lightpanda.md",
-            include_str!("../../../../docs/skills/setup/lightpanda.md"),
-        ),
-        (
-            "builtin/setup/web-browsing.md",
-            include_str!("../../../../docs/skills/setup/web-browsing.md"),
-        ),
-    ];
-
     let root = skills_dir(agent_data_dir);
-    for (relative_path, content) in BUILTIN_SKILLS {
-        let target = root.join(relative_path);
-        if let Some(parent) = target.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                tracing::warn!("failed to create skill dir {}: {e}", parent.display());
-                continue;
+    let source = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../../skills"
+    ));
+    let target = root.join("builtin");
+
+    match seed_skills_tree(source, &target) {
+        Ok(count) => tracing::debug!(
+            "seeded {} built-in skills into {}",
+            count,
+            target.display()
+        ),
+        Err(e) => tracing::warn!(
+            "failed to seed built-in skills from {} to {}: {e}",
+            source.display(),
+            target.display()
+        ),
+    }
+}
+
+fn seed_skills_tree(source: &std::path::Path, target: &std::path::Path) -> std::io::Result<usize> {
+    std::fs::create_dir_all(target)?;
+
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+
+        if file_type.is_dir() {
+            count += seed_skills_tree(&source_path, &target_path)?;
+        } else if file_type.is_file() {
+            if let Some(parent) = target_path.parent() {
+                std::fs::create_dir_all(parent)?;
             }
-        }
-        if let Err(e) = std::fs::write(&target, content) {
-            tracing::warn!("failed to seed skill {}: {e}", target.display());
+            std::fs::copy(&source_path, &target_path)?;
+            count += 1;
         }
     }
-    tracing::debug!(
-        "seeded {} built-in skills into {}",
-        BUILTIN_SKILLS.len(),
-        root.join("builtin").display()
-    );
+
+    Ok(count)
 }
 
 pub(super) fn dir_has_memory_files(dir: &std::path::Path) -> bool {

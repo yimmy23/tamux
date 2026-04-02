@@ -286,6 +286,32 @@ fn openai_chatgpt_refresh_uses_daemon_status_and_neutral_message() {
 }
 
 #[test]
+fn openai_chatgpt_second_action_restarts_login_after_logout() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: "openai".to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: false,
+        auth_source: "chatgpt_subscription".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model.auth.action_cursor = 1;
+    model.auth.selected = 0;
+    model.config.provider = "openai".to_string();
+    model.config.chatgpt_auth_available = false;
+
+    model.run_auth_tab_action();
+
+    assert!(matches!(
+        daemon_rx
+            .try_recv()
+            .expect("expected daemon auth status command"),
+        DaemonCommand::LoginOpenAICodex
+    ));
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn api_transport_cycles_for_github_copilot() {
     let (mut model, _daemon_rx) = make_model();
     model.apply_provider_selection("github-copilot");

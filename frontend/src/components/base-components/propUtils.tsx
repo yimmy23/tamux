@@ -106,6 +106,7 @@ export const renderEditableWrapper = ({
     maxHeight,
     builderMeta,
     content,
+    appendChildren = true,
 }: {
     style?: React.CSSProperties;
     className?: string;
@@ -120,7 +121,15 @@ export const renderEditableWrapper = ({
     maxHeight?: number | string;
     builderMeta?: BuilderMetaEnvelope;
     content: React.ReactNode;
+    appendChildren?: boolean;
 }) => {
+    const wrappedContent = children && appendChildren ? (
+        <>
+            {content}
+            {children}
+        </>
+    ) : content;
+
     return (
         <EditableShell
             style={style}
@@ -137,9 +146,7 @@ export const renderEditableWrapper = ({
             builderViewId={builderMeta?.viewId}
             builderComponentType={builderMeta?.componentType}
             builderMeta={builderMeta?.builder}
-            content={content}
-        >
-            {children}
-        </EditableShell>
+            content={wrappedContent}
+        />
     );
 };

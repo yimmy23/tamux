@@ -444,6 +444,47 @@
     }
 
     #[tokio::test]
+    async fn get_current_datetime_dispatch_returns_local_and_utc_timestamps() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _event_rx) = broadcast::channel(8);
+        let http_client = reqwest::Client::new();
+
+        let result = execute_tool(
+            &ToolCall {
+                id: "call-current-datetime".to_string(),
+                function: ToolFunction {
+                    name: "get_current_datetime".to_string(),
+                    arguments: serde_json::json!({}).to_string(),
+                },
+                weles_review: None,
+            },
+            &engine,
+            "thread-current-datetime",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "get_current_datetime should succeed: {}",
+            result.content
+        );
+        assert!(result.content.contains("Current datetime:"));
+        assert!(result.content.contains("Local:"));
+        assert!(result.content.contains("UTC:"));
+        assert!(result.content.contains("Unix timestamp (ms):"));
+    }
+
+    #[tokio::test]
     async fn onecontext_search_runtime_uses_default_timeout_on_caller_path() {
         let observed_timeout = Arc::new(Mutex::new(None));
         let observed_timeout_clone = observed_timeout.clone();

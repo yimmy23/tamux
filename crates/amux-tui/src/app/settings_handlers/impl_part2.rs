@@ -319,11 +319,10 @@ impl TuiModel {
                 }
             }
             1 => {
-                if !entry.authenticated
-                    && entry.provider_id == "openai"
-                    && entry.auth_source == "chatgpt_subscription"
-                {
-                    self.send_daemon_command(DaemonCommand::GetOpenAICodexAuthStatus);
+                if entry.provider_id == "openai" && self.config.chatgpt_auth_available {
+                    self.send_daemon_command(DaemonCommand::LogoutOpenAICodex);
+                } else if entry.provider_id == "openai" {
+                    self.send_daemon_command(DaemonCommand::LoginOpenAICodex);
                 } else if !entry.authenticated
                     && entry.provider_id == "github-copilot"
                     && entry.auth_source == "github_copilot"

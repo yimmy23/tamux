@@ -141,6 +141,15 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
+        "get_current_datetime",
+        "Fetch the current local and UTC datetime from the daemon host, including a Unix timestamp in milliseconds.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {}
+        }),
+    ));
+
+    tools.push(tool_def(
         "semantic_query",
         "Query local workspace manifests, compose services, code import relationships, learned workspace conventions, and recent temporal workspace history.",
         serde_json::json!({

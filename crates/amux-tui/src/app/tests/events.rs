@@ -695,6 +695,35 @@ fn connected_event_requests_openai_codex_auth_status_from_daemon() {
 }
 
 #[test]
+fn provider_auth_states_overlay_chatgpt_auth_when_openai_is_configured_for_chatgpt_subscription() {
+    let mut model = make_model();
+    model.config.provider = "openai".to_string();
+    model.config.auth_source = "chatgpt_subscription".to_string();
+    model.config.chatgpt_auth_available = true;
+    model.config.chatgpt_auth_source = Some("tamux-daemon".to_string());
+
+    model.handle_provider_auth_states_event(vec![crate::state::ProviderAuthEntry {
+        provider_id: "openai".to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: false,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }]);
+
+    let openai = model
+        .auth
+        .entries
+        .iter()
+        .find(|entry| entry.provider_id == "openai")
+        .expect("openai auth entry should exist");
+    assert!(
+        openai.authenticated,
+        "chatgpt daemon auth should surface as connected"
+    );
+    assert_eq!(openai.auth_source, "chatgpt_subscription");
+}
+
+#[test]
 fn openai_codex_auth_status_event_clears_stale_modal_state() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.openai_auth_url = Some("https://stale.example/login".to_string());

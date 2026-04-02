@@ -31,6 +31,21 @@ async fn execute_system_info() -> Result<String> {
     ))
 }
 
+async fn execute_current_datetime() -> Result<String> {
+    let local_now = chrono::Local::now();
+    let utc_now = chrono::Utc::now();
+
+    Ok(format!(
+        "Current datetime:\n\
+         - Local: {}\n\
+         - UTC: {}\n\
+         - Unix timestamp (ms): {}",
+        local_now.to_rfc3339(),
+        utc_now.to_rfc3339(),
+        utc_now.timestamp_millis(),
+    ))
+}
+
 async fn execute_list_processes(args: &serde_json::Value) -> Result<String> {
     let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 

@@ -17,7 +17,8 @@ fn format_weles_review_badge(
     match review.verdict.as_str() {
         "block" => ("blocked".to_string(), theme.accent_danger),
         "flag_only" => ("flagged".to_string(), theme.accent_secondary),
-        _ => ("reviewed".to_string(), theme.fg_dim),
+        _ if review.weles_reviewed => ("reviewed".to_string(), theme.fg_dim),
+        _ => ("unreviewed".to_string(), theme.fg_dim),
     }
 }
 

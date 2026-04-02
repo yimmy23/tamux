@@ -392,14 +392,6 @@ declare global {
         searchManagedHistory?: (paneId: string, query: string, limit?: number) => Promise<unknown>;
         findManagedSymbol?: (paneId: string, workspaceRoot: string, symbol: string, limit?: number) => Promise<unknown>;
         generateManagedSkill?: (paneId: string, query?: string | null, title?: string | null) => Promise<unknown>;
-        sendSlackMessage?: (payload: unknown) => Promise<unknown>;
-        sendTelegramMessage?: (payload: unknown) => Promise<unknown>;
-        ensureSlackConnected?: (config?: unknown) => Promise<unknown>;
-        ensureDiscordConnected?: (config?: unknown) => Promise<unknown>;
-        ensureTelegramConnected?: (config?: unknown) => Promise<unknown>;
-        onSlackMessage?: (cb: (event: any) => void) => (() => void) | void;
-        onDiscordMessage?: (cb: (event: any) => void) => (() => void) | void;
-        onTelegramMessage?: (cb: (event: any) => void) => (() => void) | void;
         onWhatsAppMessage?: (cb: (event: any) => void) => (() => void) | void;
         agentStartOperatorProfileSession?: (kind: string) => Promise<{ session_id: string; kind: string } | { error?: string }>;
         agentNextOperatorProfileQuestion?: (sessionId: string) => Promise<{ session_id: string; question_id: string; field_key: string; prompt: string; input_kind: string; optional: boolean } | { error?: string }>;

@@ -1,6 +1,7 @@
 fn render_auth_tab<'a>(
     content_width: u16,
     auth: &'a crate::state::auth::AuthState,
+    config: &'a ConfigState,
     theme: &ThemeTokens,
 ) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
@@ -62,19 +63,30 @@ fn render_auth_tab<'a>(
     for (i, entry) in auth.entries.iter().enumerate() {
         let is_selected = auth.selected == i;
         let marker = if is_selected { "> " } else { "  " };
-        let dot = if entry.authenticated { "● " } else { "○ " };
-        let dot_style = if entry.authenticated {
+        let openai_has_chatgpt_auth =
+            entry.provider_id == "openai" && config.chatgpt_auth_available;
+        let effective_authenticated = entry.authenticated || openai_has_chatgpt_auth;
+        let dot_style = if effective_authenticated {
             Style::default().fg(Color::Green)
         } else {
             theme.fg_dim
         };
-        let model_info = if entry.authenticated && !entry.model.is_empty() {
+        let dot = if effective_authenticated {
+            "● "
+        } else {
+            "○ "
+        };
+        let model_info = if effective_authenticated && !entry.model.is_empty() {
             format!(" ({})", entry.model)
         } else {
             String::new()
         };
         let primary_label = auth_primary_label(entry);
-        let test_label = auth_secondary_label(entry);
+        let test_label = if entry.provider_id == "openai" && openai_has_chatgpt_auth {
+            "[Logout]"
+        } else {
+            auth_secondary_label(entry)
+        };
         let left_width = marker.chars().count()
             + dot.chars().count()
             + entry.provider_name.chars().count()
@@ -308,4 +320,3 @@ fn render_agent_tab<'a>(
 
     lines
 }
-

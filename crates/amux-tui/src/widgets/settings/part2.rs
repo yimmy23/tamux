@@ -383,7 +383,7 @@ fn render_tab_content<'a>(
         SettingsTab::WebSearch => render_websearch_tab(settings, config, theme),
         SettingsTab::Chat => render_chat_tab(settings, config, theme),
         SettingsTab::Gateway => render_gateway_tab(settings, config, modal, theme),
-        SettingsTab::Auth => render_auth_tab(content_width, auth, theme),
+        SettingsTab::Auth => render_auth_tab(content_width, auth, config, theme),
         SettingsTab::Agent => render_agent_tab(settings, config, theme),
         SettingsTab::SubAgents => render_subagents_tab(content_width, settings, subagents, theme),
         SettingsTab::Concierge => render_concierge_tab(settings, concierge, theme),

@@ -37,6 +37,7 @@ pub(super) const WELES_BUILTIN_ID: &str = super::agent_identity::WELES_BUILTIN_S
 pub(super) const WELES_BUILTIN_NAME: &str = "WELES";
 pub(super) const WELES_PROTECTED_REASON: &str = "Daemon-owned WELES registry entry";
 pub(super) const DEFAULT_WELES_TOOL_WHITELIST: &[&str] = &[
+    "get_current_datetime",
     "list_files",
     "read_file",
     "search_files",

@@ -158,8 +158,38 @@ export const AgentChatDockShell: React.FC<ViewProps> = (props) => {
 };
 
 export const AgentChatPanelProvider: React.FC<ViewProps> = (props) => {
-  const { componentProps, children } = splitViewProps(props);
-  return renderAgentLazyView(props, <AgentChatPanelProviderLazy {...(componentProps as any)}>{children}</AgentChatPanelProviderLazy>);
+  const {
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    resizable,
+    resizeAxis,
+    minWidth,
+    minHeight,
+    maxWidth,
+    maxHeight,
+    builderMeta,
+    componentProps,
+  } = splitViewProps(props);
+
+  return renderEditableWrapper({
+    style,
+    className,
+    children,
+    visible,
+    hidden,
+    resizable,
+    resizeAxis,
+    minWidth,
+    minHeight,
+    maxWidth,
+    maxHeight,
+    builderMeta,
+    appendChildren: false,
+    content: <LazyView><AgentChatPanelProviderLazy {...(componentProps as any)}>{children}</AgentChatPanelProviderLazy></LazyView>,
+  });
 };
 
 export const AgentChatPanelHeader: React.FC<ViewProps> = (props) => renderAgentLazyView(props, <AgentChatPanelHeaderLazy />);

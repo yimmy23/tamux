@@ -313,6 +313,61 @@
     }
 
     #[test]
+    fn start_new_thread_ignores_replayed_concierge_welcome_events() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "concierge".to_string(),
+            title: "Concierge".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
+        model
+            .concierge
+            .reduce(crate::state::ConciergeAction::WelcomeReceived {
+                content: "Welcome".to_string(),
+                actions: vec![crate::state::ConciergeActionVm {
+                    label: "Start new session".to_string(),
+                    action_type: "start_new".to_string(),
+                    thread_id: None,
+                }],
+            });
+
+        model.start_new_thread_view();
+
+        model.handle_concierge_welcome_event(
+            "Welcome".to_string(),
+            vec![crate::state::ConciergeActionVm {
+                label: "Start new session".to_string(),
+                action_type: "start_new".to_string(),
+                thread_id: None,
+            }],
+        );
+        model.handle_concierge_welcome_event(
+            "Welcome again".to_string(),
+            vec![crate::state::ConciergeActionVm {
+                label: "Start new session".to_string(),
+                action_type: "start_new".to_string(),
+                thread_id: None,
+            }],
+        );
+
+        assert!(model.should_show_local_landing());
+        assert_eq!(model.chat.active_thread_id(), None);
+        assert_eq!(model.focus, FocusArea::Input);
+        match cmd_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            other => panic!("expected dismiss command first, got {:?}", other),
+        }
+        assert!(
+            cmd_rx.try_recv().is_err(),
+            "replayed concierge welcome should not reopen the concierge thread"
+        );
+    }
+
+    #[test]
     fn concierge_arrow_keys_navigate_visible_actions() {
         let mut model = build_model();
         model.focus = FocusArea::Chat;

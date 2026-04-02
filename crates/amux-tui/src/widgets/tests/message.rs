@@ -349,6 +349,49 @@ fn tool_message_blocked_and_flagged_render_distinct_markers() {
 }
 
 #[test]
+fn tool_message_unreviewed_allow_does_not_render_reviewed_marker() {
+    let msg = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("list_workspaces".into()),
+        tool_status: Some("done".into()),
+        weles_review: Some(crate::state::chat::WelesReviewMetaVm {
+            weles_reviewed: false,
+            verdict: "allow".into(),
+            reasons: vec!["governance_not_run".into()],
+            security_override_mode: None,
+            audit_id: None,
+        }),
+        ..Default::default()
+    };
+
+    let mut exp_tools = empty_tools();
+    exp_tools.insert(0);
+    let lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &exp_tools,
+    );
+    let plain = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+
+    assert!(
+        plain.contains("unreviewed"),
+        "expected unreviewed marker, got: {plain}"
+    );
+    assert!(
+        !plain.contains("weles: reviewed degraded"),
+        "unexpected contradictory marker, got: {plain}"
+    );
+}
+
+#[test]
 fn tool_message_expanded_shows_weles_rationale_and_degraded_state() {
     let msg = AgentMessage {
         role: MessageRole::Tool,

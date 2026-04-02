@@ -53,8 +53,20 @@ impl TuiModel {
 
     pub(in crate::app) fn handle_provider_auth_states_event(
         &mut self,
-        entries: Vec<crate::state::ProviderAuthEntry>,
+        mut entries: Vec<crate::state::ProviderAuthEntry>,
     ) {
+        if self.config.provider == "openai"
+            && self.config.auth_source == "chatgpt_subscription"
+            && self.config.chatgpt_auth_available
+        {
+            if let Some(openai_entry) = entries
+                .iter_mut()
+                .find(|entry| entry.provider_id == "openai")
+            {
+                openai_entry.authenticated = true;
+                openai_entry.auth_source = "chatgpt_subscription".to_string();
+            }
+        }
         self.auth
             .reduce(crate::state::auth::AuthAction::Received(entries));
     }
@@ -192,7 +204,6 @@ impl TuiModel {
         actions: Vec<crate::state::ConciergeActionVm>,
     ) {
         if self.ignore_pending_concierge_welcome {
-            self.ignore_pending_concierge_welcome = false;
             self.concierge
                 .reduce(crate::state::ConciergeAction::WelcomeDismissed);
             self.chat.reduce(chat::ChatAction::DismissConciergeWelcome);

@@ -166,6 +166,27 @@
     }
 
     #[test]
+    fn current_datetime_tool_is_exposed() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let current_datetime = tools
+            .iter()
+            .find(|tool| tool.function.name == "get_current_datetime")
+            .expect("get_current_datetime tool should be available");
+
+        let properties = current_datetime
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("get_current_datetime schema should expose properties object");
+
+        assert!(properties.is_empty(), "datetime tool should not require arguments");
+        assert!(current_datetime.function.parameters.get("required").is_none());
+    }
+
+    #[test]
     fn scrub_sensitive_redacts_common_api_key_lines() {
         let input = "openai api_key=sk-live-secret\nAuthorization: Bearer abc123secret";
         let scrubbed = crate::scrub::scrub_sensitive(input);
