@@ -1,7 +1,7 @@
 {
   "name": "tamux",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agentic terminal multiplexer with AI-native workflows",
   "homepage": "https://tamux.app",
   "author": {
@@ -91,9 +91,33 @@
         {
           "from": "dist/tamux.exe",
           "to": "bin/tamux.exe"
+        },
+        {
+          "from": "dist/tamux-tui.exe",
+          "to": "bin/tamux-tui.exe"
         }
       ],
       "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extraResources": [
+        {
+          "from": "dist/tamux-daemon",
+          "to": "bin/tamux-daemon"
+        },
+        {
+          "from": "dist/tamux",
+          "to": "bin/tamux"
+        },
+        {
+          "from": "dist/tamux-tui",
+          "to": "bin/tamux-tui"
+        }
+      ]
     },
     "linux": {
       "target": [
@@ -109,6 +133,10 @@
         {
           "from": "dist/tamux",
           "to": "bin/tamux"
+        },
+        {
+          "from": "dist/tamux-tui",
+          "to": "bin/tamux-tui"
         }
       ]
     },
