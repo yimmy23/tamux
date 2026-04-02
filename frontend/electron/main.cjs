@@ -8,6 +8,11 @@ const net = require('net');
 const fs = require('fs');
 const os = require('os');
 const { pathToFileURL } = require('url');
+const {
+    createOpenAICodexAuthHandlers,
+    pendingHandlerMatchesResponseType,
+    resolvePendingAgentQueryEvent,
+} = require('./agent-query-runtime.cjs');
 
 const DAEMON_NAME = 'tamux-daemon';
 const CLI_NAME = 'tamux';
@@ -3057,6 +3062,8 @@ function createWindow() {
 }
 
 function registerIpcHandlers() {
+    const openAICodexAuthHandlers = createOpenAICodexAuthHandlers(sendAgentQuery);
+
     ipcMain.handle('getSocketPath', () => {
         const endpoint = getDaemonEndpoint();
         return endpoint.path ?? `${endpoint.host}:${endpoint.port}`;
@@ -3557,61 +3564,7 @@ function registerIpcHandlers() {
 
                 // Response types from daemon queries — resolve oldest pending
                 // request of the matching type (FIFO order).
-                if ([
-                    'thread-list',
-                    'thread-detail',
-                    'task-list',
-                    'run-list',
-                    'run-detail',
-                    'todo-list',
-                    'todo-detail',
-                    'work-context-detail',
-                    'git-diff',
-                    'file-preview',
-                    'goal-run-started',
-                    'goal-run-list',
-                    'goal-run-detail',
-                    'goal-run-controlled',
-                    'config',
-                    'heartbeat-items',
-                    'provider-auth-states',
-                    'provider-validation',
-                    'sub-agent-list',
-                    'sub-agent-updated',
-                    'sub-agent-removed',
-                    'concierge-config',
-                    'concierge-welcome-dismissed',
-                    'status-response',
-                    'plugin-list-result',
-                    'plugin-get-result',
-                    'plugin-settings',
-                    'plugin-action-result',
-                    'plugin-test-connection-result',
-                    'plugin-oauth-url',
-                    'openai-codex-auth-status',
-                    'openai-codex-auth-login-result',
-                    'openai-codex-auth-logout-result',
-                    'agent-explanation',
-                    'agent-divergent-session-started',
-                    'agent-divergent-session',
-                    'operator-profile-session-started',
-                    'operator-profile-question',
-                    'operator-profile-progress',
-                    'operator-profile-summary',
-                    'operator-profile-session-completed',
-                ].includes(event.type)) {
-                    let oldest = null;
-                    for (const [reqId, handler] of agentBridge.pending.entries()) {
-                        if (pendingHandlerMatchesResponseType(handler, event.type)) {
-                            if (!oldest || handler.ts < oldest.ts) {
-                                oldest = { reqId, handler, ts: handler.ts };
-                            }
-                        }
-                    }
-                    if (oldest) {
-                        oldest.handler.resolve(event.data ?? event);
-                        agentBridge.pending.delete(oldest.reqId);
-                    }
+                if (resolvePendingAgentQueryEvent(agentBridge, event)) {
                     continue;
                 }
 
@@ -3860,14 +3813,6 @@ function registerIpcHandlers() {
             throw new Error('Agent bridge not available. Is the daemon running?');
         }
         bridge.process.stdin.write(`${JSON.stringify(command)}\n`);
-    }
-
-    function pendingHandlerMatchesResponseType(handler, eventType) {
-        const responseType = handler?.responseType;
-        if (Array.isArray(responseType)) {
-            return responseType.includes(eventType);
-        }
-        return responseType === eventType;
     }
 
     // Expose to module scope for lifecycle hooks (e.g. WhatsApp unsubscribe on quit)
@@ -4467,50 +4412,15 @@ function registerIpcHandlers() {
     });
 
     ipcMain.handle('openai-codex-auth-status', async (_event, options) => {
-        try {
-            return await sendAgentQuery(
-                {
-                    type: 'openai-codex-auth-status',
-                    refresh: options?.refresh !== false,
-                },
-                'openai-codex-auth-status',
-                30000,
-            );
-        } catch (err) {
-            return {
-                available: false,
-                authMode: 'chatgpt_subscription',
-                error: err?.message || String(err),
-            };
-        }
+        return openAICodexAuthHandlers.status(_event, options);
     });
 
     ipcMain.handle('openai-codex-auth-login', async () => {
-        try {
-            return await sendAgentQuery(
-                { type: 'openai-codex-auth-login' },
-                'openai-codex-auth-login-result',
-                30000,
-            );
-        } catch (err) {
-            return {
-                available: false,
-                authMode: 'chatgpt_subscription',
-                error: err?.message || String(err),
-            };
-        }
+        return openAICodexAuthHandlers.login();
     });
 
     ipcMain.handle('openai-codex-auth-logout', async () => {
-        try {
-            return await sendAgentQuery(
-                { type: 'openai-codex-auth-logout' },
-                'openai-codex-auth-logout-result',
-                30000,
-            );
-        } catch (err) {
-            return { ok: false, error: err?.message || String(err) };
-        }
+        return openAICodexAuthHandlers.logout();
     });
 
     ipcMain.handle('agent-heartbeat-get-items', async () => {
