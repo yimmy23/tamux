@@ -80,7 +80,10 @@ impl TuiModel {
             .find(|task| task.awaiting_approval_id.as_deref() == Some(approval_id.as_str()));
         let thread_id = task_match.and_then(|task| task.thread_id.clone());
         let thread_title = self.thread_title_for_id(thread_id.as_deref());
-        let is_current_thread = thread_id.as_deref() == self.chat.active_thread_id();
+        let is_current_thread = match thread_id.as_deref() {
+            Some(thread_id) => Some(thread_id) == self.chat.active_thread_id(),
+            None => true,
+        };
         self.approval
             .reduce(crate::state::ApprovalAction::ApprovalRequired(
                 crate::state::PendingApproval {
@@ -97,7 +100,7 @@ impl TuiModel {
                     command,
                     risk_level: crate::state::RiskLevel::from_str_lossy(&risk_level),
                     blast_radius,
-                    received_at: 0,
+                    received_at: Self::current_unix_ms().max(0) as u64,
                     seen_at: None,
                 },
             ));

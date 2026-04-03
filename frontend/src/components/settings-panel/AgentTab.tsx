@@ -749,6 +749,22 @@ export function AgentTab({
                         style={daemonDelayInputStyle}
                     />
                 </SettingRow>
+                <SettingRow label="LLM Stream Timeout (s)">
+                    <input
+                        type="number"
+                        value={settings.llm_stream_chunk_timeout_secs}
+                        min={30}
+                        max={1800}
+                        step={10}
+                        onChange={(event) => {
+                            const nextValue = Number.parseFloat(event.target.value);
+                            if (!Number.isNaN(nextValue)) {
+                                updateSetting("llm_stream_chunk_timeout_secs", nextValue);
+                            }
+                        }}
+                        style={inputStyle}
+                    />
+                </SettingRow>
                 {daemonDelayControlsDisabled ? (
                     <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                         These delay controls only affect the tamux daemon runtime. {settings.agent_backend === "openclaw" ? "OpenClaw" : "Hermes"} uses its own pacing rules.

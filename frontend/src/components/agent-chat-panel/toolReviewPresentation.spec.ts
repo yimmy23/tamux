@@ -1,5 +1,6 @@
 import type { WelesReviewMeta } from "../../lib/agentTools";
 import { buildHydratedRemoteThread } from "../../lib/agentStore";
+import { parseHandoffSystemEvent } from "./chat-view/helpers";
 import {
   buildToolReviewPresentation,
   mergeToolReviewMeta,
@@ -71,10 +72,27 @@ const internalThread = buildHydratedRemoteThread(
 );
 expect(internalThread === null, "internal daemon threads should not hydrate into visible frontend chat state");
 
+const hiddenHandoffThread = buildHydratedRemoteThread(
+  {
+    id: "handoff:thread-user-1:handoff-1",
+    title: "Handoff · Svarog -> Weles",
+    messages: [
+      {
+        role: "system",
+        content: "{\"kind\":\"thread_handoff_context\"}",
+        timestamp: 1,
+      },
+    ],
+  },
+  "Svarog",
+);
+expect(hiddenHandoffThread === null, "linked handoff threads should stay hidden from the visible frontend chat state");
+
 const visibleThread = buildHydratedRemoteThread(
   {
     id: "thread-user-1",
     title: "Regular Conversation",
+    agent_name: "Weles",
     messages: [
       {
         role: "tool",
@@ -91,3 +109,10 @@ const visibleThread = buildHydratedRemoteThread(
 );
 expect(visibleThread?.thread.title === "Regular Conversation", "non-internal threads should still hydrate normally");
 expect(visibleThread?.messages[0]?.welesReview?.verdict === "flag_only", "visible threads should retain weles metadata on tool rows");
+expect(visibleThread?.thread.agent_name === "Weles", "hydrated threads should prefer daemon-provided active responder identity");
+
+const handoffSystemEvent = parseHandoffSystemEvent(
+  "[[handoff_event]]{\"kind\":\"push\",\"from_agent_name\":\"Svarog\",\"to_agent_name\":\"Weles\",\"reason\":\"Governance review required\",\"summary\":\"Weles should continue answering from here.\"}\nSvarog handed this thread to Weles.",
+);
+expect(handoffSystemEvent?.to_agent_name === "Weles", "handoff parser should expose the target agent name");
+expect(handoffSystemEvent?.summary === "Weles should continue answering from here.", "handoff parser should preserve the collapsed summary payload");

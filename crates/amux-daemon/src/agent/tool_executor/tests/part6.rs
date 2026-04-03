@@ -235,6 +235,7 @@
                 thread_id.to_string(),
                 crate::agent::types::AgentThread {
                     id: thread_id.to_string(),
+                    agent_name: None,
                     title: "Parallel skill work".to_string(),
                     messages: vec![crate::agent::types::AgentMessage::user(
                         "Investigate the failing tests, then update the parser, and finally rerun the suite.",
@@ -299,4 +300,577 @@
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].source, "subagent");
         assert_eq!(tasks[0].parent_thread_id.as_deref(), Some(thread_id));
+    }
+
+    #[tokio::test]
+    async fn handoff_thread_agent_push_updates_active_responder_and_writes_system_event() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-handoff-push";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                    title: "Handoff candidate".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "Please ask Weles to review the risky migration.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+        engine
+            .set_thread_handoff_state(
+                thread_id,
+                crate::agent::ThreadHandoffState {
+                    origin_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    active_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    responder_stack: vec![crate::agent::ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    }],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-handoff-thread-push".to_string(),
+            ToolFunction {
+                name: "handoff_thread_agent".to_string(),
+                arguments: serde_json::json!({
+                    "action": "push_handoff",
+                    "target_agent_id": "weles",
+                    "reason": "Risky migration needs governance review",
+                    "summary": "Review the migration plan, identify risk, and continue answering from Weles.",
+                    "requested_by": "user"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "handoff push should succeed: {}", result.content);
+        assert!(result.pending_approval.is_none());
+        let state = engine
+            .thread_handoff_state(thread_id)
+            .await
+            .expect("handoff state should exist");
+        assert_eq!(state.active_agent_id, "weles");
+        assert_eq!(state.responder_stack.len(), 2);
+
+        let thread = engine
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist");
+        assert_eq!(thread.agent_name.as_deref(), Some("Weles"));
+        let system_event = thread
+            .messages
+            .iter()
+            .find(|message| message.role == crate::agent::types::MessageRole::System)
+            .expect("handoff should append a system event");
+        assert!(
+            system_event.content.contains("[[handoff_event]]"),
+            "system event should use the structured handoff marker"
+        );
+        assert!(system_event.content.contains("\"to_agent_name\":\"Weles\""));
+    }
+
+    #[tokio::test]
+    async fn handoff_thread_agent_push_accepts_svarog_alias_for_main_agent() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-handoff-push-svarog-alias";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
+                    title: "Handoff alias candidate".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "Please hand this back to Svarog.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+        engine
+            .set_thread_handoff_state(
+                thread_id,
+                crate::agent::ThreadHandoffState {
+                    origin_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                    responder_stack: vec![
+                        crate::agent::ThreadResponderFrame {
+                            agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                            agent_name: crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                            entered_at: 1,
+                            entered_via_handoff_event_id: None,
+                            linked_thread_id: None,
+                        },
+                        crate::agent::ThreadResponderFrame {
+                            agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                            agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                            entered_at: 2,
+                            entered_via_handoff_event_id: Some("handoff-existing".to_string()),
+                            linked_thread_id: Some("handoff:existing".to_string()),
+                        },
+                    ],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-handoff-thread-push-svarog-alias".to_string(),
+            ToolFunction {
+                name: "handoff_thread_agent".to_string(),
+                arguments: serde_json::json!({
+                    "action": "push_handoff",
+                    "target_agent_id": "svarog",
+                    "reason": "Operator requested to switch to Svarog",
+                    "summary": "Operator wants to continue with Svarog, the main agent.",
+                    "requested_by": "user"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "svarog alias handoff should succeed: {}", result.content);
+        let state = engine
+            .thread_handoff_state(thread_id)
+            .await
+            .expect("handoff state should exist");
+        assert_eq!(state.active_agent_id, crate::agent::agent_identity::MAIN_AGENT_ID);
+    }
+
+    #[tokio::test]
+    async fn handoff_thread_agent_agent_push_requires_approval_outside_yolo() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.managed_execution.security_level = SecurityLevel::Moderate;
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-handoff-approval";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                    title: "Approval handoff".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "Maybe ask Weles to take over this risky thread.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+        engine
+            .set_thread_handoff_state(
+                thread_id,
+                crate::agent::ThreadHandoffState {
+                    origin_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    active_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    responder_stack: vec![crate::agent::ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    }],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-handoff-thread-approval".to_string(),
+            ToolFunction {
+                name: "handoff_thread_agent".to_string(),
+                arguments: serde_json::json!({
+                    "action": "push_handoff",
+                    "target_agent_id": "weles",
+                    "reason": "Governance review required",
+                    "summary": "Let Weles take over and continue this safety-sensitive thread.",
+                    "requested_by": "agent"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "approval handoff should not hard-fail");
+        let pending = result
+            .pending_approval
+            .as_ref()
+            .expect("agent-initiated handoff should request approval");
+        assert!(pending.command.contains("handoff_thread_agent"));
+
+        let state = engine
+            .thread_handoff_state(thread_id)
+            .await
+            .expect("handoff state should still exist");
+        assert_eq!(
+            state.active_agent_id,
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            "active responder should not switch before approval"
+        );
+        assert_eq!(state.pending_approval_id.as_deref(), Some(pending.approval_id.as_str()));
+
+        let tasks = engine.list_tasks().await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, crate::agent::types::TaskStatus::AwaitingApproval);
+        assert_eq!(tasks[0].source, "thread_handoff");
+        assert_eq!(tasks[0].awaiting_approval_id.as_deref(), Some(pending.approval_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn handoff_thread_agent_return_pops_stack_and_restores_previous_responder() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-handoff-return";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
+                    title: "Return handoff".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "Let Weles finish and then hand the thread back.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+        engine
+            .set_thread_handoff_state(
+                thread_id,
+                crate::agent::ThreadHandoffState {
+                    origin_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                    responder_stack: vec![
+                        crate::agent::ThreadResponderFrame {
+                            agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                            agent_name: crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                            entered_at: 1,
+                            entered_via_handoff_event_id: None,
+                            linked_thread_id: None,
+                        },
+                        crate::agent::ThreadResponderFrame {
+                            agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                            agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                            entered_at: 2,
+                            entered_via_handoff_event_id: Some("handoff-existing".to_string()),
+                            linked_thread_id: Some("handoff:existing".to_string()),
+                        },
+                    ],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-handoff-thread-return".to_string(),
+            ToolFunction {
+                name: "handoff_thread_agent".to_string(),
+                arguments: serde_json::json!({
+                    "action": "return_handoff",
+                    "reason": "Weles completed the governance pass",
+                    "summary": "Returning control to Swarog with the review result and next steps.",
+                    "requested_by": "agent"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "handoff return should succeed: {}", result.content);
+        assert!(result.pending_approval.is_none());
+        let state = engine
+            .thread_handoff_state(thread_id)
+            .await
+            .expect("handoff state should exist");
+        assert_eq!(
+            state.active_agent_id,
+            crate::agent::agent_identity::MAIN_AGENT_ID
+        );
+        assert_eq!(state.responder_stack.len(), 1);
+
+        let thread = engine
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist");
+        assert_eq!(
+            thread.agent_name.as_deref(),
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME)
+        );
+        let system_event = thread
+            .messages
+            .iter()
+            .find(|message| message.role == crate::agent::types::MessageRole::System)
+            .expect("return handoff should append a system event");
+        assert!(system_event.content.contains("\"kind\":\"return\""));
+        assert!(
+            system_event
+                .content
+                .contains(&format!(
+                    "\"to_agent_name\":\"{}\"",
+                    crate::agent::agent_identity::MAIN_AGENT_NAME
+                )),
+            "system event should announce the restored responder"
+        );
+    }
+
+    #[tokio::test]
+    async fn approved_thread_handoff_activation_updates_stack_and_thread_identity() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.managed_execution.security_level = SecurityLevel::Moderate;
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-handoff-approved";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                    title: "Approve handoff".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "If needed, let Weles take over after approval.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+        engine
+            .set_thread_handoff_state(
+                thread_id,
+                crate::agent::ThreadHandoffState {
+                    origin_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    active_agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                    responder_stack: vec![crate::agent::ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    }],
+                    events: Vec::new(),
+                    pending_approval_id: None,
+                },
+            )
+            .await;
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-handoff-thread-approved".to_string(),
+            ToolFunction {
+                name: "handoff_thread_agent".to_string(),
+                arguments: serde_json::json!({
+                    "action": "push_handoff",
+                    "target_agent_id": "weles",
+                    "reason": "Governance review required",
+                    "summary": "Let Weles take over and continue this safety-sensitive thread.",
+                    "requested_by": "agent"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        let pending = result
+            .pending_approval
+            .as_ref()
+            .expect("agent-initiated handoff should request approval");
+        assert!(
+            engine
+                .handle_task_approval_resolution(
+                    &pending.approval_id,
+                    amux_protocol::ApprovalDecision::ApproveOnce
+                )
+                .await,
+            "approval resolution should find the synthetic handoff task"
+        );
+
+        let state = engine
+            .thread_handoff_state(thread_id)
+            .await
+            .expect("handoff state should exist");
+        assert_eq!(state.active_agent_id, crate::agent::agent_identity::WELES_AGENT_ID);
+        assert!(state.pending_approval_id.is_none());
+        assert_eq!(state.responder_stack.len(), 2);
+
+        let thread = engine
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+            .expect("thread should exist");
+        assert_eq!(thread.agent_name.as_deref(), Some("Weles"));
+        assert!(
+            thread
+                .messages
+                .iter()
+                .any(|message| {
+                    message.role == crate::agent::types::MessageRole::System
+                        && message.content.contains("\"approval_id\":\"")
+                }),
+            "approval activation should append a structured handoff system event"
+        );
     }

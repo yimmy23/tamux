@@ -37,6 +37,12 @@ impl<'a> SendMessageRunner<'a> {
             self.continuity_summary.as_deref(),
             self.negative_constraints_context.as_deref(),
         );
+        self.system_prompt.push_str("\n\n");
+        self.system_prompt.push_str(&build_runtime_identity_prompt(
+            &self.runtime_agent_name,
+            &self.active_provider_id,
+            &self.provider_config.model,
+        ));
         if let Some(recall) = self.onecontext_bootstrap.as_deref() {
             self.system_prompt.push_str("\n\n## OneContext Recall\n");
             self.system_prompt

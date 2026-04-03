@@ -14,6 +14,7 @@ async fn context_summary_gathers_opening_message_recent_messages_and_bounded_tas
             "thread-1".to_string(),
             AgentThread {
                 id: "thread-1".to_string(),
+                agent_name: None,
                 title: "Newest".to_string(),
                 created_at: 1,
                 updated_at: now,
@@ -40,6 +41,7 @@ async fn context_summary_gathers_opening_message_recent_messages_and_bounded_tas
             "thread-2".to_string(),
             AgentThread {
                 id: "thread-2".to_string(),
+                agent_name: None,
                 title: "Older".to_string(),
                 created_at: 1,
                 updated_at: now - 1_000,
@@ -92,6 +94,7 @@ async fn context_summary_prefers_tasks_for_latest_thread_before_global_fallback(
         "thread-1".to_string(),
         AgentThread {
             id: "thread-1".to_string(),
+            agent_name: None,
             title: "Newest".to_string(),
             created_at: 1,
             updated_at: now,
@@ -160,6 +163,7 @@ async fn context_summary_ignores_assistant_only_concierge_like_threads() {
             "thread-real".to_string(),
             AgentThread {
                 id: "thread-real".to_string(),
+                agent_name: None,
                 title: "Actual work".to_string(),
                 created_at: 1,
                 updated_at: now - 100,
@@ -181,6 +185,7 @@ async fn context_summary_ignores_assistant_only_concierge_like_threads() {
             "thread-meta".to_string(),
             AgentThread {
                 id: "thread-meta".to_string(),
+                agent_name: None,
                 title: "Concierge".to_string(),
                 created_at: 1,
                 updated_at: now,

@@ -16,7 +16,7 @@ use types::{
     ToolCallDisposition,
 };
 
-pub(super) const DEFAULT_LLM_STREAM_CHUNK_TIMEOUT_SECS: u64 = 120;
+pub(super) const DEFAULT_LLM_STREAM_CHUNK_TIMEOUT_SECS: u64 = 300;
 
 pub(super) fn tool_args_summary(arguments: &str) -> String {
     arguments.chars().take(100).collect()
@@ -27,6 +27,29 @@ pub(super) fn current_epoch_secs() -> u64 {
 }
 
 impl AgentEngine {
+    pub(in crate::agent) async fn agent_scope_id_for_turn(
+        &self,
+        thread_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> String {
+        if let Some(current_task_id) = task_id {
+            let tasks = self.tasks.lock().await;
+            return agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id));
+        }
+
+        if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
+            return CONCIERGE_AGENT_ID.to_string();
+        }
+
+        if let Some(existing_thread_id) = thread_id {
+            if let Some(active_agent_id) = self.active_agent_id_for_thread(existing_thread_id).await {
+                return active_agent_id;
+            }
+        }
+
+        MAIN_AGENT_ID.to_string()
+    }
+
     async fn run_internal_send_loop(
         &self,
         initial_thread_id: Option<&str>,
@@ -84,68 +107,92 @@ impl AgentEngine {
         record_operator: bool,
     ) -> Result<SendMessageOutcome> {
         let stored_user_content = content;
-        let llm_user_content = llm_user_content_override.unwrap_or(content);
-        let agent_scope_id = if let Some(current_task_id) = task_id {
-            let tasks = self.tasks.lock().await;
-            agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id))
-        } else {
-            MAIN_AGENT_ID.to_string()
-        };
+        let mut current_thread_id = thread_id.map(str::to_string);
+        let mut current_llm_user_content = llm_user_content_override.unwrap_or(content).to_string();
+        let mut current_record_operator = record_operator;
+        let mut reuse_existing_user_message = false;
 
-        Box::pin(run_with_agent_scope(agent_scope_id, async move {
-            if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
-                self.send_concierge_message_on_thread(
-                    crate::agent::concierge::CONCIERGE_THREAD_ID,
-                    stored_user_content,
-                    preferred_session_hint,
-                    record_operator,
-                    true,
-                )
-                .await?;
-                return Ok(SendMessageOutcome {
-                    thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),
-                    interrupted_for_approval: false,
-                    fresh_runner_retry: None,
-                });
-            }
+        loop {
+            let agent_scope_id = self
+                .agent_scope_id_for_turn(current_thread_id.as_deref(), task_id)
+                .await;
+            let thread_for_turn = current_thread_id.clone();
+            let llm_user_content_for_turn = current_llm_user_content.clone();
+            let record_operator_for_turn = current_record_operator;
+            let reuse_existing_for_turn = reuse_existing_user_message;
 
-            let config = self.config.read().await.clone();
-            let selected_backend = backend_override
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(AgentBackend::parse)
-                .unwrap_or(config.agent_backend.clone());
-
-            match selected_backend {
-                AgentBackend::Openclaw | AgentBackend::Hermes => {
-                    let mut runtime_config = config.clone();
-                    runtime_config.agent_backend = selected_backend;
-                    return self
-                        .send_message_external(&runtime_config, thread_id, llm_user_content)
-                        .await
-                        .map(|thread_id| SendMessageOutcome {
-                            thread_id,
-                            interrupted_for_approval: false,
-                            fresh_runner_retry: None,
-                        });
+            let outcome = Box::pin(run_with_agent_scope(agent_scope_id, async move {
+                if thread_for_turn.as_deref() == Some(crate::agent::concierge::CONCIERGE_THREAD_ID)
+                {
+                    self.send_concierge_message_on_thread(
+                        crate::agent::concierge::CONCIERGE_THREAD_ID,
+                        stored_user_content,
+                        preferred_session_hint,
+                        record_operator_for_turn,
+                        true,
+                    )
+                    .await?;
+                    return Ok(SendMessageOutcome {
+                        thread_id: crate::agent::concierge::CONCIERGE_THREAD_ID.to_string(),
+                        interrupted_for_approval: false,
+                        fresh_runner_retry: None,
+                        handoff_restart: None,
+                    });
                 }
-                _ => {}
+
+                let config = self.config.read().await.clone();
+                let selected_backend = backend_override
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(AgentBackend::parse)
+                    .unwrap_or(config.agent_backend.clone());
+
+                match selected_backend {
+                    AgentBackend::Openclaw | AgentBackend::Hermes => {
+                        let mut runtime_config = config.clone();
+                        runtime_config.agent_backend = selected_backend;
+                        return self
+                            .send_message_external(
+                                &runtime_config,
+                                thread_for_turn.as_deref(),
+                                &llm_user_content_for_turn,
+                            )
+                            .await
+                            .map(|thread_id| SendMessageOutcome {
+                                thread_id,
+                                interrupted_for_approval: false,
+                                fresh_runner_retry: None,
+                                handoff_restart: None,
+                            });
+                    }
+                    _ => {}
+                }
+
+                self.run_internal_send_loop(
+                    thread_for_turn.as_deref(),
+                    stored_user_content,
+                    &llm_user_content_for_turn,
+                    task_id,
+                    preferred_session_hint,
+                    stream_chunk_timeout_override,
+                    client_surface,
+                    record_operator_for_turn,
+                    reuse_existing_for_turn,
+                )
+                .await
+            }))
+            .await?;
+
+            if let Some(restart) = outcome.handoff_restart.clone() {
+                current_thread_id = Some(outcome.thread_id);
+                current_llm_user_content = restart.llm_user_content;
+                current_record_operator = false;
+                reuse_existing_user_message = true;
+                continue;
             }
 
-            self.run_internal_send_loop(
-                thread_id,
-                stored_user_content,
-                llm_user_content,
-                task_id,
-                preferred_session_hint,
-                stream_chunk_timeout_override,
-                client_surface,
-                record_operator,
-                false,
-            )
-            .await
-        }))
-        .await
+            return Ok(outcome);
+        }
     }
 
     pub(in crate::agent) async fn resend_existing_user_message(

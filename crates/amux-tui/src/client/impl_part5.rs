@@ -15,6 +15,7 @@ impl DaemonClient {
         thread_id: Option<String>,
         content: String,
         session_id: Option<String>,
+        target_agent_id: Option<String>,
     ) -> Result<()> {
         self.send(ClientMessage::AgentSendMessage {
             thread_id,
@@ -22,6 +23,7 @@ impl DaemonClient {
             session_id,
             context_messages_json: None,
             client_surface: Some(amux_protocol::ClientSurface::Tui),
+            target_agent_id,
         })
     }
 

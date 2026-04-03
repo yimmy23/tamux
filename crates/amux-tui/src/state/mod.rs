@@ -66,6 +66,7 @@ pub enum DaemonCommand {
         thread_id: Option<String>,
         content: String,
         session_id: Option<String>,
+        target_agent_id: Option<String>,
     },
     StopStream {
         thread_id: String,

@@ -58,7 +58,10 @@ impl AgentEngine {
     pub async fn list_threads(&self) -> Vec<AgentThread> {
         let threads = self.threads.read().await;
         let mut list: Vec<AgentThread> = threads.values().map(summarize_thread_for_list).collect();
-        list.retain(|thread| !crate::agent::concierge::is_user_visible_thread(thread));
+        list.retain(|thread| {
+            !crate::agent::concierge::is_user_visible_thread(thread)
+                && !crate::agent::is_internal_handoff_thread(&thread.id)
+        });
         list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         list
     }
@@ -69,7 +72,10 @@ impl AgentEngine {
             .await
             .get(thread_id)
             .cloned()
-            .filter(|thread| !crate::agent::concierge::is_user_visible_thread(thread))
+            .filter(|thread| {
+                !crate::agent::concierge::is_user_visible_thread(thread)
+                    && !crate::agent::is_internal_handoff_thread(&thread.id)
+            })
     }
 
     pub async fn planner_required_for_thread(&self, thread_id: &str) -> bool {
@@ -91,6 +97,7 @@ impl AgentEngine {
         let removed = self.threads.write().await.remove(thread_id).is_some();
         if removed {
             self.clear_thread_client_surface(thread_id).await;
+            self.thread_handoff_states.write().await.remove(thread_id);
             self.remove_repo_watcher(thread_id).await;
             self.thread_todos.write().await.remove(thread_id);
             self.thread_work_contexts.write().await.remove(thread_id);
@@ -105,6 +112,7 @@ impl AgentEngine {
 fn summarize_thread_for_list(thread: &AgentThread) -> AgentThread {
     AgentThread {
         id: thread.id.clone(),
+        agent_name: thread.agent_name.clone(),
         title: thread.title.clone(),
         messages: Vec::new(),
         pinned: thread.pinned,

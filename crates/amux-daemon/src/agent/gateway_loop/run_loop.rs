@@ -184,6 +184,9 @@ impl AgentEngine {
                     if let Err(error) = self.supervise_gateway_runtime().await {
                         tracing::warn!(error = %error, "gateway supervision tick failed");
                     }
+                    if let Err(error) = self.supervise_stalled_turns().await {
+                        tracing::warn!(error = %error, "stalled-turn supervision tick failed");
+                    }
 
                     let supervised: Vec<_> = {
                         let tasks = self.tasks.lock().await;

@@ -290,6 +290,9 @@ pub struct TuiModel {
     // Thread ID whose stream was cancelled via double-Esc (ignore further events)
     cancelled_thread_id: Option<String>,
 
+    // Selected target agent for the next brand-new thread started from the thread picker.
+    pending_new_thread_target_agent: Option<String>,
+
     // Ignore a stale concierge welcome that arrives after the user navigated away.
     ignore_pending_concierge_welcome: bool,
 

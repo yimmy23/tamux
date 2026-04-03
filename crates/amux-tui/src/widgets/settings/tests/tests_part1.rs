@@ -155,6 +155,7 @@ fn advanced_tab_renders_sleep_delay_rows() {
 
     assert!(text.contains("Message Loop (ms):"));
     assert!(text.contains("Tool Call Gap (ms):"));
+    assert!(text.contains("LLM Stream Timeout (s):"));
 }
 
 #[test]

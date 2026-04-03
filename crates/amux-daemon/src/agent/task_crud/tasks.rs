@@ -194,6 +194,158 @@ impl AgentEngine {
         approval_id: &str,
         decision: amux_protocol::ApprovalDecision,
     ) -> bool {
+        let handoff_task = {
+            let tasks = self.tasks.lock().await;
+            tasks.iter()
+                .find(|task| {
+                    task.awaiting_approval_id.as_deref() == Some(approval_id)
+                        && task.source == "thread_handoff"
+                })
+                .cloned()
+        };
+        if let Some(task) = handoff_task {
+            let handoff_task_id = task.id.clone();
+            let request = task
+                .command
+                .as_deref()
+                .and_then(|value| {
+                    serde_json::from_str::<PendingThreadHandoffActivation>(value).ok()
+                });
+            let Some(request) = request else {
+                return false;
+            };
+
+            match decision {
+                amux_protocol::ApprovalDecision::ApproveOnce
+                | amux_protocol::ApprovalDecision::ApproveSession => {
+                    let activation = self
+                        .apply_thread_handoff_activation(&request, Some(approval_id.to_string()))
+                        .await;
+                    let updated = {
+                        let mut tasks = self.tasks.lock().await;
+                        let Some(task) = tasks
+                            .iter_mut()
+                            .find(|task| task.id == handoff_task_id)
+                        else {
+                            return false;
+                        };
+                        task.awaiting_approval_id = None;
+                        task.blocked_reason = None;
+                        task.started_at = None;
+                        task.completed_at = Some(now_millis());
+                        match activation {
+                            Ok(event) => {
+                                task.status = TaskStatus::Completed;
+                                task.progress = 100;
+                                task.result = Some(format!(
+                                    "handoff activated: {} -> {}",
+                                    canonical_agent_name(&event.from_agent_id),
+                                    canonical_agent_name(&event.to_agent_id)
+                                ));
+                                task.error = None;
+                                task.last_error = None;
+                                task.logs.push(make_task_log_entry(
+                                    task.retry_count,
+                                    TaskLogLevel::Info,
+                                    "approval",
+                                    "operator approved thread handoff; activation completed",
+                                    None,
+                                ));
+                            }
+                            Err(error) => {
+                                let message = error.to_string();
+                                task.status = TaskStatus::Failed;
+                                task.error = Some(message.clone());
+                                task.last_error = Some(message.clone());
+                                task.blocked_reason = Some(message.clone());
+                                task.logs.push(make_task_log_entry(
+                                    task.retry_count,
+                                    TaskLogLevel::Error,
+                                    "approval",
+                                    "operator approved thread handoff but activation failed",
+                                    Some(message),
+                                ));
+                            }
+                        }
+                        task.clone()
+                    };
+                    self.persist_tasks().await;
+                    self.emit_task_update(&updated, Some(status_message(&updated).into()));
+                    self.record_provenance_event(
+                        "approval_granted",
+                        "operator approved thread handoff",
+                        serde_json::json!({
+                            "approval_id": approval_id,
+                            "task_id": updated.id,
+                            "title": updated.title,
+                            "decision": format!("{decision:?}").to_lowercase(),
+                            "source": updated.source,
+                        }),
+                        updated.goal_run_id.as_deref(),
+                        Some(updated.id.as_str()),
+                        updated.thread_id.as_deref(),
+                        Some(approval_id),
+                        None,
+                    )
+                    .await;
+                    return true;
+                }
+                amux_protocol::ApprovalDecision::Deny => {
+                    self.clear_pending_thread_handoff_approval(&request.thread_id, approval_id)
+                        .await;
+                    let updated = {
+                        let mut tasks = self.tasks.lock().await;
+                        let Some(task) = tasks
+                            .iter_mut()
+                            .find(|task| task.id == handoff_task_id)
+                        else {
+                            return false;
+                        };
+                        let reason = "operator denied thread handoff approval".to_string();
+                        task.status = TaskStatus::Failed;
+                        task.started_at = None;
+                        task.completed_at = Some(now_millis());
+                        task.awaiting_approval_id = None;
+                        task.blocked_reason = Some(reason.clone());
+                        task.error = Some(reason.clone());
+                        task.last_error = Some(reason.clone());
+                        task.logs.push(make_task_log_entry(
+                            task.retry_count,
+                            TaskLogLevel::Error,
+                            "approval",
+                            "operator denied thread handoff; task failed",
+                            Some(reason),
+                        ));
+                        task.clone()
+                    };
+                    self.persist_tasks().await;
+                    self.emit_task_update(&updated, Some(status_message(&updated).into()));
+                    self.record_provenance_event(
+                        "approval_denied",
+                        "operator denied thread handoff",
+                        serde_json::json!({
+                            "approval_id": approval_id,
+                            "task_id": updated.id,
+                            "title": updated.title,
+                            "decision": format!("{decision:?}").to_lowercase(),
+                            "source": updated.source,
+                        }),
+                        updated.goal_run_id.as_deref(),
+                        Some(updated.id.as_str()),
+                        updated.thread_id.as_deref(),
+                        Some(approval_id),
+                        None,
+                    )
+                    .await;
+                    let correction_desc = format!("Denied approval for task: {}", updated.title);
+                    let thread_id = updated.thread_id.clone().unwrap_or_default();
+                    self.update_counter_who_on_correction(&thread_id, &correction_desc)
+                        .await;
+                    return true;
+                }
+            }
+        }
+
         let updated = {
             let mut tasks = self.tasks.lock().await;
             let Some(task) = tasks

@@ -335,6 +335,7 @@ async fn execute_tool_weles_internal_task_allows_low_risk_shell_python_without_r
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "WELES internal runtime thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("Inspect tool", 1)],
                 pinned: false,

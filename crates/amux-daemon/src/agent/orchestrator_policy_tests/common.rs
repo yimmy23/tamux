@@ -315,6 +315,7 @@ pub(super) async fn seed_runtime(engine: &Arc<AgentEngine>, thread_id: &str) {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Policy thread".to_string(),
                 messages: vec![AgentMessage::user("Investigate the failure", 1)],
                 pinned: false,

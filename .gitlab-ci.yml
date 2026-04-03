@@ -33,9 +33,9 @@ variables:
     - mkdir -p artifacts
     - |
       if [ "$PLATFORM" = "windows-x64" ]; then
-        BINS="tamux-daemon.exe tamux.exe tamux-tui.exe"
+        BINS="tamux-daemon.exe tamux.exe tamux-tui.exe tamux-mcp.exe tamux-gateway.exe"
       else
-        BINS="tamux-daemon tamux tamux-tui"
+        BINS="tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway"
       fi
     - tar czf "artifacts/tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" -C "dist-release/${DIST_DIR}" $BINS
     # Generate per-platform SHA256SUMS
@@ -83,8 +83,10 @@ build:linux-arm64:
     - cp target/aarch64-unknown-linux-gnu/release/tamux-daemon dist-release/linux/
     - cp target/aarch64-unknown-linux-gnu/release/tamux dist-release/linux/
     - cp target/aarch64-unknown-linux-gnu/release/tamux-tui dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/tamux-mcp dist-release/linux/
+    - cp target/aarch64-unknown-linux-gnu/release/tamux-gateway dist-release/linux/
     - mkdir -p artifacts
-    - tar czf "artifacts/tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" -C dist-release/linux tamux-daemon tamux tamux-tui
+    - tar czf "artifacts/tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" -C dist-release/linux tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
     - cd artifacts
     - sha256sum "tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
     - |
@@ -136,6 +138,9 @@ build:windows-x64:
     - cd /tmp && tar xzf tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz && cd -
     - cp /tmp/tamux-daemon${BIN_EXT} dist/ 2>/dev/null || true
     - cp /tmp/tamux${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/tamux-tui${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/tamux-mcp${BIN_EXT} dist/ 2>/dev/null || true
+    - cp /tmp/tamux-gateway${BIN_EXT} dist/ 2>/dev/null || true
     # Build Electron app
     - npx electron-builder --${EB_PLATFORM} --publish never
     # Upload desktop artifacts to package registry
@@ -145,7 +150,7 @@ build:windows-x64:
           BASENAME=$(basename "$FILE")
           curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
             --upload-file "$FILE" \
-            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/tamux-desktop-v${VERSION}-${DESKTOP_NAME}"
+            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/${BASENAME}"
         fi
       done
   rules:
@@ -175,6 +180,21 @@ package:windows-x64:
     DESKTOP_NAME: "windows-x64.exe"
     DESKTOP_ARTIFACTS: "release/*.exe"
 
+package:macos-arm64:
+  extends: .electron-package
+  tags: [macos, arm64]
+  needs: ["build:darwin-arm64"]
+  variables:
+    PLATFORM: darwin-arm64
+    BIN_EXT: ""
+    EB_PLATFORM: mac
+    DESKTOP_NAME: "darwin-arm64.dmg"
+    DESKTOP_ARTIFACTS: "release/*.dmg release/*.zip"
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: manual
+      allow_failure: true
+
 # ------------------------------------------------------------------
 # Stage: release (GitLab Release + npm publish)
 # ------------------------------------------------------------------
@@ -188,6 +208,12 @@ release:create:
     - job: build:linux-arm64
       optional: true
     - job: build:darwin-arm64
+      optional: true
+    - job: package:linux-x64
+      optional: true
+    - job: package:windows-x64
+      optional: true
+    - job: package:macos-arm64
       optional: true
   script:
     - export VERSION="${CI_COMMIT_TAG#v}"
@@ -217,6 +243,13 @@ release:create:
       | Linux ARM64 | [tamux-binaries-v${VERSION}-linux-arm64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-linux-arm64.tar.gz) |
       | macOS ARM64 | [tamux-binaries-v${VERSION}-darwin-arm64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-darwin-arm64.tar.gz) |
       | Windows x64 | [tamux-binaries-v${VERSION}-windows-x64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-windows-x64.tar.gz) |
+
+      ### Desktop Downloads
+      | Platform | Download |
+      |----------|----------|
+      | Linux x64 | [tamux-${VERSION}.AppImage](${PKG_BASE}/tamux-${VERSION}.AppImage) |
+      | macOS ARM64 | [tamux-${VERSION}.dmg](${PKG_BASE}/tamux-${VERSION}.dmg) |
+      | Windows x64 | [tamux-portable.exe](${PKG_BASE}/tamux-portable.exe) |
 
       ### Checksums
       [SHA256SUMS.txt](${PKG_BASE}/SHA256SUMS.txt)

@@ -1,6 +1,97 @@
 use super::*;
 use amux_protocol::SecurityLevel;
 
+#[derive(Clone)]
+struct DirectThreadResponderConfig {
+    agent_name: String,
+    provider_id: String,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
+    system_prompt: String,
+    persona_prompt: String,
+    tool_filter: Option<crate::agent::subagent::tool_filter::ToolFilter>,
+}
+
+fn build_direct_thread_responder_config(
+    config: &AgentConfig,
+    agent_scope_id: &str,
+    sub_agents: &[SubAgentDefinition],
+) -> Option<DirectThreadResponderConfig> {
+    let canonical_scope = canonical_agent_id(agent_scope_id);
+    if canonical_scope == MAIN_AGENT_ID {
+        return None;
+    }
+
+    if canonical_scope == CONCIERGE_AGENT_ID {
+        let provider_id = config
+            .concierge
+            .provider
+            .as_deref()
+            .unwrap_or(&config.provider)
+            .to_string();
+        let provider_config = crate::agent::concierge::resolve_concierge_provider(config).ok()?;
+        return Some(DirectThreadResponderConfig {
+            agent_name: CONCIERGE_AGENT_NAME.to_string(),
+            provider_id,
+            model: Some(provider_config.model.clone()),
+            reasoning_effort: Some(provider_config.reasoning_effort.clone()),
+            system_prompt: crate::agent::concierge::concierge_system_prompt(),
+            persona_prompt: String::new(),
+            tool_filter: None,
+        });
+    }
+
+    let matched_def = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
+        sub_agents
+            .iter()
+            .find(|def| def.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+            .cloned()
+    } else {
+        None
+    };
+    let persona_prompt = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
+        crate::agent::agent_identity::build_weles_persona_prompt(
+            crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
+        )
+    } else {
+        build_spawned_persona_prompt(canonical_scope)
+    };
+
+    Some(DirectThreadResponderConfig {
+        agent_name: canonical_agent_name(canonical_scope).to_string(),
+        provider_id: matched_def
+            .as_ref()
+            .map(|def| def.provider.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| config.provider.clone()),
+        model: matched_def
+            .as_ref()
+            .map(|def| def.model.clone())
+            .filter(|value| !value.trim().is_empty()),
+        reasoning_effort: matched_def
+            .as_ref()
+            .and_then(|def| def.reasoning_effort.clone())
+            .filter(|value| !value.trim().is_empty()),
+        system_prompt: matched_def
+            .as_ref()
+            .and_then(|def| def.system_prompt.clone())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| config.system_prompt.clone()),
+        persona_prompt,
+        tool_filter: matched_def.as_ref().and_then(|def| {
+            if def.tool_whitelist.is_some() || def.tool_blacklist.is_some() {
+                crate::agent::subagent::tool_filter::ToolFilter::new(
+                    def.tool_whitelist.clone(),
+                    def.tool_blacklist.clone(),
+                )
+                .ok()
+            } else {
+                None
+            }
+        }),
+    })
+}
+
 impl<'a> SendMessageRunner<'a> {
     pub(super) async fn initialize(
         engine: &'a AgentEngine,
@@ -15,7 +106,7 @@ impl<'a> SendMessageRunner<'a> {
         reuse_existing_user_message: bool,
         initial_scheduled_retry_cycles: u32,
     ) -> Result<Self> {
-        let config = engine.config.read().await.clone();
+        let mut config = engine.config.read().await.clone();
 
         let (tid, is_new_thread) = engine
             .get_or_create_thread(thread_id, stored_user_content)
@@ -76,9 +167,20 @@ impl<'a> SendMessageRunner<'a> {
                 })
             })
         };
+        let agent_scope_id = current_agent_scope_id();
+        let sub_agents = engine.list_sub_agents().await;
+        let direct_thread_responder = task_id
+            .is_none()
+            .then(|| build_direct_thread_responder_config(&config, &agent_scope_id, &sub_agents))
+            .flatten();
         let active_provider_id = task_provider_override
             .as_ref()
             .map(|(provider_id, _, _, _)| provider_id.as_str())
+            .or_else(|| {
+                direct_thread_responder
+                    .as_ref()
+                    .map(|responder| responder.provider_id.as_str())
+            })
             .unwrap_or(config.provider.as_str())
             .to_string();
         let provider_config =
@@ -86,6 +188,15 @@ impl<'a> SendMessageRunner<'a> {
                 let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
                 if let Some(model) = sub_model {
                     pc.model = model.clone();
+                }
+                Ok(pc)
+            } else if let Some(responder) = direct_thread_responder.as_ref() {
+                let mut pc = engine.resolve_sub_agent_provider_config(&config, &responder.provider_id)?;
+                if let Some(model) = responder.model.as_ref() {
+                    pc.model = model.clone();
+                }
+                if let Some(reasoning_effort) = responder.reasoning_effort.as_ref() {
+                    pc.reasoning_effort = reasoning_effort.clone();
                 }
                 Ok(pc)
             } else {
@@ -115,6 +226,18 @@ impl<'a> SendMessageRunner<'a> {
                 }
             };
 
+        // The active responder can override the provider/model selection, so the
+        // runtime config used by the send loop must reflect that effective provider.
+        config.provider = active_provider_id.clone();
+        config.base_url = provider_config.base_url.clone();
+        config.model = provider_config.model.clone();
+        config.api_key = provider_config.api_key.clone();
+        config.assistant_id = provider_config.assistant_id.clone();
+        config.auth_source = provider_config.auth_source;
+        config.api_transport = provider_config.api_transport;
+        config.reasoning_effort = provider_config.reasoning_effort.clone();
+        config.context_window_tokens = provider_config.context_window_tokens;
+
         let (stream_generation, stream_cancel_token, stream_retry_now) =
             engine.begin_stream_cancellation(&tid).await;
         let onecontext_bootstrap = if is_new_thread {
@@ -130,12 +253,13 @@ impl<'a> SendMessageRunner<'a> {
             .build_skill_preflight_context(stored_user_content, preferred_session_id.clone())
             .await?;
 
-        let agent_scope_id = current_agent_scope_id();
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
         let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override
         {
             format!("{}\n\n{}", override_prompt, config.system_prompt)
+        } else if let Some(responder) = direct_thread_responder.as_ref() {
+            format!("{}\n\n{}", responder.persona_prompt, responder.system_prompt)
         } else {
             config.system_prompt.clone()
         };
@@ -250,7 +374,6 @@ impl<'a> SendMessageRunner<'a> {
             runtime_context_query.as_deref(),
         )
         .await;
-        let sub_agents = engine.list_sub_agents().await;
         let mut system_prompt = if let Some((scope, _marker, inspection_context)) =
             weles_runtime_override.as_ref()
         {
@@ -324,6 +447,11 @@ impl<'a> SendMessageRunner<'a> {
                     extract_persona_name(prompt.as_deref())
                 }
             })
+            .or_else(|| {
+                direct_thread_responder
+                    .as_ref()
+                    .map(|responder| responder.agent_name.clone())
+            })
             .unwrap_or_else(|| MAIN_AGENT_NAME.to_string());
         system_prompt.push_str("\n\n");
         system_prompt.push_str(&build_runtime_identity_prompt(
@@ -378,6 +506,12 @@ impl<'a> SendMessageRunner<'a> {
         if let Some(filter) = &task_tool_filter {
             tools = filter.filtered_tools(tools);
         }
+        if let Some(filter) = direct_thread_responder
+            .as_ref()
+            .and_then(|responder| responder.tool_filter.as_ref())
+        {
+            tools = filter.filtered_tools(tools);
+        }
         if !task_type_for_trace.is_empty() {
             let hs = engine.heuristic_store.read().await;
             super::tool_executor::reorder_tools_by_heuristics(
@@ -422,6 +556,7 @@ impl<'a> SendMessageRunner<'a> {
             onecontext_bootstrap,
             skill_preflight,
             agent_scope_id,
+            runtime_agent_name,
             active_provider_id,
             memory_paths,
             base_prompt,
@@ -472,6 +607,7 @@ impl<'a> SendMessageRunner<'a> {
             attempted_recovery_signatures: std::collections::HashSet::new(),
             recent_policy_tool_outcomes: VecDeque::new(),
             fresh_runner_retry: None,
+            handoff_restart: None,
         })
     }
 }

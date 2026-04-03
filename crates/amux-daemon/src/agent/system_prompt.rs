@@ -148,9 +148,12 @@ pub(super) fn build_system_prompt(
          - Memory files have hard limits: SOUL.md 1500 chars, MEMORY.md 2200 chars, USER.md 1375 chars.\n",
     );
     prompt.push_str(&format!(
-        "         - {} is your concierge peer in tamux. When a lightweight operational handoff or cross-agent check is useful, use `message_agent` instead of making the operator relay between you.\n",
+        "         - {} is your concierge peer in tamux. Use `message_agent` only for private cross-agent coordination or quick checks. It does not switch the active responder for the operator thread and future operator turns do not route to the message target.\n",
         CONCIERGE_AGENT_NAME
     ));
+    prompt.push_str(
+        "         - If the operator wants to talk directly to another agent, or if another agent should own future replies in this thread, use `handoff_thread_agent` instead. A successful handoff changes the active responder and future operator turns route to that agent until a return handoff.\n",
+    );
     if config.enable_honcho_memory && !config.honcho_api_key.trim().is_empty() {
         prompt.push_str(
             "         - Use `agent_query_memory` when local session recall is insufficient and you need broader cross-session Honcho memory.\n",
@@ -558,5 +561,41 @@ mod tests {
         assert!(prompt.contains("list_skills"));
         assert!(prompt.contains("read_skill"));
         assert!(prompt.contains("onecontext_search"));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_distinguishes_internal_dm_from_thread_handoff() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine = crate::agent::AgentEngine::new_test(
+            manager,
+            AgentConfig::default(),
+            root.path(),
+        )
+        .await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("`message_agent`"));
+        assert!(prompt.contains("does not switch the active responder"));
+        assert!(prompt.contains("`handoff_thread_agent`"));
+        assert!(prompt.contains("If the operator wants to talk directly to another agent"));
     }
 }

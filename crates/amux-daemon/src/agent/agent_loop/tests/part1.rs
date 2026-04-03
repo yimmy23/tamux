@@ -49,6 +49,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
             thread_id.to_string(),
             AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Repair test".to_string(),
                 created_at: 1,
                 updated_at: 1,

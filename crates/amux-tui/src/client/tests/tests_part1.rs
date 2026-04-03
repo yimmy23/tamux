@@ -336,6 +336,22 @@
         }
     }
 
+    #[tokio::test]
+    async fn hidden_handoff_thread_reload_event_is_filtered() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "thread_reload_required",
+                "thread_id": "handoff:thread-user:handoff-1"
+            }),
+            &event_tx,
+        )
+        .await;
+
+        assert!(event_rx.try_recv().is_err());
+    }
+
     #[test]
     fn list_notifications_sends_agent_event_query() {
         let (event_tx, _event_rx) = mpsc::channel(8);

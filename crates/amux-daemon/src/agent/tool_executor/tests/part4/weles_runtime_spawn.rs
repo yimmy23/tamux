@@ -219,6 +219,7 @@ async fn weles_governance_runtime_path_uses_daemon_owned_core_and_suffix_only_ov
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "WELES governance runtime thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user(
                     "Inspect the suspicious tool call",
@@ -346,6 +347,7 @@ async fn weles_runtime_ignores_forged_operator_marker_payload_and_keeps_suffix_o
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "WELES governance forged suffix thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("Inspect tool", 1)],
                 pinned: false,

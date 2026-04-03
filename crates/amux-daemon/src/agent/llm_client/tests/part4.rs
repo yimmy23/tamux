@@ -11,7 +11,7 @@ fn retry_delay_caps_at_one_minute() {
 }
 
 #[test]
-fn minimax_anthropic_requests_force_http11_and_connection_close() {
+fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_headers() {
     let client = reqwest::Client::new();
     let config = ProviderConfig {
         base_url: "https://api.minimax.io/anthropic".to_string(),
@@ -37,10 +37,10 @@ fn minimax_anthropic_requests_force_http11_and_connection_close() {
             tool_calls: None,
         }],
         &[],
+        false,
     )
     .expect("request should build");
 
-    assert_eq!(request.version(), reqwest::Version::HTTP_11);
     assert_eq!(
         request
             .headers()
@@ -48,6 +48,7 @@ fn minimax_anthropic_requests_force_http11_and_connection_close() {
             .and_then(|value| value.to_str().ok()),
         Some("close")
     );
+    assert!(request.headers().get("upgrade").is_none());
     assert_eq!(
         request
             .headers()
@@ -97,6 +98,7 @@ fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
         "system",
         &messages,
         &tools,
+        false,
     )
     .expect("request_a should build");
     let request_b = build_anthropic_request(
@@ -106,6 +108,7 @@ fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
         "system",
         &messages,
         &tools,
+        false,
     )
     .expect("request_b should build");
 
@@ -143,6 +146,7 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
             tool_calls: None,
         }],
         &[],
+        false,
     )
     .expect("request_a should build");
     let request_b = build_anthropic_request(
@@ -158,6 +162,7 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
             tool_calls: None,
         }],
         &[],
+        false,
     )
     .expect("request_b should build");
 

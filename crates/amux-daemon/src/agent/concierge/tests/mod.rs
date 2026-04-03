@@ -19,6 +19,7 @@ fn test_now_millis() -> u64 {
 fn concierge_thread(messages: Vec<AgentMessage>) -> AgentThread {
     AgentThread {
         id: CONCIERGE_THREAD_ID.to_string(),
+        agent_name: None,
         title: "Concierge".to_string(),
         created_at: 1,
         updated_at: 1,
@@ -71,6 +72,7 @@ fn thread_with_messages(
 ) -> AgentThread {
     AgentThread {
         id: id.to_string(),
+        agent_name: None,
         title: title.to_string(),
         created_at: 1,
         updated_at,

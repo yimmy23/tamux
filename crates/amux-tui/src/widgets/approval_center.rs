@@ -83,7 +83,7 @@ pub fn hit_test(
     }
 
     let header_area = Rect::new(inner.x, inner.y, inner.width, 2);
-    if let Some(filter_hit) = header_hit_test(header_area, position) {
+    if let Some(filter_hit) = header_hit_test(header_area, approval.pending_approvals().len(), position) {
         return Some(filter_hit);
     }
 
@@ -324,7 +324,11 @@ fn render_detail(
     );
 }
 
-fn header_hit_test(area: Rect, position: Position) -> Option<ApprovalCenterHitTarget> {
+fn header_hit_test(
+    area: Rect,
+    pending_count: usize,
+    position: Position,
+) -> Option<ApprovalCenterHitTarget> {
     if position.y != area.y {
         return None;
     }
@@ -334,7 +338,9 @@ fn header_hit_test(area: Rect, position: Position) -> Option<ApprovalCenterHitTa
         (ApprovalFilter::CurrentThread, "Current thread"),
         (ApprovalFilter::CurrentWorkspace, "Current workspace"),
     ];
-    let mut x = area.x.saturating_add(11);
+    let mut x = area
+        .x
+        .saturating_add(format!("{} pending  ", pending_count).chars().count() as u16);
     for (filter, label) in labels {
         let width = label.chars().count() as u16;
         if position.x >= x && position.x < x.saturating_add(width) {
@@ -501,6 +507,35 @@ mod tests {
         );
 
         assert_eq!(hit, Some(ApprovalCenterHitTarget::Row(0)));
+    }
+
+    #[test]
+    fn hit_test_targets_filter_after_double_digit_pending_prefix() {
+        let mut approvals = ApprovalState::new();
+        for index in 0..10 {
+            approvals.reduce(ApprovalAction::ApprovalRequired(make_approval(
+                &format!("a{index}"),
+                "WELES",
+                "thread-1",
+                "ws-1",
+            )));
+        }
+
+        let prefix_width = format!("{} pending  ", approvals.pending_approvals().len())
+            .chars()
+            .count() as u16;
+        let hit = hit_test(
+            Rect::new(0, 0, 100, 30),
+            &approvals,
+            Some("thread-1"),
+            Some("ws-1"),
+            Position::new(1 + prefix_width + 1, 1),
+        );
+
+        assert_eq!(
+            hit,
+            Some(ApprovalCenterHitTarget::Filter(ApprovalFilter::AllPending))
+        );
     }
 
     #[test]

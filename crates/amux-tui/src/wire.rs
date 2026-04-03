@@ -78,6 +78,8 @@ pub struct AgentThread {
     #[serde(default)]
     pub id: String,
     #[serde(default)]
+    pub agent_name: Option<String>,
+    #[serde(default)]
     pub title: String,
 
     #[serde(default)]

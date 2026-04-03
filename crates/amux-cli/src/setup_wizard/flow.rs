@@ -1,5 +1,7 @@
 use super::*;
 
+const SETUP_PROBE_TIMEOUT_SECS: u64 = 5;
+
 pub(super) fn parse_fetch_models_terminal_response(msg: DaemonMessage) -> Option<Result<String>> {
     match msg {
         DaemonMessage::OperationAccepted { .. } => None,
@@ -347,8 +349,13 @@ pub(crate) async fn probe_setup_via_ipc() -> SetupProbe {
     {
         return SetupProbe::DaemonUnavailable;
     }
-    match wizard_recv(&mut framed).await {
-        Ok(DaemonMessage::AgentConfigResponse { config_json }) => {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(SETUP_PROBE_TIMEOUT_SECS),
+        wizard_recv(&mut framed),
+    )
+    .await
+    {
+        Ok(Ok(DaemonMessage::AgentConfigResponse { config_json })) => {
             setup_probe_from_config_json(&config_json)
         }
         _ => SetupProbe::DaemonUnavailable,

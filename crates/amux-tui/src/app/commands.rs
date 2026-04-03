@@ -479,6 +479,11 @@ impl TuiModel {
             input_refs::append_referenced_files_footer(&content_with_attachments, &cwd);
 
         let thread_id = self.chat.active_thread_id().map(String::from);
+        let target_agent_id = if thread_id.is_none() {
+            self.pending_new_thread_target_agent.take()
+        } else {
+            None
+        };
         if thread_id.as_deref() == self.cancelled_thread_id.as_deref() {
             self.cancelled_thread_id = None;
         }
@@ -509,6 +514,7 @@ impl TuiModel {
             thread_id,
             content: final_content,
             session_id: None,
+            target_agent_id,
         });
 
         self.main_pane_view = MainPaneView::Conversation;

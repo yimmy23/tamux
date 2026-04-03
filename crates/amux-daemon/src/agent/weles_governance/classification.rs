@@ -228,7 +228,11 @@ fn messaging_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) -
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
-    if normalized_message.contains("@everyone") || normalized_message.contains("@here") {
+    if normalized_message
+        .split_whitespace()
+        .map(|token| token.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '@'))
+        .any(|token| matches!(token, "@everyone" | "@here"))
+    {
         reasons.push("message contains a broadcast-style mention".to_string());
     }
 

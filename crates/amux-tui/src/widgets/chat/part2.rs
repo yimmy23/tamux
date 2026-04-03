@@ -16,6 +16,7 @@ fn build_rendered_lines(
     let content_width = padded_content_width(inner_width);
 
     if let Some(thread) = chat.active_thread() {
+        let responder_labels = assistant_responder_labels(thread);
         for (idx, msg) in thread.messages.iter().enumerate() {
             let start = all_lines.len();
             let mut msg_lines = super::message::message_to_lines(
@@ -27,6 +28,14 @@ fn build_rendered_lines(
                 expanded,
                 expanded_tools,
             );
+            if msg.role == MessageRole::Assistant {
+                if let Some(label) = responder_labels.get(idx).and_then(|value| value.as_deref()) {
+                    msg_lines.push(Line::from(vec![Span::styled(
+                        format!("Responder: {label}"),
+                        theme.fg_dim,
+                    )]));
+                }
+            }
             if let Some(first_line) = msg_lines.first_mut() {
                 append_tool_file_chip(first_line, msg, theme);
             }
@@ -234,6 +243,51 @@ fn build_rendered_lines(
     }
 
     (all_lines, message_line_ranges)
+}
+
+const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
+
+#[derive(serde::Deserialize)]
+struct HandoffResponderEvent {
+    #[serde(default)]
+    from_agent_name: Option<String>,
+    #[serde(default)]
+    to_agent_name: Option<String>,
+}
+
+fn assistant_responder_labels(
+    thread: &crate::state::chat::AgentThread,
+) -> Vec<Option<String>> {
+    let mut labels = vec![None; thread.messages.len()];
+    let mut responder = initial_responder_name(thread);
+
+    for (idx, msg) in thread.messages.iter().enumerate() {
+        if msg.role == MessageRole::Assistant {
+            labels[idx] = responder.clone();
+        }
+        if let Some(event) = parse_handoff_responder_event(&msg.content) {
+            if event.to_agent_name.is_some() {
+                responder = event.to_agent_name;
+            }
+        }
+    }
+
+    labels
+}
+
+fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<String> {
+    thread
+        .messages
+        .iter()
+        .find_map(|msg| parse_handoff_responder_event(&msg.content).and_then(|event| event.from_agent_name))
+    .or_else(|| thread.agent_name.clone())
+        .or_else(|| Some(amux_protocol::AGENT_NAME_SWAROG.to_string()))
+}
+
+fn parse_handoff_responder_event(content: &str) -> Option<HandoffResponderEvent> {
+    let payload = content.strip_prefix(THREAD_HANDOFF_SYSTEM_MARKER)?;
+    let json = payload.lines().next()?.trim();
+    serde_json::from_str(json).ok()
 }
 
 pub struct CachedSelectionSnapshot(SelectionSnapshot);

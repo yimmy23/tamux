@@ -78,7 +78,7 @@ Minimal example:
 ```json
 {
   "name": "tamux-plugin-example",
-  "version": "0.2.7",
+  "version": "0.2.9",
   "tamuxPlugin": {
     "entry": "dist/tamux-plugin.js",
     "format": "script"
@@ -105,7 +105,7 @@ import ExamplePanel from "./ExamplePanel";
 export const examplePlugin: Plugin = {
   id: "example",
   name: "Example Plugin",
-  version: "0.2.7",
+  version: "0.2.9",
   components: {
     ExamplePanel,
   },

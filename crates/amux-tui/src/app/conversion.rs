@@ -9,6 +9,7 @@ thread_local! {
 pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
     chat::AgentThread {
         id: t.id,
+        agent_name: t.agent_name,
         title: t.title,
         created_at: t.created_at,
         updated_at: t.updated_at,

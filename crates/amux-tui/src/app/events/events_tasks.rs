@@ -120,7 +120,10 @@ impl TuiModel {
     ) {
         let threads = threads
             .into_iter()
-            .filter(|thread| !crate::wire::is_weles_thread(thread))
+            .filter(|thread| {
+                !crate::wire::is_weles_thread(thread)
+                    && !Self::is_hidden_agent_thread(&thread.id, Some(thread.title.as_str()))
+            })
             .map(conversion::convert_thread)
             .collect();
         self.chat
@@ -129,7 +132,9 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_thread_detail_event(&mut self, thread: crate::wire::AgentThread) {
-        if crate::wire::is_weles_thread(&thread) {
+        if crate::wire::is_weles_thread(&thread)
+            || Self::is_hidden_agent_thread(&thread.id, Some(thread.title.as_str()))
+        {
             return;
         }
         self.anticipatory
@@ -161,6 +166,9 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_thread_reload_required_event(&mut self, thread_id: String) {
+        if Self::is_hidden_agent_thread(&thread_id, None) {
+            return;
+        }
         self.send_daemon_command(DaemonCommand::RequestThread(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));

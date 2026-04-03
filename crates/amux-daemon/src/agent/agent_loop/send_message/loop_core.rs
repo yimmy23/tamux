@@ -18,7 +18,7 @@ fn provider_uses_anthropic_api(config: &AgentConfig, provider_config: &ProviderC
 
 impl<'a> SendMessageRunner<'a> {
     async fn prepare_request(&mut self) -> Result<PreparedLlmRequest> {
-        if self
+        let compaction_inserted = self
             .engine
             .maybe_persist_compaction_artifact(
                 &self.tid,
@@ -26,8 +26,8 @@ impl<'a> SendMessageRunner<'a> {
                 &self.config,
                 &self.provider_config,
             )
-            .await?
-        {
+            .await?;
+        if compaction_inserted {
             self.recorded_compaction_provenance = true;
         }
         let threads = self.engine.threads.read().await;
@@ -51,7 +51,9 @@ impl<'a> SendMessageRunner<'a> {
                 last_user_message.content = self.llm_user_content.to_string();
             }
         }
-        let prepared = prepare_llm_request(&request_thread, &self.config, &self.provider_config);
+        let mut prepared =
+            prepare_llm_request(&request_thread, &self.config, &self.provider_config);
+        prepared.force_connection_close = compaction_inserted;
         if !self.recorded_compaction_provenance {
             if let Some(candidate) = compaction_candidate(
                 &request_thread.messages,
@@ -141,8 +143,15 @@ impl<'a> SendMessageRunner<'a> {
         } else {
             self.retry_strategy
         };
-        let mut stream = send_completion_request(
-            &self.engine.http_client,
+        let request_client = if prepared_request.force_connection_close {
+            crate::agent::engine::build_fresh_agent_http_client(
+                crate::agent::engine::default_agent_http_read_timeout(),
+            )
+        } else {
+            self.engine.http_client.clone()
+        };
+        let mut stream = crate::agent::llm_client::send_completion_request_with_options(
+            &request_client,
             &self.config.provider,
             &self.provider_config,
             &self.system_prompt,
@@ -152,13 +161,16 @@ impl<'a> SendMessageRunner<'a> {
             prepared_request.previous_response_id.clone(),
             prepared_request.upstream_thread_id.clone(),
             llm_retry_strategy,
+            crate::agent::llm_client::CompletionRequestOptions {
+                force_connection_close: prepared_request.force_connection_close,
+            },
         );
 
         let mut accumulated_content = String::new();
         let mut accumulated_reasoning = String::new();
         let mut final_chunk: Option<CompletionChunk> = None;
         let llm_stream_chunk_timeout = self.stream_chunk_timeout_override.unwrap_or_else(|| {
-            std::time::Duration::from_secs(DEFAULT_LLM_STREAM_CHUNK_TIMEOUT_SECS)
+            std::time::Duration::from_secs(self.config.llm_stream_chunk_timeout_secs)
         });
         let mut stream_timed_out = false;
 
@@ -665,7 +677,7 @@ impl<'a> SendMessageRunner<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::inter_request_delay;
+    use super::{inter_request_delay, DEFAULT_LLM_STREAM_CHUNK_TIMEOUT_SECS};
     use std::time::Duration;
 
     #[test]
@@ -676,5 +688,10 @@ mod tests {
             Some(Duration::from_millis(500))
         );
         assert_eq!(inter_request_delay(2, 0), None);
+    }
+
+    #[test]
+    fn default_stream_chunk_timeout_allows_long_first_token_latency() {
+        assert_eq!(DEFAULT_LLM_STREAM_CHUNK_TIMEOUT_SECS, 300);
     }
 }

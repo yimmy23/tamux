@@ -86,6 +86,8 @@ pub struct AgentConfig {
     pub message_loop_delay_ms: u64,
     #[serde(default = "default_tool_call_delay_ms")]
     pub tool_call_delay_ms: u64,
+    #[serde(default = "default_llm_stream_chunk_timeout_secs")]
+    pub llm_stream_chunk_timeout_secs: u64,
     #[serde(default = "default_auto_retry")]
     pub auto_retry: bool,
     #[serde(default = "default_auto_compact_context")]

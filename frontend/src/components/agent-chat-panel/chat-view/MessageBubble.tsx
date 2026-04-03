@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentMessage } from "../../../lib/agentStore";
+import { parseHandoffSystemEvent } from "./helpers";
 import { MarkdownContent } from "./markdown";
 
 function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
@@ -57,6 +58,10 @@ export function MessageBubble({
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expandedCompaction, setExpandedCompaction] = useState(false);
+  const [expandedHandoff, setExpandedHandoff] = useState(false);
+  const handoffEvent = isSystem && typeof message.content === "string"
+    ? parseHandoffSystemEvent(message.content)
+    : null;
   const displayContent = (() => {
     if (!isUser || typeof message.content !== "string") return message.content;
     if (!message.content.startsWith("[Gateway Context]")) return message.content;
@@ -173,7 +178,44 @@ export function MessageBubble({
           </details>
         )}
 
-        {isTool && message.toolName ? (
+        {handoffEvent ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--agent)", fontWeight: 700 }}>
+              Thread Handoff
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-primary)" }}>
+              {(handoffEvent.from_agent_name ?? "Agent")} {"->"} {(handoffEvent.to_agent_name ?? "Agent")}
+            </div>
+            {handoffEvent.reason && (
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                {handoffEvent.reason}
+              </div>
+            )}
+            {handoffEvent.summary && (
+              <div style={{ display: "grid", gap: 6 }}>
+                <button
+                  onClick={() => setExpandedHandoff((current) => !current)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--glass-border)",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    padding: "4px 8px",
+                    width: "fit-content",
+                  }}
+                >
+                  {expandedHandoff ? "Collapse Summary" : "Expand Summary"}
+                </button>
+                {expandedHandoff && (
+                  <div style={{ padding: "8px", background: "rgba(2, 10, 18, 0.55)", border: "1px solid rgba(120, 168, 209, 0.22)", fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {handoffEvent.summary}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : isTool && message.toolName ? (
           <div style={{ display: "grid", gap: 6 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: "var(--text-xs)", color: "var(--agent)", fontWeight: 700 }}>

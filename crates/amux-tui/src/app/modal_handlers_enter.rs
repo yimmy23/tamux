@@ -46,10 +46,13 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         }
         modal::ModalKind::ThreadPicker => {
             let cursor = model.modal.picker_cursor();
+            let thread_picker_tab = model.modal.thread_picker_tab();
             model.close_top_modal();
             model.input.reduce(input::InputAction::Clear);
             if cursor == 0 {
-                model.start_new_thread_view();
+                model.start_new_thread_view_for_agent(TuiModel::thread_picker_target_agent_id(
+                    thread_picker_tab,
+                ));
                 model.status_line = "New conversation".to_string();
             } else if let Some(thread) =
                 widgets::thread_picker::filtered_threads(&model.chat, &model.modal).get(cursor - 1)

@@ -252,6 +252,62 @@ fn tool_result_updates_status() {
 }
 
 #[test]
+fn reasoning_before_tool_call_attaches_to_final_assistant_reply() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::Reasoning {
+        thread_id: "t1".into(),
+        content: "The operator wants to talk to Weles.".into(),
+    });
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "handoff-call".into(),
+        name: "handoff_thread_agent".into(),
+        args: "{}".into(),
+        weles_review: None,
+    });
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "handoff-call".into(),
+        name: "handoff_thread_agent".into(),
+        content: "done".into(),
+        is_error: false,
+        weles_review: None,
+    });
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "I'm Weles.".into(),
+    });
+    state.reduce(ChatAction::TurnDone {
+        thread_id: "t1".into(),
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: None,
+        provider: None,
+        model: None,
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+    });
+
+    let thread = state.active_thread().expect("thread should exist");
+    let assistant_messages: Vec<&AgentMessage> = thread
+        .messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Assistant)
+        .collect();
+    assert_eq!(assistant_messages.len(), 1);
+    assert_eq!(assistant_messages[0].content, "I'm Weles.");
+    assert_eq!(
+        assistant_messages[0].reasoning.as_deref(),
+        Some("The operator wants to talk to Weles.")
+    );
+}
+
+#[test]
 fn tool_messages_store_weles_review_metadata() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {

@@ -6,13 +6,49 @@ use super::*;
 const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
 const COMPACTION_NOTICE_KIND: &str = "auto-compaction";
 const COMPACTION_EXACT_MESSAGE_MAX: usize = 24;
-const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context for future continuity. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, and important factual state. Return only the compacted carry-forward text as plain text. Do not add markdown fences, headings, or commentary about the compaction process.";
+const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context into a deterministic execution checkpoint for future continuity. Follow the mandatory thread compaction protocol exactly. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, failed paths, and the immediate next step. Return exactly one markdown block matching the required schema. Do not add commentary outside the schema.";
+const COMPACTION_CHECKPOINT_SCHEMA: &str = r#"# 🤖 Agent Context: State Checkpoint
+
+## 🎯 Primary Objective
+> [1-2 sentences strictly defining the end goal.]
+
+## 🗺️ Execution Map
+* **✅ Completed Phase:** [...]
+* **⏳ Current Phase:** [...]
+* **⏭️ Pending Phases:** [...]
+
+## 📁 Working Environment State
+* **Active Directory:** `...`
+* **Files Modified (Uncommitted/Pending):**
+    * `...` - (...)
+* **Read-Only Context Files:**
+    * `...` - (...)
+
+## 🧠 Acquired Knowledge & Constraints
+* [...]
+
+## 🚫 Dead Ends & Resolved Errors
+* **Failed:** [...]
+    * *Resolution:* [...]
+
+## 🛠️ Recent Action Summary (Last 3-5 Turns)
+1.  `tool_or_step(...)` -> [...]
+
+## 🎯 Immediate Next Step
+[Strict single-action instruction]
+"#;
+const COMPACTION_UNKNOWN_DIRECTORY: &str = "unknown (not captured in older context)";
+const COMPACTION_NO_FILES_CAPTURED: &str = "* `none` - (No explicit file edits were captured in the compacted slice.)\n";
+const COMPACTION_NO_READONLY_CAPTURED: &str =
+    "* `none` - (No explicit reference files were captured in the compacted slice.)\n";
+const COMPACTION_NO_DEAD_ENDS_CAPTURED: &str = "* **Failed:** No earlier failed path was preserved in this compacted slice.\n    * *Resolution:* Continue from the retained recent context instead of re-expanding discarded history.\n";
 
 pub(super) struct PreparedLlmRequest {
     pub messages: Vec<ApiMessage>,
     pub transport: ApiTransport,
     pub previous_response_id: Option<String>,
     pub upstream_thread_id: Option<String>,
+    pub force_connection_close: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +144,7 @@ pub(super) fn prepare_llm_request(
                 } else {
                     None
                 },
+                force_connection_close: false,
             };
         }
     }
@@ -156,6 +193,7 @@ pub(super) fn prepare_llm_request(
                 transport: ApiTransport::Responses,
                 previous_response_id,
                 upstream_thread_id: None,
+                force_connection_close: false,
             };
         }
 
@@ -164,6 +202,7 @@ pub(super) fn prepare_llm_request(
             transport: ApiTransport::Responses,
             previous_response_id: None,
             upstream_thread_id: None,
+            force_connection_close: false,
         };
     }
 
@@ -172,6 +211,7 @@ pub(super) fn prepare_llm_request(
         transport: ApiTransport::ChatCompletions,
         previous_response_id: None,
         upstream_thread_id: None,
+        force_connection_close: false,
     }
 }
 
@@ -382,23 +422,39 @@ pub(super) fn build_compaction_summary(messages: &[AgentMessage], target_tokens:
         return String::new();
     }
 
-    let max_chars = (target_tokens / 8)
+    let max_chars = (target_tokens / 4)
         .saturating_mul(APPROX_CHARS_PER_TOKEN)
-        .clamp(512, 4096);
-    let mut summary = String::from(
-        "[Compacted earlier context]\nSummary of older messages retained for continuity:\n",
+        .clamp(4096, 8192);
+    let primary_objective = checkpoint_primary_objective(messages);
+    let completed_phase = checkpoint_completed_phase(messages);
+    let current_phase = checkpoint_current_phase(messages);
+    let pending_phases = checkpoint_pending_phases(messages);
+    let active_directory = checkpoint_active_directory(messages)
+        .unwrap_or_else(|| COMPACTION_UNKNOWN_DIRECTORY.to_string());
+    let files_modified = checkpoint_files_modified(messages);
+    let read_only_context = checkpoint_read_only_context(messages);
+    let acquired_knowledge = checkpoint_acquired_knowledge(messages);
+    let dead_ends = checkpoint_dead_ends(messages);
+    let recent_actions = checkpoint_recent_actions(messages);
+    let immediate_next_step = checkpoint_immediate_next_step(messages);
+
+    let mut summary = format!(
+        "# 🤖 Agent Context: State Checkpoint\n\n## 🎯 Primary Objective\n> {}\n\n## 🗺️ Execution Map\n* **✅ Completed Phase:** {}\n* **⏳ Current Phase:** {}\n* **⏭️ Pending Phases:** {}\n\n## 📁 Working Environment State\n* **Active Directory:** `{}`\n* **Files Modified (Uncommitted/Pending):**\n{}* **Read-Only Context Files:**\n{}## 🧠 Acquired Knowledge & Constraints\n{}## 🚫 Dead Ends & Resolved Errors\n{}## 🛠️ Recent Action Summary (Last 3-5 Turns)\n{}\n## 🎯 Immediate Next Step\n{}\n",
+        primary_objective,
+        completed_phase,
+        current_phase,
+        pending_phases,
+        active_directory,
+        files_modified,
+        read_only_context,
+        acquired_knowledge,
+        dead_ends,
+        recent_actions,
+        immediate_next_step,
     );
 
-    for (index, message) in messages.iter().enumerate() {
-        let line = format!("- {}\n", summarize_compacted_message(message));
-        if summary.len() + line.len() > max_chars {
-            let omitted = messages.len().saturating_sub(index);
-            if omitted > 0 {
-                summary.push_str(&format!("- ... {} earlier messages omitted\n", omitted));
-            }
-            break;
-        }
-        summary.push_str(&line);
+    if summary.len() > max_chars {
+        summary.truncate(max_chars);
     }
 
     summary
@@ -448,6 +504,293 @@ fn summarize_compacted_message(message: &AgentMessage) -> String {
     } else {
         format!("{role} [{details}]: {content}")
     }
+}
+
+fn checkpoint_primary_objective(messages: &[AgentMessage]) -> String {
+    let first_user = messages
+        .iter()
+        .find(|message| message.role == MessageRole::User)
+        .map(|message| super::goal_parsing::summarize_text(compaction_runtime_content(message), 180));
+    let latest_user = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::User)
+        .map(|message| super::goal_parsing::summarize_text(compaction_runtime_content(message), 180));
+
+    match (first_user, latest_user) {
+        (Some(first), Some(latest)) if first != latest => {
+            format!("{} Latest carried-forward ask: {}", first, latest)
+        }
+        (Some(first), _) => first,
+        (_, Some(latest)) => latest,
+        _ => "Continue the active workstream using the retained recent context and preserved checkpoint facts.".to_string(),
+    }
+}
+
+fn checkpoint_completed_phase(messages: &[AgentMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|message| message.role != MessageRole::User)
+        .map(|message| format!("Captured prior progress: {}", summarize_compacted_message(message)))
+        .unwrap_or_else(|| "Captured the earlier slice of conversation so the active work can continue without replaying raw history.".to_string())
+}
+
+fn checkpoint_current_phase(messages: &[AgentMessage]) -> String {
+    messages
+        .last()
+        .map(|message| match message.role {
+            MessageRole::User => format!(
+                "Resume from the latest carried-forward user request: {}",
+                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+            ),
+            MessageRole::Assistant => format!(
+                "Continue from the latest assistant state: {}",
+                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+            ),
+            MessageRole::Tool => format!(
+                "Continue after the last tool outcome: {}",
+                summarize_compacted_message(message)
+            ),
+            MessageRole::System => format!(
+                "Honor the preserved system guidance: {}",
+                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+            ),
+        })
+        .unwrap_or_else(|| {
+            "Resume execution from the retained recent context without replaying the discarded raw history.".to_string()
+        })
+}
+
+fn checkpoint_pending_phases(messages: &[AgentMessage]) -> String {
+    let latest_user = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::User)
+        .map(|message| super::goal_parsing::summarize_text(compaction_runtime_content(message), 140));
+    match latest_user {
+        Some(latest_user) => format!(
+            "Continue the active request, validate the affected slice, and close any unresolved risks around: {}",
+            latest_user
+        ),
+        None => "Continue the active task, validate the affected slice, and surface any unresolved risks before expanding scope.".to_string(),
+    }
+}
+
+fn checkpoint_active_directory(messages: &[AgentMessage]) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .find_map(|message| extract_labeled_path(compaction_runtime_content(message)))
+}
+
+fn checkpoint_files_modified(messages: &[AgentMessage]) -> String {
+    let files = collect_context_paths(messages, true);
+    if files.is_empty() {
+        return COMPACTION_NO_FILES_CAPTURED.to_string();
+    }
+
+    files
+        .into_iter()
+        .map(|file| format!("* `{file}` - (Referenced as part of the active compacted work.)\n"))
+        .collect()
+}
+
+fn checkpoint_read_only_context(messages: &[AgentMessage]) -> String {
+    let files = collect_context_paths(messages, false);
+    if files.is_empty() {
+        return COMPACTION_NO_READONLY_CAPTURED.to_string();
+    }
+
+    files
+        .into_iter()
+        .map(|file| format!("* `{file}` - (Context referenced in the compacted history.)\n"))
+        .collect()
+}
+
+fn checkpoint_acquired_knowledge(messages: &[AgentMessage]) -> String {
+    let items = messages
+        .iter()
+        .filter(|message| message.role != MessageRole::System)
+        .map(|message| summarize_compacted_message(message))
+        .filter(|summary| !summary.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    unique_bullets(
+        &items,
+        4,
+        "Continue from the retained recent context; no additional older constraints were preserved in this slice.",
+    )
+}
+
+fn checkpoint_dead_ends(messages: &[AgentMessage]) -> String {
+    let dead_ends = messages
+        .iter()
+        .filter_map(|message| {
+            let content = compaction_runtime_content(message);
+            let lowered = content.to_ascii_lowercase();
+            let is_failure = lowered.contains("error")
+                || lowered.contains("failed")
+                || lowered.contains("timeout")
+                || lowered.contains("blocked")
+                || lowered.contains("unsupported");
+            is_failure.then(|| {
+                format!(
+                    "* **Failed:** {}\n    * *Resolution:* Preserve the failure and avoid replaying the discarded path without new evidence.\n",
+                    summarize_compacted_message(message)
+                )
+            })
+        })
+        .take(3)
+        .collect::<String>();
+
+    if dead_ends.is_empty() {
+        COMPACTION_NO_DEAD_ENDS_CAPTURED.to_string()
+    } else {
+        dead_ends
+    }
+}
+
+fn checkpoint_recent_actions(messages: &[AgentMessage]) -> String {
+    let actions = messages
+        .iter()
+        .rev()
+        .take(5)
+        .collect::<Vec<_>>();
+    let mut ordered = actions;
+    ordered.reverse();
+
+    ordered
+        .into_iter()
+        .enumerate()
+        .map(|(index, message)| {
+            let action = match message.role {
+                MessageRole::Tool => format!(
+                    "{}({})",
+                    message.tool_name.as_deref().unwrap_or("tool"),
+                    super::goal_parsing::summarize_text(
+                        message.tool_arguments.as_deref().unwrap_or("{}"),
+                        80,
+                    )
+                ),
+                MessageRole::Assistant => "assistant_step(...)".to_string(),
+                MessageRole::User => "user_request(...)".to_string(),
+                MessageRole::System => "system_context(...)".to_string(),
+            };
+            format!(
+                "{}. `{}` -> {}\n",
+                index + 1,
+                action,
+                summarize_compacted_message(message)
+            )
+        })
+        .collect()
+}
+
+fn checkpoint_immediate_next_step(messages: &[AgentMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::User)
+        .map(|message| {
+            format!(
+                "Answer the latest carried-forward user request: {}",
+                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+            )
+        })
+        .unwrap_or_else(|| {
+            "Read the retained recent messages and continue the active task without replaying discarded history.".to_string()
+        })
+}
+
+fn unique_bullets(items: &[String], max_items: usize, fallback: &str) -> String {
+    let mut deduped = Vec::new();
+    for item in items {
+        if deduped.iter().any(|existing: &String| existing == item) {
+            continue;
+        }
+        deduped.push(item.clone());
+        if deduped.len() >= max_items {
+            break;
+        }
+    }
+
+    if deduped.is_empty() {
+        return format!("* {}\n", fallback);
+    }
+
+    deduped
+        .into_iter()
+        .map(|item| format!("* {}\n", item))
+        .collect()
+}
+
+fn collect_context_paths(messages: &[AgentMessage], prefer_modified: bool) -> Vec<String> {
+    let mut paths = Vec::new();
+    for message in messages {
+        let content = compaction_runtime_content(message);
+        if let Some(path) = extract_labeled_path(content) {
+            if !paths.iter().any(|existing| existing == &path) {
+                paths.push(path);
+            }
+        }
+
+        let tool_name = message.tool_name.as_deref().unwrap_or_default();
+        let modified_tool = matches!(
+            tool_name,
+            "write_file" | "create_file" | "apply_patch" | "rename" | "delete"
+        );
+        if modified_tool != prefer_modified {
+            continue;
+        }
+        if let Some(path) = extract_path_token(message.tool_arguments.as_deref().unwrap_or_default())
+        {
+            if !paths.iter().any(|existing| existing == &path) {
+                paths.push(path);
+            }
+        }
+        if paths.len() >= 3 {
+            break;
+        }
+    }
+    paths
+}
+
+fn extract_labeled_path(text: &str) -> Option<String> {
+    for label in [
+        "Working directory:",
+        "working directory:",
+        "Active Directory:",
+        "active directory:",
+        "Dir:",
+        "dir:",
+        "Cwd:",
+        "cwd:",
+    ] {
+        if let Some(index) = text.find(label) {
+            let remainder = text[index + label.len()..].trim_start();
+            if let Some(path) = extract_path_token(remainder) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+fn extract_path_token(text: &str) -> Option<String> {
+    let trimmed = text.trim_start();
+    let trimmed = trimmed.strip_prefix('`').unwrap_or(trimmed);
+    let mut path = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_whitespace() || matches!(ch, ',' | ';' | ')' | ']' | '|' | '*') {
+            break;
+        }
+        path.push(ch);
+    }
+    let path = path
+        .trim_matches(|ch| matches!(ch, '`' | '"' | '\''))
+        .to_string();
+    path.starts_with('/').then_some(path)
 }
 
 fn select_compaction_transport(
@@ -505,8 +848,10 @@ fn build_llm_compaction_messages(
     api_messages.push(ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Text(
-            "Compress the supplied older context into a concise carry-forward note. Preserve requests, constraints, decisions, tool outcomes, errors worth remembering, and any unresolved next steps. Return only the compacted text."
-                .to_string(),
+            format!(
+                "Follow the mandatory thread-compaction protocol and return exactly one markdown checkpoint block matching this schema:\n\n{}\n\nCompress the supplied older context into that checkpoint. Preserve requests, constraints, decisions, tool outcomes, errors worth remembering, and any unresolved next steps.",
+                COMPACTION_CHECKPOINT_SCHEMA
+            ),
         ),
         tool_call_id: None,
         name: None,

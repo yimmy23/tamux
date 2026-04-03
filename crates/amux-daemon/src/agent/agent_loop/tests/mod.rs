@@ -14,6 +14,62 @@ mod part2;
 mod part3;
 mod part4;
 
+fn http_request_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn parse_content_length(headers: &str) -> Option<usize> {
+    headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim()
+            .eq_ignore_ascii_case("content-length")
+            .then(|| value.trim().parse::<usize>().ok())
+            .flatten()
+    })
+}
+
+async fn read_http_request(socket: &mut tokio::net::TcpStream, context: &str) -> String {
+    let mut buffer = Vec::new();
+    let mut chunk = vec![0u8; 8192];
+    let mut expected_body_len = None::<usize>;
+    let mut header_end = None::<usize>;
+
+    loop {
+        let read = socket.read(&mut chunk).await.unwrap_or_else(|error| {
+            panic!("read {context}: {error}");
+        });
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+
+        if header_end.is_none() {
+            header_end = http_request_header_end(&buffer);
+            if let Some(end) = header_end {
+                let headers = String::from_utf8_lossy(&buffer[..end]);
+                expected_body_len = parse_content_length(&headers);
+            }
+        }
+
+        if let Some(end) = header_end {
+            let body_len = buffer.len().saturating_sub(end + 4);
+            if expected_body_len.is_none_or(|expected| body_len >= expected) {
+                break;
+            }
+        }
+    }
+
+    String::from_utf8_lossy(&buffer).to_string()
+}
+
+fn request_body(request: &str) -> String {
+    request
+        .split("\r\n\r\n")
+        .nth(1)
+        .unwrap_or_default()
+        .to_string()
+}
+
 async fn spawn_tool_call_server() -> String {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -66,17 +122,8 @@ async fn spawn_recording_assistant_server(
             };
             let recorded_bodies = recorded_bodies.clone();
             tokio::spawn(async move {
-                let mut buffer = vec![0u8; 65536];
-                let read = socket
-                    .read(&mut buffer)
-                    .await
-                    .expect("read recording assistant request");
-                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
-                let body = request
-                    .split("\r\n\r\n")
-                    .nth(1)
-                    .unwrap_or_default()
-                    .to_string();
+                let request = read_http_request(&mut socket, "recording assistant request").await;
+                let body = request_body(&request);
                 recorded_bodies
                     .lock()
                     .expect("lock recorded assistant request log")
@@ -96,6 +143,50 @@ async fn spawn_recording_assistant_server(
                     .write_all(response.as_bytes())
                     .await
                     .expect("write recording assistant response");
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
+}
+
+async fn spawn_recording_request_server(
+    recorded_requests: Arc<StdMutex<VecDeque<String>>>,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind recording request server");
+    let addr = listener
+        .local_addr()
+        .expect("recording request server local addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let recorded_requests = recorded_requests.clone();
+            tokio::spawn(async move {
+                let request = read_http_request(&mut socket, "recording request").await;
+                recorded_requests
+                    .lock()
+                    .expect("lock recorded requests")
+                    .push_back(request);
+
+                let response = concat!(
+                    "HTTP/1.1 200 OK\r\n",
+                    "content-type: text/event-stream\r\n",
+                    "cache-control: no-cache\r\n",
+                    "connection: close\r\n",
+                    "\r\n",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"Acknowledged.\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write recording request response");
             });
         }
     });
@@ -124,17 +215,8 @@ async fn spawn_policy_pivot_tool_call_server(
             let assistant_turns = assistant_turns.clone();
             let readable_path = readable_path.clone();
             tokio::spawn(async move {
-                let mut buffer = vec![0u8; 65536];
-                let read = socket
-                    .read(&mut buffer)
-                    .await
-                    .expect("read policy pivot tool request");
-                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
-                let body = request
-                    .split("\r\n\r\n")
-                    .nth(1)
-                    .unwrap_or_default()
-                    .to_string();
+                let request = read_http_request(&mut socket, "policy pivot tool request").await;
+                let body = request_body(&request);
                 recorded_bodies
                     .lock()
                     .expect("lock policy pivot request log")
@@ -337,17 +419,9 @@ async fn spawn_anthropic_rebuild_sensitive_retry_server(
             };
             let recorded_bodies = recorded_bodies.clone();
             tokio::spawn(async move {
-                let mut buffer = vec![0u8; 65536];
-                let read = socket
-                    .read(&mut buffer)
-                    .await
-                    .expect("read anthropic fresh retry request");
-                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
-                let body = request
-                    .split("\r\n\r\n")
-                    .nth(1)
-                    .unwrap_or_default()
-                    .to_string();
+                let request =
+                    read_http_request(&mut socket, "anthropic fresh retry request").await;
+                let body = request_body(&request);
                 recorded_bodies
                     .lock()
                     .expect("lock recorded anthropic bodies")

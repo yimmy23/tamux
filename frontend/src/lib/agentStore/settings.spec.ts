@@ -26,3 +26,17 @@ assert(
   normalized.weles_max_concurrent_reviews === 6,
   "Settings normalization should read builtin WELES concurrency overrides",
 );
+
+assert(
+  DEFAULT_AGENT_SETTINGS.llm_stream_chunk_timeout_secs === 300,
+  "Default LLM stream chunk timeout should be 300 seconds",
+);
+
+const normalizedTimeout = normalizeAgentSettingsFromSource({
+  llm_stream_chunk_timeout_secs: 420,
+});
+
+assert(
+  normalizedTimeout.llm_stream_chunk_timeout_secs === 420,
+  "Settings normalization should preserve LLM stream chunk timeout overrides",
+);

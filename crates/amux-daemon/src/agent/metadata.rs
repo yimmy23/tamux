@@ -22,6 +22,7 @@ pub(super) struct ParsedThreadMetadata {
     pub upstream_provider: Option<String>,
     pub upstream_model: Option<String>,
     pub upstream_assistant_id: Option<String>,
+    pub handoff_state: Option<ThreadHandoffState>,
 }
 
 pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessageMetadata {
@@ -104,6 +105,33 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
         upstream_provider: get_str("upstream_provider"),
         upstream_model: get_str("upstream_model"),
         upstream_assistant_id: get_str("upstream_assistant_id"),
+        handoff_state: metadata.as_ref().and_then(|value| {
+            let origin_agent_id = value
+                .get("origin_agent_id")
+                .and_then(|entry| entry.as_str())
+                .map(ToOwned::to_owned)?;
+            let active_agent_id = value
+                .get("active_agent_id")
+                .and_then(|entry| entry.as_str())
+                .map(ToOwned::to_owned)?;
+            Some(ThreadHandoffState {
+                origin_agent_id,
+                active_agent_id,
+                responder_stack: value
+                    .get("handoff_stack")
+                    .and_then(|entry| {
+                        serde_json::from_value::<Vec<ThreadResponderFrame>>(entry.clone()).ok()
+                    })
+                    .unwrap_or_default(),
+                events: value
+                    .get("handoff_events")
+                    .and_then(|entry| {
+                        serde_json::from_value::<Vec<ThreadHandoffEvent>>(entry.clone()).ok()
+                    })
+                    .unwrap_or_default(),
+                pending_approval_id: get_str("pending_handoff_approval_id"),
+            })
+        }),
     }
 }
 
@@ -128,6 +156,7 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
 pub(super) fn build_thread_metadata_json(
     thread: &AgentThread,
     client_surface: Option<amux_protocol::ClientSurface>,
+    handoff_state: Option<&ThreadHandoffState>,
 ) -> Option<String> {
     serde_json::to_string(&serde_json::json!({
         "client_surface": client_surface,
@@ -142,6 +171,11 @@ pub(super) fn build_thread_metadata_json(
         "upstreamModel": thread.upstream_model,
         "upstream_assistant_id": thread.upstream_assistant_id,
         "upstreamAssistantId": thread.upstream_assistant_id,
+        "origin_agent_id": handoff_state.map(|state| state.origin_agent_id.clone()),
+        "active_agent_id": handoff_state.map(|state| state.active_agent_id.clone()),
+        "handoff_stack": handoff_state.map(|state| state.responder_stack.clone()),
+        "handoff_events": handoff_state.map(|state| state.events.clone()),
+        "pending_handoff_approval_id": handoff_state.and_then(|state| state.pending_approval_id.clone()),
     }))
     .ok()
 }

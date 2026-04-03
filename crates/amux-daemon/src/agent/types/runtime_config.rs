@@ -73,6 +73,9 @@ fn default_message_loop_delay_ms() -> u64 {
 fn default_tool_call_delay_ms() -> u64 {
     500
 }
+fn default_llm_stream_chunk_timeout_secs() -> u64 {
+    300
+}
 fn default_auto_retry() -> bool {
     true
 }
@@ -164,6 +167,7 @@ impl Default for AgentConfig {
             retry_delay_ms: default_retry_delay_ms(),
             message_loop_delay_ms: default_message_loop_delay_ms(),
             tool_call_delay_ms: default_tool_call_delay_ms(),
+            llm_stream_chunk_timeout_secs: default_llm_stream_chunk_timeout_secs(),
             auto_retry: default_auto_retry(),
             auto_compact_context: default_auto_compact_context(),
             max_context_messages: default_max_context_messages(),

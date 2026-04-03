@@ -140,6 +140,7 @@ async fn persisted_weles_internal_task_keeps_runtime_path_without_serializing_hi
             "thread-restart".to_string(),
             crate::agent::types::AgentThread {
                 id: "thread-restart".to_string(),
+                agent_name: None,
                 title: "restart thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("Inspect tool", 1)],
                 pinned: false,
@@ -373,6 +374,27 @@ fn weles_classifier_allows_default_discord_route_but_guards_explicit_message_tar
         .reasons
         .iter()
         .any(|reason: &String| reason.contains("explicit") || reason.contains("target")));
+}
+
+#[test]
+fn weles_classifier_only_flags_standalone_broadcast_mentions() {
+    let broadcast = crate::agent::weles_governance::classify_tool_call(
+        "send_discord_message",
+        &serde_json::json!({ "message": "Heads up @everyone please review" }),
+    );
+    assert!(broadcast
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("broadcast-style mention")));
+
+    let email_like = crate::agent::weles_governance::classify_tool_call(
+        "send_discord_message",
+        &serde_json::json!({ "message": "Contact ops@here.example for help" }),
+    );
+    assert!(!email_like
+        .reasons
+        .iter()
+        .any(|reason: &String| reason.contains("broadcast-style mention")));
 }
 
 #[test]

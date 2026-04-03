@@ -100,6 +100,11 @@ pub(crate) fn compute_retry_delay_ms_for_attempt(base_delay_ms: u64, attempt: u3
         .min(MAX_RETRY_DELAY_MS)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct CompletionRequestOptions {
+    pub force_connection_close: bool,
+}
+
 /// Send a completion request. Returns a stream of `CompletionChunk`.
 pub fn send_completion_request(
     client: &reqwest::Client,
@@ -113,6 +118,34 @@ pub fn send_completion_request(
     upstream_thread_id: Option<String>,
     retry_strategy: RetryStrategy,
 ) -> CompletionStream {
+    send_completion_request_with_options(
+        client,
+        provider,
+        config,
+        system_prompt,
+        messages,
+        tools,
+        transport,
+        previous_response_id,
+        upstream_thread_id,
+        retry_strategy,
+        CompletionRequestOptions::default(),
+    )
+}
+
+pub fn send_completion_request_with_options(
+    client: &reqwest::Client,
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    transport: ApiTransport,
+    previous_response_id: Option<String>,
+    upstream_thread_id: Option<String>,
+    retry_strategy: RetryStrategy,
+    options: CompletionRequestOptions,
+) -> CompletionStream {
     let (tx, rx) = mpsc::channel(64);
     let client = client.clone();
     let provider = provider.to_string();
@@ -122,6 +155,7 @@ pub fn send_completion_request(
     let tools = tools.to_vec();
     let previous_response_id = previous_response_id.clone();
     let upstream_thread_id = upstream_thread_id.clone();
+    let options = options;
 
     tokio::spawn(async move {
         let mut retry_attempt = 0u32;
@@ -153,6 +187,7 @@ pub fn send_completion_request(
                     &system_prompt,
                     &messages,
                     &tools,
+                    options.force_connection_close,
                     &tx,
                 )
                 .await
@@ -165,6 +200,7 @@ pub fn send_completion_request(
                             &config,
                             &messages,
                             upstream_thread_id.as_deref(),
+                            options.force_connection_close,
                             &tx,
                         )
                         .await
@@ -177,6 +213,7 @@ pub fn send_completion_request(
                             &system_prompt,
                             &messages,
                             &tools,
+                            options.force_connection_close,
                             &tx,
                         )
                         .await
@@ -190,6 +227,7 @@ pub fn send_completion_request(
                             &messages,
                             &tools,
                             previous_response_id.as_deref(),
+                            options.force_connection_close,
                             &tx,
                         )
                         .await

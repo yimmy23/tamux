@@ -51,6 +51,7 @@ pub(super) const DEFAULT_WELES_TOOL_WHITELIST: &[&str] = &[
     "list_subagents",
     "read_active_terminal_content",
     "message_agent",
+    "handoff_thread_agent",
 ];
 
 pub(super) fn is_reserved_builtin_sub_agent_id(id: &str) -> bool {

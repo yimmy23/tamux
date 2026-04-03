@@ -502,6 +502,109 @@ async fn execute_get_divergent_session(
     }
 }
 
+async fn execute_handoff_thread_agent(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+) -> Result<(String, Option<ToolPendingApproval>)> {
+    if thread_id.trim().is_empty() {
+        anyhow::bail!("handoff_thread_agent requires a thread context");
+    }
+
+    let action = args
+        .get("action")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'action' argument"))?;
+    let reason = args
+        .get("reason")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'reason' argument"))?;
+    let summary = args
+        .get("summary")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'summary' argument"))?;
+    let requested_by = match args
+        .get("requested_by")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .unwrap_or("agent")
+    {
+        "user" => crate::agent::ThreadHandoffRequestedBy::User,
+        "agent" => crate::agent::ThreadHandoffRequestedBy::Agent,
+        other => anyhow::bail!("invalid 'requested_by' argument: {other}"),
+    };
+
+    let request = match action {
+        "push_handoff" => crate::agent::PendingThreadHandoffActivation {
+            thread_id: thread_id.to_string(),
+            kind: crate::agent::ThreadHandoffKind::Push,
+            target_agent_id: Some(
+                args.get("target_agent_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("push_handoff requires 'target_agent_id'"))?
+                    .to_string(),
+            ),
+            requested_by,
+            reason: reason.to_string(),
+            summary: summary.to_string(),
+        },
+        "return_handoff" => crate::agent::PendingThreadHandoffActivation {
+            thread_id: thread_id.to_string(),
+            kind: crate::agent::ThreadHandoffKind::Return,
+            target_agent_id: None,
+            requested_by,
+            reason: reason.to_string(),
+            summary: summary.to_string(),
+        },
+        other => anyhow::bail!("unsupported handoff action: {other}"),
+    };
+
+    let requires_approval = matches!(
+        (request.kind, request.requested_by),
+        (
+            crate::agent::ThreadHandoffKind::Push,
+            crate::agent::ThreadHandoffRequestedBy::Agent
+        )
+    ) && !matches!(
+        agent.config.read().await.managed_execution.security_level,
+        SecurityLevel::Yolo
+    );
+
+    if requires_approval {
+        let pending_approval = agent.thread_handoff_pending_approval(&request, "medium")?;
+        agent
+            .queue_thread_handoff_approval(&request, &pending_approval)
+            .await?;
+        let target_name = request
+            .target_agent_id
+            .as_deref()
+            .map(canonical_agent_name)
+            .unwrap_or(MAIN_AGENT_NAME);
+        return Ok((
+            format!("Queued operator approval to hand off this thread to {target_name}."),
+            Some(pending_approval),
+        ));
+    }
+
+    let event = agent.apply_thread_handoff_activation(&request, None).await?;
+    Ok((
+        format!(
+            "Thread handoff complete: {} -> {}.",
+            canonical_agent_name(&event.from_agent_id),
+            canonical_agent_name(&event.to_agent_id)
+        ),
+        None,
+    ))
+}
+
 async fn execute_message_agent(
     args: &serde_json::Value,
     agent: &AgentEngine,

@@ -1,4 +1,15 @@
 impl TuiModel {
+    pub(super) fn thread_picker_target_agent_id(
+        tab: modal::ThreadPickerTab,
+    ) -> Option<&'static str> {
+        match tab {
+            modal::ThreadPickerTab::Swarog => Some(amux_protocol::AGENT_ID_SWAROG),
+            modal::ThreadPickerTab::Rarog => Some(amux_protocol::AGENT_ID_RAROG),
+            modal::ThreadPickerTab::Weles => Some("weles"),
+            modal::ThreadPickerTab::Internal => None,
+        }
+    }
+
     fn cleanup_concierge_on_navigate(&mut self) {
         if !self.concierge.auto_cleanup_on_navigate {
             return;
@@ -27,6 +38,7 @@ impl TuiModel {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.pending_new_thread_target_agent = None;
         self.chat
             .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
@@ -35,9 +47,14 @@ impl TuiModel {
     }
 
     fn start_new_thread_view(&mut self) {
+        self.start_new_thread_view_for_agent(None);
+    }
+
+    fn start_new_thread_view_for_agent(&mut self, target_agent_id: Option<&str>) {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
+        self.pending_new_thread_target_agent = target_agent_id.map(str::to_string);
         self.chat.reduce(chat::ChatAction::NewThread);
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Input;

@@ -64,10 +64,12 @@ mod skill_evolution;
 mod skill_preflight;
 pub(crate) mod skill_registry;
 mod skill_security;
+mod stalled_turns;
 mod system_prompt;
 mod task_crud;
 mod task_prompt;
 mod task_scheduler;
+mod thread_handoffs;
 mod thread_crud;
 mod tool_synthesis;
 pub(crate) mod weles_governance;
@@ -113,6 +115,7 @@ use runtime_continuity::*;
 use system_prompt::*;
 use task_prompt::*;
 use task_scheduler::*;
+use thread_handoffs::*;
 
 // Imports needed by child modules via `use super::*;`.
 use std::collections::{HashMap, HashSet, VecDeque};

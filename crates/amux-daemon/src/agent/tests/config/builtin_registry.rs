@@ -122,6 +122,7 @@ async fn list_sub_agents_always_includes_weles_builtin_with_main_defaults() {
                 "list_subagents".to_string(),
                 "read_active_terminal_content".to_string(),
                 "message_agent".to_string(),
+                "handoff_thread_agent".to_string(),
             ][..]
         )
     );

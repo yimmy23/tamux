@@ -85,6 +85,7 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.retry_delay_ms = 9_000;
     model.config.message_loop_delay_ms = 250;
     model.config.tool_call_delay_ms = 750;
+    model.config.llm_stream_chunk_timeout_secs = 420;
     model.config.auto_retry = false;
     model.config.context_budget_tokens = 222_000;
     model.config.compact_threshold_pct = 91;
@@ -145,6 +146,7 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     assert_eq!(json["retry_delay_ms"], 9000);
     assert_eq!(json["message_loop_delay_ms"], 250);
     assert_eq!(json["tool_call_delay_ms"], 750);
+    assert_eq!(json["llm_stream_chunk_timeout_secs"], 420);
     assert_eq!(json["auto_retry"], false);
     assert_eq!(json["context_budget_tokens"], 222000);
     assert_eq!(json["compact_threshold_pct"], 91);
@@ -228,6 +230,7 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     model.config.retry_delay_ms = 9_000;
     model.config.message_loop_delay_ms = 250;
     model.config.tool_call_delay_ms = 750;
+    model.config.llm_stream_chunk_timeout_secs = 420;
     model.config.auto_retry = false;
     model.config.context_budget_tokens = 222_000;
     model.config.compact_threshold_pct = 91;
@@ -326,6 +329,7 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     assert_eq!(reloaded.config.retry_delay_ms, 9_000);
     assert_eq!(reloaded.config.message_loop_delay_ms, 250);
     assert_eq!(reloaded.config.tool_call_delay_ms, 750);
+    assert_eq!(reloaded.config.llm_stream_chunk_timeout_secs, 420);
     assert_eq!(reloaded.config.auto_retry, false);
     assert_eq!(reloaded.config.context_budget_tokens, 222_000);
     assert_eq!(reloaded.config.compact_threshold_pct, 91);

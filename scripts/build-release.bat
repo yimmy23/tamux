@@ -80,6 +80,8 @@ REM Copy daemon + CLI into frontend/dist for Electron bundling
 copy /Y "%OUT_DIR%\tamux-daemon.exe" "%PROJECT_ROOT%\frontend\dist\" >nul
 copy /Y "%OUT_DIR%\tamux.exe"        "%PROJECT_ROOT%\frontend\dist\" >nul
 copy /Y "%OUT_DIR%\tamux-tui.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
+copy /Y "%OUT_DIR%\tamux-mcp.exe"    "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
+copy /Y "%OUT_DIR%\tamux-gateway.exe" "%PROJECT_ROOT%\frontend\dist\" >nul 2>nul
 if exist "%PROJECT_ROOT%\docs\getting-started.md" (
     copy /Y "%PROJECT_ROOT%\docs\getting-started.md" "%OUT_DIR%\GETTING_STARTED.md" >nul
     copy /Y "%PROJECT_ROOT%\docs\getting-started.md" "%PROJECT_ROOT%\frontend\dist\GETTING_STARTED.md" >nul

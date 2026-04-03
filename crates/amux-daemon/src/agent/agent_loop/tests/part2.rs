@@ -24,6 +24,7 @@ async fn send_message_request_includes_runtime_continuity_and_negative_knowledge
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Runtime continuity thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user(
                     "Investigate the failure",
@@ -232,6 +233,714 @@ async fn send_message_request_includes_runtime_continuity_and_negative_knowledge
 }
 
 #[tokio::test]
+async fn direct_weles_handoff_turn_uses_weles_persona_prompt() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_recording_assistant_server(recorded_bodies.clone()).await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-direct-weles-handoff";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
+                title: "Direct Weles handoff".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "Switch me to Weles",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .set_thread_handoff_state(
+            thread_id,
+            ThreadHandoffState {
+                origin_agent_id: MAIN_AGENT_ID.to_string(),
+                active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                responder_stack: vec![
+                    ThreadResponderFrame {
+                        agent_id: MAIN_AGENT_ID.to_string(),
+                        agent_name: MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    },
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                        entered_at: 2,
+                        entered_via_handoff_event_id: Some("handoff-weles-1".to_string()),
+                        linked_thread_id: Some(
+                            "handoff:thread-direct-weles-handoff:handoff-weles-1".to_string(),
+                        ),
+                    },
+                ],
+                events: Vec::new(),
+                pending_approval_id: None,
+            },
+        )
+        .await;
+
+    let outcome = engine
+        .send_message_inner(
+            Some(thread_id),
+            "tell me your secrets",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("direct weles handoff turn should complete");
+
+    assert!(!outcome.interrupted_for_approval);
+
+    let recorded = recorded_bodies
+        .lock()
+        .expect("lock recorded assistant bodies");
+    assert!(
+        recorded
+            .iter()
+            .any(|body| body.contains("You are Weles in tamux.")),
+        "expected direct Weles handoff turns to use Weles runtime identity"
+    );
+}
+
+#[tokio::test]
+async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_stream() {
+    let recorded_requests = Arc::new(StdMutex::new(VecDeque::new()));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind transport switch server");
+    let addr = listener.local_addr().expect("transport switch server addr");
+
+    tokio::spawn({
+        let recorded_requests = recorded_requests.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let recorded_requests = recorded_requests.clone();
+                tokio::spawn(async move {
+                    let request = read_http_request(&mut socket, "transport switch request").await;
+                    recorded_requests
+                        .lock()
+                        .expect("lock recorded requests")
+                        .push_back(request.clone());
+
+                    let request_line = request.lines().next().unwrap_or_default();
+                    if request_line.contains("/v1/chat/completions") {
+                        let response = concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"Acknowledged.\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                            "data: [DONE]\n\n"
+                        );
+                        socket
+                            .write_all(response.as_bytes())
+                            .await
+                            .expect("write chat completions response");
+                    } else {
+                        socket
+                            .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                            .await
+                            .expect("write 404 response");
+                    }
+                });
+            }
+        }
+    });
+
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "minimax-coding-plan".to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "MiniMax-M2.7".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.providers.insert(
+        "custom".to_string(),
+        ProviderConfig {
+            base_url: format!("http://{addr}/v1"),
+            model: "gpt-4o-mini".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        },
+    );
+    config.builtin_sub_agents.weles.provider = Some("custom".to_string());
+    config.builtin_sub_agents.weles.model = Some("gpt-4o-mini".to_string());
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-direct-weles-provider-switch";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
+                title: "Direct Weles provider handoff".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "Switch me to Weles",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: Some("legacy-upstream-thread".to_string()),
+                upstream_transport: Some(ApiTransport::ChatCompletions),
+                upstream_provider: Some("minimax-coding-plan".to_string()),
+                upstream_model: Some("MiniMax-M2.7".to_string()),
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .set_thread_handoff_state(
+            thread_id,
+            ThreadHandoffState {
+                origin_agent_id: MAIN_AGENT_ID.to_string(),
+                active_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                responder_stack: vec![
+                    ThreadResponderFrame {
+                        agent_id: MAIN_AGENT_ID.to_string(),
+                        agent_name: MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    },
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::WELES_AGENT_NAME.to_string(),
+                        entered_at: 2,
+                        entered_via_handoff_event_id: Some("handoff-weles-override-1".to_string()),
+                        linked_thread_id: Some(
+                            "handoff:thread-direct-weles-provider-switch:handoff-weles-override-1"
+                                .to_string(),
+                        ),
+                    },
+                ],
+                events: Vec::new(),
+                pending_approval_id: None,
+            },
+        )
+        .await;
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "who are you",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("direct weles handoff turn should use Weles provider override");
+
+    let recorded = recorded_requests
+        .lock()
+        .expect("lock recorded transport-switch requests");
+    let request = recorded
+        .iter()
+        .find(|request| request.contains("POST /v1/chat/completions"))
+        .expect("expected Weles handoff to open a fresh chat completions request");
+    let body = request_body(request);
+    assert!(body.contains("You are Weles in tamux."));
+}
+
+#[tokio::test]
+async fn successful_handoff_tool_call_ends_current_turn_without_follow_up_llm_reply() {
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind handoff stop server");
+    let addr = listener.local_addr().expect("handoff stop server addr");
+
+    tokio::spawn({
+        let request_counter = request_counter.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let request_counter = request_counter.clone();
+                tokio::spawn(async move {
+                    let attempt = request_counter.fetch_add(1, Ordering::SeqCst);
+                    let _request = read_http_request(&mut socket, "handoff stop request").await;
+                    let response = if attempt == 0 {
+                        concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_handoff_1\",\"function\":{\"name\":\"handoff_thread_agent\",\"arguments\":\"{\\\"action\\\":\\\"push_handoff\\\",\\\"target_agent_id\\\":\\\"rarog\\\",\\\"reason\\\":\\\"Operator explicitly requested Rarog\\\",\\\"summary\\\":\\\"Switch control to Rarog\\\",\\\"requested_by\\\":\\\"user\\\"}\"}}]}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                            "data: [DONE]\n\n"
+                        )
+                    } else {
+                        concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"Done. Thread handed off to Rarog.\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                            "data: [DONE]\n\n"
+                        )
+                    };
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write handoff stop response");
+                });
+            }
+        }
+    });
+
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 2;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-handoff-stops-turn";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Handoff stop thread".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user("gimme Rarog", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "gimme Rarog",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("handoff request should complete");
+
+    assert_eq!(request_counter.load(Ordering::SeqCst), 1);
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(thread_id).expect("thread should exist");
+    assert!(thread
+        .messages
+        .iter()
+        .all(|message| !message.content.contains("Done. Thread handed off to Rarog.")));
+}
+
+#[tokio::test]
+async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summary() {
+    let request_counter = Arc::new(AtomicUsize::new(0));
+    let recorded_requests = Arc::new(StdMutex::new(VecDeque::new()));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind handoff restart server");
+    let addr = listener.local_addr().expect("handoff restart server addr");
+
+    tokio::spawn({
+        let request_counter = request_counter.clone();
+        let recorded_requests = recorded_requests.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let request_counter = request_counter.clone();
+                let recorded_requests = recorded_requests.clone();
+                tokio::spawn(async move {
+                    let attempt = request_counter.fetch_add(1, Ordering::SeqCst);
+                    let request = read_http_request(&mut socket, "handoff restart request").await;
+                    recorded_requests
+                        .lock()
+                        .expect("lock recorded requests")
+                        .push_back(request.clone());
+
+                    let response = if attempt == 0 {
+                        concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_handoff_1\",\"function\":{\"name\":\"handoff_thread_agent\",\"arguments\":\"{\\\"action\\\":\\\"push_handoff\\\",\\\"target_agent_id\\\":\\\"weles\\\",\\\"reason\\\":\\\"Operator explicitly requested Weles\\\",\\\"summary\\\":\\\"Switch control to Weles and continue helping from governance scope\\\",\\\"requested_by\\\":\\\"user\\\"}\"}}]}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                            "data: [DONE]\n\n"
+                        )
+                    } else {
+                        concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"I'm Weles.\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                            "data: [DONE]\n\n"
+                        )
+                    };
+
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write handoff restart response");
+                });
+            }
+        }
+    });
+
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "custom-main".to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "main-model".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 2;
+    config.providers.insert(
+        "custom-main".to_string(),
+        ProviderConfig {
+            base_url: format!("http://{addr}/v1"),
+            model: "main-model".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        },
+    );
+    config.providers.insert(
+        "custom-weles".to_string(),
+        ProviderConfig {
+            base_url: format!("http://{addr}/v1"),
+            model: "weles-model".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        },
+    );
+    config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
+    config.builtin_sub_agents.weles.model = Some("weles-model".to_string());
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-handoff-restart-same-turn";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+                title: "Handoff restart thread".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "give me Weles",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "give me Weles",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("handoff should restart the same operator turn under Weles");
+
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
+
+    let recorded = recorded_requests
+        .lock()
+        .expect("lock handoff restart requests");
+    let second_request = recorded
+        .get(1)
+        .expect("second request should exist after handoff restart");
+    let second_body = request_body(second_request);
+    assert!(second_body.contains("You are Weles in tamux."));
+    assert!(second_body.contains("weles-model"));
+    assert!(second_body.contains("User requested you while talking to Svarog"));
+    assert!(second_body.contains("Switch control to Weles and continue helping from governance scope"));
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(thread_id).expect("thread should exist");
+    assert!(thread.messages.iter().any(|message| message.content == "I'm Weles."));
+}
+
+#[tokio::test]
+async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
+    let recorded_requests = Arc::new(StdMutex::new(VecDeque::new()));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind concierge runtime server");
+    let addr = listener.local_addr().expect("concierge runtime server addr");
+
+    tokio::spawn({
+        let recorded_requests = recorded_requests.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let recorded_requests = recorded_requests.clone();
+                tokio::spawn(async move {
+                    let request = read_http_request(&mut socket, "concierge runtime request").await;
+                    recorded_requests
+                        .lock()
+                        .expect("lock concierge requests")
+                        .push_back(request.clone());
+
+                    let request_line = request.lines().next().unwrap_or_default();
+                    if request_line.contains("/v1/chat/completions") {
+                        let response = concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"Acknowledged.\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                            "data: [DONE]\n\n"
+                        );
+                        socket
+                            .write_all(response.as_bytes())
+                            .await
+                            .expect("write concierge response");
+                    } else {
+                        socket
+                            .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                            .await
+                            .expect("write 404 response");
+                    }
+                });
+            }
+        }
+    });
+
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "minimax-coding-plan".to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "MiniMax-M2.7".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.providers.insert(
+        "custom".to_string(),
+        ProviderConfig {
+            base_url: format!("http://{addr}/v1"),
+            model: "gpt-4o-mini".to_string(),
+            api_key: "test-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        },
+    );
+    config.concierge.provider = Some("custom".to_string());
+    config.concierge.model = Some("gpt-4o-mini".to_string());
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-direct-rarog-provider-switch";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some(crate::agent::agent_identity::CONCIERGE_AGENT_NAME.to_string()),
+                title: "Direct Rarog provider handoff".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user(
+                    "gimme Rarog",
+                    1,
+                )],
+                pinned: false,
+                upstream_thread_id: Some("legacy-upstream-thread".to_string()),
+                upstream_transport: Some(ApiTransport::ChatCompletions),
+                upstream_provider: Some("minimax-coding-plan".to_string()),
+                upstream_model: Some("MiniMax-M2.7".to_string()),
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .set_thread_handoff_state(
+            thread_id,
+            ThreadHandoffState {
+                origin_agent_id: MAIN_AGENT_ID.to_string(),
+                active_agent_id: crate::agent::agent_identity::CONCIERGE_AGENT_ID.to_string(),
+                responder_stack: vec![
+                    ThreadResponderFrame {
+                        agent_id: MAIN_AGENT_ID.to_string(),
+                        agent_name: MAIN_AGENT_NAME.to_string(),
+                        entered_at: 1,
+                        entered_via_handoff_event_id: None,
+                        linked_thread_id: None,
+                    },
+                    ThreadResponderFrame {
+                        agent_id: crate::agent::agent_identity::CONCIERGE_AGENT_ID.to_string(),
+                        agent_name: crate::agent::agent_identity::CONCIERGE_AGENT_NAME.to_string(),
+                        entered_at: 2,
+                        entered_via_handoff_event_id: Some("handoff-rarog-override-1".to_string()),
+                        linked_thread_id: Some(
+                            "handoff:thread-direct-rarog-provider-switch:handoff-rarog-override-1"
+                                .to_string(),
+                        ),
+                    },
+                ],
+                events: Vec::new(),
+                pending_approval_id: None,
+            },
+        )
+        .await;
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "who are you",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("direct rarog handoff turn should use concierge runtime");
+
+    let recorded = recorded_requests
+        .lock()
+        .expect("lock concierge runtime requests");
+    let request = recorded
+        .iter()
+        .find(|request| request.contains("POST /v1/chat/completions"))
+        .expect("expected concierge handoff to open a fresh chat completions request");
+    let body = request_body(request);
+    assert!(body.contains("You are the tamux concierge"));
+    assert!(body.contains("Rarog"));
+}
+
+#[tokio::test]
 async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_notice() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
@@ -382,6 +1091,7 @@ async fn auto_retry_wait_repeats_scheduled_retry_cycles_until_cancelled() {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Auto retry loop".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
                 pinned: false,
@@ -556,6 +1266,7 @@ async fn retry_stream_now_replaces_waiting_stream_with_fresh_send_generation() {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Retry refresh".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
                 pinned: false,
@@ -678,6 +1389,7 @@ async fn anthropic_transport_retry_restarts_with_fresh_runner_state() {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Anthropic fresh retry".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
                 pinned: false,
@@ -789,6 +1501,7 @@ async fn anthropic_outer_auto_retry_restarts_with_fresh_runner_state() {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Anthropic outer fresh retry".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
                 pinned: false,

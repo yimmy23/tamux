@@ -341,6 +341,8 @@ impl TuiModel {
         patch["retry_delay_ms"] = serde_json::Value::from(self.config.retry_delay_ms);
         patch["message_loop_delay_ms"] = serde_json::Value::from(self.config.message_loop_delay_ms);
         patch["tool_call_delay_ms"] = serde_json::Value::from(self.config.tool_call_delay_ms);
+        patch["llm_stream_chunk_timeout_secs"] =
+            serde_json::Value::from(self.config.llm_stream_chunk_timeout_secs);
         patch["auto_retry"] = serde_json::Value::Bool(self.config.auto_retry);
         patch["context_budget_tokens"] = serde_json::Value::from(self.config.context_budget_tokens);
         patch["compact_threshold_pct"] = serde_json::Value::from(self.config.compact_threshold_pct);

@@ -12,6 +12,7 @@ use crate::theme::ThemeTokens;
 const TAB_GAP: u16 = 1;
 const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
 const INTERNAL_DM_TITLE_PREFIX: &str = "Internal DM";
+const HIDDEN_HANDOFF_THREAD_PREFIX: &str = "handoff:";
 const WELES_THREAD_TITLE: &str = "WELES";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +65,11 @@ pub(crate) fn is_internal_thread(thread: &AgentThread) -> bool {
         || thread.title.starts_with(INTERNAL_DM_TITLE_PREFIX)
 }
 
+fn is_hidden_handoff_thread(thread: &AgentThread) -> bool {
+    thread.id.starts_with(HIDDEN_HANDOFF_THREAD_PREFIX)
+        || thread.title.trim().to_ascii_lowercase().starts_with("handoff ")
+}
+
 pub(crate) fn is_weles_thread(thread: &AgentThread) -> bool {
     !is_internal_thread(thread)
         && (thread.title.contains(WELES_THREAD_TITLE)
@@ -98,6 +104,7 @@ pub(crate) fn filtered_threads<'a>(
     let query = modal.command_query();
     chat.threads()
         .iter()
+        .filter(|thread| !is_hidden_handoff_thread(thread))
         .filter(|thread| match modal.thread_picker_tab() {
             ThreadPickerTab::Swarog => {
                 !is_rarog_thread(thread) && !is_internal_thread(thread) && !is_weles_thread(thread)
@@ -549,6 +556,28 @@ mod tests {
 
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, "dm:svarog:weles");
+    }
+
+    #[test]
+    fn filtered_threads_exclude_hidden_handoff_threads() {
+        let chat = make_chat(vec![
+            AgentThread {
+                id: "regular-thread".into(),
+                title: "Regular work".into(),
+                ..Default::default()
+            },
+            AgentThread {
+                id: "handoff:regular-thread:handoff-1".into(),
+                title: "Handoff · Svarog -> Weles".into(),
+                ..Default::default()
+            },
+        ]);
+        let modal = ModalState::new();
+
+        let threads = filtered_threads(&chat, &modal);
+
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "regular-thread");
     }
 
     #[test]

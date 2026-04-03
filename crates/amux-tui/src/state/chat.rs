@@ -129,11 +129,7 @@ impl ChatState {
     }
 
     fn move_thread_to_front(&mut self, thread_id: &str) {
-        let Some(index) = self
-            .threads
-            .iter()
-            .position(|thread| thread.id == thread_id)
-        else {
+        let Some(index) = self.threads.iter().position(|thread| thread.id == thread_id) else {
             return;
         };
         if index == 0 {
@@ -194,17 +190,6 @@ impl ChatState {
                             role: MessageRole::Assistant,
                             content,
                             reasoning,
-                            ..Default::default()
-                        });
-                    }
-                } else if !self.streaming_reasoning.is_empty() {
-                    // Reasoning without content — attach to a placeholder ASST message
-                    let reasoning = std::mem::take(&mut self.streaming_reasoning);
-                    if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
-                        thread.messages.push(AgentMessage {
-                            role: MessageRole::Assistant,
-                            content: String::new(),
-                            reasoning: Some(reasoning),
                             ..Default::default()
                         });
                     }
@@ -430,6 +415,9 @@ impl ChatState {
                     existing.total_output_tokens = incoming
                         .total_output_tokens
                         .max(existing.total_output_tokens);
+                    if incoming.agent_name.is_some() {
+                        existing.agent_name = incoming.agent_name;
+                    }
                     if !incoming.title.is_empty() {
                         existing.title = incoming.title;
                     }
@@ -468,6 +456,7 @@ impl ChatState {
                 } else {
                     let thread = AgentThread {
                         id: thread_id.clone(),
+                        agent_name: None,
                         title,
                         messages: local_messages,
                         ..Default::default()
@@ -506,6 +495,7 @@ impl ChatState {
                     };
                     self.threads.push(AgentThread {
                         id: thread_id.clone(),
+                        agent_name: None,
                         title,
                         messages: vec![message],
                         ..Default::default()

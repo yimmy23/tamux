@@ -4,6 +4,7 @@ async fn run_native_assistant(
     config: &ProviderConfig,
     messages: &[ApiMessage],
     upstream_thread_id: Option<&str>,
+    force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
     let definition = get_provider_definition(provider).ok_or_else(|| {
@@ -36,7 +37,13 @@ async fn run_native_assistant(
         Some(existing) => existing.to_string(),
         None => {
             let url = format!("{base_url}/threads");
-            let response = build_openai_auth_request(client, &url, provider, config)
+            let response = build_openai_auth_request(
+                client,
+                &url,
+                provider,
+                config,
+                force_connection_close,
+            )
                 .body("{}".to_string())
                 .send()
                 .await?;
@@ -86,10 +93,11 @@ async fn run_native_assistant(
         "role": "user",
         "content": user_text,
     });
-    let add_message_response = build_openai_auth_request(client, &message_url, provider, config)
-        .body(add_message_body.to_string())
-        .send()
-        .await?;
+    let add_message_response =
+        build_openai_auth_request(client, &message_url, provider, config, force_connection_close)
+            .body(add_message_body.to_string())
+            .send()
+            .await?;
     if !add_message_response.status().is_success() {
         let status = add_message_response.status();
         let retry_after_ms = extract_retry_after_ms(Some(add_message_response.headers()), "");
@@ -125,7 +133,13 @@ async fn run_native_assistant(
     let run_body = serde_json::json!({
         "assistant_id": config.assistant_id,
     });
-    let run_response = build_openai_auth_request(client, &run_url, provider, config)
+    let run_response = build_openai_auth_request(
+        client,
+        &run_url,
+        provider,
+        config,
+        force_connection_close,
+    )
         .body(run_body.to_string())
         .send()
         .await?;
@@ -171,10 +185,12 @@ async fn run_native_assistant(
     let run_status_url = format!("{base_url}/threads/{thread_id}/runs/{run_id}");
     for _ in 0..180u32 {
         tokio::time::sleep(Duration::from_millis(1000)).await;
-        let status_response =
-            apply_openai_auth_headers(client.get(&run_status_url), provider, config)
-                .send()
-                .await?;
+        let status_response = maybe_force_connection_close(
+            apply_openai_auth_headers(client.get(&run_status_url), provider, config),
+            force_connection_close,
+        )
+        .send()
+        .await?;
         if !status_response.status().is_success() {
             let status = status_response.status();
             let retry_after_ms = extract_retry_after_ms(Some(status_response.headers()), "");
@@ -213,7 +229,14 @@ async fn run_native_assistant(
             "queued" | "in_progress" => continue,
             "completed" => {
                 let content =
-                    fetch_native_assistant_message(client, provider, config, &base_url, &thread_id)
+                    fetch_native_assistant_message(
+                        client,
+                        provider,
+                        config,
+                        &base_url,
+                        &thread_id,
+                        force_connection_close,
+                    )
                         .await?;
                 let _ = tx
                     .send(Ok(CompletionChunk::Done {

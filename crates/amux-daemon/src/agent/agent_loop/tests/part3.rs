@@ -30,6 +30,7 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Policy thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user(
                     "Investigate the failure",

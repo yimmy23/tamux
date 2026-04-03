@@ -15,6 +15,7 @@ async fn delete_thread_messages_drops_incomplete_assistant_tool_turn_after_tool_
             thread_id.to_string(),
             AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Incomplete tool turn".to_string(),
                 created_at: 1,
                 updated_at: 6,
@@ -153,6 +154,7 @@ async fn delete_thread_messages_emits_thread_reload_event_after_reconciliation()
             thread_id.to_string(),
             AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Reload event".to_string(),
                 created_at: 1,
                 updated_at: 3,

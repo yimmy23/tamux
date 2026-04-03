@@ -1,6 +1,8 @@
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentThread {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
     pub title: String,
     pub messages: Vec<AgentMessage>,
     #[serde(default)]

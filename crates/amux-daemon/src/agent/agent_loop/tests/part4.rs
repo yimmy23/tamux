@@ -35,6 +35,7 @@ async fn send_message_request_uses_spawned_persona_identity_in_continuity_summar
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Spawned runtime continuity thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user(
                     "Investigate the failure",
@@ -155,5 +156,104 @@ async fn send_message_request_uses_spawned_persona_identity_in_continuity_summar
             |body| !body.contains(&format!("I am carrying this forward as {MAIN_AGENT_NAME}."))
         ),
         "spawned persona continuity should not fall back to the main agent name",
+    );
+}
+
+#[tokio::test]
+async fn auto_compaction_forces_connection_close_on_next_llm_request() {
+    let recorded_requests = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_recording_request_server(recorded_requests.clone()).await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-compaction-connection-close";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Compaction transport reset thread".to_string(),
+                messages: vec![
+                    crate::agent::types::AgentMessage::user("First request", 1),
+                    crate::agent::types::AgentMessage {
+                        id: "assistant-1".to_string(),
+                        role: MessageRole::Assistant,
+                        content: "Observed earlier state".to_string(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        tool_name: None,
+                        tool_arguments: None,
+                        tool_status: None,
+                        weles_review: None,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        provider: None,
+                        model: None,
+                        api_transport: None,
+                        response_id: None,
+                        reasoning: None,
+                        message_kind: AgentMessageKind::Normal,
+                        compaction_strategy: None,
+                        compaction_payload: None,
+                        timestamp: 2,
+                    },
+                    crate::agent::types::AgentMessage::user("Need a fresh request boundary", 3),
+                ],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    let outcome = engine
+        .send_message_inner(
+            Some(thread_id),
+            "Continue after compaction",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    assert!(!outcome.interrupted_for_approval);
+
+    let recorded = recorded_requests
+        .lock()
+        .expect("lock recorded requests");
+    let request = recorded
+        .back()
+        .expect("expected one recorded request")
+        .to_ascii_lowercase();
+    assert!(
+        request.contains("connection: close"),
+        "expected compaction-boundary request to disable keep-alive, got: {request}"
     );
 }

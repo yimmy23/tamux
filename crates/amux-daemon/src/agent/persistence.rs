@@ -103,16 +103,25 @@ impl AgentEngine {
         match self.history.list_threads().await {
             Ok(thread_rows) if !thread_rows.is_empty() => {
                 let mut threads = HashMap::new();
+                let mut handoff_states = HashMap::new();
                 let mut thread_client_surfaces = HashMap::new();
                 for thread_row in thread_rows {
+                    let thread_id = thread_row.id.clone();
+                    let thread_title = thread_row.title.clone();
                     let thread_metadata =
                         parse_thread_metadata(thread_row.metadata_json.as_deref());
                     if let Some(client_surface) = thread_metadata.client_surface {
-                        thread_client_surfaces.insert(thread_row.id.clone(), client_surface);
+                        thread_client_surfaces.insert(thread_id.clone(), client_surface);
                     }
+                    let handoff_state = normalized_thread_handoff_state(
+                        &thread_id,
+                        thread_row.agent_name.as_deref(),
+                        thread_row.created_at as u64,
+                        thread_metadata.handoff_state,
+                    );
                     let messages = self
                         .history
-                        .list_messages(&thread_row.id, None)
+                        .list_messages(&thread_id, None)
                         .await
                         .unwrap_or_default()
                         .into_iter()
@@ -152,10 +161,13 @@ impl AgentEngine {
                         .collect::<Vec<_>>();
 
                     threads.insert(
-                        thread_row.id.clone(),
+                        thread_id.clone(),
                         AgentThread {
-                            id: thread_row.id,
-                            title: thread_row.title,
+                            id: thread_id.clone(),
+                            agent_name: Some(
+                                canonical_agent_name(&handoff_state.active_agent_id).to_string(),
+                            ),
+                            title: thread_title,
                             messages,
                             pinned: false,
                             upstream_thread_id: thread_metadata.upstream_thread_id,
@@ -169,8 +181,10 @@ impl AgentEngine {
                             total_output_tokens: 0,
                         },
                     );
+                    handoff_states.insert(thread_id, handoff_state);
                 }
                 *self.threads.write().await = threads;
+                *self.thread_handoff_states.write().await = handoff_states;
                 *self.thread_client_surfaces.write().await = thread_client_surfaces;
             }
             Ok(_) => {}

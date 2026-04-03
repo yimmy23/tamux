@@ -89,6 +89,7 @@ impl ConciergeEngine {
             let now = super::super::now_millis();
             let thread = AgentThread {
                 id: CONCIERGE_THREAD_ID.to_string(),
+                agent_name: None,
                 title: "Concierge".to_string(),
                 created_at: now,
                 updated_at: now,

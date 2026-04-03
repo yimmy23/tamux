@@ -125,6 +125,7 @@ export interface AgentSettings {
   retry_delay_ms: number;
   message_loop_delay_ms: number;
   tool_call_delay_ms: number;
+  llm_stream_chunk_timeout_secs: number;
   auto_retry: boolean;
   context_window_tokens: number;
   context_budget_tokens: number;
@@ -219,6 +220,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   retry_delay_ms: 2000,
   message_loop_delay_ms: 500,
   tool_call_delay_ms: 500,
+  llm_stream_chunk_timeout_secs: 300,
   auto_retry: true,
   context_window_tokens: 128000,
   context_budget_tokens: 100000,
@@ -277,6 +279,7 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   retry_delay_ms?: number;
   message_loop_delay_ms?: number;
   tool_call_delay_ms?: number;
+  llm_stream_chunk_timeout_secs?: number;
   auto_retry?: boolean;
   context_window_tokens?: number;
   context_budget_tokens?: number;
@@ -417,6 +420,8 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     retry_delay_ms: source.retry_delay_ms ?? DEFAULT_AGENT_SETTINGS.retry_delay_ms,
     message_loop_delay_ms: source.message_loop_delay_ms ?? DEFAULT_AGENT_SETTINGS.message_loop_delay_ms,
     tool_call_delay_ms: source.tool_call_delay_ms ?? DEFAULT_AGENT_SETTINGS.tool_call_delay_ms,
+    llm_stream_chunk_timeout_secs:
+      source.llm_stream_chunk_timeout_secs ?? DEFAULT_AGENT_SETTINGS.llm_stream_chunk_timeout_secs,
     auto_retry: source.auto_retry ?? DEFAULT_AGENT_SETTINGS.auto_retry,
     context_window_tokens: source.context_window_tokens ?? DEFAULT_AGENT_SETTINGS.context_window_tokens,
     context_budget_tokens: source.context_budget_tokens ?? DEFAULT_AGENT_SETTINGS.context_budget_tokens,

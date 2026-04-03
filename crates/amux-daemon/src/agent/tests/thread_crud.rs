@@ -15,6 +15,7 @@ async fn list_threads_omits_message_history_from_thread_summaries() {
         "thread-big".to_string(),
         AgentThread {
             id: "thread-big".to_string(),
+            agent_name: Some(crate::agent::agent_identity::WELES_AGENT_NAME.to_string()),
             title: "Big thread".to_string(),
             messages: vec![AgentMessage::user(huge_message, 1)],
             pinned: false,
@@ -36,6 +37,7 @@ async fn list_threads_omits_message_history_from_thread_summaries() {
         listed[0].messages.is_empty(),
         "thread list payload should not include full message history"
     );
+    assert_eq!(listed[0].agent_name.as_deref(), Some("Weles"));
 
     let serialized = serde_json::to_string(&listed).expect("serialize thread summaries");
     assert!(

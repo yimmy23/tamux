@@ -162,10 +162,13 @@ impl AgentEngine {
 
         tracing::info!(thread_id = %tid, context_messages = messages.len(), "seeding thread with frontend context");
 
+        let active_agent_id = current_agent_scope_id();
+        let created_at = now_millis();
         threads.insert(
             tid.clone(),
             AgentThread {
-                id: tid,
+                id: tid.clone(),
+                agent_name: Some(canonical_agent_name(&active_agent_id).to_string()),
                 title,
                 messages,
                 pinned: false,
@@ -174,11 +177,16 @@ impl AgentEngine {
                 upstream_provider: None,
                 upstream_model: None,
                 upstream_assistant_id: None,
-                created_at: now_millis(),
-                updated_at: now_millis(),
+                created_at,
+                updated_at: created_at,
                 total_input_tokens: total_in,
                 total_output_tokens: total_out,
             },
+        );
+        drop(threads);
+        self.thread_handoff_states.write().await.insert(
+            tid.clone(),
+            initial_thread_handoff_state(&tid, Some(canonical_agent_name(&active_agent_id)), created_at),
         );
     }
 
@@ -187,6 +195,16 @@ impl AgentEngine {
         &self,
         thread_id: Option<&str>,
         content: &str,
+    ) -> (String, bool) {
+        self.get_or_create_thread_with_target(thread_id, content, None)
+            .await
+    }
+
+    pub(super) async fn get_or_create_thread_with_target(
+        &self,
+        thread_id: Option<&str>,
+        content: &str,
+        target_agent_id: Option<&str>,
     ) -> (String, bool) {
         let given_id = thread_id.map(|s| s.to_string());
         let id = given_id.unwrap_or_else(|| format!("thread_{}", Uuid::new_v4()));
@@ -201,10 +219,16 @@ impl AgentEngine {
                 threads.insert(id.clone(), restored);
             } else {
                 created = true;
+                let created_at = now_millis();
+                let active_agent_id = match target_agent_id {
+                    Some(target_agent_id) => canonical_agent_id(target_agent_id).to_string(),
+                    None => current_agent_scope_id(),
+                };
                 threads.insert(
                     id.clone(),
                     AgentThread {
                         id: id.clone(),
+                        agent_name: Some(canonical_agent_name(&active_agent_id).to_string()),
                         title: title.clone(),
                         messages: Vec::new(),
                         pinned: false,
@@ -213,11 +237,19 @@ impl AgentEngine {
                         upstream_provider: None,
                         upstream_model: None,
                         upstream_assistant_id: None,
-                        created_at: now_millis(),
-                        updated_at: now_millis(),
+                        created_at,
+                        updated_at: created_at,
                         total_input_tokens: 0,
                         total_output_tokens: 0,
                     },
+                );
+                self.thread_handoff_states.write().await.insert(
+                    id.clone(),
+                    initial_thread_handoff_state(
+                        &id,
+                        Some(canonical_agent_name(&active_agent_id)),
+                        created_at,
+                    ),
                 );
                 let _ = self.event_tx.send(AgentEvent::ThreadCreated {
                     thread_id: id.clone(),
@@ -244,6 +276,16 @@ impl AgentEngine {
                 .await
                 .insert(thread_id.to_string(), client_surface);
         }
+        let handoff_state = normalized_thread_handoff_state(
+            thread_id,
+            db_thread.agent_name.as_deref(),
+            db_thread.created_at as u64,
+            thread_metadata.handoff_state,
+        );
+        self.thread_handoff_states
+            .write()
+            .await
+            .insert(thread_id.to_string(), handoff_state.clone());
 
         let messages: Vec<AgentMessage> = db_messages
             .into_iter()
@@ -293,6 +335,7 @@ impl AgentEngine {
 
         Some(AgentThread {
             id: thread_id.to_string(),
+            agent_name: Some(canonical_agent_name(&handoff_state.active_agent_id).to_string()),
             title: db_thread.title,
             messages,
             pinned: false,
@@ -373,6 +416,32 @@ impl AgentEngine {
         ))
         .await?
         .thread_id)
+    }
+
+    pub async fn send_message_with_session_surface_and_target(
+        &self,
+        thread_id: Option<&str>,
+        preferred_session_hint: Option<&str>,
+        content: &str,
+        client_surface: Option<amux_protocol::ClientSurface>,
+        target_agent_id: Option<&str>,
+    ) -> Result<String> {
+        let effective_thread_id = if target_agent_id.is_some() {
+            let (thread_id, _) = self
+                .get_or_create_thread_with_target(thread_id, content, target_agent_id)
+                .await;
+            Some(thread_id)
+        } else {
+            thread_id.map(str::to_string)
+        };
+
+        self.send_message_with_session_and_surface(
+            effective_thread_id.as_deref(),
+            preferred_session_hint,
+            content,
+            client_surface,
+        )
+        .await
     }
 
     pub(super) async fn send_task_message(

@@ -4,9 +4,13 @@ async fn fetch_native_assistant_message(
     config: &ProviderConfig,
     base_url: &str,
     thread_id: &str,
+    force_connection_close: bool,
 ) -> Result<String> {
     let url = format!("{base_url}/threads/{thread_id}/messages?order=desc&limit=20");
-    let response = apply_openai_auth_headers(client.get(&url), provider, config)
+    let response = maybe_force_connection_close(
+        apply_openai_auth_headers(client.get(&url), provider, config),
+        force_connection_close,
+    )
         .send()
         .await?;
     if !response.status().is_success() {
@@ -69,6 +73,7 @@ async fn run_openai_chat_completions(
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
+    force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
     let url = build_chat_completion_url(&config.base_url);
@@ -120,7 +125,7 @@ async fn run_openai_chat_completions(
     }
 
     let req = apply_dashscope_coding_plan_sdk_headers(
-        build_openai_auth_request(client, &url, provider, config),
+        build_openai_auth_request(client, &url, provider, config, force_connection_close),
         provider,
         &config.base_url,
         ApiType::OpenAI,
@@ -402,6 +407,7 @@ async fn run_openai_responses(
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
     previous_response_id: Option<&str>,
+    force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
     let codex_auth = resolve_openai_codex_request_auth(client, provider, config).await?;
@@ -421,7 +427,8 @@ async fn run_openai_responses(
     );
 
     let req = if let Some(codex_auth) = codex_auth {
-        client
+        maybe_force_connection_close(
+            client
             .post(&url)
             .header("Content-Type", "application/json")
             .header(
@@ -430,9 +437,11 @@ async fn run_openai_responses(
             )
             .header("chatgpt-account-id", codex_auth.account_id)
             .header("OpenAI-Beta", "responses=experimental")
-            .header("originator", "tamux")
+            .header("originator", "tamux"),
+            force_connection_close,
+        )
     } else {
-        build_openai_auth_request(client, &url, provider, config)
+        build_openai_auth_request(client, &url, provider, config, force_connection_close)
     };
     let response = req.body(body.to_string()).send().await?;
 

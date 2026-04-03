@@ -203,6 +203,7 @@
                 thread_id,
                 content,
                 session_id,
+                ..
             }) => {
                 assert_eq!(thread_id.as_deref(), Some("concierge"));
                 assert_eq!(content, "hello");

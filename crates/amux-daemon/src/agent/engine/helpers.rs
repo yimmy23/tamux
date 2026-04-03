@@ -13,6 +13,15 @@ pub(in crate::agent) fn build_agent_http_client(read_timeout: Duration) -> reqwe
         .expect("agent HTTP client configuration should be valid")
 }
 
+pub(in crate::agent) fn build_fresh_agent_http_client(read_timeout: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(AGENT_HTTP_CONNECT_TIMEOUT)
+        .read_timeout(read_timeout)
+        .pool_max_idle_per_host(0)
+        .build()
+        .expect("fresh agent HTTP client configuration should be valid")
+}
+
 pub(in crate::agent) fn default_agent_http_read_timeout() -> Duration {
     AGENT_HTTP_READ_TIMEOUT
 }

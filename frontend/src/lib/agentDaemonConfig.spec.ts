@@ -84,6 +84,7 @@ const configuredDelaySettings = {
   ...DEFAULT_AGENT_SETTINGS,
   message_loop_delay_ms: 250,
   tool_call_delay_ms: 750,
+  llm_stream_chunk_timeout_secs: 420,
   weles_max_concurrent_reviews: 4,
 };
 
@@ -97,6 +98,11 @@ assert(
 assert(
   configuredDelayDaemonConfig.tool_call_delay_ms === 750,
   "Daemon config should forward tool call delay settings",
+);
+
+assert(
+  configuredDelayDaemonConfig.llm_stream_chunk_timeout_secs === 420,
+  "Daemon config should forward LLM stream chunk timeout settings",
 );
 
 assert(

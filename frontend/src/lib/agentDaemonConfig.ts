@@ -137,6 +137,7 @@ export function buildDaemonAgentConfig(
     retry_delay_ms: agentSettings.retry_delay_ms,
     message_loop_delay_ms: agentSettings.message_loop_delay_ms,
     tool_call_delay_ms: agentSettings.tool_call_delay_ms,
+    llm_stream_chunk_timeout_secs: agentSettings.llm_stream_chunk_timeout_secs,
     auto_retry: agentSettings.auto_retry,
     context_window_tokens: providerConfig
       ? getEffectiveContextWindow(providerKey, providerConfig)

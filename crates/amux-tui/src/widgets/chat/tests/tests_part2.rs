@@ -115,3 +115,93 @@
             "message selection should not auto-scroll the transcript window"
         );
     }
+
+    #[test]
+    fn assistant_messages_show_responder_labels_across_thread_handoffs() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        chat.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+            id: "t1".into(),
+            title: "Test".into(),
+            messages: vec![
+                AgentMessage {
+                    role: MessageRole::Assistant,
+                    content: "Main reply".into(),
+                    ..Default::default()
+                },
+                AgentMessage {
+                    role: MessageRole::System,
+                    content: "[[handoff_event]]{\"from_agent_name\":\"Svarog\",\"to_agent_name\":\"Weles\"}".into(),
+                    ..Default::default()
+                },
+                AgentMessage {
+                    role: MessageRole::Assistant,
+                    content: "Governance reply".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }));
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let first_message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(0))
+            .map(rendered_line_plain_text)
+            .collect();
+        let handoff_message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(2))
+            .map(rendered_line_plain_text)
+            .collect();
+
+        assert!(
+            first_message_lines
+                .iter()
+                .any(|line| line.contains("Responder: Svarog")),
+            "expected main responder label, got: {first_message_lines:?}"
+        );
+        assert!(
+            handoff_message_lines
+                .iter()
+                .any(|line| line.contains("Responder: Weles")),
+            "expected handoff responder label, got: {handoff_message_lines:?}"
+        );
+    }
+
+    #[test]
+    fn assistant_messages_fall_back_to_thread_agent_name_when_handoff_marker_is_missing() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        chat.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+            id: "t1".into(),
+            agent_name: Some("Weles".into()),
+            title: "Test".into(),
+            messages: vec![AgentMessage {
+                role: MessageRole::Assistant,
+                content: "Governance reply".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }));
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(0))
+            .map(rendered_line_plain_text)
+            .collect();
+
+        assert!(
+            message_lines
+                .iter()
+                .any(|line| line.contains("Responder: Weles")),
+            "expected responder fallback from thread agent_name, got: {message_lines:?}"
+        );
+    }

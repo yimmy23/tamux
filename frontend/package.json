@@ -1,7 +1,7 @@
 {
   "name": "tamux",
   "private": true,
-  "version": "0.2.7",
+  "version": "0.2.9",
   "description": "Agentic terminal multiplexer with AI-native workflows",
   "homepage": "https://tamux.app",
   "author": {
@@ -95,6 +95,14 @@
         {
           "from": "dist/tamux-tui.exe",
           "to": "bin/tamux-tui.exe"
+        },
+        {
+          "from": "dist/tamux-mcp.exe",
+          "to": "bin/tamux-mcp.exe"
+        },
+        {
+          "from": "dist/tamux-gateway.exe",
+          "to": "bin/tamux-gateway.exe"
         }
       ],
       "icon": "assets/icon.ico"
@@ -116,6 +124,14 @@
         {
           "from": "dist/tamux-tui",
           "to": "bin/tamux-tui"
+        },
+        {
+          "from": "dist/tamux-mcp",
+          "to": "bin/tamux-mcp"
+        },
+        {
+          "from": "dist/tamux-gateway",
+          "to": "bin/tamux-gateway"
         }
       ]
     },
@@ -137,6 +153,14 @@
         {
           "from": "dist/tamux-tui",
           "to": "bin/tamux-tui"
+        },
+        {
+          "from": "dist/tamux-mcp",
+          "to": "bin/tamux-mcp"
+        },
+        {
+          "from": "dist/tamux-gateway",
+          "to": "bin/tamux-gateway"
         }
       ]
     },

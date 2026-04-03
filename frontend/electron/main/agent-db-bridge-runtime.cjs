@@ -32,6 +32,21 @@ function createAgentDbBridgeRuntime(options) {
         return oldest;
     }
 
+    function responseTypesOverlap(leftResponseType, rightResponseType) {
+        const left = Array.isArray(leftResponseType) ? leftResponseType : [leftResponseType];
+        const right = Array.isArray(rightResponseType) ? rightResponseType : [rightResponseType];
+        return left.some((eventType) => right.includes(eventType));
+    }
+
+    function hasPendingResponseType(pending, responseType) {
+        for (const [, handler] of pending.entries()) {
+            if (responseTypesOverlap(handler.responseType, responseType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function ensureAgentBridge() {
         if (agentBridge && !agentBridge.process.killed) return agentBridge;
         if (Date.now() < agentBridgeRestartCooldownUntil) return null;
@@ -226,7 +241,8 @@ function createAgentDbBridgeRuntime(options) {
                 if (event.type === 'error') {
                     const oldest = resolveOldestPending(dbBridge.pending);
                     if (oldest) {
-                        oldest.handler.resolve(null);
+                        const msg = event.message || event.data?.message || (typeof event.data === 'string' ? event.data : null) || 'db bridge error';
+                        oldest.handler.reject(new Error(msg));
                         dbBridge.pending.delete(oldest.reqId);
                     }
                     logToFile('warn', 'db bridge error', { message: event.message || event.data });
@@ -265,8 +281,11 @@ function createAgentDbBridgeRuntime(options) {
         return new Promise((resolve, reject) => {
             const bridge = ensureAgentBridge();
             if (!bridge) return reject(new Error('Agent bridge not available'));
+            if (hasPendingResponseType(bridge.pending, responseType)) {
+                return reject(new Error(`Agent query already pending for response type: ${Array.isArray(responseType) ? responseType.join('|') : responseType}`));
+            }
             const responseKey = Array.isArray(responseType) ? responseType.join('|') : responseType;
-            const reqId = `${responseKey}_${Date.now()}`;
+            const reqId = `${responseKey}_${Date.now()}_${Math.random()}`;
             const timer = setTimeout(() => {
                 bridge.pending.delete(reqId);
                 reject(new Error(`Agent query timeout: ${responseKey}`));

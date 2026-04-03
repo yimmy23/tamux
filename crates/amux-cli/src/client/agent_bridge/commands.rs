@@ -36,6 +36,7 @@ where
                     session_id,
                     context_messages_json,
                     client_surface: Some(amux_protocol::ClientSurface::Electron),
+                    target_agent_id: None,
                 })
                 .await?;
         }
@@ -464,8 +465,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::handle_line;
+    use crate::client::agent_protocol::AgentBridgeCommand;
     use amux_protocol::{AmuxCodec, ClientMessage, DaemonCodec};
-    use futures::StreamExt;
+    use bytes::BytesMut;
+    use futures::{SinkExt, StreamExt};
+    use tokio_util::codec::{Decoder, Encoder};
     use tokio_util::codec::Framed;
 
     async fn emitted_client_message(line: &str) -> ClientMessage {
@@ -516,5 +520,114 @@ mod tests {
             ClientMessage::AgentLogoutOpenAICodex,
         )
         .await;
+    }
+
+    #[test]
+    fn send_message_command_deserializes() {
+        let command: AgentBridgeCommand = serde_json::from_str(
+            r#"{"type":"send-message","thread_id":"thread-1","content":"hello","session_id":null,"context_messages":null}"#,
+        )
+        .expect("send-message command should deserialize");
+
+        match command {
+            AgentBridgeCommand::SendMessage {
+                thread_id,
+                content,
+                session_id,
+                context_messages,
+            } => {
+                assert_eq!(thread_id.as_deref(), Some("thread-1"));
+                assert_eq!(content, "hello");
+                assert!(session_id.is_none());
+                assert!(context_messages.is_none());
+            }
+            other => panic!("expected SendMessage command, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_message_command_emits_agent_send_message_frame() {
+        let message = emitted_client_message(
+            r#"{"type":"send-message","thread_id":"thread-1","content":"hello","session_id":null,"context_messages":null}"#,
+        )
+        .await;
+
+        match message {
+            ClientMessage::AgentSendMessage {
+                thread_id,
+                content,
+                session_id,
+                context_messages_json,
+                client_surface,
+                target_agent_id,
+            } => {
+                assert_eq!(thread_id.as_deref(), Some("thread-1"));
+                assert_eq!(content, "hello");
+                assert!(session_id.is_none());
+                assert!(context_messages_json.is_none());
+                assert_eq!(client_surface, Some(amux_protocol::ClientSurface::Electron));
+                assert!(target_agent_id.is_none());
+            }
+            other => panic!("expected AgentSendMessage, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_agent_send_message_frame_decodes_cleanly() {
+        let message = ClientMessage::AgentSendMessage {
+            thread_id: Some("thread-1".to_string()),
+            content: "hello".to_string(),
+            session_id: None,
+            context_messages_json: None,
+            client_surface: Some(amux_protocol::ClientSurface::Electron),
+            target_agent_id: None,
+        };
+
+        let mut encoded = BytesMut::new();
+        AmuxCodec
+            .encode(message.clone(), &mut encoded)
+            .expect("codec should encode AgentSendMessage in memory");
+        let decoded = DaemonCodec
+            .decode(&mut encoded)
+            .expect("codec decode should not error in memory")
+            .expect("codec should decode AgentSendMessage from memory buffer");
+        assert!(matches!(decoded, ClientMessage::AgentSendMessage { .. }));
+
+        let (client_side, server_side) = tokio::io::duplex(4096);
+        let mut bridge = Framed::new(client_side, AmuxCodec);
+        let mut daemon = Framed::new(server_side, DaemonCodec);
+
+        bridge
+            .send(message)
+            .await
+            .expect("direct send should succeed");
+
+        match daemon.next().await {
+            Some(Ok(ClientMessage::AgentSendMessage { content, .. })) => {
+                assert_eq!(content, "hello");
+            }
+            other => panic!("expected direct AgentSendMessage decode, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_agent_get_thread_frame_decodes_cleanly() {
+        let (client_side, server_side) = tokio::io::duplex(4096);
+        let mut bridge = Framed::new(client_side, AmuxCodec);
+        let mut daemon = Framed::new(server_side, DaemonCodec);
+
+        bridge
+            .send(ClientMessage::AgentGetThread {
+                thread_id: "thread-1".to_string(),
+            })
+            .await
+            .expect("direct send should succeed");
+
+        match daemon.next().await {
+            Some(Ok(ClientMessage::AgentGetThread { thread_id })) => {
+                assert_eq!(thread_id, "thread-1");
+            }
+            other => panic!("expected direct AgentGetThread decode, got {other:?}"),
+        }
     }
 }

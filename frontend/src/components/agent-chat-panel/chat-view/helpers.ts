@@ -2,6 +2,44 @@ import type { AgentMessage, AgentTodoItem } from "../../../lib/agentStore";
 import { mergeToolReviewMeta } from "../toolReviewPresentation";
 import type { ChatDisplayItem, ToolEventGroup } from "./types";
 
+const HANDOFF_EVENT_MARKER = "[[handoff_event]]";
+
+export type HandoffSystemEvent = {
+  id?: string;
+  kind?: "push" | "return";
+  from_agent_id?: string;
+  from_agent_name?: string;
+  to_agent_id?: string;
+  to_agent_name?: string;
+  requested_by?: "user" | "agent";
+  reason?: string;
+  summary?: string;
+  linked_thread_id?: string | null;
+  approval_id?: string | null;
+  stack_depth_before?: number;
+  stack_depth_after?: number;
+  created_at?: number;
+};
+
+export function parseHandoffSystemEvent(content: string): HandoffSystemEvent | null {
+  if (!content.startsWith(HANDOFF_EVENT_MARKER)) {
+    return null;
+  }
+  const payloadText = content
+    .slice(HANDOFF_EVENT_MARKER.length)
+    .split("\n", 1)[0]
+    ?.trim();
+  if (!payloadText) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(payloadText);
+    return parsed && typeof parsed === "object" ? parsed as HandoffSystemEvent : null;
+  } catch {
+    return null;
+  }
+}
+
 export function buildDisplayItems(messages: AgentMessage[]): ChatDisplayItem[] {
   const items: ChatDisplayItem[] = [];
   const groups = new Map<string, ToolEventGroup>();

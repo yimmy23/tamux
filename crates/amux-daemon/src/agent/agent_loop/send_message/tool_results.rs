@@ -1,5 +1,37 @@
 use super::*;
 
+fn build_handoff_restart_user_message(
+    previous_agent_name: &str,
+    next_agent_name: &str,
+    original_user_message: &str,
+    tool_arguments: &str,
+) -> Option<String> {
+    let args: serde_json::Value = serde_json::from_str(tool_arguments).ok()?;
+    let reason = args.get("reason").and_then(|value| value.as_str()).unwrap_or("");
+    let summary = args
+        .get("summary")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let action = args
+        .get("action")
+        .and_then(|value| value.as_str())
+        .unwrap_or("push_handoff");
+
+    let intro = if action == "return_handoff" {
+        format!(
+            "User requested you while talking to {previous_agent_name}. Control has returned to {next_agent_name}."
+        )
+    } else {
+        format!(
+            "User requested you while talking to {previous_agent_name}. You are now the active responder for this thread as {next_agent_name}."
+        )
+    };
+
+    Some(format!(
+        "{intro}\nHandoff reason: {reason}\nConversation summary from the previous responder: {summary}\nLatest operator request to answer now: {original_user_message}"
+    ))
+}
+
 impl<'a> SendMessageRunner<'a> {
     pub(super) async fn finalize_tool_call_result(
         &mut self,
@@ -253,6 +285,35 @@ impl<'a> SendMessageRunner<'a> {
 
         if self.stream_cancel_token.is_cancelled() {
             self.was_cancelled = true;
+            return Ok(ToolCallDisposition::BreakLoop);
+        }
+
+        if !result.is_error && tc.function.name == "handoff_thread_agent" {
+            let next_agent_name = self
+                .engine
+                .active_agent_id_for_thread(&self.tid)
+                .await
+                .map(|agent_id| canonical_agent_name(&agent_id).to_string())
+                .unwrap_or_else(|| self.runtime_agent_name.clone());
+            if let Some(llm_user_content) = build_handoff_restart_user_message(
+                &self.runtime_agent_name,
+                &next_agent_name,
+                self.stored_user_content,
+                &tc.function.arguments,
+            ) {
+                self.handoff_restart = Some(HandoffRestartRequest { llm_user_content });
+            }
+            let _ = self.engine.event_tx.send(AgentEvent::Done {
+                thread_id: self.tid.clone(),
+                input_tokens: 0,
+                output_tokens: 0,
+                cost: None,
+                provider: None,
+                model: None,
+                tps: None,
+                generation_ms: None,
+                reasoning: None,
+            });
             return Ok(ToolCallDisposition::BreakLoop);
         }
 

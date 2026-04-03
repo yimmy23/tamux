@@ -66,12 +66,13 @@ async fn persist_weles_runtime_context(engine: &AgentEngine, task: &AgentTask) {
 impl AgentEngine {
     async fn persist_thread_snapshot(&self, thread: &AgentThread) {
         let client_surface = self.get_thread_client_surface(&thread.id).await;
+        let handoff_state = self.thread_handoff_state(&thread.id).await;
         let thread_row = amux_protocol::AgentDbThread {
             id: thread.id.clone(),
             workspace_id: None,
             surface_id: None,
             pane_id: None,
-            agent_name: Some(persisted_agent_name_for_thread(thread)),
+            agent_name: Some(persisted_agent_name_for_thread(thread, handoff_state.as_ref())),
             title: thread.title.clone(),
             created_at: thread.created_at as i64,
             updated_at: thread.updated_at as i64,
@@ -82,7 +83,7 @@ impl AgentEngine {
                 .last()
                 .map(|message| message.content.chars().take(100).collect())
                 .unwrap_or_default(),
-            metadata_json: build_thread_metadata_json(thread, client_surface),
+            metadata_json: build_thread_metadata_json(thread, client_surface, handoff_state.as_ref()),
         };
 
         if let Err(e) = self.history.delete_thread(&thread.id).await {
@@ -339,12 +340,9 @@ impl AgentEngine {
     }
 }
 
-fn persisted_agent_name_for_thread(thread: &AgentThread) -> String {
-    if thread.id == crate::agent::concierge::CONCIERGE_THREAD_ID {
-        return CONCIERGE_AGENT_NAME.to_string();
-    }
-    if is_internal_dm_thread(&thread.id) {
-        return "Internal DM".to_string();
-    }
-    MAIN_AGENT_NAME.to_string()
+fn persisted_agent_name_for_thread(
+    thread: &AgentThread,
+    handoff_state: Option<&ThreadHandoffState>,
+) -> String {
+    active_agent_name_for_thread(thread, handoff_state)
 }

@@ -89,7 +89,23 @@ impl OutcomeWindow {
         // Push and cap
         self.recent_outcomes.push_back(entry);
         while self.recent_outcomes.len() > max_entries {
-            self.recent_outcomes.pop_front();
+            if let Some(removed) = self.recent_outcomes.pop_front() {
+                if removed.is_progress {
+                    self.total_progress_count = self.total_progress_count.saturating_sub(1);
+                    if self.last_progress_at == removed.timestamp {
+                        self.last_progress_at = self
+                            .recent_outcomes
+                            .iter()
+                            .rev()
+                            .find(|candidate| candidate.is_progress)
+                            .map(|candidate| candidate.timestamp)
+                            .unwrap_or(0);
+                    }
+                }
+                if !removed.success {
+                    self.total_failure_count = self.total_failure_count.saturating_sub(1);
+                }
+            }
         }
     }
 
@@ -256,5 +272,18 @@ mod tests {
         assert_eq!(w.total_progress_count, 2);
         assert_eq!(w.total_failure_count, 1);
         assert_eq!(w.last_progress_at, 300);
+    }
+
+    #[test]
+    fn capping_window_adjusts_progress_failure_counters() {
+        let mut w = OutcomeWindow::new("e1".to_string(), "thread".to_string());
+        w.push(make_entry("tool", "h1", true, true, 100), 2);
+        w.push(make_entry("tool", "h2", false, false, 200), 2);
+        w.push(make_entry("tool", "h3", true, false, 300), 2);
+
+        assert_eq!(w.recent_outcomes.len(), 2);
+        assert_eq!(w.total_progress_count, 0);
+        assert_eq!(w.total_failure_count, 1);
+        assert_eq!(w.last_progress_at, 0);
     }
 }

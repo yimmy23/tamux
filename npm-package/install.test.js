@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const path = require("node:path");
 
 const install = require("./install");
 
@@ -87,6 +88,7 @@ test("prependDirectoryToPath preserves existing PATH key casing", function () {
     "C:\\tamux\\bin"
   );
 
-  assert.equal(updated.Path, "C:\\tamux\\bin:C:\\Windows\\System32");
-  assert.equal(updated.PATH, "C:\\tamux\\bin:C:\\Windows\\System32");
+  const expected = ["C:\\tamux\\bin", "C:\\Windows\\System32"].join(path.delimiter);
+  assert.equal(updated.Path, expected);
+  assert.equal(updated.PATH, expected);
 });

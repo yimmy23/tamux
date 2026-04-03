@@ -39,16 +39,24 @@ pub(crate) async fn fetch_update_status(current_version: &str) -> Result<TamuxUp
 }
 
 pub(crate) async fn print_upgrade_notice_if_available(current_version: &str) {
-    match fetch_update_status(current_version).await {
-        Ok(status) => {
-            if let Some(notice) = status.cli_notice() {
-                eprintln!("{notice}");
+    if std::env::var_os("TAMUX_DISABLE_UPDATE_CHECK").is_some() {
+        tracing::debug!("skipping update notice because TAMUX_DISABLE_UPDATE_CHECK is set");
+        return;
+    }
+
+    let current_version = current_version.to_string();
+    tokio::spawn(async move {
+        match fetch_update_status(&current_version).await {
+            Ok(status) => {
+                if let Some(notice) = status.cli_notice() {
+                    eprintln!("{notice}");
+                }
+            }
+            Err(error) => {
+                tracing::debug!(%error, "skipping update notice after npm lookup failure");
             }
         }
-        Err(error) => {
-            tracing::debug!(%error, "skipping update notice after npm lookup failure");
-        }
-    }
+    });
 }
 
 pub(crate) fn run_upgrade() -> Result<()> {

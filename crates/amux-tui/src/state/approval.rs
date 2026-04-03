@@ -219,6 +219,7 @@ impl ApprovalState {
 
             ApprovalAction::SetFilter(filter) => {
                 self.filter = filter;
+                self.selected_approval_id = None;
             }
 
             ApprovalAction::Resolve {
@@ -403,6 +404,31 @@ mod tests {
 
         state.reduce(ApprovalAction::SelectApproval("a2".into()));
         assert_eq!(state.selected_approval_id(), Some("a2"));
+    }
+
+    #[test]
+    fn filter_change_clears_stale_selection_and_uses_first_visible_approval() {
+        let mut state = ApprovalState::new();
+        let mut current_thread = make_approval("a1", "t1", "echo 1");
+        current_thread.thread_id = Some("thread-1".into());
+        current_thread.workspace_id = Some("ws-1".into());
+        let mut other_thread = make_approval("a2", "t2", "echo 2");
+        other_thread.thread_id = Some("thread-2".into());
+        other_thread.workspace_id = Some("ws-1".into());
+
+        state.reduce(ApprovalAction::ApprovalRequired(current_thread));
+        state.reduce(ApprovalAction::ApprovalRequired(other_thread));
+        state.reduce(ApprovalAction::SelectApproval("a2".into()));
+
+        state.reduce(ApprovalAction::SetFilter(ApprovalFilter::CurrentThread));
+
+        assert_eq!(state.selected_approval_id(), None);
+        assert_eq!(
+            state
+                .selected_visible_approval(Some("thread-1"), Some("ws-1"))
+                .map(|approval| approval.approval_id.as_str()),
+            Some("a1")
+        );
     }
 
     // ── RiskLevel::classify_command tests ────────────────────────────────────

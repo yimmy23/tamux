@@ -367,6 +367,7 @@ if matches!(
                     session_id,
                     context_messages_json,
                     client_surface,
+                    target_agent_id,
                 } => {
                     agent.mark_operator_present("send_message").await;
                     let effective_thread_id =
@@ -401,11 +402,12 @@ if matches!(
                                 }
                             }
                         }
-                        if let Err(e) = Box::pin(agent.send_message_with_session_and_surface(
+                        if let Err(e) = Box::pin(agent.send_message_with_session_surface_and_target(
                             effective_thread_id.as_deref(),
                             session_id.as_deref(),
                             &content,
                             client_surface,
+                            target_agent_id.as_deref(),
                         ))
                         .await
                         {

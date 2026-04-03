@@ -250,6 +250,7 @@ export function bindTerminalDomEvents({
   textarea?.addEventListener("copy", handleNativeCopy);
   textarea?.addEventListener("cut", handleNativeCopy);
   textarea?.addEventListener("paste", handleNativePaste);
+  textarea?.addEventListener("focus", handleFocus);
   window.addEventListener("pointerdown", handleWindowPointer);
   window.addEventListener("blur", handleWindowPointer);
   window.addEventListener("keydown", handleWindowKeyDown);
@@ -266,6 +267,7 @@ export function bindTerminalDomEvents({
     textarea?.removeEventListener("copy", handleNativeCopy);
     textarea?.removeEventListener("cut", handleNativeCopy);
     textarea?.removeEventListener("paste", handleNativePaste);
+    textarea?.removeEventListener("focus", handleFocus);
     window.removeEventListener("pointerdown", handleWindowPointer);
     window.removeEventListener("blur", handleWindowPointer);
     window.removeEventListener("keydown", handleWindowKeyDown);

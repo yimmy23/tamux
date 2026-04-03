@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Default)]
 pub struct AgentThread {
     pub id: String,
+    pub agent_name: Option<String>,
     pub title: String,
     pub created_at: u64,
     pub updated_at: u64,

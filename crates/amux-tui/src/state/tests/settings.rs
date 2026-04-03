@@ -360,6 +360,8 @@ fn current_field_name_advanced_tab() {
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "tool_call_delay_ms");
     state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "llm_stream_chunk_timeout_secs");
+    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "auto_retry");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "context_window_tokens");
@@ -383,7 +385,7 @@ fn current_field_name_advanced_tab() {
     assert_eq!(state.current_field_name(), "snapshot_stats");
     state.reduce(SettingsAction::NavigateField(5));
     assert_eq!(state.current_field_name(), "snapshot_stats");
-    assert_eq!(state.field_cursor(), 20);
+    assert_eq!(state.field_cursor(), 21);
 }
 
 #[test]
@@ -411,7 +413,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
     assert_eq!(state.field_count(), 14);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
-    assert_eq!(state.field_count(), 21);
+    assert_eq!(state.field_count(), 22);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
     assert_eq!(state.field_count(), 1);
 }

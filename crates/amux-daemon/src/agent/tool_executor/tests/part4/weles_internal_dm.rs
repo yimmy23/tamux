@@ -33,6 +33,7 @@ async fn execute_tool_routes_weles_runtime_review_over_internal_dm_thread() {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Operator thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("Inspect tool", 1)],
                 pinned: false,
@@ -151,6 +152,7 @@ async fn execute_tool_weles_scope_blocks_shell_python_without_recursive_spawn_fr
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "WELES loop thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("Inspect tool", 1)],
                 pinned: false,
@@ -225,6 +227,7 @@ async fn execute_dispatched_weles_task_uses_internal_dm_thread() {
             thread_id.to_string(),
             crate::agent::types::AgentThread {
                 id: thread_id.to_string(),
+                agent_name: None,
                 title: "Operator thread".to_string(),
                 messages: vec![crate::agent::types::AgentMessage::user("Inspect tool", 1)],
                 pinned: false,

@@ -16,6 +16,7 @@ fn configurable_channel_capacity() {
     assert_eq!(parsed.retry_delay_ms, 5_000);
     assert_eq!(parsed.message_loop_delay_ms, 500);
     assert_eq!(parsed.tool_call_delay_ms, 500);
+    assert_eq!(parsed.llm_stream_chunk_timeout_secs, 300);
 
     // Test serde roundtrip with custom values
     let json = r#"{"pty_channel_capacity": 2048, "agent_event_channel_capacity": 1024}"#;
@@ -59,6 +60,12 @@ fn default_sleep_delays_are_half_second() {
     let parsed: AgentConfig = serde_json::from_str("{}").unwrap();
     assert_eq!(parsed.message_loop_delay_ms, 500);
     assert_eq!(parsed.tool_call_delay_ms, 500);
+}
+
+#[test]
+fn stream_chunk_timeout_defaults_to_five_minutes() {
+    let parsed: AgentConfig = serde_json::from_str("{}").unwrap();
+    assert_eq!(parsed.llm_stream_chunk_timeout_secs, 300);
 }
 
 /// FOUN-04: Circuit breaker AgentEvent variants serialize and deserialize correctly.

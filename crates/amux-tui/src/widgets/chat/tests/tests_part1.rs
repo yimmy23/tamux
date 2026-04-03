@@ -40,12 +40,28 @@
             ..Default::default()
         }]);
 
+        let area = Rect::new(0, 0, 80, 5);
+        let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+            .expect("chat should produce visible lines");
+        let header_row = visible
+            .iter()
+            .position(|line| {
+                line.message_index == Some(0)
+                    && matches!(line.kind, RenderedLineKind::ReasoningToggle)
+            })
+            .expect("reasoning header should be visible");
+        let hit_line = &visible[header_row];
+        let (_, content_start, _) = rendered_line_content_bounds(hit_line);
+
         let hit = hit_test(
-            Rect::new(0, 0, 80, 5),
+            area,
             &chat,
             &ThemeTokens::default(),
             0,
-            Position::new(2, 2),
+            Position::new(
+                inner.x + content_start as u16,
+                inner.y + header_row as u16,
+            ),
         );
 
         assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));

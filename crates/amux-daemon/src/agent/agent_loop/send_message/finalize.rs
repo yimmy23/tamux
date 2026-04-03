@@ -275,6 +275,7 @@ impl<'a> SendMessageRunner<'a> {
             thread_id: self.tid,
             interrupted_for_approval: self.interrupted_for_approval,
             fresh_runner_retry: self.fresh_runner_retry,
+            handoff_restart: self.handoff_restart,
         })
     }
 }

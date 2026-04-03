@@ -326,6 +326,11 @@ impl TuiModel {
                                     self.config.tool_call_delay_ms = n.clamp(0, 60000);
                                 }
                             }
+                            "llm_stream_chunk_timeout_secs" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.llm_stream_chunk_timeout_secs = n.clamp(30, 1800);
+                                }
+                            }
                             "context_window_tokens" => {
                                 if self.config.provider == "custom" {
                                     if let Ok(n) = value.parse::<u32>() {

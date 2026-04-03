@@ -191,13 +191,24 @@ fn add_available_tools_part_c(
             "limit": { "type": "integer", "description": "Maximum subagents to return (default: 20)" }
         }
     })));
-    tools.push(tool_def("message_agent", &format!("Send a concise internal DM to another tamux agent and get the reply. Use this to coordinate with {} (concierge) or {} (main agent) without asking the operator to relay messages.", CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME), serde_json::json!({
+    tools.push(tool_def("message_agent", &format!("Send a concise private internal DM to another tamux agent and get the reply. This is for behind-the-scenes coordination only: it does not switch the active responder for the current operator thread, and future operator turns do not route to the target agent. If the operator should talk directly to another agent, use `handoff_thread_agent` instead. You can coordinate with {} (concierge), {} (main agent), or any other built-in persona without asking the operator to relay messages.", CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME), serde_json::json!({
         "type": "object",
         "properties": {
-            "target": { "type": "string", "enum": [MAIN_AGENT_ID, CONCIERGE_AGENT_ID, MAIN_AGENT_ALIAS, CONCIERGE_AGENT_ALIAS], "description": "Which agent should receive the internal message" },
+            "target": { "type": "string", "description": "Which agent should receive the internal message. Use a built-in agent id or persona name such as `svarog`, `rarog`, or `weles`." },
             "message": { "type": "string", "description": "Message to send" }
         },
         "required": ["target", "message"]
+    })));
+    tools.push(tool_def("handoff_thread_agent", "Switch the active responder for the current thread. Use this when the operator wants to talk directly to another agent persona or when another agent should own future replies. push_handoff moves responsibility to another agent with a structured summary; return_handoff returns responsibility to the previous responder on the thread handoff stack. Agent-initiated push handoffs require approval outside yolo mode.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "action": { "type": "string", "enum": ["push_handoff", "return_handoff"], "description": "push_handoff moves the thread to another agent; return_handoff pops back to the previous responder." },
+            "target_agent_id": { "type": "string", "description": "Required for push_handoff. Agent id or persona name that should take over the thread." },
+            "reason": { "type": "string", "description": "Why the handoff is happening." },
+            "summary": { "type": "string", "description": "Compact summary the receiving agent should use to continue." },
+            "requested_by": { "type": "string", "enum": ["user", "agent"], "description": "Whether this handoff reflects an operator request or the current agent's own judgment." }
+        },
+        "required": ["action", "reason", "summary", "requested_by"]
     })));
     tools.push(tool_def("route_to_specialist", "Route a task to a specialist subagent with structured handoff. The broker matches capability tags to specialist profiles, assembles a context bundle with episodic refs and negative constraints, and dispatches the work.", serde_json::json!({
         "type": "object",

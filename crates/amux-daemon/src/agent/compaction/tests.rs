@@ -24,6 +24,7 @@ fn sample_message(content: &str) -> AgentMessage {
 fn sample_thread(messages: Vec<AgentMessage>) -> AgentThread {
     AgentThread {
         id: "thread-1".to_string(),
+        agent_name: None,
         title: "Test".to_string(),
         messages,
         pinned: false,
@@ -66,6 +67,74 @@ fn compaction_candidate_exposes_the_older_slice_boundary() {
 
     assert_eq!(candidate.split_at, 2);
     assert!(candidate.target_tokens >= MIN_CONTEXT_TARGET_TOKENS);
+}
+
+#[test]
+fn heuristic_compaction_summary_uses_checkpoint_schema() {
+    let summary = build_compaction_summary(
+        &[
+            AgentMessage::user(
+                "Session: amux-landing website updates. Working directory: /tmp/demo. Completed: Added Agents nav link.",
+                1,
+            ),
+            AgentMessage {
+                id: "assistant-1".to_string(),
+                role: MessageRole::Assistant,
+                content: "Verified HTML and CSS. Status: checking responsive layout next."
+                    .to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                timestamp: 2,
+            },
+            AgentMessage {
+                id: "tool-1".to_string(),
+                role: MessageRole::Tool,
+                content: "styles.css read complete".to_string(),
+                tool_calls: None,
+                tool_call_id: Some("call_1".to_string()),
+                tool_name: Some("read_file".to_string()),
+                tool_arguments: Some("{\"path\":\"styles.css\"}".to_string()),
+                tool_status: Some("done".to_string()),
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                timestamp: 3,
+            },
+        ],
+        2048,
+    );
+
+    assert!(summary.starts_with("# 🤖 Agent Context: State Checkpoint"));
+    assert!(summary.contains("## 🎯 Primary Objective"));
+    assert!(summary.contains("## 🗺️ Execution Map"));
+    assert!(summary.contains("## 📁 Working Environment State"));
+    assert!(summary.contains("## 🧠 Acquired Knowledge & Constraints"));
+    assert!(summary.contains("## 🚫 Dead Ends & Resolved Errors"));
+    assert!(summary.contains("## 🛠️ Recent Action Summary (Last 3-5 Turns)"));
+    assert!(summary.contains("## 🎯 Immediate Next Step"));
+    assert!(summary.contains("/tmp/demo"));
 }
 
 #[test]
@@ -411,7 +480,7 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     assert!(artifact
         .compaction_payload
         .as_deref()
-        .is_some_and(|payload| payload.contains("[Compacted earlier context]")));
+        .is_some_and(|payload| payload.starts_with("# 🤖 Agent Context: State Checkpoint")));
 
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
     assert_eq!(compacted.len(), 2);

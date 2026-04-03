@@ -173,7 +173,7 @@ fn whatsapp_setup_persists_allowlist_before_gateway_enable() {
 
     assert_eq!(writes.len(), 2);
     assert_eq!(writes[0].key_path, "/gateway/whatsapp_allowed_contacts");
-    assert_eq!(writes[0].value_json, "\"+48 123 456 789\"");
+    assert_eq!(writes[0].value_json, "[\"48123456789\"]");
     assert_eq!(writes[1].key_path, "/gateway/enabled");
     assert_eq!(writes[1].value_json, "true");
 }

@@ -3,7 +3,9 @@ impl DaemonClient {
         let normalized_id = thread_id.unwrap_or_default().trim().to_ascii_lowercase();
         let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
         normalized_id.starts_with("dm:")
+            || normalized_id.starts_with("handoff:")
             || normalized_title.starts_with("internal dm")
+            || normalized_title.starts_with("handoff ")
             || normalized_title == "weles"
             || normalized_title.starts_with("weles ")
     }

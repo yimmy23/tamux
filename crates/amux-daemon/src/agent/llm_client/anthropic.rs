@@ -16,7 +16,6 @@ fn build_fresh_anthropic_http_client() -> Result<reqwest::Client> {
         .http1_only()
         .pool_max_idle_per_host(0)
         .connect_timeout(std::time::Duration::from_secs(15))
-        .read_timeout(std::time::Duration::from_secs(125))
         .build()
         .map_err(Into::into)
 }
@@ -75,6 +74,7 @@ fn build_anthropic_request(
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
+    force_connection_close: bool,
 ) -> Result<reqwest::Request> {
     let url = anthropic_messages_url(&config.base_url);
 
@@ -138,10 +138,8 @@ fn build_anthropic_request(
     )
     .body(body.to_string());
 
-    if provider_requires_fresh_anthropic_connection(provider) {
-        request = request
-            .header(reqwest::header::CONNECTION, "close")
-            .version(reqwest::Version::HTTP_11);
+    if force_connection_close || provider_requires_fresh_anthropic_connection(provider) {
+        request = request.header(reqwest::header::CONNECTION, "close");
     }
 
     request.build().map_err(Into::into)
@@ -155,15 +153,24 @@ async fn run_anthropic(
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
+    force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
-    let client = if provider_requires_fresh_anthropic_connection(provider) {
+    let client = if force_connection_close || provider_requires_fresh_anthropic_connection(provider) {
         build_fresh_anthropic_http_client()?
     } else {
         client.clone()
     };
     let request =
-        build_anthropic_request(&client, provider, config, system_prompt, messages, tools)?;
+        build_anthropic_request(
+            &client,
+            provider,
+            config,
+            system_prompt,
+            messages,
+            tools,
+            force_connection_close,
+        )?;
     let request_fingerprint = anthropic_request_fingerprint(&request);
     tracing::info!(
         provider = %provider,

@@ -13,6 +13,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) onecontext_bootstrap: Option<String>,
     pub(super) skill_preflight: Option<String>,
     pub(super) agent_scope_id: String,
+    pub(super) runtime_agent_name: String,
     pub(super) active_provider_id: String,
     pub(super) memory_paths: MemoryPaths,
     pub(super) base_prompt: String,
@@ -62,6 +63,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) recent_policy_tool_outcomes:
         VecDeque<super::orchestrator_policy::PolicyToolOutcomeSummary>,
     pub(super) fresh_runner_retry: Option<FreshRunnerRetryRequest>,
+    pub(super) handoff_restart: Option<HandoffRestartRequest>,
 }
 
 pub(super) struct StreamIteration {

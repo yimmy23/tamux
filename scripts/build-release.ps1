@@ -244,7 +244,7 @@ foreach ($bin in $binaries) {
 # Copy to frontend/dist for Electron bundling
 $distDir = Join-Path $FrontendDir "dist"
 if (Test-Path $distDir) {
-    foreach ($name in @("tamux-daemon.exe", "tamux.exe", "tamux-tui.exe")) {
+    foreach ($name in @("tamux-daemon.exe", "tamux.exe", "tamux-tui.exe", "tamux-mcp.exe", "tamux-gateway.exe")) {
         $src = Join-Path $OutDir $name
         if (Test-Path $src) { Copy-Item $src $distDir -Force }
     }

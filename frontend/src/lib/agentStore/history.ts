@@ -78,6 +78,7 @@ export type RemoteAgentMessageRecord = {
 
 export type RemoteAgentThreadRecord = {
   id?: string;
+  agent_name?: string | null;
   title?: string;
   messages?: RemoteAgentMessageRecord[];
   upstream_thread_id?: string | null;
@@ -95,7 +96,9 @@ export function isHiddenAgentThread(thread: Pick<RemoteAgentThreadRecord, "id" |
   const id = typeof thread.id === "string" ? thread.id.trim().toLowerCase() : "";
   const title = typeof thread.title === "string" ? thread.title.trim().toLowerCase() : "";
   return id.startsWith("dm:")
+    || id.startsWith("handoff:")
     || title.startsWith("internal dm")
+    || title.startsWith("handoff ")
     || title === "weles"
     || title.startsWith("weles ");
 }
@@ -227,6 +230,9 @@ export function buildHydratedRemoteThread(
     : [];
   const totalInputTokens = Number(thread.total_input_tokens ?? 0);
   const totalOutputTokens = Number(thread.total_output_tokens ?? 0);
+  const resolvedAgentName = typeof thread.agent_name === "string" && thread.agent_name.trim()
+    ? thread.agent_name
+    : agent_name;
 
   return {
     thread: {
@@ -235,7 +241,7 @@ export function buildHydratedRemoteThread(
       workspaceId: null,
       surfaceId: null,
       paneId: null,
-      agent_name,
+      agent_name: resolvedAgentName,
       title: typeof thread.title === "string" && thread.title.trim()
         ? thread.title
         : "Conversation",

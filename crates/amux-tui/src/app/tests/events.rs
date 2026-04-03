@@ -517,6 +517,107 @@ fn internal_dm_thread_created_does_not_hijack_active_thread() {
 }
 
 #[test]
+fn hidden_handoff_thread_created_does_not_hijack_active_thread() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "handoff:thread-user:handoff-1".to_string(),
+        title: "Handoff · Svarog -> Weles".to_string(),
+    });
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+    assert!(
+        model
+            .chat
+            .threads()
+            .iter()
+            .all(|thread| thread.id != "handoff:thread-user:handoff-1"),
+        "hidden handoff threads should not be added to visible chat state"
+    );
+}
+
+#[test]
+fn hidden_handoff_thread_detail_is_ignored() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "handoff:thread-user:handoff-1".to_string(),
+        title: "Handoff · Svarog -> Weles".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::System,
+            content: "{\"kind\":\"thread_handoff_context\"}".to_string(),
+            timestamp: 1,
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    })));
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+    assert!(
+        model
+            .chat
+            .threads()
+            .iter()
+            .all(|thread| thread.id != "handoff:thread-user:handoff-1"),
+        "hidden handoff thread detail should not populate visible chat state"
+    );
+}
+
+#[test]
+fn hidden_handoff_threads_are_filtered_from_thread_list() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadList(vec![
+        crate::wire::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            ..Default::default()
+        },
+        crate::wire::AgentThread {
+            id: "handoff:thread-user:handoff-1".to_string(),
+            title: "Handoff · Svarog -> Weles".to_string(),
+            ..Default::default()
+        },
+    ]));
+
+    let visible_ids: Vec<&str> = model
+        .chat
+        .threads()
+        .iter()
+        .map(|thread| thread.id.as_str())
+        .collect();
+    assert_eq!(visible_ids, vec!["thread-user"]);
+}
+
+#[test]
+fn hidden_handoff_thread_reload_required_is_ignored() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "handoff:thread-user:handoff-1".to_string(),
+    });
+
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {
@@ -538,7 +639,6 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         model.chat.active_tool_calls().is_empty(),
         "internal tool calls should not enter the visible running-tool tracker"
     );
-
     model.handle_client_event(ClientEvent::ToolCall {
         thread_id: "thread-user".to_string(),
         call_id: "user-call".to_string(),

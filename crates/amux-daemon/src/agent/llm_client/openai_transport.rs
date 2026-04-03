@@ -233,12 +233,27 @@ fn build_openai_auth_request<'a>(
     url: &str,
     provider: &str,
     config: &ProviderConfig,
+    force_connection_close: bool,
 ) -> reqwest::RequestBuilder {
-    apply_openai_auth_headers(
-        client.post(url).header("Content-Type", "application/json"),
-        provider,
-        config,
+    maybe_force_connection_close(
+        apply_openai_auth_headers(
+            client.post(url).header("Content-Type", "application/json"),
+            provider,
+            config,
+        ),
+        force_connection_close,
     )
+}
+
+fn maybe_force_connection_close(
+    req: reqwest::RequestBuilder,
+    force_connection_close: bool,
+) -> reqwest::RequestBuilder {
+    if force_connection_close {
+        req.header(reqwest::header::CONNECTION, "close")
+    } else {
+        req
+    }
 }
 
 fn apply_openai_auth_headers(

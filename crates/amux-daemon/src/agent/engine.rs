@@ -9,7 +9,9 @@ mod helpers;
 pub(in crate::agent) use helpers::aline_available;
 use helpers::build_agent_http_client;
 pub(in crate::agent) use helpers::{
+    build_fresh_agent_http_client,
     collect_provider_health_snapshot, collect_provider_outage_metadata,
+    default_agent_http_read_timeout,
     file_watch_event_is_relevant, format_provider_outage_message,
     provider_is_eligible_for_alternative,
 };
@@ -18,11 +20,17 @@ pub(super) struct SendMessageOutcome {
     pub thread_id: String,
     pub interrupted_for_approval: bool,
     pub fresh_runner_retry: Option<FreshRunnerRetryRequest>,
+    pub handoff_restart: Option<HandoffRestartRequest>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct FreshRunnerRetryRequest {
     pub scheduled_retry_cycles: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct HandoffRestartRequest {
+    pub llm_user_content: String,
 }
 
 #[derive(Clone)]
@@ -80,6 +88,7 @@ pub struct AgentEngine {
     pub session_manager: Arc<SessionManager>,
     pub history: HistoryStore,
     pub threads: RwLock<HashMap<String, AgentThread>>,
+    pub thread_handoff_states: RwLock<HashMap<String, ThreadHandoffState>>,
     pub thread_client_surfaces: RwLock<HashMap<String, amux_protocol::ClientSurface>>,
     pub thread_todos: RwLock<HashMap<String, Vec<TodoItem>>>,
     pub thread_work_contexts: RwLock<HashMap<String, ThreadWorkContext>>,
@@ -127,6 +136,8 @@ pub struct AgentEngine {
     /// Active cancellation tokens per thread for stop-stream behavior.
     pub stream_cancellations: Mutex<HashMap<String, StreamCancellationEntry>>,
     pub stream_generation: AtomicU64,
+    pub(super) stalled_turn_candidates:
+        Mutex<HashMap<String, crate::agent::stalled_turns::StalledTurnCandidate>>,
     pub(super) active_operator_sessions: RwLock<HashMap<String, u64>>,
     pub(super) pending_operator_approvals: RwLock<HashMap<String, PendingApprovalObservation>>,
     pub(super) operator_profile_sessions: RwLock<HashMap<String, OperatorProfileSessionState>>,
@@ -244,6 +255,7 @@ impl AgentEngine {
             session_manager,
             history,
             threads: RwLock::new(HashMap::new()),
+            thread_handoff_states: RwLock::new(HashMap::new()),
             thread_client_surfaces: RwLock::new(HashMap::new()),
             thread_todos: RwLock::new(HashMap::new()),
             thread_work_contexts: RwLock::new(HashMap::new()),
@@ -284,6 +296,7 @@ impl AgentEngine {
             }),
             stream_cancellations: Mutex::new(HashMap::new()),
             stream_generation: AtomicU64::new(1),
+            stalled_turn_candidates: Mutex::new(HashMap::new()),
             active_operator_sessions: RwLock::new(HashMap::new()),
             pending_operator_approvals: RwLock::new(HashMap::new()),
             operator_profile_sessions: RwLock::new(HashMap::new()),

@@ -772,6 +772,46 @@ fn thread_picker_enter_selects_filtered_rarog_thread() {
 }
 
 #[test]
+fn thread_picker_new_conversation_uses_selected_agent_for_first_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+    model
+        .modal
+        .set_thread_picker_tab(modal::ThreadPickerTab::Weles);
+    model.sync_thread_picker_item_count();
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+    assert!(!quit);
+
+    model.submit_prompt("tell me your secrets".to_string());
+
+    loop {
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::DismissConciergeWelcome) => {}
+            Ok(DaemonCommand::SendMessage {
+                thread_id,
+                target_agent_id,
+                content,
+                ..
+            }) => {
+                assert_eq!(thread_id, None);
+                assert_eq!(target_agent_id.as_deref(), Some("weles"));
+                assert_eq!(content, "tell me your secrets");
+                break;
+            }
+            other => panic!("expected send-message command, got {:?}", other),
+        }
+    }
+}
+
+#[test]
 fn thread_picker_mouse_click_switches_to_rarog_tab() {
     let (mut model, _daemon_rx) = make_model();
     model

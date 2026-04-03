@@ -212,7 +212,7 @@ done
 
 # Copy to frontend/dist for Electron bundling
 if [[ -d "$PROJECT_ROOT/frontend/dist" ]]; then
-    for bin in tamux-daemon tamux tamux-tui; do
+    for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
         if [[ -f "$OUT_DIR/${bin}${EXE}" ]]; then
             cp "$OUT_DIR/${bin}${EXE}" "$PROJECT_ROOT/frontend/dist/"
         fi

@@ -239,8 +239,18 @@ fn start_daemon_bridge(
                             DaemonCommand::RequestFilePreview { path, max_bytes } => {
                                 let _ = client.request_file_preview(path, max_bytes);
                             }
-                            DaemonCommand::SendMessage { thread_id, content, session_id } => {
-                                let _ = client.send_message(thread_id, content, session_id);
+                            DaemonCommand::SendMessage {
+                                thread_id,
+                                content,
+                                session_id,
+                                target_agent_id,
+                            } => {
+                                let _ = client.send_message(
+                                    thread_id,
+                                    content,
+                                    session_id,
+                                    target_agent_id,
+                                );
                             }
                             DaemonCommand::StopStream { thread_id } => {
                                 let _ = client.stop_stream(thread_id);

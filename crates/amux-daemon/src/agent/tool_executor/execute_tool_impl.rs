@@ -360,6 +360,15 @@ pub fn execute_tool<'a>(
             )
             .await
         }
+        "handoff_thread_agent" => {
+            match execute_handoff_thread_agent(&args, agent, thread_id).await {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
+        }
         "list_subagents" => execute_list_subagents(&args, agent, thread_id, task_id).await,
         "message_agent" => Box::pin(execute_message_agent(&args, agent, task_id, session_id)).await,
         "route_to_specialist" => {

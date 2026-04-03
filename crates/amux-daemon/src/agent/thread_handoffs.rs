@@ -1,0 +1,639 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+
+pub(super) const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
+pub(super) const INTERNAL_HANDOFF_THREAD_PREFIX: &str = "handoff:";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadHandoffKind {
+    Push,
+    Return,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadHandoffRequestedBy {
+    User,
+    Agent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreadResponderFrame {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub entered_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entered_via_handoff_event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreadHandoffEvent {
+    pub id: String,
+    pub kind: ThreadHandoffKind,
+    pub from_agent_id: String,
+    pub to_agent_id: String,
+    pub requested_by: ThreadHandoffRequestedBy,
+    pub reason: String,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_id: Option<String>,
+    pub stack_depth_before: usize,
+    pub stack_depth_after: usize,
+    pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreadHandoffState {
+    pub origin_agent_id: String,
+    pub active_agent_id: String,
+    #[serde(default)]
+    pub responder_stack: Vec<ThreadResponderFrame>,
+    #[serde(default)]
+    pub events: Vec<ThreadHandoffEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_approval_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(super) struct PendingThreadHandoffActivation {
+    pub thread_id: String,
+    pub kind: ThreadHandoffKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_agent_id: Option<String>,
+    pub requested_by: ThreadHandoffRequestedBy,
+    pub reason: String,
+    pub summary: String,
+}
+
+pub(super) fn default_agent_id_for_thread(
+    thread_id: &str,
+    persisted_agent_name: Option<&str>,
+) -> String {
+    if thread_id == crate::agent::concierge::CONCIERGE_THREAD_ID {
+        return CONCIERGE_AGENT_ID.to_string();
+    }
+    if is_internal_dm_thread(thread_id) || is_internal_handoff_thread(thread_id) {
+        return canonical_agent_id(persisted_agent_name.unwrap_or(MAIN_AGENT_ID)).to_string();
+    }
+    canonical_agent_id(persisted_agent_name.unwrap_or(MAIN_AGENT_ID)).to_string()
+}
+
+pub(super) fn is_internal_handoff_thread(thread_id: &str) -> bool {
+    thread_id.starts_with(INTERNAL_HANDOFF_THREAD_PREFIX)
+}
+
+pub(super) fn initial_thread_handoff_state(
+    thread_id: &str,
+    persisted_agent_name: Option<&str>,
+    entered_at: u64,
+) -> ThreadHandoffState {
+    let agent_id = default_agent_id_for_thread(thread_id, persisted_agent_name);
+    ThreadHandoffState {
+        origin_agent_id: agent_id.clone(),
+        active_agent_id: agent_id.clone(),
+        responder_stack: vec![ThreadResponderFrame {
+            agent_id: agent_id.clone(),
+            agent_name: canonical_agent_name(&agent_id).to_string(),
+            entered_at,
+            entered_via_handoff_event_id: None,
+            linked_thread_id: None,
+        }],
+        events: Vec::new(),
+        pending_approval_id: None,
+    }
+}
+
+pub(super) fn normalized_thread_handoff_state(
+    thread_id: &str,
+    persisted_agent_name: Option<&str>,
+    created_at: u64,
+    state: Option<ThreadHandoffState>,
+) -> ThreadHandoffState {
+    let mut state = state.unwrap_or_else(|| {
+        initial_thread_handoff_state(thread_id, persisted_agent_name, created_at)
+    });
+    if state.origin_agent_id.trim().is_empty() {
+        state.origin_agent_id = default_agent_id_for_thread(thread_id, persisted_agent_name);
+    }
+    if state.active_agent_id.trim().is_empty() {
+        state.active_agent_id = state.origin_agent_id.clone();
+    }
+    if state.responder_stack.is_empty() {
+        state.responder_stack.push(ThreadResponderFrame {
+            agent_id: state.active_agent_id.clone(),
+            agent_name: canonical_agent_name(&state.active_agent_id).to_string(),
+            entered_at: created_at,
+            entered_via_handoff_event_id: None,
+            linked_thread_id: None,
+        });
+    }
+    state
+}
+
+pub(super) fn active_agent_name_for_thread(
+    thread: &AgentThread,
+    state: Option<&ThreadHandoffState>,
+) -> String {
+    if let Some(value) = thread
+        .agent_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return value.to_string();
+    }
+    if let Some(state) = state {
+        return canonical_agent_name(&state.active_agent_id).to_string();
+    }
+    if thread.id == crate::agent::concierge::CONCIERGE_THREAD_ID {
+        return CONCIERGE_AGENT_NAME.to_string();
+    }
+    if is_internal_dm_thread(&thread.id) || is_internal_handoff_thread(&thread.id) {
+        return "Internal DM".to_string();
+    }
+    MAIN_AGENT_NAME.to_string()
+}
+
+fn resolve_thread_handoff_agent(alias: &str) -> Option<(String, String)> {
+    let trimmed = alias.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let normalized = trimmed.to_ascii_lowercase();
+    let builtin = match normalized.as_str() {
+        MAIN_AGENT_ID | "svarog" | MAIN_AGENT_ALIAS | MAIN_AGENT_LEGACY_ALIAS | MAIN_AGENT_FALLBACK_ALIAS => {
+            Some((MAIN_AGENT_ID.to_string(), MAIN_AGENT_NAME.to_string()))
+        }
+        CONCIERGE_AGENT_ID | CONCIERGE_AGENT_ALIAS | CONCIERGE_AGENT_LEGACY_ALIAS => {
+            Some((CONCIERGE_AGENT_ID.to_string(), CONCIERGE_AGENT_NAME.to_string()))
+        }
+        SWAROZYC_AGENT_ID | "swarozyc" => {
+            Some((SWAROZYC_AGENT_ID.to_string(), SWAROZYC_AGENT_NAME.to_string()))
+        }
+        RADOGOST_AGENT_ID | "radogost" => {
+            Some((RADOGOST_AGENT_ID.to_string(), RADOGOST_AGENT_NAME.to_string()))
+        }
+        DOMOWOJ_AGENT_ID | "domowoj" => {
+            Some((DOMOWOJ_AGENT_ID.to_string(), DOMOWOJ_AGENT_NAME.to_string()))
+        }
+        SWIETOWIT_AGENT_ID | "swietowit" => {
+            Some((SWIETOWIT_AGENT_ID.to_string(), SWIETOWIT_AGENT_NAME.to_string()))
+        }
+        ROD_AGENT_ID | "rod" => Some((ROD_AGENT_ID.to_string(), ROD_AGENT_NAME.to_string())),
+        WELES_AGENT_ID | "weles" => {
+            Some((WELES_AGENT_ID.to_string(), WELES_AGENT_NAME.to_string()))
+        }
+        _ => None,
+    };
+    builtin
+}
+
+fn thread_handoff_system_message(event: &ThreadHandoffEvent) -> String {
+    let from_agent_name = canonical_agent_name(&event.from_agent_id);
+    let to_agent_name = canonical_agent_name(&event.to_agent_id);
+    let payload = serde_json::json!({
+        "id": event.id,
+        "kind": match event.kind {
+            ThreadHandoffKind::Push => "push",
+            ThreadHandoffKind::Return => "return",
+        },
+        "from_agent_id": event.from_agent_id,
+        "from_agent_name": from_agent_name,
+        "to_agent_id": event.to_agent_id,
+        "to_agent_name": to_agent_name,
+        "requested_by": match event.requested_by {
+            ThreadHandoffRequestedBy::User => "user",
+            ThreadHandoffRequestedBy::Agent => "agent",
+        },
+        "reason": event.reason,
+        "summary": event.summary,
+        "linked_thread_id": event.linked_thread_id,
+        "approval_id": event.approval_id,
+        "stack_depth_before": event.stack_depth_before,
+        "stack_depth_after": event.stack_depth_after,
+        "created_at": event.created_at,
+    });
+    format!(
+        "{THREAD_HANDOFF_SYSTEM_MARKER}{}\n{} handed this thread to {}. Summary: {}",
+        payload,
+        from_agent_name,
+        to_agent_name,
+        event.summary
+    )
+}
+
+fn handoff_context_message(
+    event_id: &str,
+    primary_thread_id: &str,
+    from_agent_id: &str,
+    to_agent_id: &str,
+    reason: &str,
+    summary: &str,
+) -> String {
+    serde_json::json!({
+        "kind": "thread_handoff_context",
+        "event_id": event_id,
+        "primary_thread_id": primary_thread_id,
+        "from_agent_id": from_agent_id,
+        "from_agent_name": canonical_agent_name(from_agent_id),
+        "to_agent_id": to_agent_id,
+        "to_agent_name": canonical_agent_name(to_agent_id),
+        "reason": reason,
+        "summary": summary,
+    })
+    .to_string()
+}
+
+fn thread_handoff_approval_command(request: &PendingThreadHandoffActivation) -> String {
+    format!(
+        "handoff_thread_agent {}",
+        serde_json::to_string(request).unwrap_or_else(|_| "{}".to_string())
+    )
+}
+
+impl AgentEngine {
+    pub async fn thread_handoff_state(&self, thread_id: &str) -> Option<ThreadHandoffState> {
+        self.thread_handoff_states
+            .read()
+            .await
+            .get(thread_id)
+            .cloned()
+    }
+
+    pub async fn set_thread_handoff_state(&self, thread_id: &str, state: ThreadHandoffState) {
+        let created_at = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map(|thread| thread.created_at)
+            .unwrap_or_else(now_millis);
+        let normalized = normalized_thread_handoff_state(thread_id, None, created_at, Some(state));
+        let active_name = canonical_agent_name(&normalized.active_agent_id).to_string();
+        self.thread_handoff_states
+            .write()
+            .await
+            .insert(thread_id.to_string(), normalized);
+        if let Some(thread) = self.threads.write().await.get_mut(thread_id) {
+            thread.agent_name = Some(active_name);
+        }
+    }
+
+    pub async fn active_agent_id_for_thread(&self, thread_id: &str) -> Option<String> {
+        self.thread_handoff_states
+            .read()
+            .await
+            .get(thread_id)
+            .map(|state| state.active_agent_id.clone())
+    }
+
+    async fn ensure_linked_handoff_thread(
+        &self,
+        primary_thread_id: &str,
+        from_agent_id: &str,
+        to_agent_id: &str,
+        reason: &str,
+        summary: &str,
+        event_id: &str,
+    ) -> String {
+        let linked_thread_id = format!("{INTERNAL_HANDOFF_THREAD_PREFIX}{primary_thread_id}:{event_id}");
+        let now = now_millis();
+        let mut should_persist = false;
+        {
+            let mut threads = self.threads.write().await;
+            let thread = threads.entry(linked_thread_id.clone()).or_insert_with(|| AgentThread {
+                id: linked_thread_id.clone(),
+                agent_name: Some(canonical_agent_name(to_agent_id).to_string()),
+                title: format!(
+                    "Handoff · {} -> {}",
+                    canonical_agent_name(from_agent_id),
+                    canonical_agent_name(to_agent_id)
+                ),
+                messages: Vec::new(),
+                pinned: false,
+                upstream_thread_id: Some(primary_thread_id.to_string()),
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                created_at: now,
+                updated_at: now,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            });
+            thread.agent_name = Some(canonical_agent_name(to_agent_id).to_string());
+            thread.messages.push(AgentMessage {
+                id: generate_message_id(),
+                role: MessageRole::System,
+                content: handoff_context_message(
+                    event_id,
+                    primary_thread_id,
+                    from_agent_id,
+                    to_agent_id,
+                    reason,
+                    summary,
+                ),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                message_kind: crate::agent::types::AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                timestamp: now,
+            });
+            thread.updated_at = now;
+            should_persist = true;
+        }
+        self.thread_handoff_states.write().await.insert(
+            linked_thread_id.clone(),
+            initial_thread_handoff_state(
+                &linked_thread_id,
+                Some(canonical_agent_name(to_agent_id)),
+                now,
+            ),
+        );
+        if should_persist {
+            self.persist_thread_by_id(&linked_thread_id).await;
+        }
+        linked_thread_id
+    }
+
+    pub(super) async fn apply_thread_handoff_activation(
+        &self,
+        request: &PendingThreadHandoffActivation,
+        approval_id: Option<String>,
+    ) -> Result<ThreadHandoffEvent> {
+        let thread_id = request.thread_id.trim();
+        if thread_id.is_empty() {
+            anyhow::bail!("missing thread id for handoff activation");
+        }
+        let thread_created_at = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map(|thread| thread.created_at)
+            .ok_or_else(|| anyhow::anyhow!("thread {thread_id} does not exist"))?;
+        let mut state = self
+            .thread_handoff_state(thread_id)
+            .await
+            .unwrap_or_else(|| initial_thread_handoff_state(thread_id, None, thread_created_at));
+        if state
+            .pending_approval_id
+            .as_deref()
+            .is_some_and(|value| approval_id.as_deref() != Some(value))
+        {
+            anyhow::bail!("thread already has a different pending handoff approval");
+        }
+
+        let now = now_millis();
+        let event_id = format!("handoff_{}", Uuid::new_v4());
+        let from_agent_id = state.active_agent_id.clone();
+        let stack_depth_before = state.responder_stack.len();
+
+        let (to_agent_id, to_agent_name, linked_thread_id, stack_depth_after) = match request.kind {
+            ThreadHandoffKind::Push => {
+                let target_alias = request
+                    .target_agent_id
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("push_handoff requires target_agent_id"))?;
+                let (target_agent_id, target_agent_name) = resolve_thread_handoff_agent(target_alias)
+                    .ok_or_else(|| anyhow::anyhow!("unknown handoff target: {target_alias}"))?;
+                if target_agent_id == from_agent_id {
+                    anyhow::bail!("cannot hand off a thread to the current active responder");
+                }
+                let linked_thread_id = self
+                    .ensure_linked_handoff_thread(
+                        thread_id,
+                        &from_agent_id,
+                        &target_agent_id,
+                        &request.reason,
+                        &request.summary,
+                        &event_id,
+                    )
+                    .await;
+                state.responder_stack.push(ThreadResponderFrame {
+                    agent_id: target_agent_id.clone(),
+                    agent_name: target_agent_name.clone(),
+                    entered_at: now,
+                    entered_via_handoff_event_id: Some(event_id.clone()),
+                    linked_thread_id: Some(linked_thread_id.clone()),
+                });
+                state.active_agent_id = target_agent_id.clone();
+                (
+                    target_agent_id,
+                    target_agent_name,
+                    Some(linked_thread_id),
+                    state.responder_stack.len(),
+                )
+            }
+            ThreadHandoffKind::Return => {
+                if state.responder_stack.len() <= 1 {
+                    anyhow::bail!("cannot return handoff when no previous responder exists");
+                }
+                let current_frame = state
+                    .responder_stack
+                    .pop()
+                    .expect("responder stack length already checked");
+                let previous_frame = state
+                    .responder_stack
+                    .last()
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing previous responder after pop"))?;
+                let linked_thread_id = current_frame.linked_thread_id.clone();
+                state.active_agent_id = previous_frame.agent_id.clone();
+                (
+                    previous_frame.agent_id,
+                    previous_frame.agent_name,
+                    linked_thread_id,
+                    state.responder_stack.len(),
+                )
+            }
+        };
+
+        let event = ThreadHandoffEvent {
+            id: event_id,
+            kind: request.kind,
+            from_agent_id: from_agent_id.clone(),
+            to_agent_id: to_agent_id.clone(),
+            requested_by: request.requested_by,
+            reason: request.reason.clone(),
+            summary: request.summary.clone(),
+            linked_thread_id,
+            approval_id: approval_id.clone(),
+            stack_depth_before,
+            stack_depth_after,
+            created_at: now,
+            approved_at: approval_id.as_ref().map(|_| now),
+            completed_at: Some(now),
+            failed_at: None,
+            failure_reason: None,
+        };
+        state.pending_approval_id = None;
+        state.events.push(event.clone());
+        self.thread_handoff_states
+            .write()
+            .await
+            .insert(thread_id.to_string(), state.clone());
+
+        {
+            let mut threads = self.threads.write().await;
+            let thread = threads
+                .get_mut(thread_id)
+                .ok_or_else(|| anyhow::anyhow!("thread {thread_id} disappeared during handoff"))?;
+            thread.agent_name = Some(to_agent_name);
+            thread.messages.push(AgentMessage {
+                id: generate_message_id(),
+                role: MessageRole::System,
+                content: thread_handoff_system_message(&event),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: None,
+                model: None,
+                api_transport: None,
+                response_id: None,
+                reasoning: None,
+                message_kind: crate::agent::types::AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                timestamp: now,
+            });
+            thread.updated_at = now;
+        }
+
+        // A responder switch must start a fresh upstream conversation stream so we do
+        // not reuse provider/thread continuity state from the previous responder.
+        self.clear_thread_continuation_state(thread_id).await;
+        let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+            thread_id: thread_id.to_string(),
+        });
+        self.persist_thread_by_id(thread_id).await;
+        Ok(event)
+    }
+
+    pub(super) async fn queue_thread_handoff_approval(
+        &self,
+        request: &PendingThreadHandoffActivation,
+        pending_approval: &ToolPendingApproval,
+    ) -> Result<AgentTask> {
+        let title = match request.kind {
+            ThreadHandoffKind::Push => format!(
+                "Approve thread handoff to {}",
+                request
+                    .target_agent_id
+                    .as_deref()
+                    .map(canonical_agent_name)
+                    .unwrap_or(MAIN_AGENT_NAME)
+            ),
+            ThreadHandoffKind::Return => "Approve thread handoff return".to_string(),
+        };
+        let task = self
+            .enqueue_task(
+                title,
+                request.summary.clone(),
+                "high",
+                Some(serde_json::to_string(request)?),
+                None,
+                Vec::new(),
+                None,
+                "thread_handoff",
+                None,
+                None,
+                Some(request.thread_id.clone()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        self.mark_task_awaiting_approval(&task.id, &request.thread_id, pending_approval)
+            .await;
+        self.record_operator_approval_requested(pending_approval).await?;
+        let thread_created_at = self
+            .threads
+            .read()
+            .await
+            .get(&request.thread_id)
+            .map(|thread| thread.created_at)
+            .unwrap_or_else(now_millis);
+        let mut state = self.thread_handoff_state(&request.thread_id).await.unwrap_or_else(|| {
+            initial_thread_handoff_state(&request.thread_id, None, thread_created_at)
+        });
+        state.pending_approval_id = Some(pending_approval.approval_id.clone());
+        self.thread_handoff_states
+            .write()
+            .await
+            .insert(request.thread_id.clone(), state);
+        self.persist_thread_by_id(&request.thread_id).await;
+        Ok(task)
+    }
+
+    pub(super) async fn clear_pending_thread_handoff_approval(
+        &self,
+        thread_id: &str,
+        approval_id: &str,
+    ) {
+        let thread_created_at = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map(|thread| thread.created_at)
+            .unwrap_or_else(now_millis);
+        let mut state = self.thread_handoff_state(thread_id).await.unwrap_or_else(|| {
+            initial_thread_handoff_state(thread_id, None, thread_created_at)
+        });
+        if state.pending_approval_id.as_deref() == Some(approval_id) {
+            state.pending_approval_id = None;
+            self.thread_handoff_states
+                .write()
+                .await
+                .insert(thread_id.to_string(), state);
+            self.persist_thread_by_id(thread_id).await;
+        }
+    }
+
+    pub(super) fn thread_handoff_pending_approval(
+        &self,
+        request: &PendingThreadHandoffActivation,
+        risk_level: &str,
+    ) -> Result<ToolPendingApproval> {
+        let approval_id = format!("thread-handoff-{}", Uuid::new_v4());
+        Ok(ToolPendingApproval {
+            approval_id: approval_id.clone(),
+            execution_id: format!("thread-handoff-exec-{}", Uuid::new_v4()),
+            command: thread_handoff_approval_command(request),
+            rationale: request.reason.clone(),
+            risk_level: risk_level.to_string(),
+            blast_radius: "thread".to_string(),
+            reasons: vec![request.reason.clone()],
+            session_id: None,
+        })
+    }
+}

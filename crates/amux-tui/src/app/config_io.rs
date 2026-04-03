@@ -380,6 +380,11 @@ impl TuiModel {
         self.config.message_loop_delay_ms =
             get_u32("message_loop_delay_ms", "message_loop_delay_ms", 500);
         self.config.tool_call_delay_ms = get_u32("tool_call_delay_ms", "tool_call_delay_ms", 500);
+        self.config.llm_stream_chunk_timeout_secs = get_u32(
+            "llm_stream_chunk_timeout_secs",
+            "llm_stream_chunk_timeout_secs",
+            300,
+        );
         self.config.auto_retry = get_bool("auto_retry", "auto_retry", true);
         self.config.context_budget_tokens =
             get_u32("context_budget_tokens", "context_budget_tokens", 100000);

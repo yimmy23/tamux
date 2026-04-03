@@ -180,6 +180,8 @@ done
 cp "$OUT_DIR/tamux-daemon.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
 cp "$OUT_DIR/tamux.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
 cp "$OUT_DIR/tamux-tui.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/tamux-mcp.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
+cp "$OUT_DIR/tamux-gateway.exe" "$PROJECT_ROOT/frontend/dist/" 2>/dev/null || true
 if [[ -f "$PROJECT_ROOT/docs/getting-started.md" ]]; then
     cp "$PROJECT_ROOT/docs/getting-started.md" "$OUT_DIR/GETTING_STARTED.md"
     cp "$PROJECT_ROOT/docs/getting-started.md" "$PROJECT_ROOT/frontend/dist/GETTING_STARTED.md"

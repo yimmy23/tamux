@@ -97,6 +97,22 @@ fn build_runtime_self_assessment(
     )
 }
 
+fn has_three_recent_non_success_matches(
+    tried_approaches: &[super::episodic::TriedApproach],
+    current_approach_hash: &str,
+) -> bool {
+    let recent_non_success: Vec<_> = tried_approaches
+        .iter()
+        .rev()
+        .filter(|approach| !matches!(approach.outcome, super::episodic::EpisodeOutcome::Success))
+        .take(3)
+        .collect();
+    recent_non_success.len() == 3
+        && recent_non_success
+            .iter()
+            .all(|approach| approach.approach_hash == current_approach_hash)
+}
+
 async fn build_policy_context_for_tool_result(
     engine: &AgentEngine,
     thread_id: &str,
@@ -121,16 +137,10 @@ async fn build_policy_context_for_tool_result(
                 3,
             )
             .is_some()
-                || store
-                    .counter_who
-                    .tried_approaches
-                    .iter()
-                    .rev()
-                    .take(3)
-                    .filter(|approach| {
-                        !matches!(approach.outcome, super::episodic::EpisodeOutcome::Success)
-                    })
-                    .all(|approach| approach.approach_hash == current_approach_hash)
+                || has_three_recent_non_success_matches(
+                    &store.counter_who.tried_approaches,
+                    current_approach_hash,
+                )
         })
     };
 
@@ -280,5 +290,62 @@ pub(super) fn unexpected_stream_end_message(accumulated_content: &str) -> String
         "Error: provider stream ended without yielding a response.".to_string()
     } else {
         accumulated_content.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_three_recent_non_success_matches;
+    use crate::agent::episodic::{EpisodeOutcome, TriedApproach};
+
+    fn tried(hash: &str, outcome: EpisodeOutcome, timestamp: u64) -> TriedApproach {
+        TriedApproach {
+            approach_hash: hash.to_string(),
+            description: format!("approach:{hash}"),
+            outcome,
+            timestamp,
+        }
+    }
+
+    #[test]
+    fn repeated_approach_requires_three_recent_non_success_entries() {
+        assert!(!has_three_recent_non_success_matches(
+            &[
+                tried("same", EpisodeOutcome::Failure, 1),
+                tried("same", EpisodeOutcome::Failure, 2),
+            ],
+            "same",
+        ));
+
+        assert!(has_three_recent_non_success_matches(
+            &[
+                tried("same", EpisodeOutcome::Failure, 1),
+                tried("same", EpisodeOutcome::Failure, 2),
+                tried("same", EpisodeOutcome::Failure, 3),
+            ],
+            "same",
+        ));
+    }
+
+    #[test]
+    fn repeated_approach_ignores_success_entries_when_counting_recent_failures() {
+        assert!(has_three_recent_non_success_matches(
+            &[
+                tried("same", EpisodeOutcome::Failure, 1),
+                tried("same", EpisodeOutcome::Success, 2),
+                tried("same", EpisodeOutcome::Failure, 3),
+                tried("same", EpisodeOutcome::Failure, 4),
+            ],
+            "same",
+        ));
+
+        assert!(!has_three_recent_non_success_matches(
+            &[
+                tried("same", EpisodeOutcome::Failure, 1),
+                tried("other", EpisodeOutcome::Failure, 2),
+                tried("same", EpisodeOutcome::Failure, 3),
+            ],
+            "same",
+        ));
     }
 }

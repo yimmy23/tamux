@@ -274,6 +274,10 @@ impl TuiModel {
                 "tool_call_delay_ms",
                 &self.config.tool_call_delay_ms.to_string(),
             ),
+            "llm_stream_chunk_timeout_secs" => self.settings.start_editing(
+                "llm_stream_chunk_timeout_secs",
+                &self.config.llm_stream_chunk_timeout_secs.to_string(),
+            ),
             "auto_retry" => {
                 self.config.auto_retry = !self.config.auto_retry;
                 self.sync_config_to_daemon();
