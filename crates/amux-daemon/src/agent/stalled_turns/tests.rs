@@ -348,10 +348,13 @@ async fn supervise_stalled_turns_retries_with_system_recovery_and_continue() {
         message.role == MessageRole::System
             && message.content.contains("WELES stalled-turn recovery")
     }));
-    assert!(thread
-        .messages
-        .iter()
-        .any(|message| { message.role == MessageRole::User && message.content == "continue" }));
+    assert!(
+        !thread
+            .messages
+            .iter()
+            .any(|message| { message.role == MessageRole::User && message.content == "continue" }),
+        "stalled-turn retries should not append a synthetic user 'continue' message"
+    );
     assert!(thread.messages.iter().any(|message| {
         message.role == MessageRole::Assistant && message.content.contains("Recovered.")
     }));

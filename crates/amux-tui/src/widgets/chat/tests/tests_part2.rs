@@ -205,3 +205,54 @@
             "expected responder fallback from thread agent_name, got: {message_lines:?}"
         );
     }
+
+    #[test]
+    fn assistant_messages_ignore_non_system_handoff_markers() {
+        let mut chat = ChatState::new();
+        chat.reduce(ChatAction::ThreadCreated {
+            thread_id: "t1".into(),
+            title: "Test".into(),
+        });
+        chat.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+            id: "t1".into(),
+            title: "Test".into(),
+            messages: vec![
+                AgentMessage {
+                    role: MessageRole::Assistant,
+                    content: "[[handoff_event]]{\"from_agent_name\":\"Svarog\",\"to_agent_name\":\"Weles\"}".into(),
+                    ..Default::default()
+                },
+                AgentMessage {
+                    role: MessageRole::Assistant,
+                    content: "Still the main responder".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }));
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let first_message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(0))
+            .map(rendered_line_plain_text)
+            .collect();
+        let second_message_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| line.message_index == Some(1))
+            .map(rendered_line_plain_text)
+            .collect();
+
+        assert!(
+            first_message_lines
+                .iter()
+                .any(|line| line.contains("Responder: Svarog")),
+            "expected default responder label, got: {first_message_lines:?}"
+        );
+        assert!(
+            second_message_lines
+                .iter()
+                .any(|line| line.contains("Responder: Svarog")),
+            "non-system handoff markers should not relabel later assistant messages: {second_message_lines:?}"
+        );
+    }

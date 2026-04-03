@@ -8,6 +8,14 @@ import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
+export function normalizeLlmStreamTimeoutInput(value: string): number | null {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+        return null;
+    }
+    return Math.min(1800, Math.max(30, parsed));
+}
+
 export function AgentTab({
     settings, updateSetting, resetSettings,
 }: {
@@ -757,8 +765,8 @@ export function AgentTab({
                         max={1800}
                         step={10}
                         onChange={(event) => {
-                            const nextValue = Number.parseFloat(event.target.value);
-                            if (!Number.isNaN(nextValue)) {
+                            const nextValue = normalizeLlmStreamTimeoutInput(event.target.value);
+                            if (nextValue !== null) {
                                 updateSetting("llm_stream_chunk_timeout_secs", nextValue);
                             }
                         }}

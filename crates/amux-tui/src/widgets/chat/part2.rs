@@ -265,7 +265,7 @@ fn assistant_responder_labels(
         if msg.role == MessageRole::Assistant {
             labels[idx] = responder.clone();
         }
-        if let Some(event) = parse_handoff_responder_event(&msg.content) {
+        if let Some(event) = handoff_responder_event_for_message(msg) {
             if event.to_agent_name.is_some() {
                 responder = event.to_agent_name;
             }
@@ -279,9 +279,16 @@ fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<St
     thread
         .messages
         .iter()
-        .find_map(|msg| parse_handoff_responder_event(&msg.content).and_then(|event| event.from_agent_name))
-    .or_else(|| thread.agent_name.clone())
+        .find_map(|msg| handoff_responder_event_for_message(msg).and_then(|event| event.from_agent_name))
+        .or_else(|| thread.agent_name.clone())
         .or_else(|| Some(amux_protocol::AGENT_NAME_SWAROG.to_string()))
+}
+
+fn handoff_responder_event_for_message(msg: &AgentMessage) -> Option<HandoffResponderEvent> {
+    if msg.role != MessageRole::System {
+        return None;
+    }
+    parse_handoff_responder_event(&msg.content)
 }
 
 fn parse_handoff_responder_event(content: &str) -> Option<HandoffResponderEvent> {
