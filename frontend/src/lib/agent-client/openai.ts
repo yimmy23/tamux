@@ -3,6 +3,7 @@ import { getProviderDefinition } from "../agentStore";
 import type { ChatChunk, ChatRequest } from "./types";
 import {
   applyDashScopeCodingPlanHeaders,
+  applyOpenRouterAttributionHeaders,
   buildChatCompletionUrl,
   buildChatGptCodexHeaders,
   buildChatGptCodexResponsesUrl,
@@ -279,6 +280,7 @@ export async function* sendOpenAICompatible(
   if (req.config.api_key) {
     headers.Authorization = `Bearer ${req.config.api_key}`;
   }
+  applyOpenRouterAttributionHeaders(req.provider, headers);
   applyDashScopeCodingPlanHeaders(
     req.provider,
     req.config.base_url,
@@ -388,16 +390,22 @@ export async function* sendOpenAIResponses(
     };
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: isSubscription
-      ? buildChatGptCodexHeaders(req.config.api_key, req._chatgptAccountId)
-      : {
+  const headers = isSubscription
+    ? buildChatGptCodexHeaders(req.config.api_key, req._chatgptAccountId)
+    : (() => {
+        const headers: Record<string, string> = {
           "Content-Type": "application/json",
           ...(req.config.api_key
             ? { Authorization: `Bearer ${req.config.api_key}` }
             : {}),
-        },
+        };
+        applyOpenRouterAttributionHeaders(req.provider, headers);
+        return headers;
+      })();
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
     body: JSON.stringify(body),
     signal: req.signal,
   });

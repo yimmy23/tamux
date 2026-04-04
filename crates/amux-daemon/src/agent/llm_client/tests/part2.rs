@@ -235,6 +235,52 @@
     }
 
     #[test]
+    fn openrouter_requests_include_app_attribution_headers() {
+        let client = reqwest::Client::new();
+        let config = ProviderConfig {
+            base_url: "https://openrouter.ai/api/v1".to_string(),
+            model: "anthropic/claude-sonnet-4".to_string(),
+            api_key: "openrouter-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+        };
+
+        let request = apply_openai_auth_headers(
+            client.get("https://openrouter.ai/api/v1/chat/completions"),
+            "openrouter",
+            &config,
+        )
+        .build()
+        .expect("request should build");
+
+        assert_eq!(
+            request
+                .headers()
+                .get("http-referer")
+                .and_then(|value| value.to_str().ok()),
+            Some("https://tamux.app")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-openrouter-title")
+                .and_then(|value| value.to_str().ok()),
+            Some("tamux")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-openrouter-categories")
+                .and_then(|value| value.to_str().ok()),
+            Some("cli-agent")
+        );
+    }
+
+    #[test]
     fn github_copilot_responses_request_includes_reasoning_summary() {
         let config = ProviderConfig {
             base_url: "https://api.githubcopilot.com".to_string(),

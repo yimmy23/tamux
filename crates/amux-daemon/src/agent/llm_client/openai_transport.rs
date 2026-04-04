@@ -2,6 +2,10 @@
 // OpenAI-compatible implementation
 // ---------------------------------------------------------------------------
 
+const OPENROUTER_ATTRIBUTION_URL: &str = "https://tamux.app";
+const OPENROUTER_ATTRIBUTION_TITLE: &str = "tamux";
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
+
 fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
@@ -245,6 +249,22 @@ fn build_openai_auth_request<'a>(
     )
 }
 
+fn apply_openrouter_attribution_headers(
+    req: reqwest::RequestBuilder,
+    provider: &str,
+) -> reqwest::RequestBuilder {
+    if provider != "openrouter" {
+        return req;
+    }
+
+    req.header("HTTP-Referer", OPENROUTER_ATTRIBUTION_URL)
+        .header("X-OpenRouter-Title", OPENROUTER_ATTRIBUTION_TITLE)
+        .header(
+            "X-OpenRouter-Categories",
+            OPENROUTER_ATTRIBUTION_CATEGORIES,
+        )
+}
+
 fn maybe_force_connection_close(
     req: reqwest::RequestBuilder,
     force_connection_close: bool,
@@ -287,9 +307,9 @@ fn apply_openai_auth_headers(
         let auth_method = get_provider_definition(provider)
             .map(|d| d.auth_method)
             .unwrap_or(AuthMethod::Bearer);
-        auth_method.apply(req, &config.api_key)
+        apply_openrouter_attribution_headers(auth_method.apply(req, &config.api_key), provider)
     } else {
-        req
+        apply_openrouter_attribution_headers(req, provider)
     }
 }
 

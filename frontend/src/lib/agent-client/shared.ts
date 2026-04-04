@@ -2,6 +2,10 @@ import type { AgentProviderId } from "../agentStore";
 import { getProviderDefinition } from "../agentStore";
 import type { ApiChatMessage, ChatRequest } from "./types";
 
+const OPENROUTER_ATTRIBUTION_URL = "https://tamux.app";
+const OPENROUTER_ATTRIBUTION_TITLE = "tamux";
+const OPENROUTER_ATTRIBUTION_CATEGORIES = "cli-agent";
+
 export class TransportCompatibilityError extends Error {
   constructor(message: string) {
     super(message);
@@ -35,6 +39,16 @@ export function applyDashScopeCodingPlanHeaders(
     headers["x-stainless-lang"] = "js";
     headers["x-stainless-package-version"] = "tamux";
   }
+}
+
+export function applyOpenRouterAttributionHeaders(
+  provider: AgentProviderId,
+  headers: Record<string, string>,
+): void {
+  if (provider !== "openrouter") return;
+  headers["HTTP-Referer"] = OPENROUTER_ATTRIBUTION_URL;
+  headers["X-OpenRouter-Title"] = OPENROUTER_ATTRIBUTION_TITLE;
+  headers["X-OpenRouter-Categories"] = OPENROUTER_ATTRIBUTION_CATEGORIES;
 }
 
 export function buildChatCompletionUrl(

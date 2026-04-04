@@ -57,6 +57,8 @@ Data directory: `~/.tamux/` on Unix, `%LOCALAPPDATA%\tamux\` on Windows. Existin
 
 Switch providers at any time from the Settings panel. Each provider's base URL, model, and API key are independently configurable, and models can be selected from a searchable list or entered manually.
 
+When OpenRouter is selected, tamux automatically sends app attribution headers using `https://tamux.app` and the `tamux` title so usage can appear in OpenRouter analytics and rankings.
+
 ## Build And Run
 
 ### Build
