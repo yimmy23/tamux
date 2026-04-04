@@ -228,13 +228,17 @@ pub(super) fn skills_dir(agent_data_dir: &std::path::Path) -> std::path::PathBuf
         .join("skills")
 }
 
+fn builtin_skills_source_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills")
+}
+
 /// Seed built-in skill documents into `~/.tamux/skills/builtin/`.
 pub(super) fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
     let root = skills_dir(agent_data_dir);
-    let source = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../skills"));
+    let source = builtin_skills_source_dir();
     let target = root.join("builtin");
 
-    match seed_skills_tree(source, &target) {
+    match seed_skills_tree(&source, &target) {
         Ok(count) => tracing::debug!("seeded {} built-in skills into {}", count, target.display()),
         Err(e) => tracing::warn!(
             "failed to seed built-in skills from {} to {}: {e}",
@@ -344,6 +348,7 @@ pub async fn load_config_from_history(
 mod tests {
     use super::*;
     use crate::agent::agent_identity::{MAIN_AGENT_ID, RADOGOST_AGENT_ID};
+    use tempfile::tempdir;
 
     #[test]
     fn memory_paths_for_main_scope_falls_back_to_legacy_root() {
@@ -378,5 +383,33 @@ mod tests {
                 .join("SOUL.md")
         );
         assert_eq!(paths.user_path, shared_user_root.join("USER.md"));
+    }
+
+    #[test]
+    fn seed_builtin_skills_copies_repo_skill_docs() {
+        let temp = tempdir().expect("tempdir should succeed");
+        let agent_data_dir = temp.path().join("agent");
+
+        seed_builtin_skills(&agent_data_dir);
+
+        let builtin_root = skills_dir(&agent_data_dir).join("builtin");
+        assert!(
+            builtin_root.join("README.md").exists(),
+            "expected built-in skills seed to copy the repo skills README"
+        );
+        assert!(
+            builtin_root.join("operating").join("thread-compaction.md").exists(),
+            "expected built-in skills seed to copy nested skill docs"
+        );
+    }
+
+    #[test]
+    fn builtin_skills_source_dir_points_at_repo_skills_tree() {
+        let expected = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills");
+        assert_eq!(builtin_skills_source_dir(), expected);
+        assert!(
+            builtin_skills_source_dir().join("README.md").exists(),
+            "expected built-in skills source dir to resolve to the repo skills tree"
+        );
     }
 }

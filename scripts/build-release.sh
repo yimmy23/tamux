@@ -137,6 +137,7 @@ PY
 
 # Detect platform
 OS="$(uname -s)"
+OS_SLUG="$(printf '%s' "$OS" | tr '[:upper:]' '[:lower:]')"
 EXE=""
 PLATFORM_DIR="linux"
 if [[ "$OS" == *MINGW* ]] || [[ "$OS" == *MSYS* ]] || [[ "$OS" == *CYGWIN* ]]; then
@@ -336,8 +337,12 @@ done
 
 if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
     notes_file="$OUT_DIR/RELEASE_NOTES.md"
-    checksums_file="$OUT_DIR/SHA256SUMS-${OS,,}-${ARCH}.txt"
-    bundle_file="$OUT_DIR/tamux-${APP_VERSION}-${OS,,}-${ARCH}.zip"
+    artifact_os_name="$OS"
+    if [[ "$PLATFORM_DIR" == "macos" ]]; then
+        artifact_os_name="$OS_SLUG"
+    fi
+    checksums_file="$OUT_DIR/SHA256SUMS-${artifact_os_name}-${ARCH}.txt"
+    bundle_file="$OUT_DIR/tamux-${APP_VERSION}-${artifact_os_name}-${ARCH}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"
     write_checksums_file "$checksums_file" "${bundle_artifacts[@]}"

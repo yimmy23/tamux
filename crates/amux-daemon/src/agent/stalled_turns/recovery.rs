@@ -8,6 +8,27 @@ impl AgentEngine {
     ) -> Result<()> {
         let attempt = candidate.retries_sent.saturating_add(1);
         let recovery_message = stalled_turn_system_message(candidate, attempt);
+        let prior_user_message = {
+            let threads = self.threads.read().await;
+            let Some(thread) = threads.get(&candidate.thread_id) else {
+                anyhow::bail!(
+                    "thread {} disappeared before stalled-turn retry",
+                    candidate.thread_id
+                );
+            };
+            thread
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.role == MessageRole::User)
+                .map(|message| message.content.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "thread {} has no prior user message for stalled-turn retry",
+                        candidate.thread_id
+                    )
+                })?
+        };
 
         {
             let mut threads = self.threads.write().await;
@@ -39,18 +60,8 @@ impl AgentEngine {
             ),
         );
 
-        self.send_message_inner(
-            Some(&candidate.thread_id),
-            "continue",
-            candidate.task_id.as_deref(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-        )
-        .await?;
+        self.resend_existing_user_message(&candidate.thread_id, &prior_user_message)
+            .await?;
         Ok(())
     }
 
