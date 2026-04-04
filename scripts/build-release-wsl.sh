@@ -287,7 +287,7 @@ done
 if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
     notes_file="$OUT_DIR/RELEASE_NOTES.md"
     checksums_file="$OUT_DIR/SHA256SUMS-windows-${ARCH}.txt"
-    bundle_file="$OUT_DIR/tamux-${APP_VERSION}-windows-${ARCH}.zip"
+    bundle_file="$OUT_DIR/tamux-windows-${ARCH}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"
     write_checksums_file "$checksums_file" "${bundle_artifacts[@]}"

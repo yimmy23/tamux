@@ -137,15 +137,13 @@ function parseChecksumFile(content, filename) {
 function getReleaseAssetInfo(platform, arch, version) {
   var key = platform + "-" + arch;
   var target = PLATFORM_MAP[key];
-  var resolvedVersion = version || VERSION;
 
   if (!target) {
     return null;
   }
 
   return {
-    archiveName:
-      "tamux-" + resolvedVersion + "-" + target.archivePlatform + ".zip",
+    archiveName: "tamux-" + target.archivePlatform + ".zip",
     checksumName: "SHA256SUMS-" + target.checksumPlatform + ".txt",
     bundleChecksumName: "SHA256SUMS.txt",
     requiredBinaries: target.requiredBinaries.slice(),

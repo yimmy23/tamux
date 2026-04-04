@@ -37,13 +37,13 @@ variables:
       else
         BINS="tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway"
       fi
-    - tar czf "artifacts/tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" -C "dist-release/${DIST_DIR}" $BINS
+    - tar czf "artifacts/tamux-binaries-${PLATFORM}.tar.gz" -C "dist-release/${DIST_DIR}" $BINS
     # Generate per-platform SHA256SUMS
     - cd artifacts
-    - sha256sum "tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
+    - sha256sum "tamux-binaries-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
     # Upload to GitLab Generic Package Registry
     - |
-      for FILE in tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
+      for FILE in tamux-binaries-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
         curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           --upload-file "$FILE" \
           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/${FILE}"
@@ -86,11 +86,11 @@ build:linux-arm64:
     - cp target/aarch64-unknown-linux-gnu/release/tamux-mcp dist-release/linux/
     - cp target/aarch64-unknown-linux-gnu/release/tamux-gateway dist-release/linux/
     - mkdir -p artifacts
-    - tar czf "artifacts/tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" -C dist-release/linux tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
+    - tar czf "artifacts/tamux-binaries-${PLATFORM}.tar.gz" -C dist-release/linux tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
     - cd artifacts
-    - sha256sum "tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
+    - sha256sum "tamux-binaries-${PLATFORM}.tar.gz" > "SHA256SUMS-${PLATFORM}.txt"
     - |
-      for FILE in tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
+      for FILE in tamux-binaries-${PLATFORM}.tar.gz SHA256SUMS-${PLATFORM}.txt; do
         curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           --upload-file "$FILE" \
           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tamux/${VERSION}/${FILE}"
@@ -134,8 +134,8 @@ build:windows-x64:
     - npm run build
     # Copy Rust binaries from build stage into dist/ for electron-builder extraResources
     - mkdir -p dist
-    - cp ../artifacts/tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz /tmp/
-    - cd /tmp && tar xzf tamux-binaries-v${VERSION}-${PLATFORM}.tar.gz && cd -
+    - cp ../artifacts/tamux-binaries-${PLATFORM}.tar.gz /tmp/
+    - cd /tmp && tar xzf tamux-binaries-${PLATFORM}.tar.gz && cd -
     - cp /tmp/tamux-daemon${BIN_EXT} dist/ 2>/dev/null || true
     - cp /tmp/tamux${BIN_EXT} dist/ 2>/dev/null || true
     - cp /tmp/tamux-tui${BIN_EXT} dist/ 2>/dev/null || true
@@ -239,10 +239,10 @@ release:create:
       ### Binary Downloads
       | Platform | Download |
       |----------|----------|
-      | Linux x64 | [tamux-binaries-v${VERSION}-linux-x64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-linux-x64.tar.gz) |
-      | Linux ARM64 | [tamux-binaries-v${VERSION}-linux-arm64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-linux-arm64.tar.gz) |
-      | macOS ARM64 | [tamux-binaries-v${VERSION}-darwin-arm64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-darwin-arm64.tar.gz) |
-      | Windows x64 | [tamux-binaries-v${VERSION}-windows-x64.tar.gz](${PKG_BASE}/tamux-binaries-v${VERSION}-windows-x64.tar.gz) |
+      | Linux x64 | [tamux-binaries-linux-x64.tar.gz](${PKG_BASE}/tamux-binaries-linux-x64.tar.gz) |
+      | Linux ARM64 | [tamux-binaries-linux-arm64.tar.gz](${PKG_BASE}/tamux-binaries-linux-arm64.tar.gz) |
+      | macOS ARM64 | [tamux-binaries-darwin-arm64.tar.gz](${PKG_BASE}/tamux-binaries-darwin-arm64.tar.gz) |
+      | Windows x64 | [tamux-binaries-windows-x64.tar.gz](${PKG_BASE}/tamux-binaries-windows-x64.tar.gz) |
 
       ### Desktop Downloads
       | Platform | Download |

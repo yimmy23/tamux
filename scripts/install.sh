@@ -71,7 +71,7 @@ get_latest_version() {
 # ---------------------------------------------------------------------------
 
 download_and_verify() {
-  TARBALL="tamux-binaries-v${VERSION}-${TARGET}.tar.gz"
+  TARBALL="tamux-binaries-${TARGET}.tar.gz"
   SUMS="SHA256SUMS-${TARGET}.txt"
   TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$TMP_DIR" 2>/dev/null' EXIT
@@ -179,7 +179,7 @@ get_latest_version
 
 # --dry-run: print detection results and exit without downloading
 if [ "$DRY_RUN" = true ]; then
-  TARBALL="tamux-binaries-v${VERSION}-${TARGET}.tar.gz"
+  TARBALL="tamux-binaries-${TARGET}.tar.gz"
   echo ""
   echo "Platform: ${TARGET}"
   echo "Version: ${VERSION}"

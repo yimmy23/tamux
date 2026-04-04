@@ -342,7 +342,7 @@ if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
         artifact_os_name="$OS_SLUG"
     fi
     checksums_file="$OUT_DIR/SHA256SUMS-${artifact_os_name}-${ARCH}.txt"
-    bundle_file="$OUT_DIR/tamux-${APP_VERSION}-${artifact_os_name}-${ARCH}.zip"
+    bundle_file="$OUT_DIR/tamux-${artifact_os_name}-${ARCH}.zip"
 
     generate_release_notes_if_missing "$notes_file" "${bundle_artifacts[@]}"
     write_checksums_file "$checksums_file" "${bundle_artifacts[@]}"

@@ -88,7 +88,7 @@ function Get-LatestVersion {
 # ---------------------------------------------------------------------------
 
 function Download-AndVerify {
-    $script:Tarball = "tamux-binaries-v$script:Version-$script:Target.tar.gz"
+    $script:Tarball = "tamux-binaries-$script:Target.tar.gz"
     $script:Sums = "SHA256SUMS-$script:Target.txt"
     $script:TmpDir = Join-Path $env:TEMP "tamux-install"
 
@@ -179,7 +179,7 @@ Detect-Platform
 Get-LatestVersion
 
 if ($DryRun) {
-    $tarball = "tamux-binaries-v$Version-$Target.tar.gz"
+    $tarball = "tamux-binaries-$Target.tar.gz"
     Write-Host ""
     Write-Host "Platform: $Target"
     Write-Host "Version: $Version"

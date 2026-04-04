@@ -65,7 +65,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           cd dist-release/linux
-          ZIP="tamux-$VERSION-linux-x86_64.zip"
+          ZIP="tamux-linux-x86_64.zip"
           zip "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
           sha256sum "$ZIP" > "SHA256SUMS-linux-x86_64.txt"
 
@@ -141,7 +141,7 @@ jobs:
         shell: pwsh
         working-directory: dist-release/windows
         run: |
-          $zip = "tamux-$env:VERSION-windows-x64.zip"
+          $zip = "tamux-windows-x64.zip"
           Compress-Archive -Path tamux-daemon.exe, tamux.exe, tamux-tui.exe, tamux-mcp.exe, tamux-gateway.exe -DestinationPath $zip -Force
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zip" | Out-File -FilePath SHA256SUMS-windows-x64.txt -Encoding ascii
@@ -209,7 +209,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           cd dist-release/macos
-          ZIP="tamux-$VERSION-darwin-x86_64.zip"
+          ZIP="tamux-darwin-x86_64.zip"
           zip "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-x86_64.txt"
 
@@ -277,7 +277,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           cd dist-release/macos
-          ZIP="tamux-$VERSION-darwin-arm64.zip"
+          ZIP="tamux-darwin-arm64.zip"
           zip "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-arm64.txt"
 
