@@ -24,11 +24,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
-      - name: Install cross
-        run: cargo install cross --locked
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
 
       - name: Rust build
-        run: cross build --release --target x86_64-unknown-linux-gnu
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Collect Linux binaries
         run: |
@@ -84,7 +84,7 @@ jobs:
   # Windows x64 — Rust cross-compile + Electron packaging
   # ================================================================
   build-windows-x64:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -93,20 +93,18 @@ jobs:
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          targets: x86_64-pc-windows-gnu
 
-      - name: Install mingw
-        run: sudo apt-get install -y mingw-w64
-
-      - name: Rust build (Windows cross-compile)
-        run: cargo build --release --target x86_64-pc-windows-gnu
+      - name: Rust build (Windows native)
+        shell: pwsh
+        run: cargo build --release
 
       - name: Collect Windows binaries
+        shell: pwsh
         run: |
-          mkdir -p dist-release/windows
-          for bin in tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway; do
-            cp target/x86_64-pc-windows-gnu/release/$bin.exe dist-release/windows/$bin.exe
-          done
+          New-Item -ItemType Directory -Force -Path dist-release/windows | Out-Null
+          foreach ($bin in "tamux-daemon", "tamux", "tamux-tui", "tamux-mcp", "tamux-gateway") {
+            Copy-Item "target/release/$bin.exe" "dist-release/windows/$bin.exe"
+          }
 
       - name: Build frontend
         uses: actions/setup-node@v4
@@ -116,29 +114,37 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: npm install + build
-        run: npm ci && npm run build
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
         working-directory: frontend
 
       - name: Copy binaries to frontend/dist
+        shell: pwsh
         run: |
-          cp dist-release/windows/tamux-daemon.exe frontend/dist/
-          cp dist-release/windows/tamux.exe frontend/dist/
-          cp dist-release/windows/tamux-tui.exe frontend/dist/
-          cp dist-release/windows/tamux-mcp.exe frontend/dist/
-          cp dist-release/windows/tamux-gateway.exe frontend/dist/
+          Copy-Item dist-release/windows/tamux-daemon.exe frontend/dist/
+          Copy-Item dist-release/windows/tamux.exe frontend/dist/
+          Copy-Item dist-release/windows/tamux-tui.exe frontend/dist/
+          Copy-Item dist-release/windows/tamux-mcp.exe frontend/dist/
+          Copy-Item dist-release/windows/tamux-gateway.exe frontend/dist/
 
       - name: Electron package (Windows portable + nsis)
+        shell: pwsh
         run: npx electron-builder --win portable nsis
         working-directory: frontend
 
       - name: Package Windows binaries
         env:
           VERSION: ${{ github.ref_name }}
+        shell: pwsh
+        working-directory: dist-release/windows
         run: |
-          cd dist-release/windows
-          ZIP="tamux-$VERSION-windows-x64.zip"
-          zip "$ZIP" tamux-daemon.exe tamux.exe tamux-tui.exe tamux-mcp.exe tamux-gateway.exe
-          sha256sum "$ZIP" > "SHA256SUMS-windows-x64.txt"
+          $zip = "tamux-$env:VERSION-windows-x64.zip"
+          Compress-Archive -Path tamux-daemon.exe, tamux.exe, tamux-tui.exe, tamux-mcp.exe, tamux-gateway.exe -DestinationPath $zip -Force
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $zip" | Out-File -FilePath SHA256SUMS-windows-x64.txt -Encoding ascii
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -154,7 +160,7 @@ jobs:
   # macOS x64 (Intel) — native build
   # ================================================================
   build-darwin-x64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -205,7 +211,7 @@ jobs:
           cd dist-release/macos
           ZIP="tamux-$VERSION-darwin-x86_64.zip"
           zip "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
-          sha256sum "$ZIP" > "SHA256SUMS-darwin-x86_64.txt"
+          shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-x86_64.txt"
 
       - name: Upload macOS Intel artifacts
         uses: actions/upload-artifact@v4
@@ -273,7 +279,7 @@ jobs:
           cd dist-release/macos
           ZIP="tamux-$VERSION-darwin-arm64.zip"
           zip "$ZIP" tamux-daemon tamux tamux-tui tamux-mcp tamux-gateway
-          sha256sum "$ZIP" > "SHA256SUMS-darwin-arm64.txt"
+          shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-arm64.txt"
 
       - name: Upload macOS ARM64 artifacts
         uses: actions/upload-artifact@v4

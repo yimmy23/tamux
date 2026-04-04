@@ -84,7 +84,7 @@ export function registerAITrainingPlugin() {
     pluginApi.registerPlugin({
         id: "ai-training",
         name: "AI Training",
-        version: "0.2.12",
+        version: "0.2.13",
         assistantTools: [
             {
                 type: "function",
