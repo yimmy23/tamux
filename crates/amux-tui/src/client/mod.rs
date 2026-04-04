@@ -68,6 +68,7 @@ pub enum ClientEvent {
     ThreadCreated {
         thread_id: String,
         title: String,
+        agent_name: Option<String>,
     },
     ThreadReloadRequired {
         thread_id: String,

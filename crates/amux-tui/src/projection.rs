@@ -24,6 +24,7 @@ pub enum ClientEvent {
     ThreadCreated {
         thread_id: String,
         title: String,
+        agent_name: Option<String>,
     },
 
     TaskList(Vec<crate::state::task::AgentTask>),
@@ -210,11 +211,26 @@ impl DaemonProjection {
                 vec![AppAction::Chat(ChatAction::ThreadDetailReceived(thread))]
             }
             ClientEvent::ThreadDetail(None) => vec![],
-            ClientEvent::ThreadCreated { thread_id, title } => {
-                vec![AppAction::Chat(ChatAction::ThreadCreated {
-                    thread_id,
-                    title,
-                })]
+            ClientEvent::ThreadCreated {
+                thread_id,
+                title,
+                agent_name,
+            } => {
+                let mut actions = vec![AppAction::Chat(ChatAction::ThreadCreated {
+                    thread_id: thread_id.clone(),
+                    title: title.clone(),
+                })];
+                if agent_name.is_some() {
+                    actions.push(AppAction::Chat(ChatAction::ThreadDetailReceived(
+                        crate::state::chat::AgentThread {
+                            id: thread_id,
+                            agent_name,
+                            title,
+                            ..Default::default()
+                        },
+                    )));
+                }
+                actions
             }
 
             // Task events → TaskAction

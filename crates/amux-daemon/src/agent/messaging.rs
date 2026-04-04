@@ -276,6 +276,7 @@ impl AgentEngine {
                 let _ = self.event_tx.send(AgentEvent::ThreadCreated {
                     thread_id: id.clone(),
                     title,
+                    agent_name: Some(canonical_agent_name(&active_agent_id).to_string()),
                 });
             }
         }

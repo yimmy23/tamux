@@ -47,6 +47,8 @@ pub enum AgentEvent {
     ThreadCreated {
         thread_id: String,
         title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_name: Option<String>,
     },
     ThreadReloadRequired {
         thread_id: String,

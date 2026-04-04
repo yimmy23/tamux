@@ -46,6 +46,7 @@ impl DaemonClient {
                 let title = get_string(&event, "title")
                     .unwrap_or_else(|| "New Conversation".to_string());
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                let agent_name = get_string(&event, "agent_name");
                 if Self::is_hidden_agent_thread(Some(thread_id.as_str()), Some(title.as_str())) {
                     return;
                 }
@@ -53,6 +54,7 @@ impl DaemonClient {
                     .send(ClientEvent::ThreadCreated {
                         thread_id,
                         title,
+                        agent_name,
                     })
                     .await;
             }

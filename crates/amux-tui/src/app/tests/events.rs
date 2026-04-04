@@ -511,6 +511,7 @@ fn internal_dm_thread_created_does_not_hijack_active_thread() {
     model.handle_client_event(ClientEvent::ThreadCreated {
         thread_id: "dm:svarog:weles".to_string(),
         title: "Internal DM · Swarog ↔ WELES".to_string(),
+        agent_name: None,
     });
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
@@ -530,6 +531,7 @@ fn hidden_handoff_thread_created_does_not_hijack_active_thread() {
     model.handle_client_event(ClientEvent::ThreadCreated {
         thread_id: "handoff:thread-user:handoff-1".to_string(),
         title: "Handoff · Svarog -> Weles".to_string(),
+        agent_name: None,
     });
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
@@ -541,6 +543,26 @@ fn hidden_handoff_thread_created_does_not_hijack_active_thread() {
             .all(|thread| thread.id != "handoff:thread-user:handoff-1"),
         "hidden handoff threads should not be added to visible chat state"
     );
+}
+
+#[test]
+fn thread_created_event_preserves_agent_name_for_responder_fallback() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-weles".to_string(),
+        title: "Governance".to_string(),
+        agent_name: Some("Weles".to_string()),
+    });
+
+    let thread = model
+        .chat
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "thread-weles")
+        .expect("thread should be added to chat state");
+
+    assert_eq!(thread.agent_name.as_deref(), Some("Weles"));
 }
 
 #[test]
@@ -651,6 +673,7 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
     model.handle_client_event(ClientEvent::ThreadCreated {
         thread_id: "dm:svarog:weles".to_string(),
         title: "Internal DM · Swarog ↔ WELES".to_string(),
+        agent_name: None,
     });
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
 

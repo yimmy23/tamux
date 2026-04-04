@@ -107,8 +107,12 @@ impl TuiModel {
                 self.handle_thread_detail_event(thread);
             }
             ClientEvent::ThreadDetail(None) => {}
-            ClientEvent::ThreadCreated { thread_id, title } => {
-                self.handle_thread_created_event(thread_id, title);
+            ClientEvent::ThreadCreated {
+                thread_id,
+                title,
+                agent_name,
+            } => {
+                self.handle_thread_created_event(thread_id, title, agent_name);
             }
             ClientEvent::ThreadReloadRequired { thread_id } => {
                 self.handle_thread_reload_required_event(thread_id);

@@ -156,12 +156,29 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
     }
 
-    pub(in crate::app) fn handle_thread_created_event(&mut self, thread_id: String, title: String) {
+    pub(in crate::app) fn handle_thread_created_event(
+        &mut self,
+        thread_id: String,
+        title: String,
+        agent_name: Option<String>,
+    ) {
         if Self::is_hidden_agent_thread(&thread_id, Some(title.as_str())) {
             return;
         }
-        self.chat
-            .reduce(chat::ChatAction::ThreadCreated { thread_id, title });
+        self.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: thread_id.clone(),
+            title: title.clone(),
+        });
+        if agent_name.is_some() {
+            self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+                crate::state::chat::AgentThread {
+                    id: thread_id,
+                    agent_name,
+                    title,
+                    ..Default::default()
+                },
+            ));
+        }
         self.sync_pending_approvals_from_tasks();
     }
 
