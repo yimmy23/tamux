@@ -8,6 +8,7 @@ include!("prelude.rs");
 include!("api_types.rs");
 include!("public_api.rs");
 include!("openai_transport.rs");
+include!("openai_responses_protocol.rs");
 include!("native_assistant.rs");
 include!("openai_runtime.rs");
 include!("openai_sse.rs");

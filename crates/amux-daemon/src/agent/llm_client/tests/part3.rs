@@ -296,16 +296,8 @@
         assert!(models.is_empty());
     }
 
-    #[tokio::test]
-    async fn copilot_responses_parser_collects_reasoning_summary_parts() {
+    async fn responses_sse_test_response(body: &str) -> (reqwest::Response, tokio::task::JoinHandle<()>) {
         let client = reqwest::Client::new();
-        let body = concat!(
-            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\"}}\n",
-            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"enc\"}}\n",
-            "data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"rs_1\",\"summary_index\":0}\n",
-            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"rs_1\",\"summary_index\":0,\"delta\":\"thinking\"}\n",
-            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n"
-        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind test server");
@@ -325,6 +317,19 @@
             .send()
             .await
             .expect("send test request");
+        (response, server)
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_collects_reasoning_summary_parts() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\"}}\n",
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"enc\"}}\n",
+            "data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"rs_1\",\"summary_index\":0}\n",
+            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"rs_1\",\"summary_index\":0,\"delta\":\"thinking\"}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
 
         let (tx, mut rx) = mpsc::channel(8);
         parse_openai_responses_sse(response, amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, &tx)
@@ -355,32 +360,13 @@
 
     #[tokio::test]
     async fn copilot_responses_parser_collects_reasoning_summary_from_output_item_done() {
-        let client = reqwest::Client::new();
         let body = concat!(
             "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_456\"}}\n",
             "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_2\",\"encrypted_content\":\"enc\"}}\n",
             "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_2_rotated\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"final reasoning\"}]}}\n",
             "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}}\n"
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind test server");
-        let addr = listener.local_addr().expect("local addr");
-        let body = body.to_string();
-        let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.expect("accept");
-            let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await;
-        });
-        let response = client
-            .get(format!("http://{addr}"))
-            .send()
-            .await
-            .expect("send test request");
+        let (response, server) = responses_sse_test_response(body).await;
 
         let (tx, mut rx) = mpsc::channel(8);
         parse_openai_responses_sse(response, amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, &tx)
@@ -406,5 +392,241 @@
 
         assert!(reasoning_deltas.is_empty());
         assert_eq!(final_reasoning.as_deref(), Some("final reasoning"));
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_tolerates_unknown_events_before_completion() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_unknown\"}}\n",
+            "data: {\"type\":\"response.custom_ignored\",\"value\":\"ignored\"}\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":7}}}\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_responses_sse(response, amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, &tx)
+            .await
+            .expect("parse should succeed");
+        drop(tx);
+
+        let mut deltas = Vec::new();
+        let mut done_content = None;
+        while let Some(chunk) = rx.recv().await {
+            match chunk.expect("chunk") {
+                CompletionChunk::Delta { content, .. } if !content.is_empty() => deltas.push(content),
+                CompletionChunk::Done { content, .. } => done_content = Some(content),
+                _ => {}
+            }
+        }
+
+        assert_eq!(deltas, vec!["hello".to_string()]);
+        assert_eq!(done_content.as_deref(), Some("hello"));
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_rejects_chat_completions_payloads() {
+        let body = concat!(
+            "data: {\"id\":\"chatcmpl_123\",\"choices\":[{\"delta\":{\"content\":\"legacy\"}}]}\n",
+            "data: [DONE]\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, _rx) = mpsc::channel(8);
+        let err = parse_openai_responses_sse(
+            response,
+            amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
+            &tx,
+        )
+        .await
+        .expect_err("choices payload should be rejected");
+
+        let failure = upstream_failure_error(&err).expect("structured upstream failure");
+        assert_eq!(failure.class, UpstreamFailureClass::TransportIncompatible);
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_surfaces_response_failed_as_structured_error() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failed\"}}\n",
+            "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_failed\",\"status\":\"failed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":0,\"total_tokens\":2},\"error\":{\"code\":\"server_error\",\"message\":\"Over capacity\"}}}\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_responses_sse(response, amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, &tx)
+            .await
+            .expect("parse should complete with an error chunk");
+        drop(tx);
+
+        let mut saw_error = None;
+        while let Some(chunk) = rx.recv().await {
+            if let CompletionChunk::Error { message } = chunk.expect("chunk") {
+                saw_error = Some(message);
+                break;
+            }
+        }
+
+        let message = saw_error.expect("expected structured error chunk");
+        let diagnostics = parse_structured_error(&message);
+        assert_eq!(diagnostics.class, "temporary_upstream");
+        assert_eq!(diagnostics.diagnostics["event_type"], "response.failed");
+        assert_eq!(diagnostics.diagnostics["response_id"], "resp_failed");
+        assert_eq!(diagnostics.diagnostics["upstream_error"]["code"], "server_error");
+        assert_eq!(diagnostics.diagnostics["upstream_error"]["message"], "Over capacity");
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_surfaces_top_level_error_as_structured_error() {
+        let body = concat!(
+            "data: {\"type\":\"error\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"Slow down\",\"param\":\"model\"}}\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_responses_sse(response, amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, &tx)
+            .await
+            .expect("parse should complete with an error chunk");
+        drop(tx);
+
+        let mut saw_error = None;
+        while let Some(chunk) = rx.recv().await {
+            if let CompletionChunk::Error { message } = chunk.expect("chunk") {
+                saw_error = Some(message);
+                break;
+            }
+        }
+
+        let message = saw_error.expect("expected structured error chunk");
+        let diagnostics = parse_structured_error(&message);
+        assert_eq!(diagnostics.class, "rate_limit");
+        assert_eq!(diagnostics.diagnostics["event_type"], "error");
+        assert_eq!(diagnostics.diagnostics["upstream_error"]["code"], "rate_limit_exceeded");
+        assert_eq!(diagnostics.diagnostics["upstream_error"]["message"], "Slow down");
+        assert_eq!(diagnostics.diagnostics["upstream_error"]["param"], "model");
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_errors_on_truncated_stream_without_terminal_event() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_truncated\"}}\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, _rx) = mpsc::channel(8);
+        let err = parse_openai_responses_sse(
+            response,
+            amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
+            &tx,
+        )
+        .await
+        .expect_err("unterminated responses stream should fail");
+
+        assert!(
+            err.to_string().contains("terminal") || err.to_string().contains("truncated"),
+            "unexpected error: {err:#}"
+        );
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn copilot_responses_parser_errors_on_malformed_event_payload() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_bad_json\"}}\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"unterminated\"\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, _rx) = mpsc::channel(8);
+        let err = parse_openai_responses_sse(
+            response,
+            amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
+            &tx,
+        )
+        .await
+        .expect_err("malformed responses event should fail");
+
+        assert!(
+            err.to_string().contains("malformed") || err.to_string().contains("json"),
+            "unexpected error: {err:#}"
+        );
+        server.await.expect("server task");
+    }
+
+    #[tokio::test]
+    async fn chat_completions_parser_provider_final_result_uses_normalized_tool_calls() {
+        let body = concat!(
+            "data: {\"id\":\"chatcmpl_tool_final\",\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"name\":\"second\",\"arguments\":\"\"}}]}}]}\n",
+            "data: {\"id\":\"chatcmpl_tool_final\",\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_0\",\"function\":{\"name\":\"first\",\"arguments\":\"{\\\"a\\\":1}\"}},{\"index\":1,\"function\":{\"arguments\":\"{\\\"b\\\":2}\"}}]}}]}\n",
+            "data: {\"id\":\"chatcmpl_tool_final\",\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3}}\n",
+            "data: [DONE]\n"
+        );
+        let (response, server) = responses_sse_test_response(body).await;
+
+        let (tx, mut rx) = mpsc::channel(8);
+        parse_openai_sse(response, &tx)
+            .await
+            .expect("parse should succeed");
+        drop(tx);
+
+        let mut emitted_tool_calls = None;
+        let mut final_result_tool_calls = None;
+        while let Some(chunk) = rx.recv().await {
+            if let CompletionChunk::ToolCalls {
+                tool_calls,
+                provider_final_result,
+                ..
+            } = chunk.expect("chunk")
+            {
+                final_result_tool_calls = Some(match provider_final_result
+                    .expect("tool chunk should include provider final result")
+                {
+                    crate::agent::types::CompletionProviderFinalResult::OpenAiChatCompletions(
+                        response,
+                    ) => response.tool_calls,
+                    other => panic!(
+                        "expected OpenAI Chat Completions final result, got {other:?}"
+                    ),
+                });
+                emitted_tool_calls = Some(tool_calls);
+                break;
+            }
+        }
+
+        let emitted_tool_calls = emitted_tool_calls.expect("expected tool-calls chunk");
+        let final_result_tool_calls =
+            final_result_tool_calls.expect("expected provider final result tool calls");
+
+        assert_eq!(emitted_tool_calls.len(), 2);
+        assert_eq!(final_result_tool_calls.len(), emitted_tool_calls.len());
+        assert_eq!(emitted_tool_calls[0].id, "call_0");
+        assert_eq!(emitted_tool_calls[0].function.name, "first");
+        assert_eq!(emitted_tool_calls[1].id, "synthetic_tool_call_openai_1_second");
+        assert_eq!(emitted_tool_calls[1].function.name, "second");
+        assert_eq!(final_result_tool_calls[0].id, emitted_tool_calls[0].id);
+        assert_eq!(
+            final_result_tool_calls[0].function.name,
+            emitted_tool_calls[0].function.name
+        );
+        assert_eq!(
+            final_result_tool_calls[0].function.arguments,
+            emitted_tool_calls[0].function.arguments
+        );
+        assert_eq!(final_result_tool_calls[1].id, emitted_tool_calls[1].id);
+        assert_eq!(
+            final_result_tool_calls[1].function.name,
+            emitted_tool_calls[1].function.name
+        );
+        assert_eq!(
+            final_result_tool_calls[1].function.arguments,
+            emitted_tool_calls[1].function.arguments
+        );
+
         server.await.expect("server task");
     }

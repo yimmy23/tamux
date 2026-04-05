@@ -41,6 +41,21 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
                                     output_text: "Hello from Responses.".to_string(),
                                     reasoning: None,
                                     tool_calls: Vec::new(),
+                                    response: Some(
+                                        crate::agent::llm_client::OpenAiResponsesTerminalResponse {
+                                            id: "resp_provider_final_result".to_string(),
+                                            object: "response".to_string(),
+                                            status: "completed".to_string(),
+                                            output: Vec::new(),
+                                            usage: crate::agent::llm_client::OpenAiResponsesResponseUsage {
+                                                input_tokens: 7,
+                                                output_tokens: 3,
+                                                total_tokens: None,
+                                            },
+                                            error: None,
+                                        },
+                                    ),
+                                    response_json: Some(r#"{"id":"resp_provider_final_result","object":"response","status":"completed","output":[],"usage":{"input_tokens":7,"output_tokens":3},"error":null,"metadata":{"source":"persisted-test"}}"#.to_string()),
                                     input_tokens: Some(7),
                                     output_tokens: Some(3),
                                 },
@@ -91,6 +106,24 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
             assert_eq!(response.output_text, "Hello from Responses.");
             assert_eq!(response.input_tokens, Some(7));
             assert_eq!(response.output_tokens, Some(3));
+            let terminal_response = response
+                .response
+                .as_ref()
+                .expect("canonical terminal response should reload");
+            assert_eq!(terminal_response.id, "resp_provider_final_result");
+            assert_eq!(terminal_response.object, "response");
+            assert_eq!(terminal_response.status, "completed");
+            assert_eq!(terminal_response.output, Vec::<serde_json::Value>::new());
+            assert_eq!(terminal_response.usage.input_tokens, 7);
+            assert_eq!(terminal_response.usage.output_tokens, 3);
+            let response_json: serde_json::Value = serde_json::from_str(
+                response
+                    .response_json
+                    .as_deref()
+                    .expect("raw terminal response JSON should reload"),
+            )
+            .expect("response_json should decode");
+            assert_eq!(response_json["metadata"]["source"], "persisted-test");
         }
         other => panic!("expected OpenAI Responses final result, got {other:?}"),
     }

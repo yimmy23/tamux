@@ -1,3 +1,5 @@
+use crate::agent::llm_client::OpenAiResponsesTerminalResponse;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HeartbeatOutcome {
@@ -356,6 +358,10 @@ pub struct CompletionOpenAiResponsesFinalResult {
     pub reasoning: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<OpenAiResponsesTerminalResponse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_json: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

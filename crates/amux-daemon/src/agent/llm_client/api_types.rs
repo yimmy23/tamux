@@ -197,6 +197,86 @@ fn transport_incompatibility_error(provider: &str, details: impl Into<String>) -
     .into()
 }
 
+fn classify_openai_responses_stream_failure(
+    provider: &str,
+    event_type: &str,
+    error_code: Option<&str>,
+    error_message: Option<&str>,
+    diagnostics: serde_json::Value,
+) -> anyhow::Error {
+    let lower_code = error_code.unwrap_or_default().to_ascii_lowercase();
+    let lower_message = error_message.unwrap_or_default().to_ascii_lowercase();
+
+    let class = if lower_code.contains("rate_limit") || lower_message.contains("rate limit") {
+        UpstreamFailureClass::RateLimit
+    } else if lower_code.contains("auth")
+        || lower_code.contains("billing")
+        || lower_code.contains("permission")
+        || lower_message.contains("unauthorized")
+        || lower_message.contains("forbidden")
+        || lower_message.contains("authentication")
+    {
+        UpstreamFailureClass::AuthConfiguration
+    } else if lower_code.contains("invalid")
+        || lower_code.contains("malformed")
+        || lower_code.contains("request_too_large")
+        || lower_message.contains("invalid request")
+        || lower_message.contains("missing")
+        || lower_message.contains("required")
+    {
+        UpstreamFailureClass::RequestInvalid
+    } else if lower_code.contains("server")
+        || lower_code.contains("overloaded")
+        || lower_code.contains("tempor")
+        || lower_message.contains("over capacity")
+        || lower_message.contains("try again later")
+        || lower_message.contains("temporarily unavailable")
+    {
+        UpstreamFailureClass::TemporaryUpstream
+    } else {
+        UpstreamFailureClass::Unknown
+    };
+
+    let message = error_message.unwrap_or("Responses API stream error");
+    let summary = match class {
+        UpstreamFailureClass::RateLimit => format!("{provider} Responses stream hit a rate limit: {message}"),
+        UpstreamFailureClass::AuthConfiguration => format!(
+            "{provider} Responses stream failed because authentication or provider configuration is invalid: {message}"
+        ),
+        UpstreamFailureClass::RequestInvalid => {
+            format!("{provider} Responses stream rejected the daemon request as invalid: {message}")
+        }
+        UpstreamFailureClass::TemporaryUpstream => {
+            format!("{provider} Responses stream failed upstream: {message}")
+        }
+        UpstreamFailureClass::TransportIncompatible => format!(
+            "The selected provider/transport combination is incompatible for {provider}: {message}"
+        ),
+        UpstreamFailureClass::TransientTransport => {
+            format!("{provider} Responses stream transport error: {message}")
+        }
+        UpstreamFailureClass::Unknown => {
+            format!("{provider} Responses stream {event_type} error: {message}")
+        }
+    };
+
+    UpstreamFailureError::new(class, summary, diagnostics).into()
+}
+
+fn openai_responses_stream_parse_error(
+    provider: &str,
+    details: impl Into<String>,
+    diagnostics: serde_json::Value,
+) -> anyhow::Error {
+    let details = details.into();
+    UpstreamFailureError::new(
+        UpstreamFailureClass::TransientTransport,
+        format!("{provider} Responses stream parse error: {details}"),
+        diagnostics,
+    )
+    .into()
+}
+
 fn upstream_failure_error(err: &anyhow::Error) -> Option<&UpstreamFailureError> {
     err.chain()
         .find_map(|cause| cause.downcast_ref::<UpstreamFailureError>())

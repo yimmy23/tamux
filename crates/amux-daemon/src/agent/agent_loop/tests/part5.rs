@@ -15,7 +15,7 @@ async fn openai_done_event_exposes_provider_final_result() {
         let response_body = concat!(
             "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_event_final\"}}\n\n",
             "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Event response\"}\n\n",
-            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_event_final\",\"usage\":{\"input_tokens\":5,\"output_tokens\":2}}}\n\n"
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_event_final\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":5,\"output_tokens\":2},\"error\":null,\"metadata\":{\"source\":\"event-test\"}}}\n\n"
         );
         let response = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
@@ -97,6 +97,24 @@ async fn openai_done_event_exposes_provider_final_result() {
             assert_eq!(response.output_text, "Event response");
             assert_eq!(response.input_tokens, Some(5));
             assert_eq!(response.output_tokens, Some(2));
+            let terminal_response = response
+                .response
+                .as_ref()
+                .expect("done event should expose canonical terminal response");
+            assert_eq!(terminal_response.id, "resp_event_final");
+            assert_eq!(terminal_response.object, "response");
+            assert_eq!(terminal_response.status, "completed");
+            assert_eq!(terminal_response.output, Vec::<serde_json::Value>::new());
+            assert_eq!(terminal_response.usage.input_tokens, 5);
+            assert_eq!(terminal_response.usage.output_tokens, 2);
+                let response_json: serde_json::Value = serde_json::from_str(
+                    response
+                        .response_json
+                        .as_deref()
+                        .expect("raw terminal response JSON should be present on the done event"),
+                )
+                .expect("response_json should decode");
+                assert_eq!(response_json["metadata"]["source"], "event-test");
         }
         other => panic!("expected OpenAI Responses final result, got {other:?}"),
     }

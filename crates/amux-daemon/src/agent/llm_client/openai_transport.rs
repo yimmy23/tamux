@@ -95,74 +95,90 @@ fn build_openai_responses_body(
     previous_response_id: Option<&str>,
     codex_auth: bool,
 ) -> serde_json::Value {
-    let mut body = serde_json::json!({
-        "model": config.model,
-        "instructions": system_prompt,
-        "input": messages_to_responses_input(provider, messages, previous_response_id),
-        "stream": true,
-    });
+    let request = build_openai_responses_request(
+        provider,
+        config,
+        system_prompt,
+        messages,
+        tools,
+        previous_response_id,
+        codex_auth,
+    );
+    serde_json::to_value(request).expect("responses request should serialize")
+}
 
-    if let Some(previous_response_id) =
-        previous_response_id.filter(|value| !value.trim().is_empty())
-    {
-        body["previous_response_id"] = serde_json::Value::String(previous_response_id.to_string());
-    }
-
-    if !tools.is_empty() {
-        body["tools"] = serde_json::Value::Array(
-            tools
-                .iter()
-                .map(|tool| {
-                    serde_json::json!({
-                        "type": tool.tool_type,
-                        "name": tool.function.name,
-                        "description": tool.function.description,
-                        "parameters": tool.function.parameters,
-                    })
-                })
-                .collect(),
-        );
-        body["tool_choice"] = serde_json::json!("auto");
-    }
-
-    if let Some(ref schema) = config.response_schema {
-        body["text"] = serde_json::json!({
-            "format": {
-                "type": "json_schema",
-                "name": "structured_output",
-                "strict": true,
-                "schema": schema,
-            }
+fn build_openai_responses_request(
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    previous_response_id: Option<&str>,
+    codex_auth: bool,
+) -> OpenAiResponsesCreateRequest {
+    let previous_response_id = previous_response_id
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let mut text = config
+        .response_schema
+        .as_ref()
+        .map(|schema| OpenAiResponsesTextConfig {
+            format: Some(OpenAiResponsesTextFormat {
+                format_type: "json_schema".to_string(),
+                name: "structured_output".to_string(),
+                strict: true,
+                schema: schema.clone(),
+            }),
+            verbosity: None,
         });
-    }
-
-    if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
-        let mut reasoning = serde_json::json!({ "effort": effort });
-        if provider == PROVIDER_ID_GITHUB_COPILOT {
-            if let Some(summary) = copilot_reasoning_summary(&config.reasoning_effort) {
-                reasoning["summary"] = serde_json::Value::String(summary.to_string());
-            }
-        }
-        body["reasoning"] = reasoning;
-    }
 
     if codex_auth {
-        body["store"] = serde_json::Value::Bool(false);
-        body["include"] = serde_json::Value::Array(vec![serde_json::Value::String(
-            "reasoning.encrypted_content".to_string(),
-        )]);
-        if body.get("text").is_none() {
-            body["text"] = serde_json::json!({ "verbosity": "high" });
-        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut())
-        {
-            text_obj.insert(
-                "verbosity".to_string(),
-                serde_json::Value::String("high".to_string()),
-            );
-        }
+        text.get_or_insert(OpenAiResponsesTextConfig {
+            format: None,
+            verbosity: None,
+        })
+        .verbosity = Some("high".to_string());
     }
 
-    body
+    OpenAiResponsesCreateRequest {
+        model: config.model.clone(),
+        instructions: Some(system_prompt.to_string()),
+        input: messages_to_responses_input(provider, messages, previous_response_id.as_deref())
+            .into_iter()
+            .map(|item| {
+                serde_json::from_value(item)
+                    .expect("responses input translation should match typed protocol")
+            })
+            .collect(),
+        previous_response_id,
+        tools: tools
+            .iter()
+            .map(|tool| OpenAiResponsesTool {
+                tool_type: tool.tool_type.clone(),
+                name: tool.function.name.clone(),
+                description: tool.function.description.clone(),
+                parameters: tool.function.parameters.clone(),
+            })
+            .collect(),
+        tool_choice: (!tools.is_empty()).then_some(OpenAiResponsesToolChoice::Auto),
+        text,
+        reasoning: normalize_reasoning_effort(&config.reasoning_effort).map(|effort| {
+            OpenAiResponsesReasoning {
+                effort,
+                summary: (provider == PROVIDER_ID_GITHUB_COPILOT)
+                    .then(|| copilot_reasoning_summary(&config.reasoning_effort))
+                    .flatten()
+                    .map(ToOwned::to_owned),
+            }
+        }),
+        store: codex_auth.then_some(false),
+        include: if codex_auth {
+            vec!["reasoning.encrypted_content".to_string()]
+        } else {
+            Vec::new()
+        },
+        stream: true,
+    }
 }
 
 fn openai_reasoning_supported(provider: &str, model: &str) -> bool {

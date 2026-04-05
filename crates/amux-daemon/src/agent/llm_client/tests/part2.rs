@@ -438,6 +438,114 @@ use amux_shared::providers::{
     }
 
     #[test]
+    fn build_openai_responses_request_serializes_full_typed_body() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "answer": { "type": "string" }
+                },
+                "required": ["answer"]
+            })),
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        };
+
+        let request = build_openai_responses_request(
+            PROVIDER_ID_GITHUB_COPILOT,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("first question".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text("I'll inspect that".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(vec![ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "read_file".to_string(),
+                            arguments: "{\"path\":\"MEMORY.md\"}".to_string(),
+                        },
+                    }]),
+                },
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("file contents".to_string()),
+                    tool_call_id: Some("call_1".to_string()),
+                    name: Some("read_file".to_string()),
+                    tool_calls: None,
+                },
+            ],
+            &[ToolDefinition {
+                tool_type: "function".to_string(),
+                function: ToolFunctionDef {
+                    name: "update_memory".to_string(),
+                    description: "Store durable memory".to_string(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "content": { "type": "string" }
+                        },
+                        "required": ["content"]
+                    }),
+                },
+            }],
+            Some("resp_123"),
+            true,
+        );
+
+        let body = serde_json::to_value(&request).expect("serialize request");
+
+        assert_eq!(body["model"], "gpt-5.4");
+        assert_eq!(body["instructions"], "system prompt");
+        assert_eq!(body["previous_response_id"], "resp_123");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][1]["role"], "assistant");
+        assert_eq!(body["input"][2]["type"], "function_call");
+        assert_eq!(body["input"].as_array().map(Vec::len), Some(3));
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["name"], "update_memory");
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["verbosity"], "high");
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert_eq!(body["store"], false);
+        assert_eq!(
+            body["include"],
+            serde_json::json!(["reasoning.encrypted_content"])
+        );
+    }
+
+    #[test]
     fn anthropic_request_maps_response_schema_to_output_config_json_schema() {
         let client = reqwest::Client::new();
         let config = ProviderConfig {
