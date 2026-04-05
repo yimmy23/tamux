@@ -2,13 +2,14 @@ use super::*;
 
 #[test]
 fn direct_message_entrypoints_box_large_send_message_futures() {
-    let messaging_source =
-        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/messaging.rs"))
-            .expect("read messaging.rs");
-    let messaging_production = messaging_source
-        .split("\n#[cfg(test)]")
-        .next()
-        .unwrap_or(messaging_source.as_str());
+    let messaging_production = [
+        repo_root().join("crates/amux-daemon/src/agent/messaging.rs"),
+        repo_root().join("crates/amux-daemon/src/agent/messaging/direct_messages.rs"),
+    ]
+    .into_iter()
+    .map(|path| fs::read_to_string(path).expect("read messaging source"))
+    .collect::<Vec<_>>()
+    .join("\n");
     let send_message_source = fs::read_to_string(
         repo_root().join("crates/amux-daemon/src/agent/agent_loop/send_message/mod.rs"),
     )
@@ -20,7 +21,8 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
 
     for required in [
         "Box::pin(self.send_message_inner(",
-        "let target_thread_id = Box::pin(self.send_message_inner(",
+        "let outcome = Box::pin(self.send_message_inner(",
+        "Some(\n                Box::pin(self.send_message_inner(",
     ] {
         assert!(
             messaging_production.contains(required),

@@ -1,7 +1,6 @@
 use super::*;
 
 #[tokio::test]
-<<<<<<< HEAD
 async fn openai_done_event_exposes_provider_final_result() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
@@ -206,7 +205,8 @@ async fn anthropic_done_event_exposes_provider_final_result() {
         other => panic!("expected Anthropic final result, got {other:?}"),
     }
 }
-=======
+
+#[tokio::test]
 async fn concierge_recovery_persists_upstream_recovery_causal_trace() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
@@ -270,4 +270,3 @@ async fn concierge_recovery_persists_upstream_recovery_causal_trace() {
         other => panic!("expected a near-miss recovery trace, got {other:?}"),
     }
 }
->>>>>>> dc7cb8b (feat: close moat implementation gaps)
