@@ -257,6 +257,146 @@ async fn memory_provenance_report_marks_old_entries_uncertain() -> Result<()> {
 }
 
 #[tokio::test]
+async fn confirm_uncertain_memory_provenance_updates_status() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let old_keys = vec!["editor".to_string()];
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "old-confirmable",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "goal_reflection",
+            content: "- editor: helix",
+            fact_keys: &old_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: now_ms.saturating_sub(40 * 86_400_000),
+        })
+        .await?;
+
+    let before = store.memory_provenance_report(None, 10).await?;
+    assert_eq!(before.entries[0].status, "uncertain");
+    assert!(before.entries[0].confidence < 0.55);
+
+    let updated = store
+        .confirm_memory_provenance_entry("old-confirmable", now_ms)
+        .await?;
+    assert!(updated, "expected confirmation update to touch one row");
+
+    let after = store.memory_provenance_report(None, 10).await?;
+    assert_eq!(after.entries[0].status, "confirmed");
+    assert!(after.entries[0].confidence >= 0.95);
+    assert_eq!(after.summary_by_status.get("confirmed").copied(), Some(1));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn retract_memory_provenance_entry_updates_status() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let fact_keys = vec!["editor".to_string()];
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "retractable-memory-entry",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "goal_reflection",
+            content: "- editor: helix",
+            fact_keys: &fact_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: now_ms,
+        })
+        .await?;
+
+    let before = store.memory_provenance_report(None, 10).await?;
+    assert_eq!(before.entries[0].status, "active");
+
+    let updated = store
+        .retract_memory_provenance_entry("retractable-memory-entry", now_ms)
+        .await?;
+    assert!(updated, "expected retract update to touch one row");
+
+    let after = store.memory_provenance_report(None, 10).await?;
+    assert_eq!(after.entries[0].status, "retracted");
+    assert_eq!(after.summary_by_status.get("retracted").copied(), Some(1));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn remove_memory_provenance_records_retract_relationship() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let fact_keys = vec!["editor".to_string()];
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "memory-editor-active",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "goal_reflection",
+            content: "- editor: helix",
+            fact_keys: &fact_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: now_ms.saturating_sub(1000),
+        })
+        .await?;
+
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "memory-editor-remove",
+            target: "MEMORY.md",
+            mode: "remove",
+            source_kind: "operator_correction",
+            content: "- editor: helix",
+            fact_keys: &fact_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: now_ms,
+        })
+        .await?;
+
+    let report = store.memory_provenance_report(Some("MEMORY.md"), 10).await?;
+    let remove_entry = report
+        .entries
+        .iter()
+        .find(|entry| entry.id == "memory-editor-remove")
+        .expect("remove provenance entry should exist");
+
+    assert_eq!(remove_entry.relationships.len(), 1);
+    assert_eq!(remove_entry.relationships[0].relation_type, "retracts");
+    assert_eq!(remove_entry.relationships[0].related_entry_id, "memory-editor-active");
+    assert_eq!(remove_entry.relationships[0].fact_key.as_deref(), Some("editor"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn collaboration_session_round_trips() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
@@ -317,11 +457,72 @@ async fn provenance_report_validates_hash_and_signature() -> Result<()> {
         })
         .await?;
 
+    let entries = read_provenance_entries(&root.join("semantic-logs").join("provenance.jsonl"))?;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].signature_scheme.as_deref(), Some("ed25519"));
+    assert_eq!(entries[1].signature_scheme.as_deref(), Some("ed25519"));
+
     let report = store.provenance_report(10)?;
     assert_eq!(report.total_entries, 2);
     assert_eq!(report.valid_hash_entries, 2);
     assert_eq!(report.valid_chain_entries, 2);
     assert_eq!(report.valid_signature_entries, 2);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn provenance_report_keeps_legacy_signature_validation() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let legacy_key_path = root.join("provenance-signing.key");
+    let legacy_key = "legacy-signing-key";
+    fs::write(&legacy_key_path, legacy_key)?;
+
+    let details = serde_json::json!({"legacy": true});
+    let entry_hash = compute_provenance_hash(
+        0,
+        1_000,
+        "legacy_event",
+        "legacy provenance event",
+        &details,
+        "genesis",
+        "legacy-agent",
+        None,
+        None,
+        Some("thread-legacy"),
+        None,
+        None,
+        "soc2",
+    );
+    let entry = ProvenanceLogEntry {
+        sequence: 0,
+        timestamp: 1_000,
+        event_type: "legacy_event".to_string(),
+        summary: "legacy provenance event".to_string(),
+        details,
+        prev_hash: "genesis".to_string(),
+        entry_hash: entry_hash.clone(),
+        signature: Some(sign_provenance_hash(legacy_key, &entry_hash)),
+        signature_scheme: None,
+        agent_id: "legacy-agent".to_string(),
+        goal_run_id: None,
+        task_id: None,
+        thread_id: Some("thread-legacy".to_string()),
+        approval_id: None,
+        causal_trace_id: None,
+        compliance_mode: "soc2".to_string(),
+    };
+    fs::write(
+        root.join("semantic-logs").join("provenance.jsonl"),
+        format!("{}\n", serde_json::to_string(&entry)?),
+    )?;
+
+    let report = store.provenance_report(10)?;
+    assert_eq!(report.total_entries, 1);
+    assert_eq!(report.signed_entries, 1);
+    assert_eq!(report.valid_signature_entries, 1);
 
     fs::remove_dir_all(root)?;
     Ok(())

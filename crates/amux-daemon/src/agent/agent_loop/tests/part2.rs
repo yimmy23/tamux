@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI};
 
 #[tokio::test]
 async fn send_message_request_includes_runtime_continuity_and_negative_knowledge() {
@@ -6,7 +7,7 @@ async fn send_message_request_includes_runtime_continuity_and_negative_knowledge
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = spawn_recording_assistant_server(recorded_bodies.clone()).await;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
@@ -211,11 +212,13 @@ async fn send_message_request_includes_runtime_continuity_and_negative_knowledge
         "expected the execution prompt to include the continuity summary section",
     );
     assert!(
-        recorded.iter().any(|body| body.contains("I am carrying this forward as")
-            && body.contains(MAIN_AGENT_NAME)
-            && body.contains("Test goal")
-            && body.contains("Investigate failure")
-            && body.contains("I am continuing the same workstream")),
+        recorded
+            .iter()
+            .any(|body| body.contains("I am carrying this forward as")
+                && body.contains(MAIN_AGENT_NAME)
+                && body.contains("Test goal")
+                && body.contains("Investigate failure")
+                && body.contains("I am continuing the same workstream")),
         "expected the execution prompt to include active persona identity plus explicit goal, step, and task titles",
     );
     assert!(
@@ -238,7 +241,7 @@ async fn direct_weles_handoff_turn_uses_weles_persona_prompt() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = spawn_recording_assistant_server(recorded_bodies.clone()).await;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
@@ -387,7 +390,7 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "minimax-coding-plan".to_string();
+    config.provider = PROVIDER_ID_MINIMAX_CODING_PLAN.to_string();
     config.base_url = format!("http://{addr}/v1");
     config.model = "MiniMax-M2.7".to_string();
     config.api_key = "test-key".to_string();
@@ -396,7 +399,7 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
     config.max_retries = 0;
     config.max_tool_loops = 1;
     config.providers.insert(
-        "custom".to_string(),
+        PROVIDER_ID_CUSTOM.to_string(),
         ProviderConfig {
             base_url: format!("http://{addr}/v1"),
             model: "gpt-4o-mini".to_string(),
@@ -407,9 +410,21 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
-    config.builtin_sub_agents.weles.provider = Some("custom".to_string());
+    config.builtin_sub_agents.weles.provider = Some(PROVIDER_ID_CUSTOM.to_string());
     config.builtin_sub_agents.weles.model = Some("gpt-4o-mini".to_string());
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -430,7 +445,7 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
                 pinned: false,
                 upstream_thread_id: Some("legacy-upstream-thread".to_string()),
                 upstream_transport: Some(ApiTransport::ChatCompletions),
-                upstream_provider: Some("minimax-coding-plan".to_string()),
+                upstream_provider: Some(PROVIDER_ID_MINIMAX_CODING_PLAN.to_string()),
                 upstream_model: Some("MiniMax-M2.7".to_string()),
                 upstream_assistant_id: None,
                 total_input_tokens: 0,
@@ -499,7 +514,7 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
 }
 
 #[tokio::test]
-async fn successful_handoff_tool_call_ends_current_turn_without_follow_up_llm_reply() {
+async fn successful_handoff_tool_call_restarts_same_turn_under_requested_agent() {
     let request_counter = Arc::new(AtomicUsize::new(0));
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -534,7 +549,7 @@ async fn successful_handoff_tool_call_ends_current_turn_without_follow_up_llm_re
                             "cache-control: no-cache\r\n",
                             "connection: close\r\n",
                             "\r\n",
-                            "data: {\"choices\":[{\"delta\":{\"content\":\"Done. Thread handed off to Rarog.\"}}]}\n\n",
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"I'm Rarog.\"}}]}\n\n",
                             "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
                             "data: [DONE]\n\n"
                         )
@@ -551,7 +566,7 @@ async fn successful_handoff_tool_call_ends_current_turn_without_follow_up_llm_re
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = format!("http://{addr}/v1");
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
@@ -599,16 +614,13 @@ async fn successful_handoff_tool_call_ends_current_turn_without_follow_up_llm_re
             true,
         )
         .await
-        .expect("handoff request should complete");
+        .expect("handoff should restart the same operator turn under Rarog");
 
-    assert_eq!(request_counter.load(Ordering::SeqCst), 1);
+    assert_eq!(request_counter.load(Ordering::SeqCst), 2);
 
     let threads = engine.threads.read().await;
     let thread = threads.get(thread_id).expect("thread should exist");
-    assert!(thread
-        .messages
-        .iter()
-        .all(|message| !message.content.contains("Done. Thread handed off to Rarog.")));
+    assert!(thread.messages.iter().any(|message| message.content == "I'm Rarog."));
 }
 
 #[tokio::test]
@@ -693,6 +705,18 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
     config.providers.insert(
@@ -707,6 +731,18 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
@@ -723,10 +759,7 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
                 id: thread_id.to_string(),
                 agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
                 title: "Handoff restart thread".to_string(),
-                messages: vec![crate::agent::types::AgentMessage::user(
-                    "give me Weles",
-                    1,
-                )],
+                messages: vec![crate::agent::types::AgentMessage::user("give me Weles", 1)],
                 pinned: false,
                 upstream_thread_id: None,
                 upstream_transport: None,
@@ -768,11 +801,18 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
     assert!(second_body.contains("You are Weles in tamux."));
     assert!(second_body.contains("weles-model"));
     assert!(second_body.contains("User requested you while talking to Svarog"));
-    assert!(second_body.contains("Switch control to Weles and continue helping from governance scope"));
+    assert!(
+        second_body.contains("Switch control to Weles and continue helping from governance scope")
+    );
 
     let threads = engine.threads.read().await;
     let thread = threads.get(thread_id).expect("thread should exist");
-    assert!(thread.messages.iter().any(|message| message.content == "I'm Weles."));
+    assert!(
+        thread
+            .messages
+            .iter()
+            .any(|message| message.content == "I'm Weles.")
+    );
 }
 
 #[tokio::test]
@@ -781,7 +821,9 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind concierge runtime server");
-    let addr = listener.local_addr().expect("concierge runtime server addr");
+    let addr = listener
+        .local_addr()
+        .expect("concierge runtime server addr");
 
     tokio::spawn({
         let recorded_requests = recorded_requests.clone();
@@ -828,7 +870,7 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "minimax-coding-plan".to_string();
+    config.provider = PROVIDER_ID_MINIMAX_CODING_PLAN.to_string();
     config.base_url = format!("http://{addr}/v1");
     config.model = "MiniMax-M2.7".to_string();
     config.api_key = "test-key".to_string();
@@ -848,9 +890,21 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
-    config.concierge.provider = Some("custom".to_string());
+    config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
     config.concierge.model = Some("gpt-4o-mini".to_string());
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -864,14 +918,11 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
                 id: thread_id.to_string(),
                 agent_name: Some(crate::agent::agent_identity::CONCIERGE_AGENT_NAME.to_string()),
                 title: "Direct Rarog provider handoff".to_string(),
-                messages: vec![crate::agent::types::AgentMessage::user(
-                    "gimme Rarog",
-                    1,
-                )],
+                messages: vec![crate::agent::types::AgentMessage::user("gimme Rarog", 1)],
                 pinned: false,
                 upstream_thread_id: Some("legacy-upstream-thread".to_string()),
                 upstream_transport: Some(ApiTransport::ChatCompletions),
-                upstream_provider: Some("minimax-coding-plan".to_string()),
+                upstream_provider: Some(PROVIDER_ID_MINIMAX_CODING_PLAN.to_string()),
                 upstream_model: Some("MiniMax-M2.7".to_string()),
                 upstream_assistant_id: None,
                 total_input_tokens: 0,
@@ -946,7 +997,7 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
     let manager = SessionManager::new_test(root.path()).await;
     let request_counter = Arc::new(AtomicUsize::new(0));
     let mut config = AgentConfig::default();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.base_url = spawn_transport_incompatibility_server(request_counter.clone()).await;
     config.model = "gpt-4.1".to_string();
     config.api_key = "test-key".to_string();
@@ -966,6 +1017,18 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
 
@@ -1059,7 +1122,7 @@ async fn auto_retry_wait_repeats_scheduled_retry_cycles_until_cancelled() {
     let manager = SessionManager::new_test(root.path()).await;
     let request_counter = Arc::new(AtomicUsize::new(0));
     let mut config = AgentConfig::default();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.base_url = spawn_transient_transport_failure_server(request_counter.clone()).await;
     config.model = "gpt-4.1".to_string();
     config.api_key = "test-key".to_string();
@@ -1080,6 +1143,18 @@ async fn auto_retry_wait_repeats_scheduled_retry_cycles_until_cancelled() {
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
 
@@ -1166,7 +1241,7 @@ async fn structured_upstream_diagnostics_are_not_persisted_or_streamed_to_user()
     let manager = SessionManager::new_test(root.path()).await;
     let request_counter = Arc::new(AtomicUsize::new(0));
     let mut config = AgentConfig::default();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.base_url = spawn_transport_incompatibility_server(request_counter.clone()).await;
     config.model = "gpt-4.1".to_string();
     config.api_key = "test-key".to_string();
@@ -1230,7 +1305,7 @@ async fn retry_stream_now_replaces_waiting_stream_with_fresh_send_generation() {
     let request_counter = Arc::new(AtomicUsize::new(0));
     let release_second_request = Arc::new(tokio::sync::Notify::new());
     let mut config = AgentConfig::default();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.base_url = spawn_transient_failure_then_blocking_server(
         request_counter.clone(),
         release_second_request.clone(),
@@ -1255,6 +1330,18 @@ async fn retry_stream_now_replaces_waiting_stream_with_fresh_send_generation() {
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
 
@@ -1371,7 +1458,7 @@ async fn anthropic_transport_retry_restarts_with_fresh_runner_state() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "minimax-coding-plan".to_string();
+    config.provider = PROVIDER_ID_MINIMAX_CODING_PLAN.to_string();
     config.base_url = spawn_anthropic_rebuild_sensitive_retry_server(recorded_bodies.clone()).await;
     config.model = "MiniMax-M2.7".to_string();
     config.api_key = "test-key".to_string();
@@ -1483,7 +1570,7 @@ async fn anthropic_outer_auto_retry_restarts_with_fresh_runner_state() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.base_url = spawn_anthropic_rebuild_sensitive_retry_server(recorded_bodies.clone()).await;
     config.model = "claude-test".to_string();
     config.api_key = "test-key".to_string();

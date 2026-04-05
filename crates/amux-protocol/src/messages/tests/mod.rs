@@ -162,6 +162,129 @@ fn daemon_message_roundtrips_agent_divergent_session_started_with_operation_id()
 }
 
 #[test]
+fn client_message_roundtrips_agent_semantic_query() {
+    let msg = ClientMessage::AgentSemanticQuery {
+        args_json: serde_json::json!({
+            "kind": "packages",
+            "root": "/tmp/workspace",
+            "limit": 10,
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentSemanticQuery { args_json } => {
+            let payload: serde_json::Value = serde_json::from_str(&args_json).unwrap();
+            assert_eq!(payload["kind"], "packages");
+            assert_eq!(payload["root"], "/tmp/workspace");
+            assert_eq!(payload["limit"], 10);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_semantic_query_result() {
+    let msg = DaemonMessage::AgentSemanticQueryResult {
+        content: "## Packages\n- cargo: tamux-daemon".to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentSemanticQueryResult { content } => {
+            assert!(content.contains("Packages"));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn client_message_roundtrips_agent_vote_on_collaboration_disagreement() {
+    let msg = ClientMessage::AgentVoteOnCollaborationDisagreement {
+        parent_task_id: "task-1".to_string(),
+        disagreement_id: "disagree-1".to_string(),
+        task_id: "operator".to_string(),
+        position: "recommend".to_string(),
+        confidence: Some(1.0),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentVoteOnCollaborationDisagreement {
+            parent_task_id,
+            disagreement_id,
+            task_id,
+            position,
+            confidence,
+        } => {
+            assert_eq!(parent_task_id, "task-1");
+            assert_eq!(disagreement_id, "disagree-1");
+            assert_eq!(task_id, "operator");
+            assert_eq!(position, "recommend");
+            assert_eq!(confidence, Some(1.0));
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_collaboration_vote_result() {
+    let msg = DaemonMessage::AgentCollaborationVoteResult {
+        report_json: serde_json::json!({
+            "session_id": "session-1",
+            "resolution": "resolved"
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentCollaborationVoteResult { report_json } => {
+            let payload: serde_json::Value = serde_json::from_str(&report_json).unwrap();
+            assert_eq!(payload["session_id"], "session-1");
+            assert_eq!(payload["resolution"], "resolved");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn client_message_roundtrips_agent_confirm_memory_provenance_entry() {
+    let msg = ClientMessage::AgentConfirmMemoryProvenanceEntry {
+        entry_id: "old-confirmable".to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentConfirmMemoryProvenanceEntry { entry_id } => {
+            assert_eq!(entry_id, "old-confirmable");
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_memory_provenance_confirmed() {
+    let msg = DaemonMessage::AgentMemoryProvenanceConfirmed {
+        entry_id: "old-confirmable".to_string(),
+        confirmed_at: 123,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentMemoryProvenanceConfirmed {
+            entry_id,
+            confirmed_at,
+        } => {
+            assert_eq!(entry_id, "old-confirmable");
+            assert_eq!(confirmed_at, 123);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn async_command_capability_roundtrips() {
     let payload = AsyncCommandCapability {
         version: 1,

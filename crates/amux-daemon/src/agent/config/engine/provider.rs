@@ -1,4 +1,5 @@
 use super::super::*;
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 use crate::agent::{copilot_auth, openai_codex_auth, provider_resolution};
 
 impl AgentEngine {
@@ -86,7 +87,7 @@ impl AgentEngine {
             let (authenticated, auth_source, model, base_url) = if let Some(pc) =
                 config.providers.get(def.id)
             {
-                if def.id == "github-copilot" {
+                if def.id == PROVIDER_ID_GITHUB_COPILOT {
                     let resolved =
                         copilot_auth::resolve_github_copilot_auth(&pc.api_key, pc.auth_source);
                     (
@@ -98,7 +99,9 @@ impl AgentEngine {
                         pc.model.clone(),
                         pc.base_url.clone(),
                     )
-                } else if def.id == "openai" && pc.auth_source == AuthSource::ChatgptSubscription {
+                } else if def.id == PROVIDER_ID_OPENAI
+                    && pc.auth_source == AuthSource::ChatgptSubscription
+                {
                     (
                         openai_codex_auth::provider_auth_state_authenticated(),
                         pc.auth_source,
@@ -114,7 +117,7 @@ impl AgentEngine {
                     )
                 }
             } else if use_legacy_top_level_fallback && config.provider == def.id {
-                if def.id == "github-copilot" {
+                if def.id == PROVIDER_ID_GITHUB_COPILOT {
                     let resolved = copilot_auth::resolve_github_copilot_auth(
                         &config.api_key,
                         config.auth_source,
@@ -128,7 +131,7 @@ impl AgentEngine {
                         config.model.clone(),
                         config.base_url.clone(),
                     )
-                } else if def.id == "openai"
+                } else if def.id == PROVIDER_ID_OPENAI
                     && config.auth_source == AuthSource::ChatgptSubscription
                 {
                     (
@@ -146,7 +149,7 @@ impl AgentEngine {
                         config.base_url.clone(),
                     )
                 }
-            } else if def.id == "github-copilot" {
+            } else if def.id == PROVIDER_ID_GITHUB_COPILOT {
                 let resolved = copilot_auth::resolve_github_copilot_auth("", AuthSource::ApiKey);
                 (
                     resolved.is_some(),

@@ -61,6 +61,7 @@ export type RemoteAgentMessageRecord = {
   model?: string | null;
   api_transport?: string | null;
   response_id?: string | null;
+  provider_final_result?: unknown;
   tool_calls?: AgentMessage["toolCalls"] | null;
   tool_name?: string | null;
   tool_call_id?: string | null;
@@ -185,6 +186,10 @@ export function buildHydratedRemoteMessage(
       )
       : undefined,
     responseId: typeof message.response_id === "string" ? message.response_id : undefined,
+    providerFinalResult:
+      message.provider_final_result && typeof message.provider_final_result === "object"
+        ? message.provider_final_result
+        : undefined,
     toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : undefined,
     toolName: typeof message.tool_name === "string" ? message.tool_name : undefined,
     toolCallId: typeof message.tool_call_id === "string" ? message.tool_call_id : undefined,
@@ -362,6 +367,7 @@ export function serializeMessage(message: AgentMessage): AgentDbMessageRecord {
       welesReview: message.welesReview ?? null,
       api_transport: message.api_transport ?? null,
       responseId: message.responseId ?? null,
+      providerFinalResult: message.providerFinalResult ?? null,
       reasoningTokens: message.reasoningTokens ?? null,
       audioTokens: message.audioTokens ?? null,
       videoTokens: message.videoTokens ?? null,
@@ -450,6 +456,10 @@ export function deserializeMessage(message: AgentDbMessageRecord): AgentMessage 
       )
       : undefined,
     responseId: typeof metadata.responseId === "string" ? metadata.responseId : undefined,
+    providerFinalResult:
+      metadata.providerFinalResult && typeof metadata.providerFinalResult === "object"
+        ? metadata.providerFinalResult
+        : undefined,
     toolCalls,
     toolName: (metadata.toolName as string) ?? undefined,
     toolCallId: (metadata.toolCallId as string) ?? undefined,

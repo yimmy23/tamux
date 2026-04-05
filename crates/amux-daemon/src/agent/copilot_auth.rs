@@ -1,5 +1,6 @@
 use super::types::AuthSource;
 use anyhow::{Context, Result};
+use amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -59,21 +60,27 @@ fn env_flag_is_enabled(name: &str) -> bool {
 
 pub fn read_stored_github_copilot_auth() -> Option<StoredGithubCopilotAuth> {
     let value =
-        super::provider_auth_store::load_provider_auth_state("github-copilot", "github_copilot")
+        super::provider_auth_store::load_provider_auth_state(
+            PROVIDER_ID_GITHUB_COPILOT,
+            "github_copilot",
+        )
             .ok()??;
     serde_json::from_value(value).ok()
 }
 
 pub fn write_stored_github_copilot_auth(auth: &StoredGithubCopilotAuth) -> Result<()> {
     super::provider_auth_store::save_provider_auth_state(
-        "github-copilot",
+        PROVIDER_ID_GITHUB_COPILOT,
         "github_copilot",
         &serde_json::to_value(auth)?,
     )
 }
 
 pub fn clear_stored_github_copilot_auth() -> Result<()> {
-    super::provider_auth_store::delete_provider_auth_state("github-copilot", "github_copilot")
+    super::provider_auth_store::delete_provider_auth_state(
+        PROVIDER_ID_GITHUB_COPILOT,
+        "github_copilot",
+    )
 }
 
 fn stored_from_token(token: String, source: &str) -> StoredGithubCopilotAuth {

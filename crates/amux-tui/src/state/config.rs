@@ -1,6 +1,7 @@
 // Local wire type copies (will be replaced by crate::wire imports in Task 9)
 #![allow(dead_code)]
 
+use amux_shared::providers::{PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI};
 use crate::providers;
 
 #[derive(Debug, Clone, Default)]
@@ -161,7 +162,7 @@ pub struct ConfigState {
 impl ConfigState {
     pub fn new() -> Self {
         Self {
-            provider: "openai".to_string(),
+            provider: PROVIDER_ID_OPENAI.to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-5.4".to_string(),
             custom_model_name: String::new(),
@@ -242,10 +243,10 @@ impl ConfigState {
             bash_timeout_secs: 30,
             weles_max_concurrent_reviews: 2,
             compaction_strategy: "heuristic".to_string(),
-            compaction_weles_provider: "openai".to_string(),
+            compaction_weles_provider: PROVIDER_ID_OPENAI.to_string(),
             compaction_weles_model: "gpt-5.4-mini".to_string(),
             compaction_weles_reasoning_effort: "medium".to_string(),
-            compaction_custom_provider: "openai".to_string(),
+            compaction_custom_provider: PROVIDER_ID_OPENAI.to_string(),
             compaction_custom_base_url: "https://api.openai.com/v1".to_string(),
             compaction_custom_model: "gpt-5.4-mini".to_string(),
             compaction_custom_api_key: String::new(),
@@ -380,9 +381,9 @@ mod tests {
     fn config_received_populates_all_fields() {
         let mut state = ConfigState::new();
         state.reduce(ConfigAction::ConfigReceived(make_snapshot(
-            "openai", "gpt-4o",
+            PROVIDER_ID_OPENAI, "gpt-4o",
         )));
-        assert_eq!(state.provider(), "openai");
+        assert_eq!(state.provider(), PROVIDER_ID_OPENAI);
         assert_eq!(state.model(), "gpt-4o");
         assert_eq!(state.base_url(), "https://api.example.com");
         assert_eq!(state.api_key(), "sk-test");
@@ -415,12 +416,12 @@ mod tests {
     fn set_provider_resets_base_url_and_model_to_definition_defaults() {
         let mut state = ConfigState::new();
         state.reduce(ConfigAction::ConfigReceived(make_snapshot(
-            "openai", "gpt-4o",
+            PROVIDER_ID_OPENAI, "gpt-4o",
         )));
-        state.reduce(ConfigAction::SetProvider("minimax-coding-plan".into()));
-        assert_eq!(state.provider(), "minimax-coding-plan");
+        state.reduce(ConfigAction::SetProvider(PROVIDER_ID_MINIMAX_CODING_PLAN.into()));
+        assert_eq!(state.provider(), PROVIDER_ID_MINIMAX_CODING_PLAN);
         // base_url and model reset to the new provider's defaults
-        let def = providers::find_by_id("minimax-coding-plan").unwrap();
+        let def = providers::find_by_id(PROVIDER_ID_MINIMAX_CODING_PLAN).unwrap();
         assert_eq!(state.base_url(), def.default_base_url);
         assert_eq!(state.model(), def.default_model);
         // api_key is preserved (user may have configured it previously)
@@ -431,11 +432,11 @@ mod tests {
     fn set_model_updates_only_model() {
         let mut state = ConfigState::new();
         state.reduce(ConfigAction::ConfigReceived(make_snapshot(
-            "openai", "gpt-4o",
+            PROVIDER_ID_OPENAI, "gpt-4o",
         )));
         state.reduce(ConfigAction::SetModel("gpt-4o-mini".into()));
         assert_eq!(state.model(), "gpt-4o-mini");
-        assert_eq!(state.provider(), "openai");
+        assert_eq!(state.provider(), PROVIDER_ID_OPENAI);
     }
 
     #[test]
@@ -453,13 +454,13 @@ mod tests {
     fn config_received_twice_overwrites() {
         let mut state = ConfigState::new();
         state.reduce(ConfigAction::ConfigReceived(make_snapshot(
-            "openai", "gpt-4o",
+            PROVIDER_ID_OPENAI, "gpt-4o",
         )));
         state.reduce(ConfigAction::ConfigReceived(make_snapshot(
-            "anthropic",
+            amux_shared::providers::PROVIDER_ID_ANTHROPIC,
             "claude-3-5-sonnet",
         )));
-        assert_eq!(state.provider(), "anthropic");
+        assert_eq!(state.provider(), amux_shared::providers::PROVIDER_ID_ANTHROPIC);
         assert_eq!(state.model(), "claude-3-5-sonnet");
     }
 }

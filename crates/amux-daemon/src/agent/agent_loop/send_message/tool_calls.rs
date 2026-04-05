@@ -23,6 +23,8 @@ impl<'a> SendMessageRunner<'a> {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
         response_id: Option<String>,
+        upstream_message: Option<CompletionUpstreamMessage>,
+        provider_final_result: Option<CompletionProviderFinalResult>,
         upstream_thread_id: Option<String>,
     ) -> Result<LoopDisposition> {
         self.emit_tool_ack_if_needed(&tool_calls, &accumulated_content);
@@ -46,6 +48,8 @@ impl<'a> SendMessageRunner<'a> {
             input_tokens,
             output_tokens,
             response_id,
+            upstream_message,
+            provider_final_result.clone(),
             effective_transport_for_turn,
         )
         .await;
@@ -72,6 +76,7 @@ impl<'a> SendMessageRunner<'a> {
                 upstream_thread_id,
             )
             .await;
+        self.provider_final_result = provider_final_result;
 
         for (index, tc) in tool_calls.iter().enumerate() {
             if self.stream_cancel_token.is_cancelled() {
@@ -227,6 +232,8 @@ impl<'a> SendMessageRunner<'a> {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
         response_id: Option<String>,
+        upstream_message: Option<CompletionUpstreamMessage>,
+        provider_final_result: Option<CompletionProviderFinalResult>,
         effective_transport_for_turn: ApiTransport,
     ) {
         let mut threads = self.engine.threads.write().await;
@@ -248,6 +255,8 @@ impl<'a> SendMessageRunner<'a> {
                 model: Some(self.provider_config.model.clone()),
                 api_transport: Some(effective_transport_for_turn),
                 response_id,
+                upstream_message,
+                provider_final_result,
                 reasoning: msg_reasoning,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -295,6 +304,8 @@ impl<'a> SendMessageRunner<'a> {
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,

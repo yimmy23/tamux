@@ -395,3 +395,31 @@ pub(super) async fn tool_get_git_status(args: &Value) -> Result<Value> {
         other => anyhow::bail!("unexpected daemon response: {other:?}"),
     }
 }
+
+pub(super) async fn tool_semantic_query(args: &Value) -> Result<Value> {
+    let args_json = serde_json::to_string(args)?;
+    let resp = daemon_roundtrip(ClientMessage::AgentSemanticQuery { args_json }).await?;
+
+    match resp {
+        DaemonMessage::AgentSemanticQueryResult { content } => Ok(serde_json::json!({
+            "content": content,
+        })),
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn semantic_query_tool_is_declared_in_main_dispatch() {
+        let source = include_str!("../main.rs");
+        assert!(
+            source.contains("\"semantic_query\" => tool_semantic_query(args).await"),
+            "main dispatch should route semantic_query to tool_semantic_query"
+        );
+    }
+}
+

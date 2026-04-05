@@ -288,6 +288,90 @@ where
                 .send(ClientMessage::AuditDismiss { entry_id })
                 .await?;
         }
+        AgentBridgeCommand::QueryAudits {
+            action_types,
+            since,
+            limit,
+        } => {
+            framed
+                .send(ClientMessage::AuditQuery {
+                    action_types,
+                    since,
+                    limit,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::GetProvenanceReport { limit } => {
+            framed
+                .send(ClientMessage::AgentGetProvenanceReport { limit })
+                .await?;
+        }
+        AgentBridgeCommand::GetMemoryProvenanceReport { target, limit } => {
+            framed
+                .send(ClientMessage::AgentGetMemoryProvenanceReport { target, limit })
+                .await?;
+        }
+        AgentBridgeCommand::ConfirmMemoryProvenanceEntry { entry_id } => {
+            framed
+                .send(ClientMessage::AgentConfirmMemoryProvenanceEntry { entry_id })
+                .await?;
+        }
+        AgentBridgeCommand::RetractMemoryProvenanceEntry { entry_id } => {
+            framed
+                .send(ClientMessage::AgentRetractMemoryProvenanceEntry { entry_id })
+                .await?;
+        }
+        AgentBridgeCommand::GetCollaborationSessions { parent_task_id } => {
+            framed
+                .send(ClientMessage::AgentGetCollaborationSessions { parent_task_id })
+                .await?;
+        }
+        AgentBridgeCommand::ListGeneratedTools => {
+            framed.send(ClientMessage::AgentListGeneratedTools).await?;
+        }
+        AgentBridgeCommand::RunGeneratedTool {
+            tool_name,
+            args_json,
+        } => {
+            framed
+                .send(ClientMessage::AgentRunGeneratedTool {
+                    tool_name,
+                    args_json,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::PromoteGeneratedTool { tool_name } => {
+            framed
+                .send(ClientMessage::AgentPromoteGeneratedTool { tool_name })
+                .await?;
+        }
+        AgentBridgeCommand::ActivateGeneratedTool { tool_name } => {
+            framed
+                .send(ClientMessage::AgentActivateGeneratedTool { tool_name })
+                .await?;
+        }
+        AgentBridgeCommand::RetireGeneratedTool { tool_name } => {
+            framed
+                .send(ClientMessage::AgentRetireGeneratedTool { tool_name })
+                .await?;
+        }
+        AgentBridgeCommand::VoteOnCollaborationDisagreement {
+            parent_task_id,
+            disagreement_id,
+            task_id,
+            position,
+            confidence,
+        } => {
+            framed
+                .send(ClientMessage::AgentVoteOnCollaborationDisagreement {
+                    parent_task_id,
+                    disagreement_id,
+                    task_id,
+                    position,
+                    confidence,
+                })
+                .await?;
+        }
         AgentBridgeCommand::GetStatus => {
             framed.send(ClientMessage::AgentStatusQuery).await?;
         }

@@ -11,6 +11,8 @@ use tokio::net::TcpListener;
 mod part1;
 mod part2;
 mod part3;
+mod part4;
+mod part5;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

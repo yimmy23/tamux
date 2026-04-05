@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_CUSTOM;
 
 pub(super) fn normalize_provider_auth_source(provider_id: &str, auth_source: &str) -> String {
     if providers::supported_auth_sources_for(provider_id).contains(&auth_source) {
@@ -82,7 +83,7 @@ impl TuiModel {
         provider_id: &str,
         provider_value: &serde_json::Value,
     ) -> u32 {
-        if provider_id == "custom" {
+        if provider_id == PROVIDER_ID_CUSTOM {
             return provider_value
                 .get("context_window_tokens")
                 .and_then(|value| value.as_u64())
@@ -98,7 +99,7 @@ impl TuiModel {
     }
 
     fn effective_current_context_window(&self) -> u32 {
-        if self.config.provider == "custom" {
+        if self.config.provider == PROVIDER_ID_CUSTOM {
             self.config.custom_context_window_tokens.unwrap_or(128_000)
         } else {
             providers::known_context_window_for(&self.config.provider, &self.config.model)
@@ -139,7 +140,7 @@ impl TuiModel {
             "assistant_id": "",
             "api_transport": providers::default_transport_for(provider_id),
             "auth_source": providers::default_auth_source_for(provider_id),
-            "context_window_tokens": if provider_id == "custom" { serde_json::Value::from(128_000u32) } else { serde_json::Value::Null },
+            "context_window_tokens": if provider_id == PROVIDER_ID_CUSTOM { serde_json::Value::from(128_000u32) } else { serde_json::Value::Null },
         })
     }
 
@@ -167,7 +168,7 @@ impl TuiModel {
             "auth_source": auth_source,
             "api_transport": api_transport,
             "reasoning_effort": &self.config.reasoning_effort,
-            "context_window_tokens": if provider_id == "custom" {
+            "context_window_tokens": if provider_id == PROVIDER_ID_CUSTOM {
                 Self::provider_field_u64(&ui_value, "context_window_tokens", "context_window_tokens")
                     .unwrap_or(128_000)
             } else {

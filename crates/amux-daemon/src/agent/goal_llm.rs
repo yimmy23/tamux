@@ -338,7 +338,7 @@ impl AgentEngine {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let prompt = format!(
+        let mut prompt = format!(
             "You are replanning a tamux goal runner after a failed step.\n\
              Produce strict JSON only with the shape:\n\
              {{\"title\":\"...\",\"summary\":\"...\",\"steps\":[{{\"title\":\"...\",\"instructions\":\"...\",\"kind\":\"reason|command|research|memory|skill|divergent\",\"success_criteria\":\"...\",\"session_id\":null,\"llm_confidence\":\"confident|likely|uncertain|guessing\",\"llm_confidence_rationale\":\"...\"}}],\"rejected_alternatives\":[\"...\"]}}\n\
@@ -351,6 +351,13 @@ impl AgentEngine {
             failure,
             if completed.is_empty() { "- none".into() } else { completed }
         );
+        if let Some(causal_guidance) = self.build_causal_guidance_summary().await {
+            prompt.push_str("\n");
+            prompt.push_str(&causal_guidance);
+            prompt.push_str(
+                "\nUse the recent causal guidance when choosing the revised remaining steps. Prefer recovery patterns that previously turned failures into near-miss recoveries.\n",
+            );
+        }
         let mut plan = self
             .run_goal_structured::<GoalPlanResponse>(&prompt)
             .await?;

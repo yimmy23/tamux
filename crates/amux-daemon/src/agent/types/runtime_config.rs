@@ -1,3 +1,5 @@
+use amux_shared::providers::PROVIDER_ID_OPENAI;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default)]
@@ -35,10 +37,10 @@ pub struct GatewayConfig {
 }
 
 fn default_provider() -> String {
-    "openai".into()
+    PROVIDER_ID_OPENAI.into()
 }
 fn default_api_transport() -> ApiTransport {
-    default_api_transport_for_provider("openai")
+    default_api_transport_for_provider(PROVIDER_ID_OPENAI)
 }
 fn default_auth_source() -> AuthSource {
     AuthSource::ApiKey
@@ -215,6 +217,38 @@ impl Default for AgentConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicRequestMetadata {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicCacheControlEphemeral {
+    #[serde(rename = "type")]
+    pub cache_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AnthropicToolChoice {
+    Auto {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
+    Any {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
+    Tool {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
+    None {},
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub base_url: String,
     pub model: String,
@@ -232,6 +266,30 @@ pub struct ProviderConfig {
     /// When set, request structured output with this JSON schema from the API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_schema: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_sequences: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<AnthropicRequestMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<AnthropicCacheControlEphemeral>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anthropic_tool_choice: Option<AnthropicToolChoice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_effort: Option<String>,
 }
 
 /// A named sub-agent definition that the orchestration engine can dispatch work to.
@@ -510,6 +568,10 @@ pub struct AnticipatoryItem {
     pub goal_run_id: Option<String>,
     #[serde(default)]
     pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_client_surface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_attention_surface: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
 }

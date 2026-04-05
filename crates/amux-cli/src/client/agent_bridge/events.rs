@@ -7,6 +7,72 @@ use super::emit_agent_event;
 
 fn bridge_event_from_daemon_message(message: &DaemonMessage) -> Option<serde_json::Value> {
     match message {
+        DaemonMessage::AgentOperatorModel { model_json } => Some(serde_json::json!({
+            "type": "operator-model",
+            "data": serde_json::from_str::<serde_json::Value>(model_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentOperatorModelReset { ok } => Some(serde_json::json!({
+            "type": "operator-model-reset",
+            "data": {
+                "ok": ok,
+            }
+        })),
+        DaemonMessage::AuditList { entries_json } => Some(serde_json::json!({
+            "type": "audit-list",
+            "data": serde_json::from_str::<serde_json::Value>(entries_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentProvenanceReport { report_json } => Some(serde_json::json!({
+            "type": "provenance-report",
+            "data": serde_json::from_str::<serde_json::Value>(report_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentMemoryProvenanceReport { report_json } => Some(serde_json::json!({
+            "type": "memory-provenance-report",
+            "data": serde_json::from_str::<serde_json::Value>(report_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentMemoryProvenanceConfirmed {
+            entry_id,
+            confirmed_at,
+        } => Some(serde_json::json!({
+            "type": "memory-provenance-confirmed",
+            "data": {
+                "entry_id": entry_id,
+                "confirmed_at": confirmed_at,
+            }
+        })),
+        DaemonMessage::AgentMemoryProvenanceRetracted {
+            entry_id,
+            retracted_at,
+        } => Some(serde_json::json!({
+            "type": "memory-provenance-retracted",
+            "data": {
+                "entry_id": entry_id,
+                "retracted_at": retracted_at,
+            }
+        })),
+        DaemonMessage::AgentCollaborationSessions { sessions_json } => Some(serde_json::json!({
+            "type": "collaboration-sessions",
+            "data": serde_json::from_str::<serde_json::Value>(sessions_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentCollaborationVoteResult { report_json } => Some(serde_json::json!({
+            "type": "collaboration-vote-result",
+            "data": serde_json::from_str::<serde_json::Value>(report_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentGeneratedTools { tools_json } => Some(serde_json::json!({
+            "type": "generated-tools",
+            "data": serde_json::from_str::<serde_json::Value>(tools_json).unwrap_or_default(),
+        })),
+        DaemonMessage::AgentGeneratedToolResult {
+            operation_id,
+            tool_name,
+            result_json,
+        } => Some(serde_json::json!({
+            "type": "generated-tool-result",
+            "data": {
+                "operation_id": operation_id,
+                "tool_name": tool_name,
+                "result": serde_json::from_str::<serde_json::Value>(result_json).unwrap_or_default(),
+            }
+        })),
         DaemonMessage::AgentOpenAICodexAuthStatus { status_json } => Some(serde_json::json!({
             "type": "openai-codex-auth-status",
             "data": serde_json::from_str::<serde_json::Value>(status_json).unwrap_or_default(),
@@ -532,4 +598,242 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn translates_operator_model_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentOperatorModel {
+            model_json: r#"{"version":"1.0","session_count":4}"#.to_string(),
+        })
+        .expect("operator model event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "operator-model",
+                "data": {
+                    "version": "1.0",
+                    "session_count": 4
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_operator_model_reset_event() {
+        let event =
+            bridge_event_from_daemon_message(&DaemonMessage::AgentOperatorModelReset { ok: true })
+                .expect("operator model reset event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "operator-model-reset",
+                "data": {
+                    "ok": true
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_audit_list_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AuditList {
+            entries_json: serde_json::json!([
+                {
+                    "id": 1,
+                    "action_type": "tool",
+                    "summary": "Executed managed command"
+                }
+            ])
+            .to_string(),
+        })
+        .expect("audit list event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "audit-list",
+                "data": [
+                    {
+                        "id": 1,
+                        "action_type": "tool",
+                        "summary": "Executed managed command"
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_provenance_report_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentProvenanceReport {
+            report_json: serde_json::json!({
+                "total_entries": 3,
+                "valid_hash_entries": 3,
+                "valid_signature_entries": 2,
+                "valid_chain_entries": 3,
+                "entries": []
+            })
+            .to_string(),
+        })
+        .expect("provenance report event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "provenance-report",
+                "data": {
+                    "total_entries": 3,
+                    "valid_hash_entries": 3,
+                    "valid_signature_entries": 2,
+                    "valid_chain_entries": 3,
+                    "entries": []
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_memory_provenance_report_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentMemoryProvenanceReport {
+            report_json: serde_json::json!({
+                "total_entries": 4,
+                "summary_by_status": {
+                    "active": 3,
+                    "uncertain": 1
+                },
+                "entries": []
+            })
+            .to_string(),
+        })
+        .expect("memory provenance report event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "memory-provenance-report",
+                "data": {
+                    "total_entries": 4,
+                    "summary_by_status": {
+                        "active": 3,
+                        "uncertain": 1
+                    },
+                    "entries": []
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_collaboration_sessions_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentCollaborationSessions {
+            sessions_json: serde_json::json!([
+                {
+                    "id": "session-1",
+                    "parent_task_id": "task-1",
+                    "disagreements": [
+                        { "topic": "deployment strategy" }
+                    ]
+                }
+            ])
+            .to_string(),
+        })
+        .expect("collaboration sessions event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "collaboration-sessions",
+                "data": [
+                    {
+                        "id": "session-1",
+                        "parent_task_id": "task-1",
+                        "disagreements": [
+                            { "topic": "deployment strategy" }
+                        ]
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_collaboration_vote_result_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentCollaborationVoteResult {
+            report_json: serde_json::json!({
+                "session_id": "session-1",
+                "resolution": "resolved"
+            })
+            .to_string(),
+        })
+        .expect("collaboration vote result should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "collaboration-vote-result",
+                "data": {
+                    "session_id": "session-1",
+                    "resolution": "resolved"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn translates_generated_tools_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentGeneratedTools {
+            tools_json: serde_json::json!([
+                {
+                    "id": "tool-1",
+                    "name": "tool-1",
+                    "status": "new"
+                }
+            ])
+            .to_string(),
+        })
+        .expect("generated tools event should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "generated-tools",
+                "data": [
+                    {
+                        "id": "tool-1",
+                        "name": "tool-1",
+                        "status": "new"
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn translates_generated_tool_result_event() {
+        let event = bridge_event_from_daemon_message(&DaemonMessage::AgentGeneratedToolResult {
+            operation_id: Some("op-generated-tool-1".to_string()),
+            tool_name: Some("tool-1".to_string()),
+            result_json: serde_json::json!({
+                "status": "active"
+            })
+            .to_string(),
+        })
+        .expect("generated tool result should translate");
+
+        assert_eq!(
+            event,
+            serde_json::json!({
+                "type": "generated-tool-result",
+                "data": {
+                    "operation_id": "op-generated-tool-1",
+                    "tool_name": "tool-1",
+                    "result": {
+                        "status": "active"
+                    }
+                }
+            })
+        );
+    }
+
 }

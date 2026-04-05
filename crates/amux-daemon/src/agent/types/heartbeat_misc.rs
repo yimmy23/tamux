@@ -1,3 +1,5 @@
+use crate::agent::llm_client::OpenAiResponsesTerminalResponse;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HeartbeatOutcome {
@@ -313,6 +315,84 @@ pub fn compute_generation_stats(
 // LLM completion types
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletionServerToolUsage {
+    pub web_fetch_requests: Option<u64>,
+    pub web_search_requests: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletionContainerInfo {
+    pub id: String,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompletionUpstreamContentBlock {
+    pub block_type: String,
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub text: Option<String>,
+    pub thinking: Option<String>,
+    pub signature: Option<String>,
+    pub input_json: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompletionUpstreamMessage {
+    pub id: Option<String>,
+    pub message_type: Option<String>,
+    pub role: Option<String>,
+    pub model: Option<String>,
+    pub container: Option<CompletionContainerInfo>,
+    pub stop_reason: Option<String>,
+    pub stop_sequence: Option<String>,
+    pub content_blocks: Vec<CompletionUpstreamContentBlock>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompletionOpenAiResponsesFinalResult {
+    pub id: Option<String>,
+    pub output_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<OpenAiResponsesTerminalResponse>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CompletionOpenAiChatCompletionsFinalResult {
+    pub id: Option<String>,
+    pub model: Option<String>,
+    pub output_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum CompletionProviderFinalResult {
+    AnthropicMessage(CompletionUpstreamMessage),
+    OpenAiChatCompletions(CompletionOpenAiChatCompletionsFinalResult),
+    OpenAiResponses(CompletionOpenAiResponsesFinalResult),
+}
+
 #[derive(Debug, Clone)]
 pub enum CompletionChunk {
     Delta {
@@ -325,15 +405,39 @@ pub enum CompletionChunk {
         reasoning: Option<String>,
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
+        stop_reason: Option<String>,
+        stop_sequence: Option<String>,
         response_id: Option<String>,
+        request_id: Option<String>,
+        upstream_model: Option<String>,
+        upstream_role: Option<String>,
+        upstream_message_type: Option<String>,
+        upstream_container: Option<CompletionContainerInfo>,
+        upstream_message: Option<CompletionUpstreamMessage>,
+        provider_final_result: Option<CompletionProviderFinalResult>,
         upstream_thread_id: Option<String>,
+        cache_creation_input_tokens: Option<u64>,
+        cache_read_input_tokens: Option<u64>,
+        server_tool_use: Option<CompletionServerToolUsage>,
     },
     Done {
         content: String,
         reasoning: Option<String>,
         input_tokens: u64,
         output_tokens: u64,
+        stop_reason: Option<String>,
+        stop_sequence: Option<String>,
+        cache_creation_input_tokens: Option<u64>,
+        cache_read_input_tokens: Option<u64>,
+        server_tool_use: Option<CompletionServerToolUsage>,
         response_id: Option<String>,
+        request_id: Option<String>,
+        upstream_model: Option<String>,
+        upstream_role: Option<String>,
+        upstream_message_type: Option<String>,
+        upstream_container: Option<CompletionContainerInfo>,
+        upstream_message: Option<CompletionUpstreamMessage>,
+        provider_final_result: Option<CompletionProviderFinalResult>,
         upstream_thread_id: Option<String>,
     },
     TransportFallback {

@@ -1,4 +1,8 @@
 use super::types::*;
+use amux_shared::providers::{
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_OPENAI,
+};
 use anyhow::{bail, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +31,9 @@ fn finalize_resolved_provider(
     if !provider_supports_transport(provider_id, resolved.api_transport) {
         resolved.api_transport = default_api_transport_for_provider(provider_id);
     }
-    if provider_id == "openai" && resolved.auth_source == AuthSource::ChatgptSubscription {
+    if provider_id == PROVIDER_ID_OPENAI
+        && resolved.auth_source == AuthSource::ChatgptSubscription
+    {
         resolved.api_transport = ApiTransport::Responses;
     }
     resolved
@@ -52,7 +58,7 @@ pub(super) fn resolve_provider_config_for(
         // For predefined providers, always use the canonical base URL from the
         // provider definition so stale values in the DB config cannot override it.
         // Only "custom" providers honour a user-supplied base_url.
-        if provider_id != "custom" {
+        if provider_id != PROVIDER_ID_CUSTOM {
             if let Some(def) = get_provider_definition(provider_id) {
                 resolved.base_url =
                     get_provider_base_url(provider_id, &resolved.model, def.default_base_url);
@@ -103,6 +109,18 @@ pub(super) fn resolve_provider_config_for(
             reasoning_effort: config.reasoning_effort.clone(),
             context_window_tokens: config.context_window_tokens,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
         config,
     ))
@@ -145,7 +163,7 @@ pub(super) fn resolve_provider_model_switch(
     let mut api_transport = config.api_transport;
     let mut context_window_tokens = config.context_window_tokens;
 
-    if provider_id == "custom" {
+    if provider_id == PROVIDER_ID_CUSTOM {
         if base_url.trim().is_empty() {
             bail!("base URL cannot be empty for provider 'custom'");
         }
@@ -181,7 +199,8 @@ pub(super) fn resolve_provider_model_switch(
             }
         }
         AuthSource::ChatgptSubscription => {
-            if provider_id != "openai" || !super::llm_client::has_openai_chatgpt_subscription_auth()
+            if provider_id != PROVIDER_ID_OPENAI
+                || !super::llm_client::has_openai_chatgpt_subscription_auth()
             {
                 bail!(
                     "ChatGPT subscription auth is not available for provider '{}'",
@@ -190,7 +209,7 @@ pub(super) fn resolve_provider_model_switch(
             }
         }
         AuthSource::GithubCopilot => {
-            if provider_id != "github-copilot"
+            if provider_id != PROVIDER_ID_GITHUB_COPILOT
                 || !super::copilot_auth::github_copilot_has_available_models(
                     &config.api_key,
                     config.auth_source,
@@ -216,18 +235,21 @@ pub(super) fn resolve_provider_model_switch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amux_shared::providers::{
+        PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
+    };
 
     #[test]
     fn named_provider_inherits_defaults_and_transport_rules() {
         let mut config = AgentConfig::default();
-        config.provider = "openai".to_string();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
         config.base_url = "https://api.openai.com/v1".to_string();
         config.model = "gpt-5.4".to_string();
         config.reasoning_effort = "high".to_string();
         config.context_window_tokens = 99_999;
         config.assistant_id = "assistant-root".to_string();
         config.providers.insert(
-            "alibaba-coding-plan".to_string(),
+            PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
             ProviderConfig {
                 base_url: String::new(),
                 model: String::new(),
@@ -238,11 +260,27 @@ mod tests {
                 context_window_tokens: 0,
                 reasoning_effort: String::new(),
                 response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
             },
         );
 
         let resolved =
-            resolve_provider_config_for(&config, "alibaba-coding-plan", Some("qwen3.5-plus"))
+            resolve_provider_config_for(
+                &config,
+                PROVIDER_ID_ALIBABA_CODING_PLAN,
+                Some("qwen3.5-plus"),
+            )
                 .expect("provider should resolve");
 
         assert_eq!(
@@ -260,8 +298,8 @@ mod tests {
     #[test]
     fn non_active_provider_without_named_credentials_fails() {
         let mut config = AgentConfig::default();
-        config.provider = "openai".to_string();
-        let err = resolve_provider_config_for(&config, "groq", None).unwrap_err();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        let err = resolve_provider_config_for(&config, PROVIDER_ID_GROQ, None).unwrap_err();
         assert!(err
             .to_string()
             .contains("No credentials configured for provider 'groq'"));
@@ -270,10 +308,10 @@ mod tests {
     #[test]
     fn candidate_provider_with_empty_model_uses_its_own_default_model() {
         let mut config = AgentConfig::default();
-        config.provider = "openai".to_string();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
         config.model = "gpt-5.4".to_string();
         config.providers.insert(
-            "groq".to_string(),
+            PROVIDER_ID_GROQ.to_string(),
             ProviderConfig {
                 base_url: String::new(),
                 model: String::new(),
@@ -284,11 +322,24 @@ mod tests {
                 context_window_tokens: 0,
                 reasoning_effort: String::new(),
                 response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
             },
         );
 
         let resolved =
-            resolve_candidate_provider_config(&config, "groq").expect("candidate should resolve");
+            resolve_candidate_provider_config(&config, PROVIDER_ID_GROQ)
+                .expect("candidate should resolve");
 
         assert_eq!(resolved.model, "llama-3.3-70b-versatile");
         assert_eq!(resolved.base_url, "https://api.groq.com/openai/v1");

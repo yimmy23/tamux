@@ -40,9 +40,9 @@ async fn concierge_welcome_request_does_not_block_ping() {
                     continue;
                 }
                 DaemonMessage::AgentEvent { .. } => continue,
-                other => {
-                    panic!("expected Pong while concierge work runs in background, got {other:?}")
-                }
+                other => panic!(
+                    "expected Pong while concierge work runs in background, got {other:?}"
+                ),
             }
         }
     })
@@ -53,66 +53,6 @@ async fn concierge_welcome_request_does_not_block_ping() {
         pong_received,
         "ping should not be blocked behind concierge welcome generation"
     );
-
-    accept_task.abort();
-    conn.shutdown().await;
-}
-
-#[tokio::test]
-async fn operation_status_query_returns_current_snapshot() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind fake llm listener");
-    let addr = listener.local_addr().expect("listener addr");
-    let accept_task = tokio::spawn(async move {
-        let (_stream, _) = listener.accept().await.expect("accept concierge request");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    });
-
-    let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
-    config.base_url = format!("http://{addr}");
-    config.api_key = "test-key".to_string();
-    config.model = "gpt-5.4".to_string();
-    config.concierge.detail_level = crate::agent::types::ConciergeDetailLevel::ContextSummary;
-
-    let mut conn = spawn_test_connection_with_config(config).await;
-    declare_async_command_capability(&mut conn).await;
-
-    conn.framed
-        .send(ClientMessage::AgentRequestConciergeWelcome)
-        .await
-        .expect("request concierge welcome");
-
-    let operation_id = match conn.recv().await {
-        DaemonMessage::OperationAccepted {
-            operation_id, kind, ..
-        } => {
-            assert_eq!(kind, "concierge_welcome");
-            operation_id
-        }
-        other => panic!("expected operation acceptance, got {other:?}"),
-    };
-
-    conn.framed
-        .send(ClientMessage::AgentGetOperationStatus {
-            operation_id: operation_id.clone(),
-        })
-        .await
-        .expect("query operation status");
-
-    match conn.recv().await {
-        DaemonMessage::OperationStatus { snapshot } => {
-            assert_eq!(snapshot.operation_id, operation_id);
-            assert_eq!(snapshot.kind, "concierge_welcome");
-            assert!(matches!(
-                snapshot.state,
-                amux_protocol::OperationLifecycleState::Accepted
-                    | amux_protocol::OperationLifecycleState::Started
-            ));
-        }
-        other => panic!("expected operation status snapshot, got {other:?}"),
-    }
 
     accept_task.abort();
     conn.shutdown().await;
@@ -233,6 +173,38 @@ async fn second_client_can_query_accepted_operation_before_concierge_work_comple
     accept_task.abort();
     second_client.shutdown().await;
     primary.shutdown().await;
+}
+
+#[test]
+fn direct_message_response_includes_provider_final_result_json() {
+    let message = DaemonMessage::AgentDirectMessageResponse {
+        target: "main".to_string(),
+        thread_id: "thread-1".to_string(),
+        response: "protocol reply".to_string(),
+        session_id: None,
+        provider_final_result_json: Some(
+            r#"{"provider":"open_ai_responses","id":"resp_dm_protocol"}"#.to_string(),
+        ),
+    };
+
+    match message {
+        DaemonMessage::AgentDirectMessageResponse {
+            target,
+            thread_id,
+            response,
+            provider_final_result_json,
+            ..
+        } => {
+            assert_eq!(target, "main");
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(response, "protocol reply");
+            let json = provider_final_result_json.expect("expected provider-native final result");
+            let value: serde_json::Value = serde_json::from_str(&json).expect("parse final result json");
+            assert_eq!(value.get("provider").and_then(|v| v.as_str()), Some("open_ai_responses"));
+            assert_eq!(value.get("id").and_then(|v| v.as_str()), Some("resp_dm_protocol"));
+        }
+        other => panic!("expected direct message response, got {other:?}"),
+    }
 }
 
 #[tokio::test]

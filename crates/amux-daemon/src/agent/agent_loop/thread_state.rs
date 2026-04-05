@@ -101,6 +101,36 @@ impl AgentEngine {
         api_transport: Option<ApiTransport>,
         response_id: Option<String>,
     ) {
+        self.add_assistant_message_with_upstream_message(
+            thread_id,
+            content,
+            input_tokens,
+            output_tokens,
+            reasoning,
+            provider,
+            model,
+            api_transport,
+            response_id,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    pub(in crate::agent) async fn add_assistant_message_with_upstream_message(
+        &self,
+        thread_id: &str,
+        content: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        reasoning: Option<String>,
+        provider: Option<String>,
+        model: Option<String>,
+        api_transport: Option<ApiTransport>,
+        response_id: Option<String>,
+        upstream_message: Option<CompletionUpstreamMessage>,
+        provider_final_result: Option<CompletionProviderFinalResult>,
+    ) {
         let mut threads = self.threads.write().await;
         if let Some(thread) = threads.get_mut(thread_id) {
             thread.messages.push(AgentMessage {
@@ -119,6 +149,8 @@ impl AgentEngine {
                 model,
                 api_transport,
                 response_id,
+                upstream_message,
+                provider_final_result,
                 reasoning,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -157,6 +189,8 @@ impl AgentEngine {
             tps: None,
             generation_ms: None,
             reasoning: None,
+            upstream_message: None,
+            provider_final_result: None,
         });
     }
 

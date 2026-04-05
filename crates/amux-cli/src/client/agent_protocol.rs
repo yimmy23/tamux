@@ -153,6 +153,42 @@ pub(super) enum AgentBridgeCommand {
     AuditDismiss {
         entry_id: String,
     },
+    QueryAudits {
+        #[serde(default)]
+        action_types: Option<Vec<String>>,
+        #[serde(default)]
+        since: Option<u64>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    GetProvenanceReport {
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+    GetMemoryProvenanceReport {
+        #[serde(default)]
+        target: Option<String>,
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+    ConfirmMemoryProvenanceEntry {
+        entry_id: String,
+    },
+    RetractMemoryProvenanceEntry {
+        entry_id: String,
+    },
+    GetCollaborationSessions {
+        #[serde(default)]
+        parent_task_id: Option<String>,
+    },
+    VoteOnCollaborationDisagreement {
+        parent_task_id: String,
+        disagreement_id: String,
+        task_id: String,
+        position: String,
+        #[serde(default)]
+        confidence: Option<f64>,
+    },
     GetStatus,
     SetTierOverride {
         tier: Option<String>,
@@ -238,6 +274,20 @@ pub(super) enum AgentBridgeCommand {
     },
     GetDivergentSession {
         session_id: String,
+    },
+    ListGeneratedTools,
+    RunGeneratedTool {
+        tool_name: String,
+        args_json: String,
+    },
+    PromoteGeneratedTool {
+        tool_name: String,
+    },
+    ActivateGeneratedTool {
+        tool_name: String,
+    },
+    RetireGeneratedTool {
+        tool_name: String,
     },
     Shutdown,
 }

@@ -1,5 +1,3 @@
-use super::*;
-
 #[derive(Debug, Default)]
 pub(super) struct FamilyOutcomeSummary {
     pub failure_count: u32,
@@ -87,10 +85,20 @@ pub(super) fn pattern_family_from_factor(
     if factor.factor_type != crate::agent::learning::traces::FactorType::PatternMatch {
         return None;
     }
-    factor
+    if let Some(family) = factor
         .description
         .strip_prefix("command family: ")
         .map(str::to_string)
+    {
+        return Some(family);
+    }
+    if let Some(signature) = factor.description.strip_prefix("upstream signature: ") {
+        return Some(command_family(signature));
+    }
+    factor
+        .description
+        .strip_prefix("upstream class: ")
+        .map(command_family)
 }
 
 pub(super) fn summarize_outcome(

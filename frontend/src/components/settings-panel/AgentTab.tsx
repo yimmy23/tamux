@@ -6,6 +6,8 @@ import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../
 import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, normalizeAuthSource } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
+import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
+import { OperatorModelControls } from "./OperatorModelControls";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function normalizeLlmStreamTimeoutInput(value: string): number | null {
@@ -651,6 +653,7 @@ export function AgentTab({
                         <SettingRow label="Implicit Feedback">
                             <Toggle value={settings.operator_model_allow_implicit_feedback} onChange={(value) => updateSetting("operator_model_allow_implicit_feedback", value)} />
                         </SettingRow>
+                        <OperatorModelControls enabled={settings.operator_model_enabled} />
                     </>
                 ) : null}
                 <SettingRow label="Collaboration">
@@ -685,6 +688,7 @@ export function AgentTab({
                             <NumberInput value={settings.tool_synthesis_max_generated_tools} min={1} max={200}
                                 onChange={(value) => updateSetting("tool_synthesis_max_generated_tools", value)} />
                         </SettingRow>
+                        <GeneratedToolsPanel enabled={settings.tool_synthesis_enabled} />
                     </>
                 ) : null}
             </Section>

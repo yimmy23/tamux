@@ -2,7 +2,7 @@
 
 This document describes the current system as it exists in the repository now: the daemon, UI clients, agent runtime, memory model, persistence model, and the self-orchestrating capabilities layered on top.
 
-For implementation detail on the deeper agent internals, see [self-orchestrating-agent.md](./self-orchestrating-agent.md). For onboarding and local setup, see [getting-started.md](./getting-started.md).
+For implementation detail on the deeper agent internals, see [self-orchestrating-agent.md](./self-orchestrating-agent.md). For onboarding and local setup, see [getting-started.md](./getting-started.md). For the current provenance-backed memory model and operator controls, see [memory-and-security.md](./memory-and-security.md).
 
 ## System Shape
 
@@ -366,6 +366,8 @@ The daemon can inspect the local workspace and answer bounded semantic questions
 - Rust crates and Node packages
 - dependency and dependent relationships
 - Compose service topology
+- Terraform resources and modules
+- Kubernetes resources and their local references
 - import relationships
 - learned conventions
 - temporal history relevant to a target
@@ -378,6 +380,17 @@ Memory writes are backed by provenance records and contradiction checks. The dae
 - when it was written
 - which task/goal/thread produced it
 - how confidence should age over time
+- whether an operator explicitly confirmed or retracted the fact
+- which remove operations explicitly retract earlier facts with the same durable key
+
+On the operator side, the desktop Session Vault exposes a memory provenance mode with:
+
+- status counters for active, uncertain, confirmed, and retracted entries
+- per-entry provenance details
+- explicit confirm and retract actions
+- persisted `retracts` relationships rendered alongside the affected facts
+
+The TUI does not yet expose the same direct memory provenance controls.
 
 ### M7: Collaboration Protocol
 
@@ -454,5 +467,6 @@ A realistic long-running flow looks like this:
 
 - [getting-started.md](./getting-started.md): install and first-run path
 - [self-orchestrating-agent.md](./self-orchestrating-agent.md): deeper execution internals
-- [skills/operating/memory.md](./skills/operating/memory.md): memory behavior and operator-facing usage
+- [memory-and-security.md](./memory-and-security.md): shipped memory provenance and operator controls
+- [../skills/operating/memory.md](../skills/operating/memory.md): skill/operator guidance for curated memory usage
 - [goal-runners.md](./goal-runners.md): goal-runner oriented behavior

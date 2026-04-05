@@ -101,3 +101,146 @@ async fn enqueue_goal_run_step_marks_supervised_task_as_awaiting_approval_before
         "task and goal should share the same gate identifier"
     );
 }
+
+#[tokio::test]
+async fn fail_goal_run_settles_unresolved_goal_replan_trace() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-replan-failure";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_goal_run(goal_run_id));
+
+    let selected_json = serde_json::json!({
+        "option_type": "goal_replan",
+        "reasoning": "Retry with a narrower command sequence",
+        "rejection_reason": null,
+        "estimated_success_prob": 0.58,
+        "arguments_hash": "ctx_hash"
+    })
+    .to_string();
+    let unresolved =
+        serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::Unresolved)
+            .expect("serialize unresolved outcome");
+    engine
+        .history
+        .insert_causal_trace(
+            "causal_goal_replan_failure_hook",
+            None,
+            Some(goal_run_id),
+            None,
+            "replan_selection",
+            &selected_json,
+            "[]",
+            "ctx_hash",
+            "[]",
+            &unresolved,
+            Some("gpt-4o-mini"),
+            now_millis(),
+        )
+        .await
+        .expect("insert goal replan causal trace");
+
+    engine
+        .fail_goal_run(
+            goal_run_id,
+            "managed command failed permanently",
+            "execution",
+        )
+        .await;
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("goal_replan", 1)
+        .await
+        .expect("list goal replan traces");
+    let outcome = serde_json::from_str::<crate::agent::learning::traces::CausalTraceOutcome>(
+        &records[0].outcome_json,
+    )
+    .expect("deserialize settled outcome");
+    match outcome {
+        crate::agent::learning::traces::CausalTraceOutcome::Failure { reason } => {
+            assert!(reason.contains("managed command failed permanently"));
+        }
+        other => panic!("expected failure outcome, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn fail_goal_run_appends_failure_factor_to_goal_replan_trace() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-replan-failure-factor";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_goal_run(goal_run_id));
+
+    let selected_json = serde_json::json!({
+        "option_type": "goal_replan",
+        "reasoning": "Retry with a narrower command sequence",
+        "rejection_reason": null,
+        "estimated_success_prob": 0.58,
+        "arguments_hash": "ctx_hash"
+    })
+    .to_string();
+    let unresolved =
+        serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::Unresolved)
+            .expect("serialize unresolved outcome");
+    let factors_json = serde_json::to_string(&vec![crate::agent::learning::traces::CausalFactor {
+        factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+        description: "replan used a smaller command sequence".to_string(),
+        weight: 0.7,
+    }])
+    .expect("serialize factors");
+    engine
+        .history
+        .insert_causal_trace(
+            "causal_goal_replan_failure_factor_hook",
+            None,
+            Some(goal_run_id),
+            None,
+            "replan_selection",
+            &selected_json,
+            "[]",
+            "ctx_hash",
+            &factors_json,
+            &unresolved,
+            Some("gpt-4o-mini"),
+            now_millis(),
+        )
+        .await
+        .expect("insert goal replan causal trace");
+
+    engine
+        .fail_goal_run(
+            goal_run_id,
+            "managed command failed permanently",
+            "execution",
+        )
+        .await;
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("goal_replan", 1)
+        .await
+        .expect("list goal replan traces");
+    let factors = serde_json::from_str::<Vec<crate::agent::learning::traces::CausalFactor>>(
+        &records[0].causal_factors_json,
+    )
+    .expect("deserialize causal factors");
+    assert!(
+        factors.iter().any(|factor| matches!(
+            factor.factor_type,
+            crate::agent::learning::traces::FactorType::PastFailure
+        ) && factor.description.contains("managed command failed permanently")),
+        "expected settled goal replan trace to append a final failure factor"
+    );
+}

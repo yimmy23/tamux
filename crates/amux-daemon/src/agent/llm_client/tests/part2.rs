@@ -1,3 +1,7 @@
+use amux_shared::providers::{
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+};
+
     #[test]
     fn messages_to_api_format_normalizes_empty_tool_ids() {
         let messages = vec![
@@ -24,6 +28,8 @@
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: crate::agent::types::AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -46,6 +52,8 @@
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: crate::agent::types::AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -108,7 +116,8 @@
 
     #[test]
     fn github_copilot_default_url_uses_copilot_api_origin() {
-        let provider = get_provider_definition("github-copilot").expect("copilot provider");
+        let provider =
+            get_provider_definition(PROVIDER_ID_GITHUB_COPILOT).expect("copilot provider");
         assert_eq!(provider.default_base_url, "https://api.githubcopilot.com");
         assert_eq!(
             build_chat_completion_url(provider.default_base_url),
@@ -139,7 +148,11 @@
             "updated_at": 1,
             "created_at": 1
         });
-        provider_auth_store::save_provider_auth_state("github-copilot", "github_copilot", &auth)
+        provider_auth_store::save_provider_auth_state(
+            PROVIDER_ID_GITHUB_COPILOT,
+            "github_copilot",
+            &auth,
+        )
             .unwrap();
 
         let client = reqwest::Client::new();
@@ -153,10 +166,22 @@
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         };
         let request = apply_openai_auth_headers(
             client.get("https://models.github.ai/inference/chat/completions"),
-            "github-copilot",
+            PROVIDER_ID_GITHUB_COPILOT,
             &config,
         )
         .build()
@@ -194,7 +219,11 @@
             "updated_at": 1,
             "created_at": 1
         });
-        provider_auth_store::save_provider_auth_state("github-copilot", "github_copilot", &auth)
+        provider_auth_store::save_provider_auth_state(
+            PROVIDER_ID_GITHUB_COPILOT,
+            "github_copilot",
+            &auth,
+        )
             .unwrap();
 
         let client = reqwest::Client::new();
@@ -208,10 +237,22 @@
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         };
         let request = apply_openai_auth_headers(
             client.get("https://api.githubcopilot.com/chat/completions"),
-            "github-copilot",
+            PROVIDER_ID_GITHUB_COPILOT,
             &config,
         )
         .build()
@@ -235,6 +276,64 @@
     }
 
     #[test]
+    fn openrouter_requests_include_app_attribution_headers() {
+        let client = reqwest::Client::new();
+        let config = ProviderConfig {
+            base_url: "https://openrouter.ai/api/v1".to_string(),
+            model: "arcee-ai/trinity-large-thinking".to_string(),
+            api_key: "openrouter-key".to_string(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        };
+
+        let request = apply_openai_auth_headers(
+            client.get("https://openrouter.ai/api/v1/chat/completions"),
+            PROVIDER_ID_OPENROUTER,
+            &config,
+        )
+        .build()
+        .expect("request should build");
+
+        assert_eq!(
+            request
+                .headers()
+                .get("http-referer")
+                .and_then(|value| value.to_str().ok()),
+            Some("https://tamux.app")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-openrouter-title")
+                .and_then(|value| value.to_str().ok()),
+            Some("tamux")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-openrouter-categories")
+                .and_then(|value| value.to_str().ok()),
+            Some("cli-agent")
+        );
+    }
+
+    #[test]
     fn github_copilot_responses_request_includes_reasoning_summary() {
         let config = ProviderConfig {
             base_url: "https://api.githubcopilot.com".to_string(),
@@ -246,10 +345,22 @@
             reasoning_effort: "high".to_string(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         };
 
         let body = build_openai_responses_body(
-            "github-copilot",
+            PROVIDER_ID_GITHUB_COPILOT,
             &config,
             "system prompt",
             &[ApiMessage {
@@ -280,10 +391,22 @@
             reasoning_effort: "off".to_string(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         };
 
         let body = build_openai_responses_body(
-            "openai",
+            PROVIDER_ID_OPENAI,
             &config,
             "system prompt",
             &[ApiMessage {
@@ -314,6 +437,173 @@
         assert_eq!(body["tool_choice"], "auto");
     }
 
+    #[test]
+    fn build_openai_responses_request_serializes_full_typed_body() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "answer": { "type": "string" }
+                },
+                "required": ["answer"]
+            })),
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        };
+
+        let request = build_openai_responses_request(
+            PROVIDER_ID_GITHUB_COPILOT,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("first question".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text("I'll inspect that".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(vec![ApiToolCall {
+                        id: "call_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "read_file".to_string(),
+                            arguments: "{\"path\":\"MEMORY.md\"}".to_string(),
+                        },
+                    }]),
+                },
+                ApiMessage {
+                    role: "tool".to_string(),
+                    content: ApiContent::Text("file contents".to_string()),
+                    tool_call_id: Some("call_1".to_string()),
+                    name: Some("read_file".to_string()),
+                    tool_calls: None,
+                },
+            ],
+            &[ToolDefinition {
+                tool_type: "function".to_string(),
+                function: ToolFunctionDef {
+                    name: "update_memory".to_string(),
+                    description: "Store durable memory".to_string(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "content": { "type": "string" }
+                        },
+                        "required": ["content"]
+                    }),
+                },
+            }],
+            Some("resp_123"),
+            true,
+        );
+
+        let body = serde_json::to_value(&request).expect("serialize request");
+
+        assert_eq!(body["model"], "gpt-5.4");
+        assert_eq!(body["instructions"], "system prompt");
+        assert_eq!(body["previous_response_id"], "resp_123");
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][1]["role"], "assistant");
+        assert_eq!(body["input"][2]["type"], "function_call");
+        assert_eq!(body["input"].as_array().map(Vec::len), Some(3));
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["name"], "update_memory");
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["text"]["format"]["type"], "json_schema");
+        assert_eq!(body["text"]["verbosity"], "high");
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert_eq!(body["store"], false);
+        assert_eq!(
+            body["include"],
+            serde_json::json!(["reasoning.encrypted_content"])
+        );
+    }
+
+    #[test]
+    fn anthropic_request_maps_response_schema_to_output_config_json_schema() {
+        let client = reqwest::Client::new();
+        let config = ProviderConfig {
+            base_url: "https://api.anthropic.com".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::ApiKey,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: "off".to_string(),
+            context_window_tokens: 0,
+            response_schema: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "answer": { "type": "string" }
+                },
+                "required": ["answer"]
+            })),
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        };
+
+        let request = build_anthropic_request(
+            &client,
+            "anthropic",
+            &config,
+            "system prompt",
+            &[ApiMessage {
+                role: "user".to_string(),
+                content: ApiContent::Text("hello".to_string()),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            }],
+            &[],
+            false,
+        )
+        .expect("request should build");
+
+        let body: serde_json::Value = serde_json::from_slice(
+            request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        )
+        .expect("json body");
+
+        assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(body["output_config"]["format"]["schema"], config.response_schema.unwrap());
+    }
+
     #[tokio::test]
     async fn request_invalid_responses_400_malformed_body_is_classified_request_invalid() {
         let request_paths = Arc::new(Mutex::new(VecDeque::new()));
@@ -329,7 +619,7 @@
 
         let stream = send_completion_request(
             &reqwest::Client::new(),
-            "github-copilot",
+            PROVIDER_ID_GITHUB_COPILOT,
             &responses_test_config(base_url, AuthSource::GithubCopilot),
             "system",
             &[ApiMessage {

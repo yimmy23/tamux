@@ -15,6 +15,7 @@ if matches!(
         ClientMessage::AgentRunGeneratedTool{ .. } |
         ClientMessage::AgentPromoteGeneratedTool{ .. } |
         ClientMessage::AgentActivateGeneratedTool{ .. } |
+        ClientMessage::AgentRetireGeneratedTool{ .. } |
         ClientMessage::AgentGetProviderAuthStates |
         ClientMessage::AgentLoginProvider{ .. } |
         ClientMessage::AgentLogoutProvider{ .. } |
@@ -166,6 +167,82 @@ if matches!(
                     }
                 }
 
+                ClientMessage::AgentConfirmMemoryProvenanceEntry { entry_id } => {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    match agent
+                        .history
+                        .confirm_memory_provenance_entry(&entry_id, now_ms)
+                        .await
+                    {
+                        Ok(true) => {
+                            framed
+                                .send(DaemonMessage::AgentMemoryProvenanceConfirmed {
+                                    entry_id,
+                                    confirmed_at: now_ms,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Ok(false) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: "memory provenance entry not found".to_string(),
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to confirm memory provenance entry: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentRetractMemoryProvenanceEntry { entry_id } => {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    match agent
+                        .history
+                        .retract_memory_provenance_entry(&entry_id, now_ms)
+                        .await
+                    {
+                        Ok(true) => {
+                            framed
+                                .send(DaemonMessage::AgentMemoryProvenanceRetracted {
+                                    entry_id,
+                                    retracted_at: now_ms,
+                                })
+                                .await
+                                .ok();
+                        }
+                        Ok(false) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: "memory provenance entry not found".to_string(),
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to retract memory provenance entry: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
                 ClientMessage::AgentGetProvenanceReport { limit } => {
                     match agent
                         .provenance_report_json(limit.unwrap_or(50) as usize)
@@ -181,6 +258,27 @@ if matches!(
                             framed
                                 .send(DaemonMessage::AgentError {
                                     message: format!("failed to build provenance report: {e}"),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSemanticQuery { args_json } => {
+                    let args = serde_json::from_str::<serde_json::Value>(&args_json)
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    match agent.semantic_query_text(&args).await {
+                        Ok(content) => {
+                            framed
+                                .send(DaemonMessage::AgentSemanticQueryResult { content })
+                                .await
+                                .ok();
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to execute semantic query: {e}"),
                                 })
                                 .await
                                 .ok();
@@ -228,6 +326,44 @@ if matches!(
                                 .send(DaemonMessage::AgentError {
                                     message: format!(
                                         "failed to read collaboration sessions: {error}"
+                                    ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentVoteOnCollaborationDisagreement {
+                    parent_task_id,
+                    disagreement_id,
+                    task_id,
+                    position,
+                    confidence,
+                } => {
+                    match agent
+                        .vote_on_collaboration_disagreement(
+                            &parent_task_id,
+                            &disagreement_id,
+                            &task_id,
+                            &position,
+                            confidence,
+                        )
+                        .await
+                    {
+                        Ok(report) => {
+                            framed
+                                .send(DaemonMessage::AgentCollaborationVoteResult {
+                                    report_json: report.to_string(),
+                                })
+                                .await
+                                .ok();
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!(
+                                        "failed to vote on collaboration disagreement: {error}"
                                     ),
                                 })
                                 .await
@@ -420,6 +556,29 @@ if matches!(
                     }
                 }
 
+                    ClientMessage::AgentRetireGeneratedTool { tool_name } => {
+                        match agent.retire_generated_tool_json(&tool_name).await {
+                            Ok(result_json) => {
+                                framed
+                                    .send(DaemonMessage::AgentGeneratedToolResult {
+                                        operation_id: None,
+                                        tool_name: Some(tool_name),
+                                        result_json,
+                                    })
+                                    .await
+                                    .ok();
+                            }
+                            Err(e) => {
+                                framed
+                                    .send(DaemonMessage::AgentError {
+                                        message: format!("failed to retire generated tool: {e}"),
+                                    })
+                                    .await
+                                    .ok();
+                            }
+                        }
+                    }
+
                 ClientMessage::AgentGetProviderAuthStates => {
                     let states = agent.get_provider_auth_states().await;
                     let json = serde_json::to_string(&states).unwrap_or_default();
@@ -458,6 +617,18 @@ if matches!(
                                 reasoning_effort: "high".into(),
                                 context_window_tokens: 128_000,
                                 response_schema: None,
+                                stop_sequences: None,
+                                temperature: None,
+                                top_p: None,
+                                top_k: None,
+                                metadata: None,
+                                service_tier: None,
+                                container: None,
+                                inference_geo: None,
+                                cache_control: None,
+                                max_tokens: None,
+                                anthropic_tool_choice: None,
+                                output_effort: None,
                             }
                         });
                     entry.api_key = api_key;
@@ -474,7 +645,7 @@ if matches!(
                 }
 
                 ClientMessage::AgentLogoutProvider { provider_id } => {
-                    if provider_id == "github-copilot" {
+                    if provider_id == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
                         let _ = crate::agent::copilot_auth::clear_stored_github_copilot_auth();
                     }
                     let mut config = agent.get_config().await;

@@ -2,7 +2,6 @@ function createAgentDbBridgeRuntime(options) {
     const {
         fs,
         getDaemonPath,
-        getChildProcessEnv = () => process.env,
         getMainWindow,
         logToFile,
         pendingHandlerMatchesResponseType,
@@ -60,7 +59,6 @@ function createAgentDbBridgeRuntime(options) {
 
         const bridgeProcess = spawn(cliPath, ['agent-bridge'], {
             cwd: require('path').dirname(cliPath),
-            env: getChildProcessEnv(),
             windowsHide: true,
             stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -218,7 +216,6 @@ function createAgentDbBridgeRuntime(options) {
 
         const bridgeProcess = spawn(cliPath, ['db-bridge'], {
             cwd: require('path').dirname(cliPath),
-            env: getChildProcessEnv(),
             windowsHide: true,
             stdio: ['pipe', 'pipe', 'pipe'],
         });

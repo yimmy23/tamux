@@ -86,17 +86,17 @@ fn gateway_triage_safe_tools_include_lookup_and_agent_coordination_tools() {
 #[test]
 fn resolve_concierge_provider_uses_shared_resolution_path() {
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
     config.base_url = "https://api.openai.com/v1".to_string();
     config.model = "gpt-5.4".to_string();
     config.reasoning_effort = "high".to_string();
     config.context_window_tokens = 123_000;
     config.assistant_id = "assistant-root".to_string();
-    config.concierge.provider = Some("alibaba-coding-plan".to_string());
+    config.concierge.provider = Some(amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string());
     config.concierge.model = Some("qwen3.5-plus".to_string());
     config.concierge.reasoning_effort = Some("high".to_string());
     config.providers.insert(
-        "alibaba-coding-plan".to_string(),
+        amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
         ProviderConfig {
             base_url: String::new(),
             model: String::new(),
@@ -107,12 +107,28 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
             context_window_tokens: 0,
             reasoning_effort: String::new(),
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
 
     let resolved = resolve_concierge_provider(&config).expect("concierge provider should resolve");
-    let shared = resolve_provider_config_for(&config, "alibaba-coding-plan", Some("qwen3.5-plus"))
-        .expect("shared provider resolution should succeed");
+    let shared = resolve_provider_config_for(
+        &config,
+        amux_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN,
+        Some("qwen3.5-plus"),
+    )
+    .expect("shared provider resolution should succeed");
     assert_eq!(resolved.base_url, shared.base_url);
     assert_eq!(resolved.model, shared.model);
     assert_eq!(resolved.api_key, shared.api_key);
@@ -125,7 +141,7 @@ fn resolve_concierge_provider_uses_shared_resolution_path() {
 #[test]
 fn resolve_concierge_provider_defaults_reasoning_effort_to_off() {
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
     config.base_url = "https://api.openai.com/v1".to_string();
     config.model = "gpt-5.4".to_string();
     config.reasoning_effort = "high".to_string();
@@ -146,6 +162,18 @@ fn concierge_fast_profile_preserves_selected_reasoning_without_touching_model() 
         reasoning_effort: "high".to_string(),
         context_window_tokens: 128_000,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
 
     let fast = fast_concierge_provider_config(&base);

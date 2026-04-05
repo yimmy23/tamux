@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/amux-daemon",
+    "crates/amux-shared",
     "crates/amux-protocol",
     "crates/amux-cli",
     "crates/amux-gateway",
@@ -10,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.16"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 authors = ["tamux contributors"]
@@ -38,4 +39,5 @@ flate2 = "1"
 semver = "1"
 
 # Protocol
+amux-shared = { package = "tamux-shared", path = "crates/amux-shared" }
 amux-protocol = { package = "tamux-protocol", path = "crates/amux-protocol" }

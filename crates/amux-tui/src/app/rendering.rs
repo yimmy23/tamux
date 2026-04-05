@@ -50,17 +50,28 @@ impl TuiModel {
             .chat_drag_anchor_point
             .zip(self.chat_drag_current_point)
             .or_else(|| {
+                let cached_snapshot = self
+                    .chat_selection_snapshot
+                    .as_ref()
+                    .filter(|snapshot| widgets::chat::cached_snapshot_matches_area(snapshot, area));
                 self.chat_drag_anchor.and_then(|anchor| {
                     self.chat_drag_current.and_then(|current| {
-                        widgets::chat::selection_points_from_mouse(
-                            area,
-                            &self.chat,
-                            &self.theme,
-                            self.tick_counter,
-                            anchor,
-                            current,
-                            self.retry_wait_start_selected,
-                        )
+                        if let Some(snapshot) = cached_snapshot {
+                            widgets::chat::selection_point_from_cached_snapshot(snapshot, anchor)
+                                .zip(widgets::chat::selection_point_from_cached_snapshot(
+                                    snapshot, current,
+                                ))
+                        } else {
+                            widgets::chat::selection_points_from_mouse(
+                                area,
+                                &self.chat,
+                                &self.theme,
+                                self.tick_counter,
+                                anchor,
+                                current,
+                                self.retry_wait_start_selected,
+                            )
+                        }
                     })
                 })
             })

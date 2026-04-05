@@ -632,13 +632,14 @@ async fn execute_message_agent(
     };
 
     let preferred_session_hint = preferred_session_id.as_ref().map(|value| value.to_string());
-    let (thread_id, response) = agent
+    let result = agent
         .send_internal_agent_message(&sender, target, message, preferred_session_hint.as_deref())
         .await?;
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "target": canonical_agent_name(target),
-        "thread_id": thread_id,
-        "response": response,
+        "thread_id": result.thread_id,
+        "response": result.response,
+        "upstream_message": result.upstream_message,
     }))
     .unwrap_or_else(|_| "{}".to_string()))
 }

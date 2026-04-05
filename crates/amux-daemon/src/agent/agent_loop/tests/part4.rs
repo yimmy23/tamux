@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI};
 
 #[tokio::test]
 async fn send_message_request_uses_spawned_persona_identity_in_continuity_summary() {
@@ -6,7 +7,7 @@ async fn send_message_request_uses_spawned_persona_identity_in_continuity_summar
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = spawn_recording_assistant_server(recorded_bodies.clone()).await;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
@@ -165,7 +166,7 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = spawn_recording_request_server(recorded_requests.clone()).await;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
@@ -206,6 +207,8 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
                         model: None,
                         api_transport: None,
                         response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -245,9 +248,7 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
 
     assert!(!outcome.interrupted_for_approval);
 
-    let recorded = recorded_requests
-        .lock()
-        .expect("lock recorded requests");
+    let recorded = recorded_requests.lock().expect("lock recorded requests");
     let request = recorded
         .back()
         .expect("expected one recorded request")
@@ -256,4 +257,305 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
         request.contains("connection: close"),
         "expected compaction-boundary request to disable keep-alive, got: {request}"
     );
+}
+
+#[tokio::test]
+async fn anthropic_send_message_persists_upstream_message_on_assistant_turn() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind anthropic upstream message server");
+    let addr = listener
+        .local_addr()
+        .expect("anthropic upstream message server addr");
+
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let _ = read_http_request(&mut socket, "anthropic upstream message request").await;
+        let response_body = concat!(
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_upstream_persisted\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":2}}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello from Claude.\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":4}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write anthropic upstream message response");
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_ANTHROPIC.to_string();
+    config.base_url = format!("http://{addr}/anthropic");
+    config.model = "claude-sonnet-4-20250514".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-anthropic-upstream-persisted";
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Anthropic upstream persisted".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    let outcome = engine
+        .send_message_inner(
+            Some(thread_id),
+            "hello",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    assert!(!outcome.interrupted_for_approval);
+
+    let threads = engine.threads.read().await;
+    let thread = threads.get(thread_id).expect("thread should exist");
+    let assistant = thread
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::Assistant)
+        .expect("assistant message should be stored");
+    let upstream = assistant
+        .upstream_message
+        .as_ref()
+        .expect("upstream message should be preserved");
+
+    assert_eq!(assistant.response_id.as_deref(), Some("msg_upstream_persisted"));
+    assert_eq!(upstream.id.as_deref(), Some("msg_upstream_persisted"));
+    assert_eq!(upstream.model.as_deref(), Some("claude-sonnet-4-20250514"));
+    assert_eq!(upstream.content_blocks.len(), 1);
+    assert_eq!(upstream.content_blocks[0].text.as_deref(), Some("Hello from Claude."));
+}
+
+#[tokio::test]
+async fn anthropic_send_message_outcome_exposes_upstream_message() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind anthropic upstream outcome server");
+    let addr = listener
+        .local_addr()
+        .expect("anthropic upstream outcome server addr");
+
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let _ = read_http_request(&mut socket, "anthropic upstream outcome request").await;
+        let response_body = concat!(
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_upstream_outcome\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":3}}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Outcome surface\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write anthropic upstream outcome response");
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_ANTHROPIC.to_string();
+    config.base_url = format!("http://{addr}/anthropic");
+    config.model = "claude-sonnet-4-20250514".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-anthropic-upstream-outcome";
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Anthropic upstream outcome".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    let outcome = engine
+        .send_message_inner(
+            Some(thread_id),
+            "hello",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let upstream = outcome
+        .upstream_message
+        .as_ref()
+        .expect("outcome should expose upstream message");
+    assert_eq!(upstream.id.as_deref(), Some("msg_upstream_outcome"));
+    assert_eq!(upstream.content_blocks.len(), 1);
+    assert_eq!(upstream.content_blocks[0].text.as_deref(), Some("Outcome surface"));
+}
+
+#[tokio::test]
+async fn anthropic_done_event_exposes_upstream_message() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind anthropic upstream event server");
+    let addr = listener
+        .local_addr()
+        .expect("anthropic upstream event server addr");
+
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let _ = read_http_request(&mut socket, "anthropic upstream event request").await;
+        let response_body = concat!(
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_upstream_event\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":4}}}\n\n",
+            "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Event surface\"}}\n\n",
+            "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":6}}\n\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write anthropic upstream event response");
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_ANTHROPIC.to_string();
+    config.base_url = format!("http://{addr}/anthropic");
+    config.model = "claude-sonnet-4-20250514".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut events = engine.subscribe();
+    let thread_id = "thread-anthropic-upstream-event";
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            crate::agent::types::AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Anthropic upstream event".to_string(),
+                messages: vec![crate::agent::types::AgentMessage::user("hello", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+    }
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "hello",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    let mut done_upstream = None;
+    while let Ok(event) = events.try_recv() {
+        if let AgentEvent::Done {
+            upstream_message,
+            ..
+        } = event
+        {
+            done_upstream = upstream_message;
+        }
+    }
+
+    let upstream = done_upstream.expect("done event should expose upstream message");
+    assert_eq!(upstream.id.as_deref(), Some("msg_upstream_event"));
+    assert_eq!(upstream.content_blocks.len(), 1);
+    assert_eq!(upstream.content_blocks[0].text.as_deref(), Some("Event surface"));
 }

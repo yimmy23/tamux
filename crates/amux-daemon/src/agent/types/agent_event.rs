@@ -39,6 +39,10 @@ pub enum AgentEvent {
         generation_ms: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         reasoning: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        upstream_message: Option<CompletionUpstreamMessage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_final_result: Option<CompletionProviderFinalResult>,
     },
     Error {
         thread_id: String,
@@ -47,6 +51,8 @@ pub enum AgentEvent {
     ThreadCreated {
         thread_id: String,
         title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_name: Option<String>,
     },
     ThreadReloadRequired {
         thread_id: String,

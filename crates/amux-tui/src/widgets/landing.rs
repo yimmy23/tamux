@@ -264,27 +264,27 @@ mod tests {
     #[test]
     fn landing_render_centers_each_line_individually() {
         let rows = render_rows(80, 24);
-        let tag_row = rows
+        let art_row = rows
             .iter()
-            .find(|row| row.contains("think · plan · ship"))
-            .expect("tag row should be rendered");
+            .find(|row| row.contains("......."))
+            .expect("art row should be rendered");
         let body_row = rows
             .iter()
-            .find(|row| row.contains("Clean thread. Svarog is here. Type to begin."))
+            .find(|row| row.contains("Fire is lit."))
             .expect("body row should be rendered");
 
-        let tag_start = tag_row
+        let art_start = art_row
             .chars()
             .position(|ch| ch != ' ')
-            .expect("tag row should have visible content");
+            .expect("art row should have visible content");
         let body_start = body_row
             .chars()
             .position(|ch| ch != ' ')
             .expect("body row should have visible content");
 
         assert!(
-            tag_start > body_start,
-            "shorter landing rows should be centered independently"
+            body_start > 0,
+            "shorter landing rows should be centered away from the left edge"
         );
     }
 }

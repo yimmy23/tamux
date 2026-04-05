@@ -34,6 +34,20 @@ pub(super) fn apply_schema_migrations(connection: &Connection) -> rusqlite::Resu
     ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
     // BEAT-09: user_action column for dismissal tracking in action_audit.
     ensure_column(connection, "action_audit", "user_action", "TEXT")?;
+    ensure_column(connection, "memory_provenance", "confirmed_at", "INTEGER")?;
+    ensure_column(connection, "memory_provenance", "retracted_at", "INTEGER")?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS memory_provenance_relationships (
+            id TEXT PRIMARY KEY,
+            source_entry_id TEXT NOT NULL,
+            target_entry_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL,
+            fact_key TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_provenance_rel_unique ON memory_provenance_relationships(source_entry_id, target_entry_id, relation_type, fact_key);
+        CREATE INDEX IF NOT EXISTS idx_memory_provenance_rel_source ON memory_provenance_relationships(source_entry_id, created_at DESC);",
+    )?;
     connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)",
             [],

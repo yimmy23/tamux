@@ -19,6 +19,8 @@ pub(in crate::agent) use helpers::{
 pub(super) struct SendMessageOutcome {
     pub thread_id: String,
     pub interrupted_for_approval: bool,
+    pub upstream_message: Option<CompletionUpstreamMessage>,
+    pub provider_final_result: Option<CompletionProviderFinalResult>,
     pub fresh_runner_retry: Option<FreshRunnerRetryRequest>,
     pub handoff_restart: Option<HandoffRestartRequest>,
 }

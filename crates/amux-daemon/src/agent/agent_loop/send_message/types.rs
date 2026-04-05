@@ -62,6 +62,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) attempted_recovery_signatures: std::collections::HashSet<String>,
     pub(super) recent_policy_tool_outcomes:
         VecDeque<super::orchestrator_policy::PolicyToolOutcomeSummary>,
+    pub(super) provider_final_result: Option<CompletionProviderFinalResult>,
     pub(super) fresh_runner_retry: Option<FreshRunnerRetryRequest>,
     pub(super) handoff_restart: Option<HandoffRestartRequest>,
 }

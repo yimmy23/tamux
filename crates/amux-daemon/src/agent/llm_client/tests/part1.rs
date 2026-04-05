@@ -28,6 +28,86 @@
         envelope
     }
 
+    #[test]
+    fn anthropic_invalid_request_error_type_overrides_not_supported_heuristic() {
+        let err = classify_http_failure_with_retry_after(
+            reqwest::StatusCode::BAD_REQUEST,
+            "Anthropic",
+            r#"{
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Prefilling assistant messages is not supported for this model."
+                },
+                "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy"
+            }"#,
+            None,
+        );
+
+        let failure = upstream_failure_error(&err).expect("structured upstream failure");
+        assert_eq!(failure.class, UpstreamFailureClass::RequestInvalid);
+
+        let envelope = failure.structured();
+        assert_eq!(envelope.class, "request_invalid");
+        assert_eq!(envelope.diagnostics["error_type"], "invalid_request_error");
+        assert_eq!(
+            envelope.diagnostics["request_id"],
+            "req_011CSHoEeqs5C35K2UUqR7Fy"
+        );
+        assert_eq!(
+            envelope.diagnostics["raw_message"],
+            "Prefilling assistant messages is not supported for this model."
+        );
+    }
+
+    #[test]
+    fn anthropic_http_529_is_temporary_upstream_even_without_body_details() {
+        let err = classify_http_failure_with_retry_after(
+            reqwest::StatusCode::from_u16(529).expect("529 status code"),
+            "Anthropic",
+            "",
+            None,
+        );
+
+        let failure = upstream_failure_error(&err).expect("structured upstream failure");
+        assert_eq!(failure.class, UpstreamFailureClass::TemporaryUpstream);
+        let envelope = failure.structured();
+        assert_eq!(envelope.class, "temporary_upstream");
+        assert_eq!(envelope.diagnostics["status"], 529);
+    }
+
+    #[test]
+    fn anthropic_http_413_is_request_invalid_even_without_typed_body() {
+        let err = classify_http_failure_with_retry_after(
+            reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+            "Anthropic",
+            "",
+            None,
+        );
+
+        let failure = upstream_failure_error(&err).expect("structured upstream failure");
+        assert_eq!(failure.class, UpstreamFailureClass::RequestInvalid);
+        let envelope = failure.structured();
+        assert_eq!(envelope.class, "request_invalid");
+        assert_eq!(envelope.diagnostics["status"], 413);
+    }
+
+    #[test]
+    fn anthropic_http_402_is_auth_configuration_even_without_typed_body() {
+        let err = classify_http_failure_with_retry_after(
+            reqwest::StatusCode::PAYMENT_REQUIRED,
+            "Anthropic",
+            "",
+            None,
+        );
+
+        let failure = upstream_failure_error(&err).expect("structured upstream failure");
+        assert_eq!(failure.class, UpstreamFailureClass::AuthConfiguration);
+        let envelope = failure.structured();
+        assert_eq!(envelope.class, "auth_configuration");
+        assert_eq!(envelope.diagnostics["status"], 402);
+    }
+
     async fn collect_chunks(mut stream: CompletionStream) -> Vec<CompletionChunk> {
         let mut chunks = Vec::new();
         while let Some(chunk) = stream.next().await {
@@ -118,6 +198,18 @@
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         }
     }
 
@@ -204,6 +296,79 @@
         assert_eq!(blocks[1]["tool_use_id"], "call_2");
     }
 
+        #[tokio::test]
+        async fn anthropic_count_tokens_uses_count_tokens_endpoint_and_parses_input_tokens() {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind count_tokens server");
+            let addr = listener.local_addr().expect("count_tokens server addr");
+
+            tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.expect("accept");
+                let mut buffer = vec![0u8; 65536];
+                let read = socket.read(&mut buffer).await.expect("read request");
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                assert!(
+                    request.starts_with("POST /v1/messages/count_tokens HTTP/1.1"),
+                    "unexpected request line: {request}"
+                );
+
+                let body = r#"{"input_tokens":123}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\nrequest-id: req_count_tokens_123\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+            });
+
+            let tokens = count_request_tokens(
+                &reqwest::Client::new(),
+                "anthropic",
+                &ProviderConfig {
+                    base_url: format!("http://{addr}"),
+                    model: "claude-sonnet-4-6".to_string(),
+                    api_key: "test-key".to_string(),
+                    assistant_id: String::new(),
+                    auth_source: AuthSource::ApiKey,
+                    api_transport: ApiTransport::ChatCompletions,
+                    reasoning_effort: "off".to_string(),
+                    context_window_tokens: 0,
+                    response_schema: None,
+                    stop_sequences: None,
+                    temperature: None,
+                    top_p: None,
+                    top_k: None,
+                    metadata: None,
+                    service_tier: None,
+                    container: None,
+                    inference_geo: None,
+                    cache_control: None,
+                    max_tokens: None,
+                    anthropic_tool_choice: None,
+                    output_effort: None,
+                },
+                "system",
+                &[ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("hello".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                }],
+                &[],
+            )
+            .await
+            .expect("count tokens should succeed");
+
+            assert_eq!(tokens.input_tokens, 123);
+            assert_eq!(tokens.request_id.as_deref(), Some("req_count_tokens_123"));
+        }
     #[test]
     fn anthropic_drops_incomplete_tool_result_batches() {
         let messages = vec![
@@ -279,6 +444,8 @@
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: crate::agent::types::AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -301,6 +468,8 @@
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: crate::agent::types::AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -331,6 +500,8 @@
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: crate::agent::types::AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -353,6 +524,8 @@
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: crate::agent::types::AgentMessageKind::Normal,
                 compaction_strategy: None,

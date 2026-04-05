@@ -218,6 +218,24 @@ impl DaemonClient {
         self.send(ClientMessage::AgentGetOperatorProfileSummary)
     }
 
+    pub fn get_operator_model(&self) -> Result<()> {
+        self.send(ClientMessage::AgentGetOperatorModel)
+    }
+
+    pub fn reset_operator_model(&self) -> Result<()> {
+        self.send(ClientMessage::AgentResetOperatorModel)
+    }
+
+    pub fn get_collaboration_sessions(&self) -> Result<()> {
+        self.send(ClientMessage::AgentGetCollaborationSessions {
+            parent_task_id: None,
+        })
+    }
+
+    pub fn get_generated_tools(&self) -> Result<()> {
+        self.send(ClientMessage::AgentListGeneratedTools)
+    }
+
     pub fn set_operator_profile_consent(&self, consent_key: String, granted: bool) -> Result<()> {
         self.send(ClientMessage::AgentSetOperatorProfileConsent {
             consent_key,

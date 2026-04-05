@@ -47,6 +47,41 @@ fn default_startup_action(probe: setup_wizard::SetupProbe) -> DefaultStartupActi
     }
 }
 
+fn format_direct_message_output(
+    response: &client::DirectMessageResponse,
+    json: bool,
+) -> Result<String> {
+    let provider_final_result = response
+        .provider_final_result_json
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .transpose()?;
+
+    if json {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "target": response.target,
+            "thread_id": response.thread_id,
+            "session_id": response.session_id,
+            "response": response.response,
+            "provider_final_result": provider_final_result,
+        }))
+        .map_err(Into::into);
+    }
+
+    let mut rendered = response.response.clone();
+    rendered.push_str("\n\n");
+    rendered.push_str(&format!("thread_id:{}", response.thread_id));
+    if let Some(session_id) = response.session_id.as_deref() {
+        rendered.push_str(&format!("\nsession_id:{session_id}"));
+    }
+    if let Some(value) = provider_final_result {
+        rendered.push_str("\nprovider_final_result:\n");
+        rendered.push_str(&serde_json::to_string_pretty(&value)?);
+    }
+
+    Ok(rendered)
+}
+
 pub(crate) async fn run_default() -> Result<()> {
     update::print_upgrade_notice_if_available(env!("CARGO_PKG_VERSION")).await;
 
@@ -90,7 +125,10 @@ pub(crate) async fn run_default() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_startup_action, DefaultStartupAction};
+    use super::{
+        default_startup_action, format_direct_message_output, DefaultStartupAction,
+    };
+    use crate::client::DirectMessageResponse;
     use crate::setup_wizard::SetupProbe;
 
     #[test]
@@ -111,6 +149,60 @@ mod tests {
             default_startup_action(SetupProbe::Ready),
             DefaultStartupAction::ShowHelp
         );
+    }
+
+    #[test]
+    fn direct_message_json_output_embeds_provider_final_result() {
+        let rendered = format_direct_message_output(
+            &DirectMessageResponse {
+                target: "main".to_string(),
+                thread_id: "thread-1".to_string(),
+                response: "protocol reply".to_string(),
+                session_id: Some("session-1".to_string()),
+                provider_final_result_json: Some(
+                    r#"{"provider":"open_ai_responses","id":"resp_1"}"#.to_string(),
+                ),
+            },
+            true,
+        )
+        .expect("render json output");
+
+        let value: serde_json::Value = serde_json::from_str(&rendered).expect("parse rendered json");
+        assert_eq!(value.get("target").and_then(|v| v.as_str()), Some("main"));
+        assert_eq!(value.get("thread_id").and_then(|v| v.as_str()), Some("thread-1"));
+        assert_eq!(value.get("session_id").and_then(|v| v.as_str()), Some("session-1"));
+        assert_eq!(value.get("response").and_then(|v| v.as_str()), Some("protocol reply"));
+        assert_eq!(
+            value.pointer("/provider_final_result/provider").and_then(|v| v.as_str()),
+            Some("open_ai_responses")
+        );
+        assert_eq!(
+            value.pointer("/provider_final_result/id").and_then(|v| v.as_str()),
+            Some("resp_1")
+        );
+    }
+
+    #[test]
+    fn direct_message_plain_output_prints_provider_final_result_block() {
+        let rendered = format_direct_message_output(
+            &DirectMessageResponse {
+                target: "main".to_string(),
+                thread_id: "thread-1".to_string(),
+                response: "protocol reply".to_string(),
+                session_id: None,
+                provider_final_result_json: Some(
+                    r#"{"provider":"anthropic_message","id":"msg_1"}"#.to_string(),
+                ),
+            },
+            false,
+        )
+        .expect("render plain output");
+
+        assert!(rendered.contains("protocol reply"));
+        assert!(rendered.contains("thread_id:thread-1"));
+        assert!(rendered.contains("provider_final_result:"));
+        assert!(rendered.contains("\"provider\": \"anthropic_message\""));
+        assert!(rendered.contains("\"id\": \"msg_1\""));
     }
 }
 
@@ -366,23 +458,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
             }
             let target = resolve_dm_target(svarog, rarog, main_target, concierge);
             let response = client::send_direct_message(target, thread, content, session).await?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "target": response.target,
-                        "thread_id": response.thread_id,
-                        "session_id": response.session_id,
-                        "response": response.response,
-                    }))?
-                );
-            } else {
-                println!("{}", response.response);
-                println!("\nthread_id:{}", response.thread_id);
-                if let Some(session_id) = response.session_id {
-                    println!("session_id:{session_id}");
-                }
-            }
+            println!("{}", format_direct_message_output(&response, json)?);
         }
         Commands::Scrub { text } => {
             let input = if let Some(value) = text {

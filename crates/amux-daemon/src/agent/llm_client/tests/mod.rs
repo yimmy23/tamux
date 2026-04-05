@@ -13,7 +13,8 @@ use crate::agent::openai_codex_auth::{
     write_stored_openai_codex_auth, OpenAICodexExchange,
 };
 use crate::agent::types::{
-    AgentConfig, ApiTransport, ProviderConfig, ToolDefinition, ToolFunctionDef,
+    AgentConfig, AnthropicCacheControlEphemeral, AnthropicRequestMetadata, ApiTransport,
+    AnthropicToolChoice, ProviderConfig, ToolDefinition, ToolFunctionDef,
 };
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
@@ -26,3 +27,13 @@ include!("part5_support.rs");
 include!("part5_auth_status.rs");
 include!("part5_auth_storage.rs");
 include!("part5_auth_provider.rs");
+include!("part6.rs");
+include!("part7.rs");
+include!("part8.rs");
+include!("part9.rs");
+include!("part10.rs");
+include!("part11.rs");
+include!("part12.rs");
+include!("part13.rs");
+include!("part14.rs");
+include!("part15.rs");

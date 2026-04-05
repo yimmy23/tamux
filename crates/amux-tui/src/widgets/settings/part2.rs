@@ -366,13 +366,15 @@ fn auth_row_action_offsets(
     (primary_start, primary_end, test_start)
 }
 
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
+
 fn auth_primary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
     match (
         entry.provider_id.as_str(),
         entry.authenticated,
         entry.auth_source.as_str(),
     ) {
-        ("github-copilot", false, "github_copilot") => "[Token]",
+        (PROVIDER_ID_GITHUB_COPILOT, false, "github_copilot") => "[Token]",
         (_, true, _) => "[Logout]",
         _ => "[API Key]",
     }
@@ -384,8 +386,8 @@ fn auth_secondary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'stat
         entry.authenticated,
         entry.auth_source.as_str(),
     ) {
-        ("openai", false, _) => "[ChatGPT]",
-        ("github-copilot", false, "github_copilot") => "[Browser]",
+        (PROVIDER_ID_OPENAI, false, _) => "[ChatGPT]",
+        (PROVIDER_ID_GITHUB_COPILOT, false, "github_copilot") => "[Browser]",
         _ => "[Test]",
     }
 }

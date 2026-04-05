@@ -26,8 +26,6 @@ fn render_advanced_toggle<'a>(
     };
     let mut spans = vec![
         Span::styled(marker, marker_style),
-        Span::styled(check, check_style),
-        Span::raw(" "),
         Span::styled(label, label_style),
     ];
     if is_selected {
@@ -75,7 +73,9 @@ fn render_advanced_value<'a>(
     if is_selected && !is_editing {
         spans.push(Span::styled(hint, theme.fg_dim));
     }
-    if field_name == "context_window_tokens" && config.provider != "custom" {
+    if field_name == "context_window_tokens"
+        && config.provider != amux_shared::providers::PROVIDER_ID_CUSTOM
+    {
         spans.push(Span::styled("  [derived]", theme.fg_dim));
     }
     lines.push(Line::from(spans));
@@ -233,7 +233,7 @@ fn render_advanced_tab<'a>(
         "Context Len Tok: ",
         config.context_window_tokens.to_string(),
         "context_window_tokens",
-        if config.provider == "custom" {
+        if config.provider == amux_shared::providers::PROVIDER_ID_CUSTOM {
             "  [Enter: edit]"
         } else {
             ""

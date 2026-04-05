@@ -54,6 +54,10 @@ pub struct AgentMessage {
     pub api_transport: Option<ApiTransport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_message: Option<CompletionUpstreamMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_final_result: Option<CompletionProviderFinalResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
     #[serde(default)]
@@ -87,6 +91,8 @@ impl AgentMessage {
             model: None,
             api_transport: None,
             response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
             reasoning: None,
             message_kind: AgentMessageKind::Normal,
             compaction_strategy: None,

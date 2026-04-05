@@ -373,7 +373,7 @@ mod tests {
 
     fn unauthenticated_entry() -> ProviderAuthEntry {
         ProviderAuthEntry {
-            provider_id: "openai".to_string(),
+            provider_id: amux_shared::providers::PROVIDER_ID_OPENAI.to_string(),
             provider_name: "OpenAI".to_string(),
             authenticated: false,
             auth_source: "api_key".to_string(),

@@ -114,6 +114,7 @@ fn strip_date_suffix(model: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI};
 
     #[test]
     fn cost_default_rate_cards_includes_expected_models() {
@@ -142,7 +143,7 @@ mod tests {
     #[test]
     fn cost_lookup_rate_exact_match() {
         let cards = default_rate_cards();
-        let rate = lookup_rate(&cards, "openai", "gpt-4o");
+        let rate = lookup_rate(&cards, PROVIDER_ID_OPENAI, "gpt-4o");
         assert!(rate.is_some());
         let r = rate.unwrap();
         assert!((r.input_per_million - 2.50).abs() < f64::EPSILON);
@@ -159,7 +160,7 @@ mod tests {
                 output_per_million: 15.0,
             },
         );
-        let rate = lookup_rate(&cards, "anthropic", "claude-3-5-sonnet-20241022");
+        let rate = lookup_rate(&cards, PROVIDER_ID_ANTHROPIC, "claude-3-5-sonnet-20241022");
         assert!(rate.is_some(), "should match after stripping date suffix");
     }
 

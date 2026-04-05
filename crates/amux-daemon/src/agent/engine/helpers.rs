@@ -1,5 +1,6 @@
 use super::circuit_breaker::CircuitBreakerRegistry;
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 use std::time::Duration;
 
 const AGENT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -65,13 +66,14 @@ pub(in crate::agent) async fn provider_is_eligible_for_alternative(
             }
         }
         AuthSource::ChatgptSubscription => {
-            if provider_id != "openai" || !super::llm_client::has_openai_chatgpt_subscription_auth()
+            if provider_id != PROVIDER_ID_OPENAI
+                || !super::llm_client::has_openai_chatgpt_subscription_auth()
             {
                 return false;
             }
         }
         AuthSource::GithubCopilot => {
-            if provider_id != "github-copilot"
+            if provider_id != PROVIDER_ID_GITHUB_COPILOT
                 || !super::copilot_auth::github_copilot_has_available_models(
                     &resolved.api_key,
                     resolved.auth_source,

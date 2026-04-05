@@ -2,13 +2,14 @@ use super::*;
 
 #[test]
 fn direct_message_entrypoints_box_large_send_message_futures() {
-    let messaging_source =
-        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/messaging.rs"))
-            .expect("read messaging.rs");
-    let messaging_production = messaging_source
-        .split("\n#[cfg(test)]")
-        .next()
-        .unwrap_or(messaging_source.as_str());
+    let messaging_production = [
+        repo_root().join("crates/amux-daemon/src/agent/messaging.rs"),
+        repo_root().join("crates/amux-daemon/src/agent/messaging/direct_messages.rs"),
+    ]
+    .into_iter()
+    .map(|path| fs::read_to_string(path).expect("read messaging source"))
+    .collect::<Vec<_>>()
+    .join("\n");
     let send_message_source = fs::read_to_string(
         repo_root().join("crates/amux-daemon/src/agent/agent_loop/send_message/mod.rs"),
     )
@@ -20,7 +21,8 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
 
     for required in [
         "Box::pin(self.send_message_inner(",
-        "let target_thread_id = Box::pin(self.send_message_inner(",
+        "let outcome = Box::pin(self.send_message_inner(",
+        "Some(\n                Box::pin(self.send_message_inner(",
     ] {
         assert!(
             messaging_production.contains(required),
@@ -89,6 +91,8 @@ fn tool_execution_hot_path_boxes_large_futures() {
 #[tokio::test]
 async fn delete_thread_messages_updates_live_thread_and_persisted_history() {
     let root = tempdir().unwrap();
+use amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
+
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     let thread_id = "thread_test";
@@ -434,7 +438,7 @@ async fn handoff_activation_clears_thread_continuation_state_for_new_responder_s
                 pinned: false,
                 upstream_thread_id: Some("legacy-upstream-thread".to_string()),
                 upstream_transport: Some(ApiTransport::Responses),
-                upstream_provider: Some("github-copilot".to_string()),
+                upstream_provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                 upstream_model: Some("gpt-5.4".to_string()),
                 upstream_assistant_id: None,
                 total_input_tokens: 0,
@@ -453,10 +457,12 @@ async fn handoff_activation_clears_thread_continuation_state_for_new_responder_s
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
-                        provider: Some("github-copilot".to_string()),
+                        provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                         model: Some("gpt-5.4".to_string()),
                         api_transport: Some(ApiTransport::Responses),
                         response_id: Some("resp_123".to_string()),
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -572,7 +578,7 @@ async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
                 pinned: false,
                 upstream_thread_id: Some("upstream-thread-1".to_string()),
                 upstream_transport: Some(ApiTransport::Responses),
-                upstream_provider: Some("github-copilot".to_string()),
+                upstream_provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                 upstream_model: Some("gpt-5.4".to_string()),
                 upstream_assistant_id: None,
                 total_input_tokens: 0,
@@ -591,10 +597,12 @@ async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
-                        provider: Some("github-copilot".to_string()),
+                        provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                         model: Some("gpt-5.4".to_string()),
                         api_transport: Some(ApiTransport::Responses),
                         response_id: Some("resp_123".to_string()),
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -664,7 +672,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                 pinned: false,
                 upstream_thread_id: Some("upstream-thread-2".to_string()),
                 upstream_transport: Some(ApiTransport::Responses),
-                upstream_provider: Some("github-copilot".to_string()),
+                upstream_provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                 upstream_model: Some("gpt-5.4".to_string()),
                 upstream_assistant_id: None,
                 total_input_tokens: 0,
@@ -700,10 +708,12 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
-                        provider: Some("github-copilot".to_string()),
+                        provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                         model: Some("gpt-5.4".to_string()),
                         api_transport: Some(ApiTransport::Responses),
                         response_id: Some("resp_456".to_string()),
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -726,6 +736,8 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         model: None,
                         api_transport: None,
                         response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -748,6 +760,8 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         model: None,
                         api_transport: None,
                         response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -766,10 +780,12 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         weles_review: None,
                         input_tokens: 0,
                         output_tokens: 0,
-                        provider: Some("github-copilot".to_string()),
+                        provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
                         model: Some("gpt-5.4".to_string()),
                         api_transport: Some(ApiTransport::Responses),
                         response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,

@@ -94,7 +94,7 @@ async fn run_openai_chat_completions(
 
     if let Some(ref schema) = config.response_schema {
         // Try strict json_schema for providers that support it (OpenAI gpt-4o+)
-        if matches!(provider, "openai")
+        if matches!(provider, amux_shared::providers::PROVIDER_ID_OPENAI)
             && (config.model.contains("gpt-4o")
                 || config.model.contains("gpt-4.1")
                 || config.model.contains("gpt-5")
@@ -199,7 +199,9 @@ fn messages_to_responses_input(
                 items
             }
             "tool" => {
-                if provider == "github-copilot" && previous_response_id.is_some() {
+                if provider == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT
+                    && previous_response_id.is_some()
+                {
                     return Vec::new();
                 }
                 message

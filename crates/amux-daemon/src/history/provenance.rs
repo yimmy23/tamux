@@ -1,4 +1,28 @@
 use super::*;
+use uuid::Uuid;
+
+fn overlapping_fact_keys(left: &[String], right: &[String]) -> Vec<String> {
+    let left: std::collections::BTreeSet<&str> = left.iter().map(String::as_str).collect();
+    let right: std::collections::BTreeSet<&str> = right.iter().map(String::as_str).collect();
+    left.intersection(&right).map(|value| (*value).to_string()).collect()
+}
+
+fn relationship_rows_for_entry(
+    conn: &rusqlite::Connection,
+    entry_id: &str,
+) -> rusqlite::Result<Vec<MemoryProvenanceRelationship>> {
+    let mut stmt = conn.prepare(
+        "SELECT target_entry_id, relation_type, fact_key FROM memory_provenance_relationships WHERE source_entry_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![entry_id], |row| {
+        Ok(MemoryProvenanceRelationship {
+            related_entry_id: row.get(0)?,
+            relation_type: row.get(1)?,
+            fact_key: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
 
 impl HistoryStore {
     /// Verify the hash-chain integrity of all WORM telemetry ledger files.
@@ -27,22 +51,45 @@ impl HistoryStore {
             .unwrap_or_else(|| self.skill_dir.clone())
     }
 
-    pub(super) fn provenance_signing_key(&self) -> Result<String> {
-        let path = self
+    pub(super) fn provenance_signing_material(&self) -> Result<ProvenanceSigningMaterial> {
+        let root = self
             .telemetry_dir
             .parent()
             .unwrap_or(&self.telemetry_dir)
-            .join("provenance-signing.key");
+            .to_path_buf();
+        let path = provenance_signing_material_path(&root);
         if path.exists() {
-            return Ok(std::fs::read_to_string(&path)?.trim().to_string());
+            return load_provenance_signing_material(&path);
         }
-        let key = format!(
-            "tamux-prov-{}-{}",
-            uuid::Uuid::new_v4(),
-            uuid::Uuid::new_v4()
-        );
-        std::fs::write(&path, &key)?;
-        Ok(key)
+        let material = create_provenance_signing_material()?;
+        persist_provenance_signing_material(&path, &material)?;
+        Ok(material)
+    }
+
+    pub(super) fn stored_provenance_signing_material(&self) -> Option<ProvenanceSigningMaterial> {
+        let root = self
+            .telemetry_dir
+            .parent()
+            .unwrap_or(&self.telemetry_dir)
+            .to_path_buf();
+        let path = provenance_signing_material_path(&root);
+        if !path.exists() {
+            return None;
+        }
+        load_provenance_signing_material(&path).ok()
+    }
+
+    pub(super) fn legacy_provenance_signing_key(&self) -> Option<String> {
+        let root = self
+            .telemetry_dir
+            .parent()
+            .unwrap_or(&self.telemetry_dir)
+            .to_path_buf();
+        let path = legacy_provenance_signing_key_path(&root);
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
     }
 
     pub async fn upsert_subagent_metrics(
@@ -107,13 +154,18 @@ impl HistoryStore {
         let goal_run_id = record.goal_run_id.map(str::to_string);
         let created_at = record.created_at;
         let fact_keys_owned: Vec<String> = record.fact_keys.to_vec();
+        let relationship_target = if record.mode == "remove" {
+            Some((target.clone(), id.clone(), fact_keys_owned.clone(), created_at))
+        } else {
+            None
+        };
 
         let record = record.clone();
         self.conn.call(move |conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO memory_provenance \
-                 (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, confirmed_at, retracted_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL)",
                 params![
                     id,
                     target,
@@ -127,6 +179,32 @@ impl HistoryStore {
                     created_at as i64,
                 ],
             )?;
+            if let Some((target, source_entry_id, fact_keys, created_at)) = relationship_target {
+                let mut stmt = conn.prepare(
+                    "SELECT id, fact_keys_json FROM memory_provenance WHERE target = ?1 AND id != ?2 AND mode != 'remove' ORDER BY created_at DESC LIMIT 64",
+                )?;
+                let rows = stmt.query_map(params![target, source_entry_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (target_entry_id, fact_keys_json) = row?;
+                    let target_fact_keys = serde_json::from_str::<Vec<String>>(&fact_keys_json)
+                        .unwrap_or_default();
+                    for fact_key in overlapping_fact_keys(&fact_keys, &target_fact_keys) {
+                        conn.execute(
+                            "INSERT OR IGNORE INTO memory_provenance_relationships (id, source_entry_id, target_entry_id, relation_type, fact_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                            params![
+                                format!("memrel_{}", Uuid::new_v4()),
+                                source_entry_id,
+                                target_entry_id,
+                                "retracts",
+                                fact_key,
+                                created_at as i64,
+                            ],
+                        )?;
+                    }
+                }
+            }
             Ok(())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
         self.append_telemetry(
@@ -145,6 +223,48 @@ impl HistoryStore {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn confirm_memory_provenance_entry(
+        &self,
+        entry_id: &str,
+        confirmed_at: u64,
+    ) -> Result<bool> {
+        let entry_id = entry_id.to_string();
+        let confirmed_at = confirmed_at as i64;
+        let updated = self
+            .conn
+            .call(move |conn| {
+                let updated = conn.execute(
+                    "UPDATE memory_provenance SET confirmed_at = ?2, retracted_at = NULL WHERE id = ?1",
+                    params![entry_id, confirmed_at],
+                )?;
+                Ok(updated)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(updated > 0)
+    }
+
+    pub async fn retract_memory_provenance_entry(
+        &self,
+        entry_id: &str,
+        retracted_at: u64,
+    ) -> Result<bool> {
+        let entry_id = entry_id.to_string();
+        let retracted_at = retracted_at as i64;
+        let updated = self
+            .conn
+            .call(move |conn| {
+                let updated = conn.execute(
+                    "UPDATE memory_provenance SET retracted_at = ?2, confirmed_at = NULL WHERE id = ?1",
+                    params![entry_id, retracted_at],
+                )?;
+                Ok(updated)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(updated > 0)
     }
 
     pub async fn memory_provenance_report(
@@ -173,14 +293,15 @@ impl HistoryStore {
         match normalized_target.as_deref() {
             Some(target) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at \
+                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, confirmed_at, retracted_at \
                      FROM memory_provenance WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
                 )?;
                 let rows = stmt.query_map(params![target, limit as i64], |row| {
                     Ok(memory_provenance_entry_from_row(row, now_ms))
                 })?;
                 for row in rows {
-                    let entry = row?;
+                    let mut entry = row?;
+                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
                     *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
                     *summary_by_source
                         .entry(entry.source_kind.clone())
@@ -191,14 +312,15 @@ impl HistoryStore {
             }
             None => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at \
+                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, confirmed_at, retracted_at \
                      FROM memory_provenance ORDER BY created_at DESC LIMIT ?1",
                 )?;
                 let rows = stmt.query_map(params![limit as i64], |row| {
                     Ok(memory_provenance_entry_from_row(row, now_ms))
                 })?;
                 for row in rows {
-                    let entry = row?;
+                    let mut entry = row?;
+                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
                     *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
                     *summary_by_source
                         .entry(entry.source_kind.clone())
@@ -246,14 +368,15 @@ impl HistoryStore {
             record.causal_trace_id,
             record.compliance_mode,
         );
-        let signature = if record.sign {
-            Some(sign_provenance_hash(
-                &self.provenance_signing_key()?,
-                &entry_hash,
-            ))
+        let signing_material = if record.sign {
+            Some(self.provenance_signing_material()?)
         } else {
             None
         };
+        let signature = signing_material
+            .as_ref()
+            .map(|material| sign_provenance_hash_ed25519(material, &entry_hash))
+            .transpose()?;
         let entry = ProvenanceLogEntry {
             sequence,
             timestamp: record.created_at,
@@ -263,6 +386,9 @@ impl HistoryStore {
             prev_hash,
             entry_hash,
             signature,
+            signature_scheme: signing_material
+                .as_ref()
+                .map(|material| material.scheme.clone()),
             agent_id: record.agent_id.to_string(),
             goal_run_id: record.goal_run_id.map(str::to_string),
             task_id: record.task_id.map(str::to_string),
@@ -279,7 +405,8 @@ impl HistoryStore {
 
     pub fn provenance_report(&self, limit: usize) -> Result<ProvenanceReport> {
         let entries = read_provenance_entries(&self.telemetry_dir.join("provenance.jsonl"))?;
-        let signing_key = self.provenance_signing_key().ok();
+        let signing_material = self.stored_provenance_signing_material();
+        let legacy_signing_key = self.legacy_provenance_signing_key();
         let mut summary_by_event = BTreeMap::new();
         let mut valid_hash_entries = 0usize;
         let mut valid_signature_entries = 0usize;
@@ -306,12 +433,22 @@ impl HistoryStore {
             );
             let hash_valid = entry.entry_hash == expected_hash;
             let chain_valid = entry.prev_hash == previous_hash;
-            let signature_valid = match (&entry.signature, signing_key.as_deref()) {
-                (Some(signature), Some(key)) => {
+            let signature_valid = match (&entry.signature, entry.signature_scheme.as_deref()) {
+                (Some(signature), Some(scheme))
+                    if scheme == provenance_signature_scheme_ed25519() =>
+                {
                     signed_entries += 1;
-                    *signature == sign_provenance_hash(key, &entry.entry_hash)
+                    signing_material.as_ref().is_some_and(|material| {
+                        verify_provenance_signature_ed25519(material, &entry.entry_hash, signature)
+                    })
                 }
-                (Some(_), None) => {
+                (Some(signature), None) => {
+                    signed_entries += 1;
+                    legacy_signing_key.as_deref().is_some_and(|key| {
+                        *signature == sign_provenance_hash(key, &entry.entry_hash)
+                    })
+                }
+                (Some(_), Some(_)) => {
                     signed_entries += 1;
                     false
                 }
@@ -334,6 +471,7 @@ impl HistoryStore {
                 timestamp: entry.timestamp,
                 event_type: entry.event_type.clone(),
                 summary: entry.summary.clone(),
+                signature_scheme: entry.signature_scheme.clone(),
                 agent_id: entry.agent_id.clone(),
                 goal_run_id: entry.goal_run_id.clone(),
                 task_id: entry.task_id.clone(),

@@ -151,6 +151,8 @@ impl AgentEngine {
                                 model: message.model,
                                 api_transport: metadata.api_transport,
                                 response_id: metadata.response_id,
+                                upstream_message: metadata.upstream_message,
+                                provider_final_result: metadata.provider_final_result,
                                 reasoning: message.reasoning,
                                 message_kind: metadata.message_kind,
                                 compaction_strategy: metadata.compaction_strategy,

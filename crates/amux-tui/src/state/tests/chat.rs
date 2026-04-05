@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
 #[test]
 fn delta_appends_to_streaming_content() {
@@ -34,11 +35,12 @@ fn turn_done_finalizes_streaming_into_message() {
         input_tokens: 100,
         output_tokens: 50,
         cost: Some(0.01),
-        provider: Some("openai".into()),
+        provider: Some(PROVIDER_ID_OPENAI.into()),
         model: Some("gpt-4o".into()),
         tps: Some(45.0),
         generation_ms: Some(1200),
         reasoning: None,
+        provider_final_result_json: Some("result_json".to_string()),
     });
     assert_eq!(state.streaming_content(), "");
     let thread = state.active_thread().unwrap();
@@ -291,6 +293,7 @@ fn reasoning_before_tool_call_attaches_to_final_assistant_reply() {
         tps: None,
         generation_ms: None,
         reasoning: None,
+        provider_final_result_json: Some("result_json".to_string()),
     });
 
     let thread = state.active_thread().expect("thread should exist");
@@ -372,11 +375,12 @@ fn turn_done_uses_final_reasoning_when_no_reasoning_delta_was_streamed() {
         input_tokens: 100,
         output_tokens: 50,
         cost: Some(0.01),
-        provider: Some("github-copilot".into()),
+        provider: Some(PROVIDER_ID_GITHUB_COPILOT.into()),
         model: Some("gpt-5.4".into()),
         tps: Some(45.0),
         generation_ms: Some(1200),
         reasoning: Some("Final reasoning summary".into()),
+        provider_final_result_json: Some("result_json".to_string()),
     });
 
     let thread = state.active_thread().unwrap();

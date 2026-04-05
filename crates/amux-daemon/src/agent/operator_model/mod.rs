@@ -11,6 +11,7 @@ mod metrics;
 mod model;
 mod persistence;
 mod profile;
+mod reading;
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -18,3 +19,4 @@ mod tests;
 pub(crate) use metrics::*;
 pub(crate) use model::*;
 pub(crate) use persistence::*;
+pub(crate) use reading::*;

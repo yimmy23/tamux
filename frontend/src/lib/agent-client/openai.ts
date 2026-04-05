@@ -3,6 +3,7 @@ import { getProviderDefinition } from "../agentStore";
 import type { ChatChunk, ChatRequest } from "./types";
 import {
   applyDashScopeCodingPlanHeaders,
+  applyOpenRouterAttributionHeaders,
   buildChatCompletionUrl,
   buildChatGptCodexHeaders,
   buildChatGptCodexResponsesUrl,
@@ -154,8 +155,8 @@ export async function* sendNativeAssistant(
     );
     outputTokens = Number(
       statusJson?.usage?.completion_tokens ??
-        statusJson?.usage?.output_tokens ??
-        outputTokens,
+      statusJson?.usage?.output_tokens ??
+      outputTokens,
     );
     switch (statusJson?.status) {
       case "queued":
@@ -183,13 +184,13 @@ export async function* sendNativeAssistant(
         const assistantMessage = data.find((message: any) => message?.role === "assistant");
         const content = Array.isArray(assistantMessage?.content)
           ? assistantMessage.content
-              .map((part: any) => {
-                if (typeof part?.text?.value === "string") return part.text.value;
-                if (typeof part?.text === "string") return part.text;
-                return "";
-              })
-              .filter(Boolean)
-              .join("\n")
+            .map((part: any) => {
+              if (typeof part?.text?.value === "string") return part.text.value;
+              if (typeof part?.text === "string") return part.text;
+              return "";
+            })
+            .filter(Boolean)
+            .join("\n")
           : typeof assistantMessage?.content === "string"
             ? assistantMessage.content
             : "";
@@ -279,6 +280,7 @@ export async function* sendOpenAICompatible(
   if (req.config.api_key) {
     headers.Authorization = `Bearer ${req.config.api_key}`;
   }
+  applyOpenRouterAttributionHeaders(req.provider, headers);
   applyDashScopeCodingPlanHeaders(
     req.provider,
     req.config.base_url,
@@ -388,16 +390,22 @@ export async function* sendOpenAIResponses(
     };
   }
 
+  const headers = isSubscription
+    ? buildChatGptCodexHeaders(req.config.api_key, req._chatgptAccountId)
+    : (() => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(req.config.api_key
+          ? { Authorization: `Bearer ${req.config.api_key}` }
+          : {}),
+      };
+      applyOpenRouterAttributionHeaders(req.provider, headers);
+      return headers;
+    })();
+
   const response = await fetch(url, {
     method: "POST",
-    headers: isSubscription
-      ? buildChatGptCodexHeaders(req.config.api_key, req._chatgptAccountId)
-      : {
-          "Content-Type": "application/json",
-          ...(req.config.api_key
-            ? { Authorization: `Bearer ${req.config.api_key}` }
-            : {}),
-        },
+    headers,
     body: JSON.stringify(body),
     signal: req.signal,
   });

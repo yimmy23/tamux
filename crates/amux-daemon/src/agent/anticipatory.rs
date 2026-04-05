@@ -14,6 +14,7 @@ pub(super) struct AnticipatoryRuntime {
     pub items: Vec<AnticipatoryItem>,
     pub last_presence_at: Option<u64>,
     pub session_start_pending_at: Option<u64>,
+    pub session_start_prewarmed_at: Option<u64>,
     pub last_surface_at: Option<u64>,
     pub active_attention_surface: Option<String>,
     pub active_attention_thread_id: Option<String>,
@@ -42,16 +43,8 @@ impl AgentEngine {
         runtime.last_presence_at = Some(now);
         if start_pending {
             runtime.session_start_pending_at = Some(now);
+            runtime.session_start_prewarmed_at = None;
         }
-    }
-
-    pub async fn emit_anticipatory_snapshot(&self) {
-        let items = self.anticipatory.read().await.items.clone();
-        self.emit_anticipatory_update(items);
-    }
-
-    pub(super) fn emit_anticipatory_update(&self, items: Vec<AnticipatoryItem>) {
-        let _ = self.event_tx.send(AgentEvent::AnticipatoryUpdate { items });
     }
 
     pub async fn record_operator_attention(
@@ -89,9 +82,48 @@ impl AgentEngine {
             return;
         }
 
+        self.run_session_start_prewarm(settings).await;
         self.run_predictive_hydration(settings).await;
         let next_items = self.compute_anticipatory_items(settings).await;
         self.refresh_anticipatory_items(next_items, settings).await;
+    }
+
+    async fn run_session_start_prewarm(&self, _settings: &AnticipatoryConfig) {
+        let pending_at = {
+            let runtime = self.anticipatory.read().await;
+            match runtime.session_start_pending_at {
+                Some(pending_at) if runtime.session_start_prewarmed_at != Some(pending_at) => {
+                    Some(pending_at)
+                }
+                _ => None,
+            }
+        };
+        if pending_at.is_none() {
+            return;
+        }
+
+        let attention_target = self.current_attention_target().await;
+        let goal_runs = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs.iter().cloned().collect::<Vec<_>>()
+        };
+        let tasks = {
+            let tasks = self.tasks.lock().await;
+            tasks.clone()
+        };
+        let threads = collect_session_start_prewarm_threads(attention_target, &goal_runs, &tasks);
+        let now = now_millis();
+        for thread_id in threads {
+            self.refresh_thread_repo_context(&thread_id).await;
+            self.anticipatory
+                .write()
+                .await
+                .hydration_by_thread
+                .insert(thread_id, now);
+        }
+        if let Some(pending_at) = pending_at {
+            self.anticipatory.write().await.session_start_prewarmed_at = Some(pending_at);
+        }
     }
 
     async fn run_predictive_hydration(&self, settings: &AnticipatoryConfig) {
@@ -224,6 +256,50 @@ impl AgentEngine {
         }
     }
 
+    async fn resolve_anticipatory_route(
+        &self,
+        kind: &str,
+        goal_run_id: Option<&str>,
+        thread_id: Option<&str>,
+    ) -> AnticipatoryRoutingHint {
+        let preferred_client_surface = if let Some(goal_run_id) = goal_run_id {
+            self.get_goal_run_client_surface(goal_run_id)
+                .await
+                .map(client_surface_label)
+                .map(ToOwned::to_owned)
+        } else {
+            None
+        };
+        let preferred_client_surface = match (preferred_client_surface, thread_id) {
+            (Some(surface), _) => Some(surface),
+            (None, Some(thread_id)) => self
+                .get_thread_client_surface(thread_id)
+                .await
+                .map(client_surface_label)
+                .map(ToOwned::to_owned),
+            (None, None) => None,
+        };
+
+        let active_surface = self.current_attention_surface().await;
+        let (deep_focus_surface, dominant_surface) = {
+            let model = self.operator_model.read().await;
+            (
+                model.attention_topology.deep_focus_surface.clone(),
+                model.attention_topology.dominant_surface.clone(),
+            )
+        };
+
+        AnticipatoryRoutingHint {
+            preferred_client_surface,
+            preferred_attention_surface: preferred_attention_surface(
+                kind,
+                active_surface,
+                deep_focus_surface,
+                dominant_surface,
+            ),
+        }
+    }
+
     async fn refresh_anticipatory_items(
         &self,
         next_items: Vec<AnticipatoryItem>,
@@ -301,6 +377,7 @@ impl AgentEngine {
             runs.truncate(2);
             runs
         };
+        let primary_goal = unfinished_goals.first().cloned();
         let pending_approvals = self.pending_operator_approvals.read().await.len();
         let recent_health = self
             .history
@@ -346,6 +423,15 @@ impl AgentEngine {
         }
 
         self.anticipatory.write().await.session_start_pending_at = None;
+        let routing = self
+            .resolve_anticipatory_route(
+                "morning_brief",
+                primary_goal.as_ref().map(|goal| goal.id.as_str()),
+                primary_goal
+                    .as_ref()
+                    .and_then(|goal| goal.thread_id.as_deref()),
+            )
+            .await;
         Some(AnticipatoryItem {
             id: "morning_brief".to_string(),
             kind: "morning_brief".to_string(),
@@ -353,8 +439,12 @@ impl AgentEngine {
             summary: format!("{} item(s) worth picking up.", bullets.len()),
             bullets,
             confidence,
-            goal_run_id: None,
-            thread_id: None,
+            goal_run_id: primary_goal.as_ref().map(|goal| goal.id.clone()),
+            thread_id: primary_goal
+                .as_ref()
+                .and_then(|goal| goal.thread_id.clone()),
+            preferred_client_surface: routing.preferred_client_surface,
+            preferred_attention_surface: routing.preferred_attention_surface,
             created_at: now,
             updated_at: now,
         })
@@ -363,6 +453,14 @@ impl AgentEngine {
     async fn compute_stuck_hint(&self, settings: &AnticipatoryConfig) -> Option<AnticipatoryItem> {
         let now = now_millis();
         let attention = self.current_attention_focus().await;
+        let operator_idle_ms = {
+            let runtime = self.anticipatory.read().await;
+            operator_idle_ms(
+                runtime.last_presence_at,
+                runtime.active_attention_updated_at,
+                now,
+            )
+        };
         let tasks = self.tasks.lock().await;
         let candidate = tasks
             .iter()
@@ -387,61 +485,32 @@ impl AgentEngine {
                             .cmp(&right.started_at.unwrap_or(right.created_at))
                     })
             });
-
-        let mut bullets = Vec::new();
-        let mut confidence: f64 = 0.0;
         if let Some(task) = candidate {
-            let focused_task = task_attention_priority(task, &attention) > 0;
-            if task.status == TaskStatus::Blocked {
-                confidence = 0.92;
-                if let Some(reason) = task.blocked_reason.as_deref() {
-                    bullets.push(format!("Blocked reason: {reason}"));
-                }
-            } else if task.status == TaskStatus::AwaitingApproval {
-                let wait_started_at = task.started_at.unwrap_or(task.created_at);
-                let waited_ms = now.saturating_sub(wait_started_at);
-                if waited_ms >= settings.stuck_detection_delay_seconds.saturating_mul(1000) {
-                    confidence = 0.78;
-                    bullets.push("Execution is paused behind operator approval.".to_string());
-                }
-            }
-            if task.retry_count >= 2 {
-                confidence = confidence.max(0.84);
-                bullets.push(format!(
-                    "Task retried {} time(s) without clean completion.",
-                    task.retry_count
-                ));
-            }
-            if let Some(error) = task
-                .last_error
-                .as_deref()
-                .or(task.error.as_deref())
-                .filter(|value| !value.trim().is_empty())
-            {
-                confidence = confidence.max(0.8);
-                bullets.push(format!("Recent error: {}", truncate_hint(error)));
-            }
-            if focused_task {
-                confidence = (confidence + 0.05).min(0.97);
-                bullets
-                    .push("This task is in the thread or goal you are currently viewing.".into());
-            }
-
-            if confidence >= settings.surfacing_min_confidence && !bullets.is_empty() {
-                return Some(AnticipatoryItem {
-                    id: format!("stuck_hint_{}", task.id),
-                    kind: "stuck_hint".to_string(),
-                    title: format!("Task May Be Stuck: {}", task.title),
-                    summary: "The daemon sees a live task pattern that usually needs intervention."
-                        .to_string(),
-                    bullets,
-                    confidence,
-                    goal_run_id: task.goal_run_id.clone(),
-                    thread_id: task.thread_id.clone(),
-                    created_at: now,
-                    updated_at: now,
-                });
-            }
+            let assessment = assess_stuck_task(task, &attention, now, operator_idle_ms, settings)?;
+            let route = self
+                .resolve_anticipatory_route(
+                    "stuck_hint",
+                    task.goal_run_id.as_deref(),
+                    task.thread_id
+                        .as_deref()
+                        .or(task.parent_thread_id.as_deref()),
+                )
+                .await;
+            return Some(AnticipatoryItem {
+                id: format!("stuck_hint_{}", task.id),
+                kind: "stuck_hint".to_string(),
+                title: format!("Task May Be Stuck: {}", task.title),
+                summary: "The daemon sees a live task pattern that usually needs intervention."
+                    .to_string(),
+                bullets: assessment.bullets,
+                confidence: assessment.confidence,
+                goal_run_id: task.goal_run_id.clone(),
+                thread_id: task.thread_id.clone().or(task.parent_thread_id.clone()),
+                preferred_client_surface: route.preferred_client_surface,
+                preferred_attention_surface: route.preferred_attention_surface,
+                created_at: now,
+                updated_at: now,
+            });
         }
 
         None
@@ -476,6 +545,13 @@ impl AgentEngine {
         if confidence < settings.surfacing_min_confidence {
             return None;
         }
+        let route = self
+            .resolve_anticipatory_route(
+                "collaboration_disagreement",
+                session.goal_run_id.as_deref(),
+                session.thread_id.as_deref(),
+            )
+            .await;
         Some(AnticipatoryItem {
             id: format!("disagreement_{}", disagreement.id),
             kind: "collaboration_disagreement".to_string(),
@@ -499,90 +575,12 @@ impl AgentEngine {
             confidence,
             goal_run_id: session.goal_run_id.clone(),
             thread_id: session.thread_id.clone(),
+            preferred_client_surface: route.preferred_client_surface,
+            preferred_attention_surface: route.preferred_attention_surface,
             created_at: now_millis(),
             updated_at: now_millis(),
         })
     }
-
-    async fn morning_brief_confidence(&self, now: u64) -> f64 {
-        let model = self.operator_model.read().await;
-        let Some(typical_start_hour_utc) = model.session_rhythm.typical_start_hour_utc else {
-            return 0.82;
-        };
-        let current_hour = current_utc_hour(now);
-        let delta = circular_hour_distance(current_hour, typical_start_hour_utc);
-        match delta {
-            0 => 0.95,
-            1 => 0.88,
-            2 => 0.8,
-            _ => 0.72,
-        }
-    }
-}
-
-fn truncate_hint(value: &str) -> String {
-    const MAX_CHARS: usize = 120;
-    let trimmed = value.trim();
-    if trimmed.chars().count() <= MAX_CHARS {
-        return trimmed.to_string();
-    }
-    let truncated = trimmed.chars().take(MAX_CHARS - 1).collect::<String>();
-    format!("{truncated}…")
-}
-
-fn current_utc_hour(timestamp_ms: u64) -> u8 {
-    ((timestamp_ms / 3_600_000) % 24) as u8
-}
-
-fn should_surface_anticipatory_kind(kind: &str, attention_surface: Option<&str>) -> bool {
-    let Some(surface) = attention_surface else {
-        return true;
-    };
-    let in_settings = surface.starts_with("modal:settings:");
-    let in_provider_setup =
-        surface == "conversation:onboarding" || surface == "modal:provider_picker";
-    let in_help = surface == "modal:help" || surface == "modal:command_palette";
-    let in_auth = surface == "modal:openai_auth";
-    let in_approval = surface == "modal:approval";
-
-    match kind {
-        "morning_brief" => !(in_settings || in_provider_setup || in_help || in_auth),
-        "stuck_hint" => !(in_settings || in_provider_setup || in_help || in_auth || in_approval),
-        _ => true,
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct AttentionFocus {
-    thread_id: Option<String>,
-    goal_run_id: Option<String>,
-}
-
-fn goal_attention_priority(goal_run: &GoalRun, attention: &AttentionFocus) -> u8 {
-    if attention.goal_run_id.as_deref() == Some(goal_run.id.as_str()) {
-        2
-    } else if attention.thread_id.as_deref() == goal_run.thread_id.as_deref() {
-        1
-    } else {
-        0
-    }
-}
-
-fn task_attention_priority(task: &AgentTask, attention: &AttentionFocus) -> u8 {
-    if attention.goal_run_id.as_deref() == task.goal_run_id.as_deref() {
-        2
-    } else if attention.thread_id.as_deref() == task.thread_id.as_deref()
-        || attention.thread_id.as_deref() == task.parent_thread_id.as_deref()
-    {
-        1
-    } else {
-        0
-    }
-}
-
-fn circular_hour_distance(left: u8, right: u8) -> u8 {
-    let forward = left.abs_diff(right);
-    forward.min(24 - forward)
 }
 
 #[cfg(test)]

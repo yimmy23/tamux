@@ -3,8 +3,8 @@ use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use tokio_util::codec::Framed;
 
-pub(super) async fn connect_daemon(
-) -> Result<Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>> {
+pub(super) async fn connect_daemon()
+-> Result<Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>> {
     #[cfg(unix)]
     {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());

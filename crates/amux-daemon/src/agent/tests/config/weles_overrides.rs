@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI};
 
 #[tokio::test]
 async fn set_sub_agent_clears_weles_overrides_when_reverted_to_inherited_values() {
@@ -7,7 +8,7 @@ async fn set_sub_agent_clears_weles_overrides_when_reverted_to_inherited_values(
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
 
     let mut config = engine.get_config().await;
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.model = "gpt-5.4-mini".to_string();
     config.system_prompt = "Main prompt A".to_string();
     engine.set_config(config).await;
@@ -18,7 +19,7 @@ async fn set_sub_agent_clears_weles_overrides_when_reverted_to_inherited_values(
         .into_iter()
         .find(|entry| entry.id == "weles_builtin")
         .expect("missing builtin weles entry");
-    weles.provider = "anthropic".to_string();
+    weles.provider = PROVIDER_ID_ANTHROPIC.to_string();
     weles.model = "claude-sonnet".to_string();
     weles.system_prompt = Some("Escalated WELES prompt".to_string());
     weles.reasoning_effort = Some("high".to_string());
@@ -33,7 +34,7 @@ async fn set_sub_agent_clears_weles_overrides_when_reverted_to_inherited_values(
         .into_iter()
         .find(|entry| entry.id == "weles_builtin")
         .expect("missing builtin weles entry");
-    reverted.provider = "openai".to_string();
+    reverted.provider = PROVIDER_ID_OPENAI.to_string();
     reverted.model = "gpt-5.4-mini".to_string();
     reverted.system_prompt = Some("Main prompt A".to_string());
     reverted.reasoning_effort = Some("medium".to_string());
@@ -50,7 +51,7 @@ async fn set_sub_agent_clears_weles_overrides_when_reverted_to_inherited_values(
     assert_eq!(stored.builtin_sub_agents.weles.reasoning_effort, None);
 
     let mut updated = stored;
-    updated.provider = "groq".to_string();
+    updated.provider = PROVIDER_ID_GROQ.to_string();
     updated.model = "llama-3.3-70b-versatile".to_string();
     updated.system_prompt = "Main prompt B".to_string();
     engine.set_config(updated).await;
@@ -61,7 +62,7 @@ async fn set_sub_agent_clears_weles_overrides_when_reverted_to_inherited_values(
         .into_iter()
         .find(|entry| entry.id == "weles_builtin")
         .expect("missing builtin weles entry");
-    assert_eq!(effective.provider, "groq");
+    assert_eq!(effective.provider, PROVIDER_ID_GROQ);
     assert_eq!(effective.model, "llama-3.3-70b-versatile");
     assert_eq!(effective.system_prompt.as_deref(), Some("Main prompt B"));
     assert_eq!(effective.reasoning_effort.as_deref(), Some("medium"));
@@ -145,6 +146,7 @@ async fn set_sub_agent_clears_optional_weles_overrides_when_reverted_to_defaults
                 "list_subagents".to_string(),
                 "read_active_terminal_content".to_string(),
                 "message_agent".to_string(),
+                "handoff_thread_agent".to_string(),
             ][..]
         )
     );

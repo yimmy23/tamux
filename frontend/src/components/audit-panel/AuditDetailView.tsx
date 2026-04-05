@@ -1,11 +1,16 @@
 import type { AuditEntry } from "../../lib/types";
+import { findMatchingProvenanceEntry, useAuditStore } from "../../lib/auditStore";
 import { ConfidenceBadge } from "./ConfidenceBadge";
+import { ProvenanceIndicator } from "./ProvenanceIndicator";
 
 /**
  * Expanded detail view for a single audit entry.
  * Shows full explanation, confidence breakdown, causal trace ID, and thread ID.
  */
 export function AuditDetailView({ entry }: { entry: AuditEntry }) {
+  const provenanceReport = useAuditStore((s) => s.provenanceReport);
+  const provenanceEntry = findMatchingProvenanceEntry(entry, provenanceReport);
+
   return (
     <div
       style={{
@@ -55,6 +60,37 @@ export function AuditDetailView({ entry }: { entry: AuditEntry }) {
           Thread: <span style={{ color: "var(--agent)" }}>{entry.threadId}</span>
         </div>
       )}
+
+      {(entry.goalRunId || entry.taskId) && (
+        <div
+          style={{
+            fontSize: "var(--text-xs)",
+            color: "var(--text-secondary)",
+            marginTop: "var(--space-1)",
+          }}
+        >
+          {entry.goalRunId ? <>Goal: <span style={{ color: "var(--reasoning)" }}>{entry.goalRunId}</span> </> : null}
+          {entry.taskId ? <>Task: <span style={{ color: "var(--approval)" }}>{entry.taskId}</span></> : null}
+        </div>
+      )}
+
+      {provenanceEntry ? (
+        <div style={{ marginTop: "var(--space-2)" }}>
+          <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginBottom: 4 }}>
+            Integrity verification
+          </div>
+          <ProvenanceIndicator
+            hashValid={provenanceEntry.hashValid}
+            signatureValid={provenanceEntry.signatureValid}
+            chainValid={provenanceEntry.chainValid}
+          />
+          {provenanceEntry.complianceMode ? (
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 8 }}>
+              Compliance mode: <span style={{ color: "var(--approval)" }}>{provenanceEntry.complianceMode}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

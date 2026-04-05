@@ -202,10 +202,12 @@ async fn whatsapp_provider_state_round_trip_and_delete() -> Result<()> {
     assert_eq!(loaded.updated_at, state.updated_at);
 
     store.delete_whatsapp_provider_state("whatsapp_web").await?;
-    assert!(store
-        .get_whatsapp_provider_state("whatsapp_web")
-        .await?
-        .is_none());
+    assert!(
+        store
+            .get_whatsapp_provider_state("whatsapp_web")
+            .await?
+            .is_none()
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())

@@ -1,4 +1,8 @@
 use super::*;
+use amux_shared::providers::{
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+};
 use std::sync::mpsc;
 use tokio::sync::mpsc::unbounded_channel;
 
@@ -20,11 +24,11 @@ fn make_model_with_daemon_rx() -> (
 #[test]
 fn normalize_provider_auth_source_falls_back_for_invalid_values() {
     assert_eq!(
-        normalize_provider_auth_source("openai", "bogus"),
+        normalize_provider_auth_source(PROVIDER_ID_OPENAI, "bogus"),
         "api_key".to_string()
     );
     assert_eq!(
-        normalize_provider_auth_source("openai", "chatgpt_subscription"),
+        normalize_provider_auth_source(PROVIDER_ID_OPENAI, "chatgpt_subscription"),
         "chatgpt_subscription".to_string()
     );
 }
@@ -32,11 +36,11 @@ fn normalize_provider_auth_source_falls_back_for_invalid_values() {
 #[test]
 fn normalize_provider_transport_falls_back_for_invalid_values() {
     assert_eq!(
-        normalize_provider_transport("minimax-coding-plan", "bogus"),
+        normalize_provider_transport(PROVIDER_ID_MINIMAX_CODING_PLAN, "bogus"),
         "chat_completions".to_string()
     );
     assert_eq!(
-        normalize_provider_transport("openai", "responses"),
+        normalize_provider_transport(PROVIDER_ID_OPENAI, "responses"),
         "responses".to_string()
     );
 }
@@ -50,7 +54,7 @@ fn normalize_compliance_mode_falls_back_to_standard() {
 #[test]
 fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     let mut model = make_model();
-    model.config.provider = "openai".to_string();
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
     model.config.base_url = "https://example.invalid/v1".to_string();
     model.config.model = "gpt-5.4-mini".to_string();
     model.config.api_key = "sk-live".to_string();
@@ -93,12 +97,12 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.bash_timeout_secs = 77;
     model.config.weles_max_concurrent_reviews = 4;
     model.config.compaction_strategy = "custom_model".to_string();
-    model.config.compaction_weles_provider = "openai".to_string();
+    model.config.compaction_weles_provider = PROVIDER_ID_OPENAI.to_string();
     model.config.compaction_weles_model = "gpt-5.4-mini".to_string();
     model.config.compaction_weles_reasoning_effort = "medium".to_string();
-    model.config.compaction_custom_provider = "openrouter".to_string();
+    model.config.compaction_custom_provider = PROVIDER_ID_OPENROUTER.to_string();
     model.config.compaction_custom_base_url = "https://openrouter.ai/api/v1".to_string();
-    model.config.compaction_custom_model = "anthropic/claude-sonnet-4".to_string();
+    model.config.compaction_custom_model = "arcee-ai/trinity-large-thinking".to_string();
     model.config.compaction_custom_api_key = "sk-compaction".to_string();
     model.config.compaction_custom_assistant_id = "assist-compaction".to_string();
     model.config.compaction_custom_auth_source = "api_key".to_string();
@@ -116,10 +120,10 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
 
     assert_eq!(json["agent_name"], "Tamux");
     assert_eq!(json["system_prompt"], "be sharp");
-    assert_eq!(json["provider"], "openai");
-    assert_eq!(json["providers"]["openai"]["assistant_id"], "asst_123");
-    assert!(json["openai"].get("api_key").is_none());
-    assert!(json["providers"]["openai"].get("api_key").is_none());
+    assert_eq!(json["provider"], PROVIDER_ID_OPENAI);
+    assert_eq!(json["providers"][PROVIDER_ID_OPENAI]["assistant_id"], "asst_123");
+    assert!(json[PROVIDER_ID_OPENAI].get("api_key").is_none());
+    assert!(json["providers"][PROVIDER_ID_OPENAI].get("api_key").is_none());
     assert_eq!(json["tools"]["bash"], false);
     assert_eq!(json["search_provider"], "exa");
     assert_eq!(json["enable_conversation_memory"], false);
@@ -158,7 +162,7 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     );
     assert_eq!(json["compaction"]["strategy"], "custom_model");
     assert_eq!(json["compaction"]["weles"]["model"], "gpt-5.4-mini");
-    assert_eq!(json["compaction"]["custom_model"]["provider"], "openrouter");
+    assert_eq!(json["compaction"]["custom_model"]["provider"], PROVIDER_ID_OPENROUTER);
     assert_eq!(
         json["compaction"]["custom_model"]["context_window_tokens"],
         333000
@@ -169,7 +173,7 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
 #[test]
 fn build_config_patch_value_round_trips_daemon_backed_settings() {
     let mut model = make_model();
-    model.config.provider = "openai".to_string();
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
     model.config.base_url = "https://example.invalid/v1".to_string();
     model.config.model = "gpt-5.4-mini".to_string();
     model.config.reasoning_effort = "high".to_string();
@@ -238,12 +242,12 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     model.config.bash_timeout_secs = 77;
     model.config.weles_max_concurrent_reviews = 4;
     model.config.compaction_strategy = "custom_model".to_string();
-    model.config.compaction_weles_provider = "openai".to_string();
+    model.config.compaction_weles_provider = PROVIDER_ID_OPENAI.to_string();
     model.config.compaction_weles_model = "gpt-5.4-mini".to_string();
     model.config.compaction_weles_reasoning_effort = "medium".to_string();
-    model.config.compaction_custom_provider = "openrouter".to_string();
+    model.config.compaction_custom_provider = PROVIDER_ID_OPENROUTER.to_string();
     model.config.compaction_custom_base_url = "https://openrouter.ai/api/v1".to_string();
-    model.config.compaction_custom_model = "anthropic/claude-sonnet-4".to_string();
+    model.config.compaction_custom_model = "arcee-ai/trinity-large-thinking".to_string();
     model.config.compaction_custom_api_key = "sk-compaction".to_string();
     model.config.compaction_custom_assistant_id = "assist-compaction".to_string();
     model.config.compaction_custom_auth_source = "api_key".to_string();
@@ -259,7 +263,7 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     let mut reloaded = make_model();
     reloaded.apply_config_json(&json);
 
-    assert_eq!(reloaded.config.provider, "openai");
+    assert_eq!(reloaded.config.provider, PROVIDER_ID_OPENAI);
     assert_eq!(reloaded.config.base_url, "https://api.openai.com/v1");
     assert_eq!(reloaded.config.model, "gpt-5.4-mini");
     assert_eq!(reloaded.config.reasoning_effort, "high");
@@ -337,17 +341,17 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     assert_eq!(reloaded.config.bash_timeout_secs, 77);
     assert_eq!(reloaded.config.weles_max_concurrent_reviews, 4);
     assert_eq!(reloaded.config.compaction_strategy, "custom_model");
-    assert_eq!(reloaded.config.compaction_weles_provider, "openai");
+    assert_eq!(reloaded.config.compaction_weles_provider, PROVIDER_ID_OPENAI);
     assert_eq!(reloaded.config.compaction_weles_model, "gpt-5.4-mini");
     assert_eq!(reloaded.config.compaction_weles_reasoning_effort, "medium");
-    assert_eq!(reloaded.config.compaction_custom_provider, "openrouter");
+    assert_eq!(reloaded.config.compaction_custom_provider, PROVIDER_ID_OPENROUTER);
     assert_eq!(
         reloaded.config.compaction_custom_base_url,
         "https://openrouter.ai/api/v1"
     );
     assert_eq!(
         reloaded.config.compaction_custom_model,
-        "anthropic/claude-sonnet-4"
+        "arcee-ai/trinity-large-thinking"
     );
     assert_eq!(reloaded.config.compaction_custom_api_key, "sk-compaction");
     assert_eq!(
@@ -374,7 +378,7 @@ fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport
     let mut model = make_model();
 
     model.apply_config_json(&serde_json::json!({
-        "provider": "github-copilot",
+        "provider": PROVIDER_ID_GITHUB_COPILOT,
         "api_transport": "chat_completions",
         "providers": {
             "github-copilot": {
@@ -386,7 +390,7 @@ fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport
         }
     }));
 
-    assert_eq!(model.config.provider, "github-copilot");
+    assert_eq!(model.config.provider, PROVIDER_ID_GITHUB_COPILOT);
     assert_eq!(model.config.api_transport, "responses");
 }
 
@@ -395,7 +399,7 @@ fn apply_config_json_uses_daemon_retry_delay_default_when_missing() {
     let mut model = make_model();
 
     model.apply_config_json(&serde_json::json!({
-        "provider": "openai",
+        "provider": PROVIDER_ID_OPENAI,
         "providers": {
             "openai": {
                 "base_url": "https://api.openai.com/v1",
@@ -416,7 +420,7 @@ fn apply_provider_selection_reads_nested_provider_config_values() {
     let mut model = make_model();
 
     model.config.agent_config_raw = Some(serde_json::json!({
-        "provider": "openai",
+        "provider": PROVIDER_ID_OPENAI,
         "providers": {
             "alibaba-coding-plan": {
                 "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
@@ -430,9 +434,9 @@ fn apply_provider_selection_reads_nested_provider_config_values() {
         }
     }));
 
-    model.apply_provider_selection("alibaba-coding-plan");
+    model.apply_provider_selection(PROVIDER_ID_ALIBABA_CODING_PLAN);
 
-    assert_eq!(model.config.provider, "alibaba-coding-plan");
+    assert_eq!(model.config.provider, PROVIDER_ID_ALIBABA_CODING_PLAN);
     assert_eq!(model.config.api_key, "dashscope-key");
     assert_eq!(model.config.model, "qwen3-coder-next");
     assert_eq!(
@@ -446,7 +450,7 @@ fn apply_config_json_loads_nested_compaction_settings() {
     let mut model = make_model();
 
     model.apply_config_json(&serde_json::json!({
-        "provider": "openai",
+        "provider": PROVIDER_ID_OPENAI,
         "providers": {
             "openai": {
                 "base_url": "https://api.openai.com/v1",
@@ -473,7 +477,7 @@ fn apply_config_json_loads_nested_compaction_settings() {
             "custom_model": {
                 "provider": "openrouter",
                 "base_url": "https://openrouter.ai/api/v1",
-                "model": "anthropic/claude-sonnet-4",
+                "model": "arcee-ai/trinity-large-thinking",
                 "api_key": "sk-compaction",
                 "assistant_id": "assistant-compaction",
                 "auth_source": "api_key",
@@ -486,16 +490,16 @@ fn apply_config_json_loads_nested_compaction_settings() {
 
     assert_eq!(model.config.compaction_strategy, "custom_model");
     assert_eq!(model.config.weles_max_concurrent_reviews, 5);
-    assert_eq!(model.config.compaction_weles_provider, "openai");
+    assert_eq!(model.config.compaction_weles_provider, PROVIDER_ID_OPENAI);
     assert_eq!(model.config.compaction_weles_model, "gpt-5.4-mini");
-    assert_eq!(model.config.compaction_custom_provider, "openrouter");
+    assert_eq!(model.config.compaction_custom_provider, PROVIDER_ID_OPENROUTER);
     assert_eq!(
         model.config.compaction_custom_base_url,
         "https://openrouter.ai/api/v1"
     );
     assert_eq!(
         model.config.compaction_custom_model,
-        "anthropic/claude-sonnet-4"
+        "arcee-ai/trinity-large-thinking"
     );
     assert_eq!(model.config.compaction_custom_api_key, "sk-compaction");
     assert_eq!(
@@ -534,7 +538,7 @@ fn apply_config_json_does_not_consult_local_openai_auth_state() {
     model.config.chatgpt_auth_source = Some("stale-local".to_string());
 
     model.apply_config_json(&serde_json::json!({
-        "provider": "openai",
+        "provider": PROVIDER_ID_OPENAI,
         "providers": {
             "openai": {
                 "base_url": "https://api.openai.com/v1",
@@ -566,7 +570,7 @@ fn sync_config_to_daemon_does_not_emit_null_api_key_for_advanced_edits() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
-    model.config.provider = "openai".to_string();
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
     model.config.base_url = "https://api.openai.com/v1".to_string();
     model.config.model = "gpt-5.4".to_string();
     model.config.api_key = "sk-live".to_string();
@@ -627,7 +631,7 @@ fn sync_config_to_daemon_emits_managed_execution_security_level_for_advanced_tog
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
-    model.config.provider = "openai".to_string();
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
     model.config.base_url = "https://api.openai.com/v1".to_string();
     model.config.model = "gpt-5.4".to_string();
     model.config.api_key = "sk-live".to_string();
@@ -691,7 +695,7 @@ fn sync_config_to_daemon_emits_provider_model_and_base_url_items_for_provider_sw
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
-    model.config.provider = "openrouter".to_string();
+    model.config.provider = PROVIDER_ID_OPENROUTER.to_string();
     model.config.base_url = "https://openrouter.ai/api/v1".to_string();
     model.config.model = "arcee-ai/trinity-large-preview:free".to_string();
     model.config.auth_source = "api_key".to_string();
@@ -740,7 +744,7 @@ fn sync_config_to_daemon_emits_provider_model_and_base_url_items_for_provider_sw
             } => match key_path.as_str() {
                 "/provider" => {
                     saw_provider = true;
-                    assert_eq!(value_json, "\"openrouter\"");
+                    assert_eq!(value_json, format!("\"{}\"", PROVIDER_ID_OPENROUTER));
                 }
                 "/model" => {
                     saw_model = true;

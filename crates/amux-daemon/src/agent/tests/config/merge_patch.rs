@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_OPENAI;
 
 #[tokio::test]
 async fn merge_config_patch_preserves_existing_provider_state() {
@@ -6,12 +7,12 @@ async fn merge_config_patch_preserves_existing_provider_state() {
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     let mut config = engine.get_config().await;
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = "https://api.openai.com/v1".to_string();
     config.model = "gpt-5.4".to_string();
     config.api_key = "root-key".to_string();
     config.providers.insert(
-        "openai".to_string(),
+        PROVIDER_ID_OPENAI.to_string(),
         ProviderConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-5.4".to_string(),
@@ -22,6 +23,18 @@ async fn merge_config_patch_preserves_existing_provider_state() {
             context_window_tokens: 128_000,
             reasoning_effort: "high".to_string(),
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
     config.providers.insert(
@@ -36,6 +49,18 @@ async fn merge_config_patch_preserves_existing_provider_state() {
             context_window_tokens: 128_000,
             reasoning_effort: "high".to_string(),
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
     engine.set_config(config).await;
@@ -50,7 +75,7 @@ async fn merge_config_patch_preserves_existing_provider_state() {
     assert_eq!(
         updated
             .providers
-            .get("openai")
+            .get(PROVIDER_ID_OPENAI)
             .map(|provider| provider.api_key.as_str()),
         Some("openai-key")
     );
@@ -94,7 +119,7 @@ async fn merge_config_patch_sanitizes_stale_enum_strings() {
         ConciergeDetailLevel::DailyBriefing
     );
     assert_eq!(updated.compliance.mode, ComplianceMode::Soc2);
-    let provider = updated.providers.get("openai").unwrap();
+    let provider = updated.providers.get(PROVIDER_ID_OPENAI).unwrap();
     assert_eq!(provider.auth_source, AuthSource::ChatgptSubscription);
     assert_eq!(provider.api_transport, ApiTransport::NativeAssistant);
 }

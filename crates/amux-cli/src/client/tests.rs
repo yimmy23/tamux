@@ -101,6 +101,119 @@ fn operator_profile_bridge_commands_deserialize() {
         }
         _ => panic!("unexpected variant for set-operator-profile-consent"),
     }
+
+    let json = r#"{"type":"query-audits","action_types":["tool","heartbeat"],"limit":25}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("query-audits must deserialize");
+    match cmd {
+        AgentBridgeCommand::QueryAudits {
+            action_types,
+            since,
+            limit,
+        } => {
+            assert_eq!(action_types, Some(vec!["tool".to_string(), "heartbeat".to_string()]));
+            assert_eq!(since, None);
+            assert_eq!(limit, Some(25));
+        }
+        _ => panic!("unexpected variant for query-audits"),
+    }
+
+    let json = r#"{"type":"get-provenance-report","limit":10}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("get-provenance-report must deserialize");
+    match cmd {
+        AgentBridgeCommand::GetProvenanceReport { limit } => {
+            assert_eq!(limit, Some(10));
+        }
+        _ => panic!("unexpected variant for get-provenance-report"),
+    }
+
+    let json = r#"{"type":"query-audits","action_types":["tool","heartbeat"],"limit":25}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("query-audits must deserialize");
+    match cmd {
+        AgentBridgeCommand::QueryAudits {
+            action_types,
+            since,
+            limit,
+        } => {
+            assert_eq!(action_types, Some(vec!["tool".to_string(), "heartbeat".to_string()]));
+            assert_eq!(since, None);
+            assert_eq!(limit, Some(25));
+        }
+        _ => panic!("unexpected variant for query-audits"),
+    }
+
+    let json = r#"{"type":"get-provenance-report","limit":10}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("get-provenance-report must deserialize");
+    match cmd {
+        AgentBridgeCommand::GetProvenanceReport { limit } => {
+            assert_eq!(limit, Some(10));
+        }
+        _ => panic!("unexpected variant for get-provenance-report"),
+    }
+
+    let json = r#"{"type":"get-memory-provenance-report","target":"MEMORY.md","limit":12}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("get-memory-provenance-report must deserialize");
+    match cmd {
+        AgentBridgeCommand::GetMemoryProvenanceReport { target, limit } => {
+            assert_eq!(target.as_deref(), Some("MEMORY.md"));
+            assert_eq!(limit, Some(12));
+        }
+        _ => panic!("unexpected variant for get-memory-provenance-report"),
+    }
+
+    let json = r#"{"type":"confirm-memory-provenance-entry","entry_id":"old-confirmable"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("confirm-memory-provenance-entry must deserialize");
+    match cmd {
+        AgentBridgeCommand::ConfirmMemoryProvenanceEntry { entry_id } => {
+            assert_eq!(entry_id, "old-confirmable");
+        }
+        _ => panic!("unexpected variant for confirm-memory-provenance-entry"),
+    }
+
+    let json = r#"{"type":"retract-memory-provenance-entry","entry_id":"retractable-memory-entry"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("retract-memory-provenance-entry must deserialize");
+    match cmd {
+        AgentBridgeCommand::RetractMemoryProvenanceEntry { entry_id } => {
+            assert_eq!(entry_id, "retractable-memory-entry");
+        }
+        _ => panic!("unexpected variant for retract-memory-provenance-entry"),
+    }
+
+    let json = r#"{"type":"get-collaboration-sessions","parent_task_id":"task-1"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("get-collaboration-sessions must deserialize");
+    match cmd {
+        AgentBridgeCommand::GetCollaborationSessions { parent_task_id } => {
+            assert_eq!(parent_task_id.as_deref(), Some("task-1"));
+        }
+        _ => panic!("unexpected variant for get-collaboration-sessions"),
+    }
+
+    let json = r#"{"type":"vote-on-collaboration-disagreement","parent_task_id":"task-1","disagreement_id":"disagree-1","task_id":"operator","position":"recommend","confidence":1.0}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("vote-on-collaboration-disagreement must deserialize");
+    match cmd {
+        AgentBridgeCommand::VoteOnCollaborationDisagreement {
+            parent_task_id,
+            disagreement_id,
+            task_id,
+            position,
+            confidence,
+        } => {
+            assert_eq!(parent_task_id, "task-1");
+            assert_eq!(disagreement_id, "disagree-1");
+            assert_eq!(task_id, "operator");
+            assert_eq!(position, "recommend");
+            assert_eq!(confidence, Some(1.0));
+        }
+        _ => panic!("unexpected variant for vote-on-collaboration-disagreement"),
+    }
 }
 
 #[test]
@@ -143,6 +256,61 @@ fn operator_profile_bridge_commands_deserialize_failures() {
         result.is_err(),
         "wrong type for `defer_until_unix_ms` should not deserialize"
     );
+}
+
+#[test]
+fn generated_tool_bridge_commands_deserialize() {
+    let json = r#"{"type":"list-generated-tools"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("list-generated-tools must deserialize");
+    assert!(
+        matches!(cmd, AgentBridgeCommand::ListGeneratedTools),
+        "expected ListGeneratedTools"
+    );
+
+    let json = r#"{"type":"run-generated-tool","tool_name":"tool-1","args_json":"{}"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("run-generated-tool must deserialize");
+    match cmd {
+        AgentBridgeCommand::RunGeneratedTool {
+            tool_name,
+            args_json,
+        } => {
+            assert_eq!(tool_name, "tool-1");
+            assert_eq!(args_json, "{}");
+        }
+        _ => panic!("unexpected variant for run-generated-tool"),
+    }
+
+    let json = r#"{"type":"activate-generated-tool","tool_name":"tool-1"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("activate-generated-tool must deserialize");
+    match cmd {
+        AgentBridgeCommand::ActivateGeneratedTool { tool_name } => {
+            assert_eq!(tool_name, "tool-1");
+        }
+        _ => panic!("unexpected variant for activate-generated-tool"),
+    }
+
+    let json = r#"{"type":"promote-generated-tool","tool_name":"tool-1"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("promote-generated-tool must deserialize");
+    match cmd {
+        AgentBridgeCommand::PromoteGeneratedTool { tool_name } => {
+            assert_eq!(tool_name, "tool-1");
+        }
+        _ => panic!("unexpected variant for promote-generated-tool"),
+    }
+
+    let json = r#"{"type":"retire-generated-tool","tool_name":"tool-1"}"#;
+    let cmd: AgentBridgeCommand =
+        serde_json::from_str(json).expect("retire-generated-tool must deserialize");
+    match cmd {
+        AgentBridgeCommand::RetireGeneratedTool { tool_name } => {
+            assert_eq!(tool_name, "tool-1");
+        }
+        _ => panic!("unexpected variant for retire-generated-tool"),
+    }
 }
 
 #[test]

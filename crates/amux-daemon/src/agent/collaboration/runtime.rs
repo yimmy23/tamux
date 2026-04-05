@@ -156,7 +156,7 @@ impl AgentEngine {
         }))
     }
 
-    pub(in crate::agent) async fn vote_on_collaboration_disagreement(
+    pub(crate) async fn vote_on_collaboration_disagreement(
         &self,
         parent_task_id: &str,
         disagreement_id: &str,
@@ -188,6 +188,8 @@ impl AgentEngine {
         let resolution = disagreement.resolution.clone();
         let consensus = session.consensus.clone();
         let session_id = session.id.clone();
+        let escalation = (disagreement.resolution == "escalated").then(|| disagreement.clone());
+        let thread_id = session.thread_id.clone();
         session.updated_at = now_millis();
         let snapshot = session.clone();
         let report = serde_json::json!({
@@ -197,6 +199,18 @@ impl AgentEngine {
         });
         drop(collaboration);
         self.persist_collaboration_session(&snapshot).await?;
+
+        if let (Some(disagreement), Some(thread_id)) = (escalation, thread_id) {
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                thread_id,
+                kind: "collaboration".to_string(),
+                message: format!(
+                    "Unresolved subagent disagreement on {}",
+                    disagreement.topic
+                ),
+                details: Some(disagreement.positions.join(" vs ")),
+            });
+        }
 
         Ok(report)
     }

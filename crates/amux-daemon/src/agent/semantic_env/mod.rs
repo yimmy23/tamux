@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use walkdir::{DirEntry, WalkDir};
 
+use crate::agent::AgentEngine;
 use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
 
@@ -54,10 +55,21 @@ struct SemanticImportFile {
     imports: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SemanticInfraResource {
+    system: &'static str,
+    kind: String,
+    name: String,
+    source_path: String,
+    namespace: Option<String>,
+    dependencies: Vec<String>,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct SemanticGraph {
     packages: Vec<SemanticPackage>,
     services: Vec<SemanticService>,
+    infra_resources: Vec<SemanticInfraResource>,
     import_files: Vec<SemanticImportFile>,
 }
 
@@ -94,6 +106,7 @@ pub(super) async fn execute_semantic_query(
         "dependencies" => render_dependencies(&root, &graph, target),
         "dependents" => render_dependents(&root, &graph, target),
         "services" => Ok(render_services(&root, &graph, limit)),
+        "infra" => Ok(render_infra(&root, &graph, limit)),
         "service_dependencies" => render_service_dependencies(&root, &graph, target),
         "service_dependents" => render_service_dependents(&root, &graph, target),
         "imports" => render_imports(&root, &graph, target, limit),
@@ -103,7 +116,7 @@ pub(super) async fn execute_semantic_query(
         }
         "temporal" => render_temporal(&root, history, target, limit).await,
         other => Err(anyhow::anyhow!(
-            "invalid semantic query kind `{other}`; expected summary, packages, dependencies, dependents, services, service_dependencies, service_dependents, imports, imported_by, conventions, or temporal"
+            "invalid semantic query kind `{other}`; expected summary, packages, dependencies, dependents, services, infra, service_dependencies, service_dependents, imports, imported_by, conventions, or temporal"
         )),
     }
 }
@@ -149,7 +162,33 @@ pub(super) fn infer_workspace_context_tags(root: &Path) -> Vec<String> {
         tags.insert("docker".to_string());
     }
 
+    for resource in &graph.infra_resources {
+        tags.insert("infra".to_string());
+        match resource.system {
+            "terraform" => {
+                tags.insert("terraform".to_string());
+            }
+            "kubernetes" => {
+                tags.insert("kubernetes".to_string());
+            }
+            _ => {}
+        }
+    }
+
     tags.into_iter().collect()
+}
+
+impl AgentEngine {
+    pub(crate) async fn semantic_query_text(&self, args: &Value) -> Result<String> {
+        execute_semantic_query(
+            args,
+            &self.session_manager,
+            None,
+            &self.history,
+            &self.data_dir,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]

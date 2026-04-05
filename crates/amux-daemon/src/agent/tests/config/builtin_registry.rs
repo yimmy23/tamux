@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI};
 
 #[test]
 fn agent_config_serializes_honcho_fields_in_snake_case() {
@@ -22,7 +23,7 @@ fn sub_agent_definition_roundtrip_preserves_builtin_metadata_and_reasoning_effor
     let definition = SubAgentDefinition {
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
-        provider: "openai".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
         model: "gpt-5.4-mini".to_string(),
         role: Some("governance".to_string()),
         system_prompt: Some("Protect tool execution.".to_string()),
@@ -69,7 +70,7 @@ fn legacy_sub_agent_definition_defaults_allow_disable_and_delete() {
     let legacy = serde_json::json!({
         "id": "legacy_subagent",
         "name": "Legacy Subagent",
-        "provider": "openai",
+        "provider": PROVIDER_ID_OPENAI,
         "model": "gpt-5.4-mini",
         "enabled": true,
         "created_at": 1_712_000_001u64
@@ -88,7 +89,7 @@ async fn list_sub_agents_always_includes_weles_builtin_with_main_defaults() {
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
 
     let mut config = engine.get_config().await;
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.model = "gpt-5.4-mini".to_string();
     config.system_prompt = "Main agent prompt".to_string();
     engine.set_config(config).await;
@@ -100,7 +101,7 @@ async fn list_sub_agents_always_includes_weles_builtin_with_main_defaults() {
         .expect("WELES builtin should always be present");
 
     assert_eq!(weles.name, "WELES");
-    assert_eq!(weles.provider, "openai");
+    assert_eq!(weles.provider, PROVIDER_ID_OPENAI);
     assert_eq!(weles.model, "gpt-5.4-mini");
     assert_eq!(weles.system_prompt.as_deref(), Some("Main agent prompt"));
     assert_eq!(weles.reasoning_effort.as_deref(), Some("medium"));
@@ -269,7 +270,7 @@ async fn set_sub_agent_preserves_weles_inheritance_when_editing_unrelated_fields
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
 
     let mut config = engine.get_config().await;
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.model = "gpt-5.4-mini".to_string();
     config.system_prompt = "Main prompt A".to_string();
     engine.set_config(config).await;
@@ -292,7 +293,7 @@ async fn set_sub_agent_preserves_weles_inheritance_when_editing_unrelated_fields
     assert_eq!(stored.builtin_sub_agents.weles.system_prompt, None);
 
     let mut updated = stored;
-    updated.provider = "anthropic".to_string();
+    updated.provider = PROVIDER_ID_ANTHROPIC.to_string();
     updated.model = "claude-sonnet".to_string();
     updated.system_prompt = "Main prompt B".to_string();
     engine.set_config(updated).await;
@@ -303,7 +304,7 @@ async fn set_sub_agent_preserves_weles_inheritance_when_editing_unrelated_fields
         .into_iter()
         .find(|entry| entry.id == "weles_builtin")
         .expect("missing builtin weles entry");
-    assert_eq!(weles.provider, "anthropic");
+    assert_eq!(weles.provider, PROVIDER_ID_ANTHROPIC);
     assert_eq!(weles.model, "claude-sonnet");
     assert_eq!(weles.system_prompt.as_deref(), Some("Main prompt B"));
     assert_eq!(weles.reasoning_effort.as_deref(), Some("high"));
@@ -316,7 +317,7 @@ async fn set_sub_agent_rejects_minimal_weles_override_payload_without_protection
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
 
     let mut config = engine.get_config().await;
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.model = "gpt-5.4-mini".to_string();
     config.system_prompt = "Main prompt".to_string();
     engine.set_config(config).await;
@@ -324,7 +325,7 @@ async fn set_sub_agent_rejects_minimal_weles_override_payload_without_protection
     let minimal = SubAgentDefinition {
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
-        provider: "anthropic".to_string(),
+        provider: PROVIDER_ID_ANTHROPIC.to_string(),
         model: "claude-sonnet".to_string(),
         role: Some("governance".to_string()),
         system_prompt: Some("Escalated WELES prompt".to_string()),

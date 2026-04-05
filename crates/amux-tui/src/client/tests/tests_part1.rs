@@ -1,3 +1,5 @@
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
+
     #[test]
     fn whatsapp_link_methods_send_expected_protocol_messages() {
         let (event_tx, _event_rx) = mpsc::channel(8);
@@ -97,7 +99,7 @@
                 "thread_id": "thread-1",
                 "input_tokens": 10,
                 "output_tokens": 20,
-                "provider": "github-copilot",
+                "provider": PROVIDER_ID_GITHUB_COPILOT,
                 "model": "gpt-5.4",
                 "reasoning": "Final reasoning summary"
             }),
@@ -113,6 +115,39 @@
             } => {
                 assert_eq!(thread_id, "thread-1");
                 assert_eq!(reasoning.as_deref(), Some("Final reasoning summary"));
+            }
+            other => panic!("expected done event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn done_event_parses_provider_final_result_payload() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "done",
+                "thread_id": "thread-1",
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "provider_final_result": {
+                    "provider": "open_ai_responses",
+                    "id": "resp_tui_done"
+                }
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match event_rx.recv().await.expect("expected done event") {
+            ClientEvent::Done {
+                provider_final_result_json,
+                ..
+            } => {
+                let json = provider_final_result_json.expect("expected provider final result");
+                let value: serde_json::Value = serde_json::from_str(&json).expect("parse provider final result json");
+                assert_eq!(value.get("provider").and_then(|v| v.as_str()), Some("open_ai_responses"));
+                assert_eq!(value.get("id").and_then(|v| v.as_str()), Some("resp_tui_done"));
             }
             other => panic!("expected done event, got {:?}", other),
         }
@@ -168,7 +203,7 @@
         let should_continue = DaemonClient::handle_daemon_message(
             DaemonMessage::AgentProviderValidation {
                 operation_id: Some("op-provider-validation-1".to_string()),
-                provider_id: "openai".to_string(),
+                provider_id: PROVIDER_ID_OPENAI.to_string(),
                 valid: false,
                 error: Some("bad key".to_string()),
                 models_json: None,
@@ -188,7 +223,7 @@
                 valid,
                 error,
             } => {
-                assert_eq!(provider_id, "openai");
+                assert_eq!(provider_id, PROVIDER_ID_OPENAI);
                 assert!(!valid);
                 assert_eq!(error.as_deref(), Some("bad key"));
             }
@@ -350,6 +385,68 @@
         .await;
 
         assert!(event_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn internal_dm_thread_reload_event_is_forwarded() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "thread_reload_required",
+                "thread_id": "dm:svarog:weles"
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match tokio::time::timeout(std::time::Duration::from_millis(100), event_rx.recv())
+            .await
+            .expect("internal dm reload event should arrive")
+            .expect("expected internal dm reload event")
+        {
+            ClientEvent::ThreadReloadRequired { thread_id } => {
+                assert_eq!(thread_id, "dm:svarog:weles");
+            }
+            other => panic!("expected thread reload event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn internal_dm_done_event_is_forwarded() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "done",
+                "thread_id": "dm:svarog:weles",
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "reasoning": "internal reasoning"
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match tokio::time::timeout(std::time::Duration::from_millis(100), event_rx.recv())
+            .await
+            .expect("internal dm done event should arrive")
+            .expect("expected internal dm done event")
+        {
+            ClientEvent::Done {
+                thread_id,
+                input_tokens,
+                output_tokens,
+                reasoning,
+                ..
+            } => {
+                assert_eq!(thread_id, "dm:svarog:weles");
+                assert_eq!(input_tokens, 1);
+                assert_eq!(output_tokens, 2);
+                assert_eq!(reasoning.as_deref(), Some("internal reasoning"));
+            }
+            other => panic!("expected done event, got {:?}", other),
+        }
     }
 
     #[test]

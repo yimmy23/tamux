@@ -204,6 +204,76 @@ async fn explicit_acknowledgment_unblocks_goal_and_current_step_task() {
 }
 
 #[tokio::test]
+async fn cancelling_goal_run_settles_unresolved_goal_plan_trace() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-supervised-cancel";
+    let task_id = "task-supervised-cancel";
+    let approval_id = "autonomy-ack-cancel";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_supervised_goal_run(
+            goal_run_id,
+            task_id,
+            approval_id,
+        ));
+    sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+
+    let selected_json = serde_json::json!({
+        "option_type": "goal_plan",
+        "reasoning": "Use a supervised single-step plan",
+        "rejection_reason": null,
+        "estimated_success_prob": 0.61,
+        "arguments_hash": "ctx_hash"
+    })
+    .to_string();
+    let unresolved =
+        serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::Unresolved)
+            .expect("serialize unresolved outcome");
+    engine
+        .history
+        .insert_causal_trace(
+            "causal_goal_plan_cancel_hook",
+            None,
+            Some(goal_run_id),
+            None,
+            "plan_selection",
+            &selected_json,
+            "[]",
+            "ctx_hash",
+            "[]",
+            &unresolved,
+            Some("gpt-4o-mini"),
+            now_millis(),
+        )
+        .await
+        .expect("insert goal plan causal trace");
+
+    let changed = engine.control_goal_run(goal_run_id, "cancel", None).await;
+    assert!(changed, "cancel should update goal state");
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("goal_plan", 1)
+        .await
+        .expect("list goal plan traces");
+    let outcome = serde_json::from_str::<crate::agent::learning::traces::CausalTraceOutcome>(
+        &records[0].outcome_json,
+    )
+    .expect("deserialize settled outcome");
+    match outcome {
+        crate::agent::learning::traces::CausalTraceOutcome::Failure { reason } => {
+            assert!(reason.contains("cancelled"));
+        }
+        other => panic!("expected cancelled failure outcome, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn start_goal_run_records_goal_start_episode_with_archived_fields() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

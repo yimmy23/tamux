@@ -22,6 +22,13 @@ fn drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event() {
     let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
     let row = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
         .find(|candidate| {
+            *candidate > chat_area.y.saturating_add(1)
+                && *candidate
+                    < chat_area
+                        .y
+                        .saturating_add(chat_area.height)
+                        .saturating_sub(2)
+                &&
             widgets::chat::selection_point_from_mouse(
                 chat_area,
                 &model.chat,
@@ -33,31 +40,53 @@ fn drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event() {
         })
         .expect("chat transcript should expose a selectable row");
 
+    let (anchor_col, drag_col) = (chat_area.x..chat_area.x.saturating_add(chat_area.width))
+        .find_map(|start_col| {
+            let start_point = widgets::chat::selection_point_from_mouse(
+                chat_area,
+                &model.chat,
+                &model.theme,
+                model.tick_counter,
+                Position::new(start_col, row),
+            )?;
+            ((start_col + 1)..chat_area.x.saturating_add(chat_area.width)).find_map(|end_col| {
+                let end_point = widgets::chat::selection_point_from_mouse(
+                    chat_area,
+                    &model.chat,
+                    &model.theme,
+                    model.tick_counter,
+                    Position::new(end_col, row),
+                )?;
+                (end_point != start_point).then_some((start_col, end_col))
+            })
+        })
+        .expect("chat transcript should expose two distinct selectable columns");
+
     widgets::chat::reset_build_rendered_lines_call_count();
 
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: 3,
+        column: anchor_col,
         row,
         modifiers: KeyModifiers::NONE,
     });
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Drag(MouseButton::Left),
-        column: 12,
+        column: drag_col,
         row,
         modifiers: KeyModifiers::NONE,
     });
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Up(MouseButton::Left),
-        column: 12,
+        column: drag_col,
         row,
         modifiers: KeyModifiers::NONE,
     });
 
     assert_eq!(
         widgets::chat::build_rendered_lines_call_count(),
-        1,
-        "dragging a static selection should reuse one transcript snapshot"
+        2,
+        "dragging a static selection should not rebuild beyond the initial hit-test pass and one cached transcript snapshot"
     );
 }
 
@@ -90,6 +119,13 @@ fn render_during_active_drag_reuses_cached_snapshot_and_shows_highlight() {
     let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
     let row = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
         .find(|candidate| {
+            *candidate > chat_area.y.saturating_add(1)
+                && *candidate
+                    < chat_area
+                        .y
+                        .saturating_add(chat_area.height)
+                        .saturating_sub(2)
+                &&
             widgets::chat::selection_point_from_mouse(
                 chat_area,
                 &model.chat,
@@ -101,16 +137,38 @@ fn render_during_active_drag_reuses_cached_snapshot_and_shows_highlight() {
         })
         .expect("chat transcript should expose at least one selectable row");
 
+    let (anchor_col, drag_col) = (chat_area.x..chat_area.x.saturating_add(chat_area.width))
+        .find_map(|start_col| {
+            let start_point = widgets::chat::selection_point_from_mouse(
+                chat_area,
+                &model.chat,
+                &model.theme,
+                model.tick_counter,
+                Position::new(start_col, row),
+            )?;
+            ((start_col + 1)..chat_area.x.saturating_add(chat_area.width)).find_map(|end_col| {
+                let end_point = widgets::chat::selection_point_from_mouse(
+                    chat_area,
+                    &model.chat,
+                    &model.theme,
+                    model.tick_counter,
+                    Position::new(end_col, row),
+                )?;
+                (end_point != start_point).then_some((start_col, end_col))
+            })
+        })
+        .expect("chat transcript should expose two distinct selectable columns");
+
     widgets::chat::reset_build_rendered_lines_call_count();
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: 3,
+        column: anchor_col,
         row,
         modifiers: KeyModifiers::NONE,
     });
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Drag(MouseButton::Left),
-        column: 12,
+        column: drag_col,
         row,
         modifiers: KeyModifiers::NONE,
     });
@@ -123,8 +181,8 @@ fn render_during_active_drag_reuses_cached_snapshot_and_shows_highlight() {
 
     assert_eq!(
         widgets::chat::build_rendered_lines_call_count(),
-        1,
-        "active drag rendering should reuse the cached transcript snapshot"
+        2,
+        "active drag rendering should not rebuild beyond the initial hit-test pass and one cached transcript snapshot"
     );
 
     let buffer = terminal.backend().buffer();

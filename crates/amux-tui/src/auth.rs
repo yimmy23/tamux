@@ -67,6 +67,7 @@ fn open_provider_auth_db() -> Result<Connection> {
     let conn = Connection::open(&db_path)
         .with_context(|| format!("failed to open auth db '{}'", db_path.display()))?;
     ensure_provider_auth_schema(&conn)?;
+
     Ok(conn)
 }
 
@@ -74,7 +75,7 @@ pub fn clear_github_copilot_auth() -> Result<()> {
     let conn = open_provider_auth_db()?;
     conn.execute(
         "DELETE FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
-        params!["github-copilot", "github_copilot"],
+        params![amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, "github_copilot"],
     )?;
     Ok(())
 }
@@ -84,7 +85,7 @@ fn read_stored_github_copilot_auth() -> Option<StoredGithubCopilotAuth> {
     let raw = conn
         .query_row(
             "SELECT state_json FROM provider_auth_state WHERE provider_id = ?1 AND auth_mode = ?2",
-            params!["github-copilot", "github_copilot"],
+            params![amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT, "github_copilot"],
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -98,7 +99,7 @@ fn write_stored_github_copilot_auth(auth: &StoredGithubCopilotAuth) -> Result<()
         "INSERT OR REPLACE INTO provider_auth_state (provider_id, auth_mode, state_json, updated_at)
          VALUES (?1, ?2, ?3, ?4)",
         params![
-            "github-copilot",
+            amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
             "github_copilot",
             serde_json::to_string(auth)?,
             now_millis(),

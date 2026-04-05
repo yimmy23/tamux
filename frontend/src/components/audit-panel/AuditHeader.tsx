@@ -27,6 +27,16 @@ export function AuditHeader({ onClose }: { onClose: () => void }) {
   const filters = useAuditStore((s) => s.filters);
   const setTypeFilter = useAuditStore((s) => s.setTypeFilter);
   const setTimeRange = useAuditStore((s) => s.setTimeRange);
+  const loadAuditHistory = useAuditStore((s) => s.loadAuditHistory);
+  const loadProvenanceReport = useAuditStore((s) => s.loadProvenanceReport);
+  const loadMemoryProvenanceReport = useAuditStore((s) => s.loadMemoryProvenanceReport);
+  const loadingHistory = useAuditStore((s) => s.loadingHistory);
+  const loadingProvenance = useAuditStore((s) => s.loadingProvenance);
+  const loadingMemoryProvenance = useAuditStore((s) => s.loadingMemoryProvenance);
+  const provenanceReport = useAuditStore((s) => s.provenanceReport);
+  const memoryProvenanceReport = useAuditStore((s) => s.memoryProvenanceReport);
+  const provenanceStatus = useAuditStore((s) => s.provenanceStatus);
+  const memoryProvenanceStatus = useAuditStore((s) => s.memoryProvenanceStatus);
 
   const totalCount = entries.length;
 
@@ -70,23 +80,88 @@ export function AuditHeader({ onClose }: { onClose: () => void }) {
         >
           Audit Feed
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close audit panel"
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button type="button" onClick={() => void loadAuditHistory()} style={headerActionStyle}>
+            {loadingHistory ? "Loading..." : "Load History"}
+          </button>
+          <button type="button" onClick={() => void loadProvenanceReport()} style={headerActionStyle}>
+            {loadingProvenance ? "Checking..." : "Verify Provenance"}
+          </button>
+          <button type="button" onClick={() => void loadMemoryProvenanceReport()} style={headerActionStyle}>
+            {loadingMemoryProvenance ? "Loading..." : "Memory Provenance"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close audit panel"
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-secondary)",
+              fontSize: 18,
+              cursor: "pointer",
+              padding: "2px 4px",
+              lineHeight: 1,
+            }}
+          >
+            &times;
+          </button>
+        </div>
+      </div>
+
+      {provenanceReport ? (
+        <div
           style={{
-            background: "none",
-            border: "none",
+            marginBottom: "var(--space-3)",
+            padding: "var(--space-2) var(--space-3)",
+            background: "var(--bg-tertiary)",
+            borderRadius: 4,
+            fontSize: "var(--text-xs)",
             color: "var(--text-secondary)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "2px 4px",
-            lineHeight: 1,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 10,
           }}
         >
-          &times;
-        </button>
-      </div>
+          <span>Total {provenanceReport.totalEntries}</span>
+          <span>Hash {provenanceReport.validHashEntries}/{provenanceReport.totalEntries}</span>
+          <span>Signatures {provenanceReport.validSignatureEntries}/{provenanceReport.totalEntries}</span>
+          <span>Chain {provenanceReport.validChainEntries}/{provenanceReport.totalEntries}</span>
+        </div>
+      ) : null}
+
+      {provenanceStatus ? (
+        <div style={{ marginBottom: "var(--space-3)", fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+          {provenanceStatus}
+        </div>
+      ) : null}
+
+      {memoryProvenanceReport ? (
+        <div
+          style={{
+            marginBottom: "var(--space-3)",
+            padding: "var(--space-2) var(--space-3)",
+            background: "var(--bg-tertiary)",
+            borderRadius: 4,
+            fontSize: "var(--text-xs)",
+            color: "var(--text-secondary)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 10,
+          }}
+        >
+          <span>Memory {memoryProvenanceReport.totalEntries}</span>
+          <span>Active {memoryProvenanceReport.summaryByStatus.active ?? 0}</span>
+          <span>Uncertain {memoryProvenanceReport.summaryByStatus.uncertain ?? 0}</span>
+          <span>Retracted {memoryProvenanceReport.summaryByStatus.retracted ?? 0}</span>
+        </div>
+      ) : null}
+
+      {memoryProvenanceStatus ? (
+        <div style={{ marginBottom: "var(--space-3)", fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+          {memoryProvenanceStatus}
+        </div>
+      ) : null}
 
       {/* Metric cards */}
       <div
@@ -158,6 +233,16 @@ export function AuditHeader({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+const headerActionStyle = {
+  fontSize: "var(--text-xs)",
+  padding: "2px 8px",
+  background: "var(--bg-tertiary)",
+  color: "var(--text-primary)",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  cursor: "pointer",
+};
 
 function MetricCard({ label, value }: { label: string; value: number }) {
   return (

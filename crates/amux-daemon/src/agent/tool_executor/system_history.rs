@@ -361,10 +361,10 @@ async fn execute_update_memory(
             },
             content.trim(),
         );
-        let (_dm_thread_id, response) = agent
+        let result = agent
             .send_internal_agent_message(&sender, MAIN_AGENT_ID, &mediation_request, None)
             .await?;
-        return Ok(response);
+        return Ok(result.response);
     }
     apply_memory_update(
         agent_data_dir,

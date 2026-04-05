@@ -31,6 +31,7 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
         },
         content: m.content,
         reasoning: m.reasoning,
+        provider_final_result_json: m.provider_final_result_json,
         tool_name: m.tool_name,
         tool_arguments: m.tool_arguments,
         tool_call_id: m.tool_call_id,

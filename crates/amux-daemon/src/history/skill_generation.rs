@@ -1,6 +1,45 @@
 use super::*;
 
 impl HistoryStore {
+    pub async fn inspect_skill_variants(
+        &self,
+        skill: &str,
+        context_tags: &[String],
+    ) -> Result<Vec<SkillVariantInspection>> {
+        let normalized = normalize_skill_lookup(skill);
+        if normalized.is_empty() {
+            return Ok(Vec::new());
+        }
+        let context_tags = context_tags.to_vec();
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants",
+                )?;
+                let rows = stmt.query_map([], map_skill_variant_row)?;
+                let mut variants = rows
+                    .filter_map(|row| row.ok())
+                    .filter(|record| skill_variant_matches(record, &normalized))
+                    .collect::<Vec<_>>();
+                variants.sort_by(|left, right| compare_skill_variants(left, right, &context_tags));
+                let selected_id = variants.first().map(|record| record.variant_id.clone());
+                let now = now_ts();
+                Ok(variants
+                    .into_iter()
+                    .map(|record| SkillVariantInspection {
+                        lifecycle_summary: describe_skill_variant_lifecycle(&record, now),
+                        selection_summary: describe_skill_variant_selection(&record, &context_tags),
+                        selected_for_context: selected_id.as_deref()
+                            == Some(record.variant_id.as_str()),
+                        record,
+                    })
+                    .collect::<Vec<_>>())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn register_skill_document(&self, path: &Path) -> Result<SkillVariantRecord> {
         let skills_root = self.skills_root();
         let canonical = std::fs::canonicalize(path)

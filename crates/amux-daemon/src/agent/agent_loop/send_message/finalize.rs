@@ -23,8 +23,20 @@ impl<'a> SendMessageRunner<'a> {
                 reasoning,
                 input_tokens,
                 output_tokens,
+                stop_reason: _,
+                stop_sequence: _,
                 response_id,
+                request_id: _,
+                upstream_model: _,
+                upstream_role: _,
+                upstream_message_type: _,
+                upstream_container: _,
+                upstream_message,
+                provider_final_result,
                 upstream_thread_id,
+                cache_creation_input_tokens: _,
+                cache_read_input_tokens: _,
+                server_tool_use: _,
             }) => {
                 self.handle_done_chunk(
                     llm_started_at,
@@ -37,6 +49,8 @@ impl<'a> SendMessageRunner<'a> {
                     input_tokens,
                     output_tokens,
                     response_id,
+                    upstream_message,
+                    provider_final_result,
                     upstream_thread_id,
                 )
                 .await?;
@@ -48,8 +62,20 @@ impl<'a> SendMessageRunner<'a> {
                 reasoning,
                 input_tokens,
                 output_tokens,
+                stop_reason: _,
+                stop_sequence: _,
                 response_id,
+                request_id: _,
+                upstream_model: _,
+                upstream_role: _,
+                upstream_message_type: _,
+                upstream_container: _,
+                upstream_message,
+                provider_final_result,
                 upstream_thread_id,
+                cache_creation_input_tokens: _,
+                cache_read_input_tokens: _,
+                server_tool_use: _,
             }) => {
                 Box::pin(self.handle_tool_calls_chunk(
                     llm_started_at,
@@ -63,6 +89,8 @@ impl<'a> SendMessageRunner<'a> {
                     input_tokens,
                     output_tokens,
                     response_id,
+                    upstream_message,
+                    provider_final_result,
                     upstream_thread_id,
                 ))
                 .await
@@ -103,6 +131,8 @@ impl<'a> SendMessageRunner<'a> {
         input_tokens: u64,
         output_tokens: u64,
         response_id: Option<String>,
+        upstream_message: Option<CompletionUpstreamMessage>,
+        provider_final_result: Option<CompletionProviderFinalResult>,
         upstream_thread_id: Option<String>,
     ) -> Result<()> {
         let mut final_content = if content.is_empty() {
@@ -141,7 +171,7 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         self.engine
-            .add_assistant_message(
+            .add_assistant_message_with_upstream_message(
                 &self.tid,
                 &final_content,
                 input_tokens,
@@ -151,6 +181,8 @@ impl<'a> SendMessageRunner<'a> {
                 Some(self.provider_config.model.clone()),
                 Some(effective_transport_for_turn),
                 response_id,
+                upstream_message.clone(),
+                provider_final_result.clone(),
             )
             .await;
         self.engine
@@ -182,6 +214,7 @@ impl<'a> SendMessageRunner<'a> {
                 &self.provider_config.model,
             )
             .await;
+        self.provider_final_result = provider_final_result.clone();
 
         let _ = self.engine.event_tx.send(AgentEvent::Done {
             thread_id: self.tid.clone(),
@@ -193,6 +226,8 @@ impl<'a> SendMessageRunner<'a> {
             tps,
             generation_ms,
             reasoning: final_reasoning,
+            upstream_message,
+            provider_final_result,
         });
         Ok(())
     }
@@ -271,12 +306,27 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         self.engine.persist_threads().await;
+        let final_upstream_message = {
+            let threads = self.engine.threads.read().await;
+            threads
+                .get(&self.tid)
+                .and_then(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|message| message.role == MessageRole::Assistant)
+                })
+                .and_then(|message| message.upstream_message.clone())
+        };
         self.engine
             .finish_stream_cancellation(&self.tid, self.stream_generation)
             .await;
         Ok(SendMessageOutcome {
             thread_id: self.tid,
             interrupted_for_approval: self.interrupted_for_approval,
+            upstream_message: final_upstream_message,
+            provider_final_result: self.provider_final_result,
             fresh_runner_retry: self.fresh_runner_retry,
             handoff_restart: self.handoff_restart,
         })

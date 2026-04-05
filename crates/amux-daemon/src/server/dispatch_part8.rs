@@ -33,7 +33,29 @@ if matches!(
                             .unwrap_or(std::path::Path::new("."))
                             .join("skills")
                             .join(&v.relative_path);
-                        let content = tokio::fs::read_to_string(&skill_path).await.ok();
+                        let raw_content = tokio::fs::read_to_string(&skill_path).await.ok();
+                        let inspection_note = agent
+                            .history
+                            .inspect_skill_variants(&v.skill_name, &v.context_tags)
+                            .await
+                            .ok()
+                            .and_then(|items| {
+                                items.into_iter()
+                                    .find(|item| item.record.variant_id == v.variant_id)
+                            })
+                            .map(|item| {
+                                format!(
+                                    "## Lifecycle Inspection\n- Status rationale: {}\n- Selection rationale: {}\n- Selected for current context: {}\n\n",
+                                    item.lifecycle_summary,
+                                    item.selection_summary,
+                                    if item.selected_for_context { "yes" } else { "no" }
+                                )
+                            });
+                        let content = match (inspection_note, raw_content) {
+                            (Some(note), Some(body)) => Some(format!("{note}{body}")),
+                            (Some(note), None) => Some(note),
+                            (None, body) => body,
+                        };
                         let public = amux_protocol::SkillVariantPublic {
                             variant_id: v.variant_id.clone(),
                             skill_name: v.skill_name.clone(),

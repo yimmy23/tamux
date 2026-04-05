@@ -1,3 +1,7 @@
+use amux_shared::providers::{
+    PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI,
+};
+
 impl TuiModel {
     pub(super) fn current_settings_field_name(&self) -> &str {
         self.settings.current_field_name_with_config(&self.config)
@@ -42,7 +46,7 @@ impl TuiModel {
             providers::default_transport_for(provider_id).to_string();
         self.config.compaction_custom_model =
             providers::default_model_for_provider_auth(provider_id, "api_key");
-        self.config.compaction_custom_context_window_tokens = if provider_id == "custom" {
+        self.config.compaction_custom_context_window_tokens = if provider_id == PROVIDER_ID_CUSTOM {
             128_000
         } else {
             providers::known_context_window_for(provider_id, &self.config.compaction_custom_model)
@@ -149,12 +153,12 @@ impl TuiModel {
         self.config.auth_source = providers::default_auth_source_for(def.id).to_string();
         self.config.api_transport = def.default_transport.to_string();
         self.config.assistant_id.clear();
-        self.config.custom_context_window_tokens = if def.id == "custom" {
+        self.config.custom_context_window_tokens = if def.id == PROVIDER_ID_CUSTOM {
             Some(128_000)
         } else {
             None
         };
-        self.config.context_window_tokens = if def.id == "custom" {
+        self.config.context_window_tokens = if def.id == PROVIDER_ID_CUSTOM {
             self.config.custom_context_window_tokens.unwrap_or(128_000)
         } else {
             providers::known_context_window_for(def.id, def.default_model).unwrap_or(128_000)
@@ -168,7 +172,7 @@ impl TuiModel {
             {
                 // For predefined providers, always use the canonical base_url
                 // from the definition — stale DB values must not override it.
-                if def.id == "custom" {
+                if def.id == PROVIDER_ID_CUSTOM {
                     if let Some(saved_base_url) =
                         TuiModel::provider_field_str(provider_config, "base_url", "base_url")
                     {
@@ -232,7 +236,7 @@ impl TuiModel {
             }
         }
 
-        if def.id == "openai" && self.config.auth_source == "chatgpt_subscription" {
+        if def.id == PROVIDER_ID_OPENAI && self.config.auth_source == "chatgpt_subscription" {
             self.config.api_transport = "responses".to_string();
             self.refresh_openai_auth_status();
         }

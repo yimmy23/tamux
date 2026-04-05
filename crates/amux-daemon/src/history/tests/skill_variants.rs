@@ -298,6 +298,87 @@ async fn stable_variant_merges_back_into_canonical() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn inspect_skill_variants_explains_archived_lifecycle() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let canonical = root.join("skills/generated/build-pipeline.md");
+    let weak = root.join("skills/generated/build-pipeline--legacy.md");
+    fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+    fs::write(&weak, "# Legacy build pipeline\nOld slow workflow.\n")?;
+
+    let canonical_record = store.register_skill_document(&canonical).await?;
+    let weak_record = store.register_skill_document(&weak).await?;
+    let wv = weak_record.variant_id.clone();
+    let cv = canonical_record.variant_id.clone();
+    store.conn.call(move |conn| {
+        conn.execute(
+            "UPDATE skill_variants SET use_count = 4, success_count = 0, failure_count = 4, last_used_at = ?2 WHERE variant_id = ?1",
+            params![wv, now_ts() as i64],
+        )?;
+        conn.execute(
+            "UPDATE skill_variants SET use_count = 4, success_count = 3, failure_count = 1, last_used_at = ?2 WHERE variant_id = ?1",
+            params![cv, now_ts() as i64],
+        )?;
+        Ok(())
+    }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    store.rebalance_skill_variants("build-pipeline").await?;
+
+    let inspection = store
+        .inspect_skill_variants("build-pipeline", &["legacy".to_string()])
+        .await?;
+    let weak_variant = inspection
+        .iter()
+        .find(|item| item.record.variant_id == weak_record.variant_id)
+        .expect("weak variant should be inspectable");
+
+    assert_eq!(weak_variant.record.status, "archived");
+    assert!(
+        weak_variant.lifecycle_summary.contains("underperformed"),
+        "expected archived lifecycle summary to explain why it was retired: {}",
+        weak_variant.lifecycle_summary
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn inspect_skill_variants_marks_context_best_match_as_selected() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let canonical = root.join("skills/generated/build-pipeline.md");
+    let frontend = root.join("skills/generated/build-pipeline--frontend.md");
+    fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+    fs::write(
+        &frontend,
+        "# Frontend build pipeline\nUse react build checks.\n",
+    )?;
+
+    store.register_skill_document(&canonical).await?;
+    let frontend_record = store.register_skill_document(&frontend).await?;
+
+    let inspection = store
+        .inspect_skill_variants("build-pipeline", &["frontend".to_string()])
+        .await?;
+    let selected = inspection
+        .iter()
+        .find(|item| item.selected_for_context)
+        .expect("one variant should be selected");
+
+    assert_eq!(selected.record.variant_id, frontend_record.variant_id);
+    assert!(
+        selected
+            .selection_summary
+            .contains("matched context tags: frontend"),
+        "expected selection summary to explain the context match: {}",
+        selected.selection_summary
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 #[test]
 fn skill_tag_excerpt_respects_utf8_boundaries() {
     let content = format!("{}\n{}", "a".repeat(3998), "│architecture");

@@ -122,7 +122,8 @@ impl TuiModel {
             .into_iter()
             .filter(|thread| {
                 !crate::wire::is_weles_thread(thread)
-                    && !Self::is_hidden_agent_thread(&thread.id, Some(thread.title.as_str()))
+                    && !thread.id.starts_with("handoff:")
+                    && !thread.title.trim().to_ascii_lowercase().starts_with("handoff ")
             })
             .map(conversion::convert_thread)
             .collect();
@@ -133,7 +134,8 @@ impl TuiModel {
 
     pub(in crate::app) fn handle_thread_detail_event(&mut self, thread: crate::wire::AgentThread) {
         if crate::wire::is_weles_thread(&thread)
-            || Self::is_hidden_agent_thread(&thread.id, Some(thread.title.as_str()))
+            || thread.id.starts_with("handoff:")
+            || thread.title.trim().to_ascii_lowercase().starts_with("handoff ")
         {
             return;
         }
@@ -156,17 +158,49 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
     }
 
-    pub(in crate::app) fn handle_thread_created_event(&mut self, thread_id: String, title: String) {
+    pub(in crate::app) fn handle_thread_created_event(
+        &mut self,
+        thread_id: String,
+        title: String,
+        agent_name: Option<String>,
+    ) {
         if Self::is_hidden_agent_thread(&thread_id, Some(title.as_str())) {
             return;
         }
-        self.chat
-            .reduce(chat::ChatAction::ThreadCreated { thread_id, title });
+        let is_internal = Self::is_internal_agent_thread(&thread_id, Some(title.as_str()));
+        if is_internal {
+            self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+                crate::state::chat::AgentThread {
+                    id: thread_id,
+                    agent_name,
+                    title,
+                    ..Default::default()
+                },
+            ));
+            self.sync_pending_approvals_from_tasks();
+            return;
+        }
+        self.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: thread_id.clone(),
+            title: title.clone(),
+        });
+        if agent_name.is_some() {
+            self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+                crate::state::chat::AgentThread {
+                    id: thread_id,
+                    agent_name,
+                    title,
+                    ..Default::default()
+                },
+            ));
+        }
         self.sync_pending_approvals_from_tasks();
     }
 
     pub(in crate::app) fn handle_thread_reload_required_event(&mut self, thread_id: String) {
-        if Self::is_hidden_agent_thread(&thread_id, None) {
+        if Self::is_hidden_agent_thread(&thread_id, None)
+            || self.should_ignore_internal_thread_activity(&thread_id)
+        {
             return;
         }
         self.send_daemon_command(DaemonCommand::RequestThread(thread_id.clone()));

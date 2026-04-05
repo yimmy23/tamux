@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_OPENAI;
 use std::ffi::OsString;
 
 pub(super) struct EnvGuard {
@@ -31,7 +32,7 @@ pub(super) fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
     SubAgentDefinition {
         id: id.to_string(),
         name: name.to_string(),
-        provider: "openai".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
         model: "gpt-5.4-mini".to_string(),
         role: Some("specialist".to_string()),
         system_prompt: Some("Handle delegated work.".to_string()),

@@ -76,6 +76,8 @@ impl AgentEngine {
         self.record_generated_skill_work_context(&updated).await;
         self.settle_goal_skill_consultations(&updated, "success")
             .await;
+        self.settle_goal_plan_causal_traces(&updated.id, "success", None)
+            .await;
         self.emit_goal_run_update(&updated, Some("Goal completed".into()));
         self.record_provenance_event(
             "goal_completed",
@@ -172,6 +174,8 @@ impl AgentEngine {
         if let Some(updated) = maybe_updated {
             self.persist_goal_runs().await;
             self.settle_goal_skill_consultations(&updated, "failure")
+                .await;
+            self.settle_goal_plan_causal_traces(&updated.id, "failure", Some(error))
                 .await;
             self.emit_goal_run_update(&updated, Some(format!("Goal failed: {error}")));
             self.record_provenance_event(

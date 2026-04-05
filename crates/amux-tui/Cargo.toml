@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 amux-protocol = { workspace = true }
+amux-shared = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

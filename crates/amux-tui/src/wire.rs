@@ -40,6 +40,9 @@ pub struct AgentMessage {
     pub reasoning: Option<String>,
 
     #[serde(default)]
+    pub provider_final_result_json: Option<String>,
+
+    #[serde(default)]
     pub tool_name: Option<String>,
     #[serde(default)]
     pub tool_arguments: Option<String>,
@@ -403,6 +406,10 @@ pub struct AnticipatoryItem {
     pub goal_run_id: Option<String>,
     #[serde(default)]
     pub thread_id: Option<String>,
+    #[serde(default)]
+    pub preferred_client_surface: Option<String>,
+    #[serde(default)]
+    pub preferred_attention_surface: Option<String>,
     #[serde(default)]
     pub created_at: u64,
     #[serde(default)]

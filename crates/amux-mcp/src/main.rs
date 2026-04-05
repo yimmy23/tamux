@@ -13,6 +13,8 @@
 //! }
 //! ```
 
+#![recursion_limit = "256"]
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -25,7 +27,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 
@@ -50,16 +52,18 @@ use agent_tools::{
     tool_activate_generated_tool, tool_control_goal_run, tool_generate_soc2_artifact,
     tool_get_causal_trace_report, tool_get_collaboration_sessions, tool_get_counterfactual_report,
     tool_get_goal_run, tool_get_memory_provenance_report, tool_get_operator_model,
-    tool_get_provenance_report, tool_list_generated_tools, tool_list_goal_runs,
-    tool_promote_generated_tool, tool_run_generated_tool, tool_synthesize_tool,
+    tool_get_provenance_report, tool_inspect_skill_variant, tool_list_generated_tools,
+    tool_list_goal_runs, tool_list_skill_variants, tool_promote_generated_tool,
+    tool_query_audits, tool_reset_operator_model, tool_run_generated_tool,
+    tool_synthesize_tool,
 };
 use daemon::{connect_daemon, daemon_roundtrip};
 use daemon_tools::{
     tool_execute_command, tool_find_symbol, tool_get_git_status, tool_get_terminal_content,
     tool_list_sessions, tool_list_snapshots, tool_restore_snapshot, tool_scrub_sensitive,
-    tool_search_history, tool_type_in_terminal, tool_verify_integrity,
+    tool_search_history, tool_semantic_query, tool_type_in_terminal, tool_verify_integrity,
 };
-use rpc::{handle_initialize, handle_tools_list, JsonRpcRequest, JsonRpcResponse};
+use rpc::{JsonRpcRequest, JsonRpcResponse, handle_initialize, handle_tools_list};
 use skills::{collect_skill_documents, resolve_skill_path, tamux_root_dir, tamux_skills_dir};
 use tool_definitions::tool_definitions;
 use transport::{read_message, write_message};
@@ -115,15 +119,19 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         "get_todos" => tool_get_todos(args).await,
         "list_skills" => tool_list_skills(args).await,
         "read_skill" => tool_read_skill(args).await,
+        "list_skill_variants" => tool_list_skill_variants(args).await,
+        "inspect_skill_variant" => tool_inspect_skill_variant(args).await,
         "start_goal_run" => tool_start_goal_run(args).await,
         "list_goal_runs" => tool_list_goal_runs().await,
         "get_goal_run" => tool_get_goal_run(args).await,
         "control_goal_run" => tool_control_goal_run(args).await,
         "get_operator_model" => tool_get_operator_model().await,
+        "reset_operator_model" => tool_reset_operator_model().await,
         "get_causal_trace_report" => tool_get_causal_trace_report(args).await,
         "get_counterfactual_report" => tool_get_counterfactual_report(args).await,
         "get_memory_provenance_report" => tool_get_memory_provenance_report(args).await,
         "get_provenance_report" => tool_get_provenance_report(args).await,
+        "query_audits" => tool_query_audits(args).await,
         "generate_soc2_artifact" => tool_generate_soc2_artifact(args).await,
         "get_collaboration_sessions" => tool_get_collaboration_sessions(args).await,
         "list_generated_tools" => tool_list_generated_tools().await,
@@ -132,6 +140,7 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         "promote_generated_tool" => tool_promote_generated_tool(args).await,
         "activate_generated_tool" => tool_activate_generated_tool(args).await,
         "get_git_status" => tool_get_git_status(args).await,
+        "semantic_query" => tool_semantic_query(args).await,
         _ => anyhow::bail!("unknown tool: {name}"),
     }
 }

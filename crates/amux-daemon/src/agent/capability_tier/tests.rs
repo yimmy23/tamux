@@ -24,6 +24,18 @@ fn provider_config(base_url: &str, model: &str, api_key: &str) -> ProviderConfig
         reasoning_effort: String::new(),
         context_window_tokens: 0,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     }
 }
 
@@ -172,12 +184,15 @@ fn capability_tier_ordering() {
 async fn status_snapshot_includes_outage_metadata_for_open_provider() {
     let mut config = AgentConfig::default();
     config.providers.insert(
-        "custom".to_string(),
+        amux_shared::providers::PROVIDER_ID_CUSTOM.to_string(),
         provider_config("https://example.invalid/v1", "model-a", "valid-key"),
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
     {
-        let breaker = engine.circuit_breakers.get("custom").await;
+        let breaker = engine
+            .circuit_breakers
+            .get(amux_shared::providers::PROVIDER_ID_CUSTOM)
+            .await;
         let mut breaker = breaker.lock().await;
         let now = super::super::now_millis();
         for offset in 0..5 {
@@ -195,7 +210,9 @@ async fn status_snapshot_includes_outage_metadata_for_open_provider() {
     };
 
     let health: serde_json::Value = serde_json::from_str(&provider_health_json).unwrap();
-    let custom = health.get("custom").expect("custom provider health");
+    let custom = health
+        .get(amux_shared::providers::PROVIDER_ID_CUSTOM)
+        .expect("custom provider health");
     assert_eq!(
         custom.get("can_execute").and_then(|v| v.as_bool()),
         Some(false)

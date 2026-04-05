@@ -145,6 +145,7 @@ pub fn compute_cost_from_tokens(input: u64, output: u64, rate: &RateCard) -> f64
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amux_shared::providers::PROVIDER_ID_OPENAI;
 
     #[test]
     fn cost_tracker_new_has_zero_totals() {
@@ -160,7 +161,7 @@ mod tests {
         let mut tracker = CostTracker::new();
         let cards = default_rate_cards();
 
-        let cost = tracker.accumulate(1000, 500, "openai", "gpt-4o", &cards);
+        let cost = tracker.accumulate(1000, 500, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
         assert!(cost.is_some());
         let c = cost.unwrap();
         // gpt-4o: 2.50/M input + 10.00/M output
@@ -194,11 +195,11 @@ mod tests {
         let threshold = Some(0.001); // very low threshold for testing
 
         // First call: below threshold
-        tracker.accumulate(100, 50, "openai", "gpt-4o", &cards);
+        tracker.accumulate(100, 50, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
         assert!(!tracker.budget_alert_needed(threshold));
 
         // Push over threshold
-        tracker.accumulate(100_000, 50_000, "openai", "gpt-4o", &cards);
+        tracker.accumulate(100_000, 50_000, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
         assert!(tracker.budget_alert_needed(threshold));
 
         // Second check: should NOT fire again
@@ -209,7 +210,7 @@ mod tests {
     fn cost_tracker_budget_alert_none_threshold() {
         let mut tracker = CostTracker::new();
         let cards = default_rate_cards();
-        tracker.accumulate(1_000_000, 500_000, "openai", "gpt-4o", &cards);
+        tracker.accumulate(1_000_000, 500_000, PROVIDER_ID_OPENAI, "gpt-4o", &cards);
         // No threshold set -> never fires
         assert!(!tracker.budget_alert_needed(None));
     }

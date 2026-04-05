@@ -191,6 +191,90 @@ pub(super) fn compare_skill_variants(
         .then_with(|| left.relative_path.cmp(&right.relative_path))
 }
 
+pub(super) fn describe_skill_variant_lifecycle(record: &SkillVariantRecord, now: u64) -> String {
+    match record.status.as_str() {
+        "merged" => {
+            if record.parent_variant_id.is_some() {
+                "merged back into its parent/canonical variant after proving stable enough to fold in"
+                    .to_string()
+            } else {
+                "merged into another variant after proving stable enough to fold in".to_string()
+            }
+        }
+        "promoted-to-canonical" => {
+            "promoted because it outperformed the previous canonical path on real usage".to_string()
+        }
+        "deprecated" => "kept for reference after a stronger branch displaced it".to_string(),
+        "archived" => {
+            let idle_secs = record
+                .last_used_at
+                .map(|value| now.saturating_sub(value))
+                .unwrap_or_else(|| now.saturating_sub(record.created_at));
+            let stale = record.use_count >= SKILL_ARCHIVE_MIN_USES
+                && idle_secs >= SKILL_ARCHIVE_MAX_IDLE_SECS;
+            let low_value = record.use_count >= SKILL_ARCHIVE_MIN_USES
+                && record.success_rate() < SKILL_ARCHIVE_SUCCESS_RATE_THRESHOLD;
+            match (stale, low_value) {
+                (true, true) => format!(
+                    "archived because it went stale for {} day(s) and underperformed at {:.0}% success over {} uses",
+                    idle_secs / 86_400,
+                    record.success_rate() * 100.0,
+                    record.use_count
+                ),
+                (true, false) => format!(
+                    "archived because it went stale for {} day(s) without enough recent demand",
+                    idle_secs / 86_400
+                ),
+                (false, true) => format!(
+                    "archived because it underperformed at {:.0}% success over {} uses",
+                    record.success_rate() * 100.0,
+                    record.use_count
+                ),
+                (false, false) => "archived by lifecycle policy".to_string(),
+            }
+        }
+        "active" if record.is_canonical() => {
+            "active canonical fallback for this skill family".to_string()
+        }
+        "active" => "active branch variant still competing on context fit and historical success"
+            .to_string(),
+        other => format!("current lifecycle status is {other}"),
+    }
+}
+
+pub(super) fn describe_skill_variant_selection(
+    record: &SkillVariantRecord,
+    context_tags: &[String],
+) -> String {
+    let matched_context = context_tags
+        .iter()
+        .filter(|tag| {
+            record
+                .context_tags
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(tag))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let context_reason = if matched_context.is_empty() {
+        if record.is_canonical() {
+            "no context tags matched, so canonical fallback weight dominated".to_string()
+        } else {
+            "no context tags matched, so ranking fell back to lifecycle status and history"
+                .to_string()
+        }
+    } else {
+        format!("matched context tags: {}", matched_context.join(", "))
+    };
+    format!(
+        "{}; status={} with {:.0}% success across {} use(s)",
+        context_reason,
+        record.status,
+        record.success_rate() * 100.0,
+        record.use_count
+    )
+}
+
 pub(super) fn skill_status_rank(status: &str) -> u8 {
     match status {
         "promoted-to-canonical" => 4,
@@ -268,11 +352,7 @@ pub(super) fn skill_content_similarity(left: &str, right: &str) -> f64 {
     }
     let overlap = left_tokens.intersection(&right_tokens).count() as f64;
     let union = left_tokens.union(&right_tokens).count() as f64;
-    if union == 0.0 {
-        0.0
-    } else {
-        overlap / union
-    }
+    if union == 0.0 { 0.0 } else { overlap / union }
 }
 
 pub(super) fn tokenize_skill_similarity(content: &str) -> BTreeSet<String> {

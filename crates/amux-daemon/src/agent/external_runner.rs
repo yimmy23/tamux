@@ -310,6 +310,8 @@ impl ExternalAgentRunner {
             tps,
             generation_ms,
             reasoning: None,
+            upstream_message: None,
+            provider_final_result: None,
         });
 
         tracing::info!(

@@ -273,6 +273,7 @@ impl ChatState {
                 tps,
                 generation_ms,
                 reasoning,
+                provider_final_result_json,
             } => {
                 self.pinned_message_top = None;
                 self.retry_status = None;
@@ -297,6 +298,7 @@ impl ChatState {
                             } else {
                                 Some(final_reasoning)
                             },
+                            provider_final_result_json,
                             input_tokens,
                             output_tokens,
                             tps,

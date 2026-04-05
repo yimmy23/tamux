@@ -1,4 +1,11 @@
 use super::*;
+use std::collections::BTreeSet;
+
+const LEARNED_SHORTCUT_MIN_REQUESTS: u64 = 3;
+const AUTO_APPROVE_RATE_THRESHOLD: f64 = 0.95;
+const AUTO_DENY_RATE_THRESHOLD: f64 = 0.05;
+const FAST_DENIAL_AUTO_DENY_THRESHOLD: u64 = 3;
+const FAST_DENIAL_MAX_APPROVAL_RATE: f64 = 0.34;
 
 pub(crate) fn count_words(content: &str) -> usize {
     content
@@ -161,6 +168,55 @@ pub(crate) fn refresh_risk_metrics(risk: &mut RiskFingerprint) {
     } else {
         RiskTolerance::Moderate
     };
+
+    let mut shortcut_candidates = risk
+        .category_requests
+        .iter()
+        .map(|(category, requests)| {
+            (
+                category.clone(),
+                *requests,
+                risk.approval_rate_by_category
+                    .get(category)
+                    .copied()
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    shortcut_candidates
+        .sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+
+    risk.auto_approve_categories = shortcut_candidates
+        .iter()
+        .filter(|(_, requests, approval_rate)| {
+            *requests >= LEARNED_SHORTCUT_MIN_REQUESTS
+                && *approval_rate >= AUTO_APPROVE_RATE_THRESHOLD
+        })
+        .map(|(category, _, _)| category.clone())
+        .collect();
+    let mut auto_deny = shortcut_candidates
+        .iter()
+        .filter(|(_, requests, approval_rate)| {
+            *requests >= LEARNED_SHORTCUT_MIN_REQUESTS && *approval_rate <= AUTO_DENY_RATE_THRESHOLD
+        })
+        .map(|(category, _, _)| category.clone())
+        .collect::<BTreeSet<_>>();
+
+    for (category, requests, approval_rate) in &shortcut_candidates {
+        let fast_denials = risk
+            .fast_denials_by_category
+            .get(category)
+            .copied()
+            .unwrap_or_default();
+        if *requests >= FAST_DENIAL_AUTO_DENY_THRESHOLD
+            && fast_denials >= FAST_DENIAL_AUTO_DENY_THRESHOLD
+            && *approval_rate <= FAST_DENIAL_MAX_APPROVAL_RATE
+        {
+            auto_deny.insert(category.clone());
+        }
+    }
+
+    risk.auto_deny_categories = auto_deny.into_iter().collect();
 }
 
 pub(crate) fn most_common_hour(histogram: &HashMap<u8, u64>) -> Option<u8> {

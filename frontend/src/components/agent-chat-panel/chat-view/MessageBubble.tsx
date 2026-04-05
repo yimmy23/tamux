@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentMessage } from "../../../lib/agentStore";
 import { parseHandoffSystemEvent } from "./helpers";
 import { MarkdownContent } from "./markdown";
+import { buildProviderFinalResultPresentation } from "../providerFinalResultPresentation";
 
 function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -59,9 +60,13 @@ export function MessageBubble({
   const [copied, setCopied] = useState(false);
   const [expandedCompaction, setExpandedCompaction] = useState(false);
   const [expandedHandoff, setExpandedHandoff] = useState(false);
+  const [expandedProviderResult, setExpandedProviderResult] = useState(false);
   const handoffEvent = isSystem && typeof message.content === "string"
     ? parseHandoffSystemEvent(message.content)
     : null;
+  const providerFinalResult = buildProviderFinalResultPresentation(
+    message.providerFinalResult,
+  );
   const displayContent = (() => {
     if (!isUser || typeof message.content !== "string") return message.content;
     if (!message.content.startsWith("[Gateway Context]")) return message.content;
@@ -176,6 +181,46 @@ export function MessageBubble({
               <MarkdownContent content={message.reasoning} />
             </div>
           </details>
+        )}
+
+        {isAssistant && providerFinalResult && (
+          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+            <button
+              onClick={() => setExpandedProviderResult((current) => !current)}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--glass-border)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 11,
+                padding: "4px 8px",
+                width: "fit-content",
+                textTransform: "capitalize",
+              }}
+            >
+              {expandedProviderResult
+                ? `Hide ${providerFinalResult.label}`
+                : `Show ${providerFinalResult.label}`}
+            </button>
+            {expandedProviderResult && (
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "8px",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {providerFinalResult.prettyJson}
+              </pre>
+            )}
+          </div>
         )}
 
         {handoffEvent ? (

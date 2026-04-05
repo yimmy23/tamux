@@ -5,10 +5,12 @@ async fn provider_auth_state_round_trips_by_provider_and_mode() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
 
-    assert!(store
-        .load_provider_auth_state("openai", "chatgpt_subscription")
-        .await?
-        .is_none());
+    assert!(
+        store
+            .load_provider_auth_state("openai", "chatgpt_subscription")
+            .await?
+            .is_none()
+    );
 
     let state = serde_json::json!({
         "access_token": "token",
@@ -28,10 +30,12 @@ async fn provider_auth_state_round_trips_by_provider_and_mode() -> Result<()> {
     assert_eq!(row.auth_mode, "chatgpt_subscription");
     assert_eq!(row.state_json, state);
 
-    assert!(store
-        .load_provider_auth_state("openai", "github_copilot")
-        .await?
-        .is_none());
+    assert!(
+        store
+            .load_provider_auth_state("openai", "github_copilot")
+            .await?
+            .is_none()
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -61,14 +65,18 @@ async fn provider_auth_state_delete_removes_only_target_mode() -> Result<()> {
         .delete_provider_auth_state("openai", "chatgpt_subscription")
         .await?;
 
-    assert!(store
-        .load_provider_auth_state("openai", "chatgpt_subscription")
-        .await?
-        .is_none());
-    assert!(store
-        .load_provider_auth_state("openai", "api_key")
-        .await?
-        .is_some());
+    assert!(
+        store
+            .load_provider_auth_state("openai", "chatgpt_subscription")
+            .await?
+            .is_none()
+    );
+    assert!(
+        store
+            .load_provider_auth_state("openai", "api_key")
+            .await?
+            .is_some()
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -99,10 +107,12 @@ async fn replay_cursor_round_trips_by_platform_and_channel() -> Result<()> {
     assert_eq!(row.cursor_type, "message_id");
 
     // different channel should be none
-    assert!(store
-        .load_gateway_replay_cursor("whatsapp", "other")
-        .await?
-        .is_none());
+    assert!(
+        store
+            .load_gateway_replay_cursor("whatsapp", "other")
+            .await?
+            .is_none()
+    );
 
     let rows = store.load_gateway_replay_cursors("whatsapp").await?;
     assert_eq!(rows.len(), 1);

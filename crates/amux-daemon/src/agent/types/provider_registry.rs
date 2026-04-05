@@ -1,3 +1,5 @@
+use amux_shared::providers::*;
+
 pub const CHAT_ONLY_TRANSPORTS: &[ApiTransport] = &[ApiTransport::ChatCompletions];
 pub const RESPONSES_AND_CHAT_TRANSPORTS: &[ApiTransport] =
     &[ApiTransport::Responses, ApiTransport::ChatCompletions];
@@ -6,7 +8,7 @@ pub const NATIVE_AND_CHAT_TRANSPORTS: &[ApiTransport] =
 
 pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
     ProviderDefinition {
-        id: "featherless",
+        id: PROVIDER_ID_FEATHERLESS,
         name: "Featherless",
         default_base_url: "https://api.featherless.ai/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
@@ -22,7 +24,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "openai",
+        id: PROVIDER_ID_OPENAI,
         name: "OpenAI",
         default_base_url: "https://api.openai.com/v1",
         default_model: "gpt-4o",
@@ -38,7 +40,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: true,
     },
     ProviderDefinition {
-        id: "github-copilot",
+        id: PROVIDER_ID_GITHUB_COPILOT,
         name: "GitHub Copilot",
         default_base_url: "https://api.githubcopilot.com",
         default_model: "gpt-4.1",
@@ -54,7 +56,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: true,
     },
     ProviderDefinition {
-        id: "qwen",
+        id: PROVIDER_ID_QWEN,
         name: "Qwen",
         default_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         default_model: "qwen-max",
@@ -70,7 +72,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "qwen-deepinfra",
+        id: PROVIDER_ID_QWEN_DEEPINFRA,
         name: "Qwen (DeepInfra)",
         default_base_url: "https://api.deepinfra.com/v1/openai",
         default_model: "Qwen/Qwen2.5-72B-Instruct",
@@ -86,7 +88,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "kimi",
+        id: PROVIDER_ID_KIMI,
         name: "Kimi (Moonshot)",
         default_base_url: "https://api.moonshot.ai/v1",
         default_model: "moonshot-v1-32k",
@@ -102,7 +104,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "kimi-coding-plan",
+        id: PROVIDER_ID_KIMI_CODING_PLAN,
         name: "Kimi Coding Plan",
         default_base_url: "https://api.kimi.com/coding/v1",
         default_model: "kimi-for-coding",
@@ -118,7 +120,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "z.ai",
+        id: PROVIDER_ID_Z_AI,
         name: "Z.AI (GLM)",
         default_base_url: "https://api.z.ai/api/paas/v4",
         default_model: "glm-4-plus",
@@ -134,7 +136,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "z.ai-coding-plan",
+        id: PROVIDER_ID_Z_AI_CODING_PLAN,
         name: "Z.AI Coding Plan",
         default_base_url: "https://api.z.ai/api/coding/paas/v4",
         default_model: "glm-5",
@@ -150,10 +152,10 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "openrouter",
+        id: PROVIDER_ID_OPENROUTER,
         name: "OpenRouter",
         default_base_url: "https://openrouter.ai/api/v1",
-        default_model: "anthropic/claude-sonnet-4",
+        default_model: "arcee-ai/trinity-large-thinking",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: OPENROUTER_MODELS,
@@ -166,7 +168,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "cerebras",
+        id: PROVIDER_ID_CEREBRAS,
         name: "Cerebras",
         default_base_url: "https://api.cerebras.ai/v1",
         default_model: "llama-3.3-70b",
@@ -182,7 +184,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "together",
+        id: PROVIDER_ID_TOGETHER,
         name: "Together",
         default_base_url: "https://api.together.xyz/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
@@ -198,7 +200,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "groq",
+        id: PROVIDER_ID_GROQ,
         name: "Groq",
         default_base_url: "https://api.groq.com/openai/v1",
         default_model: "llama-3.3-70b-versatile",
@@ -214,7 +216,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "ollama",
+        id: PROVIDER_ID_OLLAMA,
         name: "Ollama",
         default_base_url: "http://localhost:11434/v1",
         default_model: "llama3.1",
@@ -230,7 +232,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "chutes",
+        id: PROVIDER_ID_CHUTES,
         name: "Chutes",
         default_base_url: "https://llm.chutes.ai/v1",
         default_model: "deepseek-ai/DeepSeek-V3",
@@ -246,7 +248,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "huggingface",
+        id: PROVIDER_ID_HUGGINGFACE,
         name: "Hugging Face",
         default_base_url: "https://api-inference.huggingface.co/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
@@ -262,7 +264,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "minimax",
+        id: PROVIDER_ID_MINIMAX,
         name: "MiniMax",
         default_base_url: "https://api.minimax.io/anthropic",
         default_model: "MiniMax-M1-80k",
@@ -278,7 +280,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "minimax-coding-plan",
+        id: PROVIDER_ID_MINIMAX_CODING_PLAN,
         name: "MiniMax Coding Plan",
         default_base_url: "https://api.minimax.io/anthropic",
         default_model: "MiniMax-M2.7",
@@ -294,7 +296,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "alibaba-coding-plan",
+        id: PROVIDER_ID_ALIBABA_CODING_PLAN,
         name: "Alibaba Coding Plan",
         default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
         default_model: "qwen3.5-plus",
@@ -310,7 +312,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "opencode-zen",
+        id: PROVIDER_ID_OPENCODE_ZEN,
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
         default_model: "claude-sonnet-4-5",
@@ -326,7 +328,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
-        id: "custom",
+        id: PROVIDER_ID_CUSTOM,
         name: "Custom",
         default_base_url: "",
         default_model: "",
@@ -373,8 +375,23 @@ fn is_alibaba_coding_plan_anthropic_url(base_url: &str) -> bool {
     lower.contains("dashscope.aliyuncs.com") && lower.contains("/apps/anthropic")
 }
 
+fn is_direct_anthropic_url(base_url: &str) -> bool {
+    let lower = base_url.trim().to_ascii_lowercase();
+    lower == "https://api.anthropic.com"
+        || lower == "http://api.anthropic.com"
+        || lower.starts_with("https://api.anthropic.com/")
+        || lower.starts_with("http://api.anthropic.com/")
+}
+
 pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &str) -> ApiType {
-    if provider_id == "alibaba-coding-plan" && is_alibaba_coding_plan_anthropic_url(configured_url)
+    if provider_id == PROVIDER_ID_ANTHROPIC
+        || (model.starts_with("claude") && is_direct_anthropic_url(configured_url))
+    {
+        return ApiType::Anthropic;
+    }
+
+    if provider_id == PROVIDER_ID_ALIBABA_CODING_PLAN
+        && is_alibaba_coding_plan_anthropic_url(configured_url)
     {
         return ApiType::Anthropic;
     }
@@ -389,7 +406,7 @@ pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &st
                 } else {
                     ApiType::OpenAI
                 }
-            } else if provider_id == "opencode-zen" && !model.starts_with("claude") {
+            } else if provider_id == PROVIDER_ID_OPENCODE_ZEN && !model.starts_with("claude") {
                 ApiType::OpenAI
             } else {
                 d.api_type

@@ -136,10 +136,133 @@ async fn execute_managed_command(
         source: ManagedCommandSource::Agent,
     };
 
-    match session_manager
+    let response = match session_manager
         .execute_managed_command(resolved_session_id, request)
         .await?
     {
+        DaemonMessage::ApprovalRequired { mut approval, .. } => {
+            if let Some(advisory) = agent
+                .command_blast_radius_advisory("execute_managed_command", command)
+                .await
+            {
+                approval
+                    .reasons
+                    .push(format!("causal history: {}", advisory.evidence));
+                for reason in advisory.recent_reasons.iter().take(2) {
+                    approval.reasons.push(format!(
+                        "recent related issue: {}",
+                        crate::agent::summarize_text(reason, 120)
+                    ));
+                }
+                if approval.risk_level == "medium" && advisory.risk_level == "high" {
+                    approval.risk_level = "high".to_string();
+                }
+                if !approval.blast_radius.contains("historical") {
+                    approval.blast_radius =
+                        format!("{} + historical {}", approval.blast_radius, advisory.family);
+                }
+            }
+
+            let pending_approval = ToolPendingApproval {
+                approval_id: approval.approval_id,
+                execution_id: approval.execution_id,
+                command: approval.command,
+                rationale: approval.rationale,
+                risk_level: approval.risk_level,
+                blast_radius: approval.blast_radius,
+                reasons: approval.reasons,
+                session_id: Some(resolved_session_id.to_string()),
+            };
+            let command_category = crate::agent::classify_command_category(
+                &pending_approval.command,
+                &pending_approval.risk_level,
+            )
+            .to_string();
+
+            match agent
+                .learned_approval_decision(&pending_approval.command, &pending_approval.risk_level)
+                .await
+            {
+                Some(amux_protocol::ApprovalDecision::ApproveOnce)
+                | Some(amux_protocol::ApprovalDecision::ApproveSession) => {
+                    agent
+                        .record_operator_approval_requested(&pending_approval)
+                        .await?;
+                    let responses = session_manager
+                        .resolve_approval(
+                            resolved_session_id,
+                            &pending_approval.approval_id,
+                            amux_protocol::ApprovalDecision::ApproveOnce,
+                        )
+                        .await?;
+                    agent
+                        .record_operator_approval_resolution(
+                            &pending_approval.approval_id,
+                            amux_protocol::ApprovalDecision::ApproveOnce,
+                        )
+                        .await?;
+                    responses
+                        .into_iter()
+                        .find(|message| matches!(message, DaemonMessage::ManagedCommandQueued { .. }))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "managed command auto-approved but queue response was missing"
+                            )
+                        })?
+                }
+                Some(amux_protocol::ApprovalDecision::Deny) => {
+                    agent
+                        .record_operator_approval_requested(&pending_approval)
+                        .await?;
+                    let responses = session_manager
+                        .resolve_approval(
+                            resolved_session_id,
+                            &pending_approval.approval_id,
+                            amux_protocol::ApprovalDecision::Deny,
+                        )
+                        .await?;
+                    agent
+                        .record_operator_approval_resolution(
+                            &pending_approval.approval_id,
+                            amux_protocol::ApprovalDecision::Deny,
+                        )
+                        .await?;
+                    let rejection_message = responses
+                        .iter()
+                        .find_map(|message| match message {
+                            DaemonMessage::ManagedCommandRejected { message, .. } => {
+                                Some(message.clone())
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| "execution denied by learned operator policy".to_string());
+                    return Ok((
+                        format!(
+                            "Managed command auto-denied by learned operator policy for category {}. {}",
+                            command_category, rejection_message
+                        ),
+                        None,
+                    ));
+                }
+                None => {
+                    return Ok((
+                        format!(
+                            "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
+                            pending_approval.approval_id,
+                            pending_approval.risk_level,
+                            pending_approval.blast_radius,
+                            pending_approval.command,
+                            pending_approval.reasons.join("\n- "),
+                        ),
+                        Some(pending_approval),
+                    ));
+                }
+            }
+        }
+        other => other,
+    };
+
+    match response {
         DaemonMessage::ManagedCommandQueued {
             execution_id,
             position,
@@ -304,50 +427,6 @@ async fn execute_managed_command(
                     ))
                 }
             }
-        }
-        DaemonMessage::ApprovalRequired { mut approval, .. } => {
-            if let Some(advisory) = agent
-                .command_blast_radius_advisory("execute_managed_command", command)
-                .await
-            {
-                approval
-                    .reasons
-                    .push(format!("causal history: {}", advisory.evidence));
-                for reason in advisory.recent_reasons.iter().take(2) {
-                    approval.reasons.push(format!(
-                        "recent related issue: {}",
-                        crate::agent::summarize_text(reason, 120)
-                    ));
-                }
-                if approval.risk_level == "medium" && advisory.risk_level == "high" {
-                    approval.risk_level = "high".to_string();
-                }
-                if !approval.blast_radius.contains("historical") {
-                    approval.blast_radius =
-                        format!("{} + historical {}", approval.blast_radius, advisory.family);
-                }
-            }
-
-            Ok((
-                format!(
-                    "Managed command requires approval before execution. Approval ID: {}\nRisk: {}\nBlast radius: {}\nCommand: {}\nReasons:\n- {}",
-                    approval.approval_id,
-                    approval.risk_level,
-                    approval.blast_radius,
-                    approval.command,
-                    approval.reasons.join("\n- "),
-                ),
-                Some(ToolPendingApproval {
-                    approval_id: approval.approval_id,
-                    execution_id: approval.execution_id,
-                    command: approval.command,
-                    rationale: approval.rationale,
-                    risk_level: approval.risk_level,
-                    blast_radius: approval.blast_radius,
-                    reasons: approval.reasons,
-                    session_id: Some(resolved_session_id.to_string()),
-                }),
-            ))
         }
         other => Err(anyhow::anyhow!(
             "unexpected managed command response: {}",

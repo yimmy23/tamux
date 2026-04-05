@@ -1,4 +1,5 @@
 use anyhow::Result;
+use amux_shared::providers::PROVIDER_ID_OPENAI as OPENAI_PROVIDER_ID;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
@@ -13,7 +14,6 @@ const OPENAI_CODEX_AUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/aut
 pub(crate) const OPENAI_CODEX_AUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const OPENAI_CODEX_AUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const OPENAI_CODEX_AUTH_SCOPE: &str = "openid profile email offline_access";
-const OPENAI_PROVIDER_ID: &str = "openai";
 pub(crate) const OPENAI_AUTH_MODE: &str = "chatgpt_subscription";
 pub(crate) const OPENAI_CODEX_AUTH_PROVIDER: &str = "openai-codex";
 const OPENAI_CODEX_AUTH_FAILED_MESSAGE: &str =

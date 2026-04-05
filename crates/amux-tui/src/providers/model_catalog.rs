@@ -1,3 +1,4 @@
+use amux_shared::providers::*;
 use crate::state::config::FetchedModel;
 
 pub(super) fn known_models_for_provider_auth(
@@ -5,7 +6,7 @@ pub(super) fn known_models_for_provider_auth(
     auth_source: &str,
 ) -> Vec<FetchedModel> {
     let models: &[(&str, &str, u32)] = match provider {
-        "openai" if auth_source == "chatgpt_subscription" => &[
+        PROVIDER_ID_OPENAI if auth_source == "chatgpt_subscription" => &[
             ("gpt-5.4", "GPT-5.4", 1_000_000),
             ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
             ("gpt-5.3-codex", "GPT-5.3 Codex", 400_000),
@@ -14,7 +15,7 @@ pub(super) fn known_models_for_provider_auth(
             ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", 400_000),
             ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", 400_000),
         ],
-        "openai" => &[
+        PROVIDER_ID_OPENAI => &[
             ("gpt-5.4", "GPT-5.4", 1_000_000),
             ("gpt-5.4-mini", "GPT-5.4 Mini", 400_000),
             ("gpt-5.4-nano", "GPT-5.4 Nano", 400_000),
@@ -37,7 +38,7 @@ pub(super) fn known_models_for_provider_auth(
             ("gpt-4o", "GPT-4o", 128_000),
             ("gpt-4o-mini", "GPT-4o Mini", 128_000),
         ],
-        "github-copilot" => &[
+        PROVIDER_ID_GITHUB_COPILOT => &[
             ("claude-haiku-4.5", "Claude Haiku 4.5", 160_000),
             ("claude-opus-4.5", "Claude Opus 4.5", 160_000),
             ("claude-opus-4.6", "Claude Opus 4.6", 192_000),
@@ -80,18 +81,18 @@ pub(super) fn known_models_for_provider_auth(
             ("raptor-mini", "Raptor mini (Preview)", 264_000),
             ("goldeneye", "Goldeneye", 524_000),
         ],
-        "groq" => &[
+        PROVIDER_ID_GROQ => &[
             ("llama-3.3-70b-versatile", "Llama 3.3 70B", 128_000),
             ("llama-3.1-8b-instant", "Llama 3.1 8B", 131_072),
             ("gemma2-9b-it", "Gemma 2 9B", 8_192),
         ],
-        "ollama" => &[
+        PROVIDER_ID_OLLAMA => &[
             ("llama3.3", "Llama 3.3", 128_000),
             ("qwen2.5-coder", "Qwen 2.5 Coder", 32_768),
             ("deepseek-r1", "DeepSeek R1", 64_000),
             ("mistral", "Mistral", 32_768),
         ],
-        "together" => &[
+        PROVIDER_ID_TOGETHER => &[
             (
                 "meta-llama/Llama-3.3-70B-Instruct-Turbo",
                 "Llama 3.3 70B",
@@ -112,27 +113,28 @@ pub(super) fn known_models_for_provider_auth(
                 32_768,
             ),
         ],
-        "z.ai" | "z.ai-coding-plan" => &[
+        PROVIDER_ID_Z_AI | PROVIDER_ID_Z_AI_CODING_PLAN => &[
             ("glm-5.1", "GLM-5.1", 204_800),
             ("glm-4.7", "GLM-4.7", 128_000),
             ("glm-4.7-air", "GLM-4.7 Air", 128_000),
             ("glm-4.7-flash", "GLM-4.7 Flash", 128_000),
             ("glm-5", "GLM-5", 128_000),
         ],
-        "kimi" => &[
+        PROVIDER_ID_KIMI => &[
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("kimi-for-coding", "Kimi for Coding", 128_000),
         ],
-        "kimi-coding-plan" => &[
+        PROVIDER_ID_KIMI_CODING_PLAN => &[
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("kimi-for-coding", "Kimi for Coding", 128_000),
         ],
-        "qwen" => &[
+        PROVIDER_ID_QWEN => &[
             ("qwen-max", "Qwen Max", 32_768),
             ("qwen-plus", "Qwen Plus", 131_072),
             ("qwen-turbo", "Qwen Turbo", 131_072),
         ],
-        "openrouter" => &[
+        PROVIDER_ID_OPENROUTER => &[
+            ("arcee/trinity-large-thinking", "Trinity Large Thinking", 262_144),
             ("anthropic/claude-opus-4-6", "Claude Opus 4.6", 1_000_000),
             ("openai/gpt-4.1", "GPT-4.1", 1_000_000),
             ("google/gemini-2.5-pro", "Gemini 2.5 Pro", 1_000_000),
@@ -142,16 +144,16 @@ pub(super) fn known_models_for_provider_auth(
                 128_000,
             ),
         ],
-        "cerebras" => &[("llama-3.3-70b", "Llama 3.3 70B", 128_000)],
-        "minimax" => &[
+        PROVIDER_ID_CEREBRAS => &[("llama-3.3-70b", "Llama 3.3 70B", 128_000)],
+        PROVIDER_ID_MINIMAX => &[
             ("MiniMax-M2.7", "MiniMax M2.7", 205_000),
             ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
         ],
-        "minimax-coding-plan" => &[
+        PROVIDER_ID_MINIMAX_CODING_PLAN => &[
             ("MiniMax-M2.7", "MiniMax M2.7", 205_000),
             ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
         ],
-        "alibaba-coding-plan" => &[
+        PROVIDER_ID_ALIBABA_CODING_PLAN => &[
             ("qwen3-coder-plus", "Qwen3 Coder Plus", 997_952),
             ("qwen3-coder-next", "Qwen3 Coder Next", 204_800),
             ("qwen3.5-plus", "Qwen3.5 Plus", 983_616),
@@ -159,12 +161,12 @@ pub(super) fn known_models_for_provider_auth(
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
         ],
-        "huggingface" => &[(
+        PROVIDER_ID_HUGGINGFACE => &[(
             "meta-llama/Llama-3.3-70B-Instruct",
             "Llama 3.3 70B",
             128_000,
         )],
-        "chutes" => &[("deepseek-ai/DeepSeek-V3", "DeepSeek V3", 128_000)],
+        PROVIDER_ID_CHUTES => &[("deepseek-ai/DeepSeek-V3", "DeepSeek V3", 128_000)],
         _ => &[],
     };
     models

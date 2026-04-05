@@ -4,7 +4,7 @@ tamux's daemon agent is a **self-orchestrating system** — it can autonomously 
 
 For the broader current-system view covering daemon ownership, memory layers, persistence, clients, and self-orchestrating capabilities, see [how-tamux-works.md](./how-tamux-works.md).
 
-> **Quick orientation:** The agent module lives at `crates/amux-daemon/src/agent/` and is split into 56 focused files organized by responsibility. The entry point is `engine.rs` (struct definition) with the main execution loop in `agent_loop.rs`.
+> **Quick orientation:** The agent module lives at `crates/amux-daemon/src/agent/` and is split across many focused files and submodules organized by responsibility. The entry point is `engine.rs` (struct definition) with the main execution loop in `agent_loop.rs`.
 
 ---
 
@@ -282,6 +282,8 @@ Core orchestration state is stored in the daemon's `command-history.db` SQLite d
 | `context_archive` | Archived context with FTS5 full-text search |
 | `execution_traces` | Tool call sequences and outcome metrics |
 | `collaboration_sessions` | Persisted subagent collaboration-session snapshots |
+| `memory_provenance` | Durable memory writes with confirmation/retraction metadata |
+| `memory_provenance_relationships` | Explicit `retracts` links between memory provenance entries |
 
 ---
 
@@ -296,6 +298,10 @@ The IPC protocol includes these agent-specific messages:
 | `AgentRestoreCheckpoint` | `AgentCheckpointRestored` | Restore from checkpoint |
 | `AgentGetHealthStatus` | `AgentHealthStatus` | System health overview |
 | `AgentListHealthLog` | `AgentHealthLog` | Health state history |
+| `AgentGetMemoryProvenanceReport` | `AgentMemoryProvenanceReport` | Query durable memory provenance state |
+| `AgentConfirmMemoryProvenanceEntry` | `AgentMemoryProvenanceConfirmed` | Confirm a durable memory fact |
+| `AgentRetractMemoryProvenanceEntry` | `AgentMemoryProvenanceRetracted` | Retract a durable memory fact |
+| `AgentListGeneratedTools` | `AgentGeneratedTools` | Inspect generated-tool registry state |
 
 Events broadcast to subscribed clients:
 
@@ -334,16 +340,6 @@ All fields are optional with `#[serde(default)]` — existing tasks work unchang
 
 ## Test Coverage
 
-The self-orchestrating agent system includes **376 unit tests** across all modules:
+The self-orchestrating agent system has broad unit coverage across orchestration, liveness, context, learning, and tool-composition modules.
 
-| Module | Tests |
-|--------|-------|
-| Sub-agent management | 102 |
-| Liveness | 70 |
-| Context management | 53 |
-| Meta-cognitive loop | 58 |
-| Learning | 51 |
-| Tool composition | 14 |
-| Circuit breaker + rate limiter | 28 |
-
-All tests run in under 250ms with zero external dependencies.
+Because the suite changes frequently, treat the repository test commands as the source of truth rather than relying on a fixed count in this document.

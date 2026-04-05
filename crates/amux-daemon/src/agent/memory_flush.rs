@@ -1,5 +1,6 @@
 //! Pre-compaction memory flush for durable facts before older context is summarized away.
 
+use amux_shared::providers::PROVIDER_ID_OPENAI;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -201,7 +202,8 @@ fn select_memory_flush_transport(
     config: &AgentConfig,
     provider_config: &ProviderConfig,
 ) -> ApiTransport {
-    if config.provider == "openai" && provider_config.auth_source == AuthSource::ChatgptSubscription
+    if config.provider == PROVIDER_ID_OPENAI
+        && provider_config.auth_source == AuthSource::ChatgptSubscription
     {
         return ApiTransport::Responses;
     }

@@ -1,5 +1,6 @@
 use super::scan::{
-    parse_cargo_manifest, parse_compose_services, parse_package_manifest, parse_script_imports,
+    parse_cargo_manifest, parse_compose_services, parse_kubernetes_resources,
+    parse_package_manifest, parse_script_imports, parse_terraform_resources,
 };
 use super::*;
 use uuid::Uuid;
@@ -93,6 +94,78 @@ services:
 }
 
 #[test]
+fn parse_terraform_resources_extracts_resources_and_dependencies() -> Result<()> {
+        let root = make_temp_dir()?;
+        let manifest = root.join("main.tf");
+        fs::write(
+                &manifest,
+                r#"
+resource "aws_vpc" "core" {}
+
+resource "aws_subnet" "app" {
+    depends_on = [aws_vpc.core]
+}
+"#,
+        )?;
+
+        let resources = parse_terraform_resources(&manifest)?;
+        assert_eq!(resources.len(), 2);
+        let subnet = resources
+                .iter()
+                .find(|resource| resource.name == "app")
+                .expect("subnet resource should parse");
+        assert_eq!(subnet.system, "terraform");
+        assert_eq!(subnet.kind, "aws_subnet");
+        assert_eq!(subnet.dependencies, vec!["aws_vpc.core".to_string()]);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+}
+
+#[test]
+fn parse_kubernetes_resources_extracts_kinds_and_service_dependencies() -> Result<()> {
+        let root = make_temp_dir()?;
+        let manifest = root.join("k8s.yaml");
+        fs::write(
+                &manifest,
+                r#"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: api
+    namespace: default
+spec:
+    template:
+        spec:
+            serviceAccountName: api-sa
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: public
+spec:
+    defaultBackend:
+        service:
+            name: api
+            port:
+                number: 80
+"#,
+        )?;
+
+        let resources = parse_kubernetes_resources(&manifest)?;
+        assert_eq!(resources.len(), 2);
+        let ingress = resources
+                .iter()
+                .find(|resource| resource.kind == "Ingress")
+                .expect("ingress should parse");
+        assert_eq!(ingress.system, "kubernetes");
+        assert_eq!(ingress.dependencies, vec!["service:api".to_string()]);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+}
+
+#[test]
 fn parse_script_imports_extracts_modules() {
     let imports = parse_script_imports(
         r#"
@@ -124,6 +197,7 @@ fn render_service_dependents_lists_reverse_service_edges() {
             },
         ],
         import_files: Vec::new(),
+        infra_resources: Vec::new(),
     };
 
     let rendered = render_service_dependents(Path::new("/tmp"), &graph, Some("db")).unwrap();
@@ -135,6 +209,7 @@ fn render_imported_by_lists_matching_files() {
     let graph = SemanticGraph {
         packages: Vec::new(),
         services: Vec::new(),
+        infra_resources: Vec::new(),
         import_files: vec![
             SemanticImportFile {
                 language: "typescript",
@@ -171,11 +246,44 @@ fn render_dependents_lists_local_reverse_edges() {
             },
         ],
         services: Vec::new(),
+        infra_resources: Vec::new(),
         import_files: Vec::new(),
     };
 
     let rendered = render_dependents(Path::new("/tmp"), &graph, Some("amux-protocol")).unwrap();
     assert!(rendered.contains("amux-daemon"));
+}
+
+#[test]
+fn render_infra_lists_resources() {
+    let graph = SemanticGraph {
+        packages: Vec::new(),
+        services: Vec::new(),
+        infra_resources: vec![
+            SemanticInfraResource {
+                system: "terraform",
+                kind: "aws_vpc".to_string(),
+                name: "core".to_string(),
+                source_path: "/tmp/main.tf".to_string(),
+                namespace: None,
+                dependencies: vec![],
+            },
+            SemanticInfraResource {
+                system: "kubernetes",
+                kind: "Ingress".to_string(),
+                name: "public".to_string(),
+                source_path: "/tmp/k8s.yaml".to_string(),
+                namespace: Some("default".to_string()),
+                dependencies: vec!["service:api".to_string()],
+            },
+        ],
+        import_files: Vec::new(),
+    };
+
+    let rendered = render_infra(Path::new("/tmp"), &graph, 10);
+    assert!(rendered.contains("terraform"));
+    assert!(rendered.contains("Ingress"));
+    assert!(rendered.contains("service:api"));
 }
 
 #[test]
@@ -194,6 +302,7 @@ fn convention_entry_matches_fact_keys_and_content() {
         age_days: 0.0,
         confidence: 1.0,
         status: "active".to_string(),
+        relationships: Vec::new(),
     };
 
     assert!(convention_entry_matches(

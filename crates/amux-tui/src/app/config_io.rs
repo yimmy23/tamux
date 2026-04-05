@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI};
 
 #[path = "config_io_helpers.rs"]
 mod helpers;
@@ -61,7 +62,7 @@ impl TuiModel {
         let provider_id = json
             .get("provider")
             .and_then(|v| v.as_str())
-            .unwrap_or("openai");
+            .unwrap_or(PROVIDER_ID_OPENAI);
 
         let provider_config = json
             .get("providers")
@@ -121,7 +122,7 @@ impl TuiModel {
             self.config.provider = provider_id.to_string();
             // For predefined providers, always use the canonical base URL from the
             // provider definition so stale DB values cannot override it.
-            self.config.base_url = if provider_id != "custom" {
+            self.config.base_url = if provider_id != PROVIDER_ID_CUSTOM {
                 providers::find_by_id(provider_id)
                     .map(|def| def.default_base_url.to_string())
                     .unwrap_or_else(|| base_url.unwrap_or("").to_string())
@@ -426,7 +427,7 @@ impl TuiModel {
                     .and_then(|value| value.as_str())
                     .filter(|value| !value.is_empty())
             })
-            .unwrap_or("openai");
+            .unwrap_or(PROVIDER_ID_OPENAI);
         self.config.compaction_weles_provider = weles_provider.to_string();
         self.config.compaction_weles_model = compaction
             .and_then(|value| value.get("weles"))
@@ -493,7 +494,7 @@ impl TuiModel {
         } else {
             providers::default_model_for_provider_auth(custom_provider, &custom_auth_source)
         };
-        let default_custom_context_window = if custom_provider == "custom" {
+        let default_custom_context_window = if custom_provider == PROVIDER_ID_CUSTOM {
             128_000
         } else {
             providers::known_context_window_for(custom_provider, &default_custom_model)

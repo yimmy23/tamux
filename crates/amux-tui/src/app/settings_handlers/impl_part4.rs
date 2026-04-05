@@ -7,7 +7,7 @@ impl TuiModel {
                 self.execute_command("provider");
             }
             "model" => {
-                if self.config.provider == "custom" {
+                if self.config.provider == PROVIDER_ID_CUSTOM {
                     self.begin_custom_model_edit();
                 } else {
                     self.settings_picker_target = Some(SettingsPickerTarget::Model);
@@ -26,13 +26,13 @@ impl TuiModel {
                     .copied()
                     .unwrap_or("api_key")
                     .to_string();
-                if self.config.provider == "openai"
+                if self.config.provider == PROVIDER_ID_OPENAI
                     && self.config.auth_source == "chatgpt_subscription"
                 {
                     self.refresh_openai_auth_status();
                 }
                 self.refresh_provider_models_for_current_auth();
-                if self.config.provider == "openai"
+                if self.config.provider == PROVIDER_ID_OPENAI
                     && self.config.auth_source == "chatgpt_subscription"
                 {
                     self.config.api_transport = "responses".to_string();
@@ -72,7 +72,7 @@ impl TuiModel {
                     .copied()
                     .unwrap_or("chat_completions")
                     .to_string();
-                if self.config.provider == "openai"
+                if self.config.provider == PROVIDER_ID_OPENAI
                     && self.config.auth_source == "chatgpt_subscription"
                 {
                     self.config.api_transport = "responses".to_string();
@@ -225,6 +225,22 @@ impl TuiModel {
                 "honcho_workspace_id",
                 &self.config.honcho_workspace_id.clone(),
             ),
+            "operator_model_inspect" => {
+                self.send_daemon_command(DaemonCommand::GetOperatorModel);
+                self.status_line = "Loading operator model snapshot".to_string();
+            }
+            "operator_model_reset" => {
+                self.send_daemon_command(DaemonCommand::ResetOperatorModel);
+                self.status_line = "Resetting operator model".to_string();
+            }
+            "collaboration_sessions_inspect" => {
+                self.send_daemon_command(DaemonCommand::GetCollaborationSessions);
+                self.status_line = "Loading collaboration sessions".to_string();
+            }
+            "generated_tools_inspect" => {
+                self.send_daemon_command(DaemonCommand::GetGeneratedTools);
+                self.status_line = "Loading generated tools".to_string();
+            }
             "compliance_mode" => {
                 let next = match self.config.compliance_mode.as_str() {
                     "standard" => "soc2",
@@ -243,7 +259,7 @@ impl TuiModel {
                 "tool_synthesis_max_generated_tools",
                 &self.config.tool_synthesis_max_generated_tools.to_string(),
             ),
-            "context_window_tokens" if self.config.provider == "custom" => {
+            "context_window_tokens" if self.config.provider == PROVIDER_ID_CUSTOM => {
                 self.settings.start_editing(
                     "context_window_tokens",
                     &self

@@ -1,5 +1,9 @@
 use super::*;
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex as StdMutex};
+use tempfile::tempdir;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 fn sample_goal_run() -> GoalRun {
     GoalRun {
@@ -196,6 +200,65 @@ fn sample_session(session_id: &str, workspace_id: &str) -> amux_protocol::Sessio
         is_alive: true,
         active_command: Some("cargo test".to_string()),
     }
+}
+
+async fn spawn_goal_recording_server(
+    recorded_bodies: Arc<StdMutex<VecDeque<String>>>,
+    assistant_content: String,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind goal recording server");
+    let addr = listener.local_addr().expect("goal recording server addr");
+    let response_json = serde_json::to_string(&assistant_content)
+        .expect("assistant content should serialize");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let recorded_bodies = recorded_bodies.clone();
+            let response_json = response_json.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 65536];
+                let read = socket
+                    .read(&mut buffer)
+                    .await
+                    .expect("read goal recording request");
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let body = request
+                    .split("\r\n\r\n")
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
+                recorded_bodies
+                    .lock()
+                    .expect("lock goal request log")
+                    .push_back(body);
+
+                let response = format!(
+                    concat!(
+                        "HTTP/1.1 200 OK\r\n",
+                        "content-type: text/event-stream\r\n",
+                        "cache-control: no-cache\r\n",
+                        "connection: close\r\n",
+                        "\r\n",
+                        "data: {{\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n",
+                        "data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":7,\"completion_tokens\":3}}}}\n\n",
+                        "data: [DONE]\n\n"
+                    ),
+                    response_json
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write goal recording response");
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
 }
 
 #[test]
@@ -477,4 +540,90 @@ fn refresh_task_queue_state_requeues_parent_after_subagents_finish() {
     assert_eq!(parent.status, TaskStatus::Queued);
     assert!(parent.blocked_reason.is_none());
     assert_eq!(changed.len(), 1);
+}
+
+#[tokio::test]
+async fn request_goal_replan_includes_recovery_guidance_when_present() {
+    let recorded_bodies = Arc::new(StdMutex::new(VecDeque::new()));
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_goal_recording_server(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "title": "Revised plan",
+            "summary": "Retry with a narrower fix path",
+            "steps": [
+                {
+                    "title": "Retry step",
+                    "instructions": "Apply the smaller repair.",
+                    "kind": "command",
+                    "success_criteria": "command succeeds",
+                    "session_id": null,
+                    "llm_confidence": "likely",
+                    "llm_confidence_rationale": "Similar fixes recovered recently"
+                }
+            ],
+            "rejected_alternatives": ["Repeat the same failed command unchanged"]
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .history
+        .insert_causal_trace(
+            "causal_replan_guidance",
+            Some("thread-replan-guidance"),
+            None,
+            None,
+            "recovery",
+            &serde_json::json!({
+                "option_type": "replan_after_failure",
+                "reasoning": "Recovered from a previous failed step.",
+                "rejection_reason": null,
+                "estimated_success_prob": 0.71,
+                "arguments_hash": "ctx_hash"
+            })
+            .to_string(),
+            "[]",
+            "ctx_hash",
+            "[]",
+            &serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::NearMiss {
+                what_went_wrong: "step failed due to over-broad command".to_string(),
+                how_recovered: "replanned into smaller scoped steps".to_string(),
+            })
+            .expect("serialize outcome"),
+            Some("gpt-4o-mini"),
+            now_millis(),
+        )
+        .await
+        .expect("insert replan guidance trace");
+
+    let mut goal_run = sample_goal_run();
+    goal_run.thread_id = Some("thread-replan-guidance".to_string());
+
+    let _ = engine
+        .request_goal_replan(&goal_run, "managed command failed permanently")
+        .await
+        .expect("replan should succeed");
+
+    let recorded = recorded_bodies.lock().expect("lock recorded bodies");
+    let body = recorded.back().expect("expected one recorded request body");
+    assert!(
+        body.contains("Recent Causal Guidance"),
+        "expected replan prompt to include the recent causal guidance block"
+    );
+    assert!(
+        body.contains("replanned into smaller scoped steps"),
+        "expected recovery guidance text in the replan prompt"
+    );
 }

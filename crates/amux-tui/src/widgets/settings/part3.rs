@@ -57,13 +57,15 @@ fn render_provider_tab<'a>(
     } else {
         config.assistant_id.clone()
     };
+use amux_shared::providers::PROVIDER_ID_CUSTOM;
+
     let effort_val = if config.reasoning_effort().is_empty() {
         "off".to_string()
     } else {
         config.reasoning_effort().to_string()
     };
     let context_window_val = format!("{} tok", config.context_window_tokens);
-    let context_hint = if config.provider == "custom" {
+    let context_hint = if config.provider == PROVIDER_ID_CUSTOM {
         " [Enter: edit]"
     } else {
         ""
@@ -94,7 +96,7 @@ fn render_provider_tab<'a>(
             "Model",
             model_val,
             "model",
-            if config.provider == "custom" {
+            if config.provider == PROVIDER_ID_CUSTOM {
                 " [Enter: edit]"
             } else {
                 " [Enter: pick]"

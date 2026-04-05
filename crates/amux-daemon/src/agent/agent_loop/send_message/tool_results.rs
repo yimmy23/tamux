@@ -148,6 +148,8 @@ impl<'a> SendMessageRunner<'a> {
                     model: None,
                     api_transport: None,
                     response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
                     reasoning: None,
                     message_kind: AgentMessageKind::Normal,
                     compaction_strategy: None,
@@ -313,6 +315,8 @@ impl<'a> SendMessageRunner<'a> {
                 tps: None,
                 generation_ms: None,
                 reasoning: None,
+                upstream_message: None,
+                provider_final_result: None,
             });
             return Ok(ToolCallDisposition::BreakLoop);
         }

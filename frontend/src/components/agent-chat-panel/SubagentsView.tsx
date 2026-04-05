@@ -28,6 +28,23 @@ type RemoteAgentThread = {
     messages: RemoteAgentMessageRecord[];
 };
 
+type CollaborationDisagreement = {
+    id?: string;
+    topic?: string;
+    positions?: string[];
+    votes?: Array<unknown>;
+    resolution?: string | null;
+};
+
+type CollaborationSessionRecord = {
+    id: string;
+    parent_task_id?: string | null;
+    parent_thread_id?: string | null;
+    disagreements?: CollaborationDisagreement[];
+    agents?: Array<{ role?: string; status?: string }>;
+    consensus?: { topic?: string; summary?: string } | null;
+};
+
 function findTaskWorkspaceLocation(workspaces: Workspace[], sessionId: string | null | undefined): TaskWorkspaceLocation | null {
     if (!sessionId) {
         return null;
@@ -60,6 +77,9 @@ function findTaskWorkspaceLocation(workspaces: Workspace[], sessionId: string | 
 
 export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsViewProps) {
     const [runs, setRuns] = useState<AgentRun[]>([]);
+    const [collaborationSessions, setCollaborationSessions] = useState<CollaborationSessionRecord[]>([]);
+    const [collaborationStatus, setCollaborationStatus] = useState<string | null>(null);
+    const [loadingCollaboration, setLoadingCollaboration] = useState(false);
     const amux = getBridge();
     const workspaces = useWorkspaceStore((state) => state.workspaces);
     const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
@@ -77,6 +97,26 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
         const result = await fetchAgentRuns();
         setRuns(result);
     }, []);
+
+    const loadCollaborationSessions = useCallback(async () => {
+        if (!amux?.agentGetCollaborationSessions) {
+            setCollaborationStatus("Collaboration bridge unavailable.");
+            return;
+        }
+        setLoadingCollaboration(true);
+        try {
+            const result = await amux.agentGetCollaborationSessions(null) as CollaborationSessionRecord[] | { error?: string };
+            if (!Array.isArray(result)) {
+                throw new Error(result?.error || "Failed to load collaboration sessions.");
+            }
+            setCollaborationSessions(result);
+            setCollaborationStatus(`Loaded ${result.length} collaboration session${result.length === 1 ? "" : "s"}.`);
+        } catch (error) {
+            setCollaborationStatus(error instanceof Error ? error.message : "Failed to load collaboration sessions.");
+        } finally {
+            setLoadingCollaboration(false);
+        }
+    }, [amux]);
 
     useEffect(() => {
         void refreshRuns();
@@ -161,6 +201,35 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
         onOpenThreadView?.();
     }, [addMessage, amux, createThread, onOpenThreadView, setActiveThread, setThreadDaemonId, setThreadTodos, threads, workspaces]);
 
+    const voteOnDisagreement = useCallback(async (
+        session: CollaborationSessionRecord,
+        disagreement: CollaborationDisagreement,
+        position: string,
+    ) => {
+        if (!amux?.agentVoteOnCollaborationDisagreement || !session.parent_task_id || !disagreement.id) {
+            setCollaborationStatus("Collaboration vote bridge unavailable.");
+            return;
+        }
+        setLoadingCollaboration(true);
+        try {
+            const result = await amux.agentVoteOnCollaborationDisagreement(
+                session.parent_task_id,
+                disagreement.id,
+                "operator",
+                position,
+                1.0,
+            ) as { session_id?: string; resolution?: string; error?: string };
+            if (result?.error) {
+                throw new Error(result.error);
+            }
+            setCollaborationStatus(`Vote recorded: ${result?.resolution ?? "updated"}.`);
+            await loadCollaborationSessions();
+        } catch (error) {
+            setCollaborationStatus(error instanceof Error ? error.message : "Failed to vote on collaboration disagreement.");
+            setLoadingCollaboration(false);
+        }
+    }, [amux, loadCollaborationSessions]);
+
     return (
         <div style={{ padding: "var(--space-4)", overflow: "auto", height: "100%" }}>
             <MetricRibbon
@@ -173,6 +242,63 @@ export function SubagentsView({ onOpenThreadView, onOpenTasksView }: SubagentsVi
             />
 
             <SectionTitle title="Subagents" subtitle="Dedicated child-agent view grouped by parent task or thread" />
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", marginBottom: "var(--space-3)", flexWrap: "wrap" }}>
+                <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                    Collaboration Sessions
+                    {collaborationStatus ? ` · ${collaborationStatus}` : ""}
+                </div>
+                <ActionButton onClick={() => void loadCollaborationSessions()}>
+                    {loadingCollaboration ? "Loading..." : "Inspect Collaboration"}
+                </ActionButton>
+            </div>
+
+            {collaborationSessions.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
+                    {collaborationSessions.map((session) => (
+                        <div
+                            key={session.id}
+                            style={{
+                                border: "1px solid var(--border)",
+                                borderRadius: "var(--radius-md)",
+                                background: "var(--bg-secondary)",
+                                padding: "var(--space-3)",
+                            }}
+                        >
+                            <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-primary)" }}>
+                                Session {session.id}
+                            </div>
+                            <div style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginTop: 4 }}>
+                                {session.parent_task_id ? `task ${session.parent_task_id}` : session.parent_thread_id ? `thread ${session.parent_thread_id}` : "unscoped"}
+                                {` · ${session.agents?.length ?? 0} agent(s)`}
+                                {` · ${session.disagreements?.length ?? 0} disagreement(s)`}
+                            </div>
+                            {(session.disagreements ?? []).slice(0, 3).map((disagreement, index) => (
+                                <div key={`${session.id}-${index}`} style={{ marginTop: 6 }}>
+                                    <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+                                        {disagreement.topic ?? `disagreement ${index + 1}`}
+                                        {disagreement.resolution ? ` · ${disagreement.resolution}` : " · pending"}
+                                        {disagreement.positions?.length ? ` · ${disagreement.positions.length} position(s)` : ""}
+                                        {disagreement.votes?.length ? ` · ${disagreement.votes.length} vote(s)` : ""}
+                                    </div>
+                                    {(disagreement.positions ?? []).length > 0 ? (
+                                        <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", marginTop: 6 }}>
+                                            {(disagreement.positions ?? []).map((position) => (
+                                                <ActionButton
+                                                    key={`${session.id}-${disagreement.id ?? index}-${position}`}
+                                                    onClick={() => void voteOnDisagreement(session, disagreement, position)}
+                                                >
+                                                    {`Vote ${position}`}
+                                                </ActionButton>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            ) : null}
 
             {subagents.length === 0 ? (
                 <EmptyPanel message="No subagents have been spawned yet. Parent tasks can create them with spawn_subagent." />

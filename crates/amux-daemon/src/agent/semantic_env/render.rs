@@ -2,9 +2,13 @@ use super::scan::normalize_package_name;
 use super::*;
 
 pub(super) fn render_summary(root: &Path, graph: &SemanticGraph) -> String {
-    if graph.packages.is_empty() && graph.services.is_empty() && graph.import_files.is_empty() {
+    if graph.packages.is_empty()
+        && graph.services.is_empty()
+        && graph.infra_resources.is_empty()
+        && graph.import_files.is_empty()
+    {
         return format!(
-            "No semantic manifests, compose services, or import edges found under {}.",
+            "No semantic manifests, compose services, infra resources, or import edges found under {}.",
             root.display()
         );
     }
@@ -40,6 +44,11 @@ pub(super) fn render_summary(root: &Path, graph: &SemanticGraph) -> String {
         .iter()
         .map(|service| service.dependencies.len())
         .sum::<usize>();
+    let infra_edges = graph
+        .infra_resources
+        .iter()
+        .map(|resource| resource.dependencies.len())
+        .sum::<usize>();
     let import_edges = graph
         .import_files
         .iter()
@@ -47,14 +56,16 @@ pub(super) fn render_summary(root: &Path, graph: &SemanticGraph) -> String {
         .sum::<usize>();
 
     format!(
-        "Semantic workspace summary for {}:\n- packages: {}\n- services: {}\n- import files: {}\n- ecosystems: {}\n- local dependency edges: {}\n- service dependency edges: {}\n- code import edges: {}",
+        "Semantic workspace summary for {}:\n- packages: {}\n- services: {}\n- infra resources: {}\n- import files: {}\n- ecosystems: {}\n- local dependency edges: {}\n- service dependency edges: {}\n- infra dependency edges: {}\n- code import edges: {}",
         root.display(),
         graph.packages.len(),
         graph.services.len(),
+        graph.infra_resources.len(),
         graph.import_files.len(),
         ecosystems,
         local_edges,
         service_edges,
+        infra_edges,
         import_edges
     )
 }
@@ -172,6 +183,42 @@ pub(super) fn render_services(root: &Path, graph: &SemanticGraph, limit: usize) 
         lines.push(format!(
             "- ... {} more service(s) omitted",
             graph.services.len() - limit
+        ));
+    }
+    lines.join("\n")
+}
+
+pub(super) fn render_infra(root: &Path, graph: &SemanticGraph, limit: usize) -> String {
+    if graph.infra_resources.is_empty() {
+        return format!("No Terraform or Kubernetes resources found under {}.", root.display());
+    }
+
+    let mut lines = vec![format!("Infra resources under {}:", root.display())];
+    for resource in graph.infra_resources.iter().take(limit) {
+        let namespace = resource
+            .namespace
+            .as_deref()
+            .map(|value| format!(" ns={value}"))
+            .unwrap_or_default();
+        let deps = if resource.dependencies.is_empty() {
+            "0 deps".to_string()
+        } else {
+            format!("{} deps [{}]", resource.dependencies.len(), resource.dependencies.join(", "))
+        };
+        lines.push(format!(
+            "- [{}] {} {}{} {} ({})",
+            resource.system,
+            resource.kind,
+            resource.name,
+            namespace,
+            resource.source_path,
+            deps,
+        ));
+    }
+    if graph.infra_resources.len() > limit {
+        lines.push(format!(
+            "- ... {} more infra resource(s) omitted",
+            graph.infra_resources.len() - limit
         ));
     }
     lines.join("\n")

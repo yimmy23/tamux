@@ -182,3 +182,112 @@ async fn anticipatory_tick_ignores_weles_owned_stuck_tasks() {
         "WELES-owned blocked tasks should not surface as anticipatory hints"
     );
 }
+
+#[tokio::test]
+async fn session_start_prewarm_hydrates_active_attention_thread() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-prewarm"), None)
+        .await
+        .unwrap();
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-prewarm"),
+        "session-start prewarm should hydrate the active attention thread before surfacing items"
+    );
+}
+
+#[tokio::test]
+async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.stuck_detection = true;
+    config.anticipatory.stuck_detection_delay_seconds = 1;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut stale_task = sample_task("task-stale", Some("thread-surface"), None);
+    stale_task.title = "Review failing command".to_string();
+    stale_task.status = TaskStatus::InProgress;
+    stale_task.started_at = Some(now.saturating_sub(30_000));
+    stale_task.last_error = Some("command timed out while waiting for output".to_string());
+    engine.tasks.lock().await.push_back(stale_task);
+
+    engine
+        .set_thread_client_surface("thread-surface", amux_protocol::ClientSurface::Electron)
+        .await;
+    engine
+        .record_operator_attention("task:detail", Some("thread-surface"), None)
+        .await
+        .unwrap();
+    {
+        let mut runtime = engine.anticipatory.write().await;
+        runtime.last_presence_at = Some(now.saturating_sub(60_000));
+        runtime.active_attention_updated_at = Some(now.saturating_sub(60_000));
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "stuck_hint")
+        .expect("expected a stuck hint for the stale task");
+    assert_eq!(item.preferred_client_surface.as_deref(), Some("electron"));
+    assert_eq!(
+        item.preferred_attention_surface.as_deref(),
+        Some("task:detail")
+    );
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("Operator attention has been idle")),
+        "idle-aware heuristics should be surfaced in the stuck hint bullets"
+    );
+}
+
+#[tokio::test]
+async fn morning_brief_inherits_route_from_top_goal_surface() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut goal = sample_goal_run("goal-route", Some("thread-route"));
+    goal.title = "Resume release work".to_string();
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now;
+    goal.current_step_title = Some("publish the package".to_string());
+    engine.goal_runs.lock().await.push_back(goal);
+    engine
+        .set_goal_run_client_surface("goal-route", amux_protocol::ClientSurface::Tui)
+        .await;
+    engine.mark_operator_present("test").await;
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "morning_brief")
+        .expect("expected a morning brief");
+    assert_eq!(item.preferred_client_surface.as_deref(), Some("tui"));
+}

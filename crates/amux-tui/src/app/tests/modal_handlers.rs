@@ -1,4 +1,7 @@
 use super::*;
+use amux_shared::providers::{
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI,
+};
 use ratatui::layout::Rect;
 use tokio::sync::mpsc::unbounded_channel;
 
@@ -442,7 +445,7 @@ fn selecting_custom_provider_does_not_chain_into_model_picker() {
     let (mut model, _daemon_rx) = make_model();
     let custom_index = widgets::provider_picker::available_provider_defs(&model.auth)
         .iter()
-        .position(|provider| provider.id == "custom")
+        .position(|provider| provider.id == PROVIDER_ID_CUSTOM)
         .expect("custom provider to exist");
 
     model.settings_picker_target = Some(SettingsPickerTarget::Provider);
@@ -465,7 +468,7 @@ fn selecting_custom_provider_does_not_chain_into_model_picker() {
     );
 
     assert!(!quit);
-    assert_eq!(model.config.provider, "custom");
+    assert_eq!(model.config.provider, PROVIDER_ID_CUSTOM);
     assert_ne!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
 }
 
@@ -474,7 +477,7 @@ fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
     let (mut model, _daemon_rx) = make_model();
     let custom_index = widgets::provider_picker::available_provider_defs(&model.auth)
         .iter()
-        .position(|provider| provider.id == "custom")
+        .position(|provider| provider.id == PROVIDER_ID_CUSTOM)
         .expect("custom provider to exist");
 
     model
@@ -500,7 +503,7 @@ fn selecting_custom_provider_focuses_model_field_for_inline_entry() {
     );
 
     assert!(!quit);
-    assert_eq!(model.config.provider, "custom");
+    assert_eq!(model.config.provider, PROVIDER_ID_CUSTOM);
     assert_eq!(model.settings.current_field_name(), "model");
     assert_eq!(model.settings.field_cursor(), 3);
 }
@@ -510,7 +513,7 @@ fn provider_picker_filters_to_authenticated_entries_plus_custom() {
     let (mut model, _daemon_rx) = make_model();
     model.auth.entries = vec![
         crate::state::auth::ProviderAuthEntry {
-            provider_id: "openai".to_string(),
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
             provider_name: "OpenAI".to_string(),
             authenticated: true,
             auth_source: "api_key".to_string(),
@@ -526,15 +529,15 @@ fn provider_picker_filters_to_authenticated_entries_plus_custom() {
     ];
 
     let defs = widgets::provider_picker::available_provider_defs(&model.auth);
-    assert!(defs.iter().any(|provider| provider.id == "openai"));
-    assert!(defs.iter().any(|provider| provider.id == "custom"));
+    assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_OPENAI));
+    assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_CUSTOM));
     assert!(!defs.iter().any(|provider| provider.id == "groq"));
 }
 
 #[test]
 fn model_command_skips_remote_fetch_for_static_provider_catalogs() {
     let (mut model, mut daemon_rx) = make_model();
-    model.config.provider = "alibaba-coding-plan".to_string();
+    model.config.provider = PROVIDER_ID_ALIBABA_CODING_PLAN.to_string();
     model.config.base_url = "https://coding-intl.dashscope.aliyuncs.com/v1".to_string();
     model.config.model = "qwen3.5-plus".to_string();
     model.config.auth_source = "api_key".to_string();
@@ -554,7 +557,7 @@ fn model_command_skips_remote_fetch_for_static_provider_catalogs() {
 fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
     let (mut model, mut daemon_rx) = make_model();
     model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
-        provider_id: "alibaba-coding-plan".to_string(),
+        provider_id: PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
         provider_name: "Alibaba Coding Plan".to_string(),
         authenticated: true,
         auth_source: "api_key".to_string(),
@@ -563,7 +566,7 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
 
     let alibaba_index = widgets::provider_picker::available_provider_defs(&model.auth)
         .iter()
-        .position(|provider| provider.id == "alibaba-coding-plan")
+        .position(|provider| provider.id == PROVIDER_ID_ALIBABA_CODING_PLAN)
         .expect("alibaba-coding-plan to exist");
 
     model.settings_picker_target = Some(SettingsPickerTarget::Provider);
@@ -586,7 +589,7 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
     );
 
     assert!(!quit);
-    assert_eq!(model.config.provider, "alibaba-coding-plan");
+    assert_eq!(model.config.provider, PROVIDER_ID_ALIBABA_CODING_PLAN);
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
     while let Ok(command) = daemon_rx.try_recv() {
         if let DaemonCommand::FetchModels { .. } = command {
@@ -599,7 +602,7 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
 fn protected_weles_editor_can_open_provider_model_and_effort_pickers() {
     let (mut model, _daemon_rx) = make_model();
     model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
-        provider_id: "openai".to_string(),
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
         provider_name: "OpenAI".to_string(),
         authenticated: true,
         auth_source: "api_key".to_string(),
@@ -609,7 +612,7 @@ fn protected_weles_editor_can_open_provider_model_and_effort_pickers() {
     let mut editor = crate::state::subagents::SubAgentEditorState::new(
         Some("weles_builtin".to_string()),
         1,
-        "openai".to_string(),
+        PROVIDER_ID_OPENAI.to_string(),
         "gpt-5.4-mini".to_string(),
     );
     editor.name = "WELES".to_string();

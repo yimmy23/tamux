@@ -24,6 +24,7 @@ pub enum ClientEvent {
     ThreadCreated {
         thread_id: String,
         title: String,
+        agent_name: Option<String>,
     },
 
     TaskList(Vec<crate::state::task::AgentTask>),
@@ -122,6 +123,7 @@ pub enum ClientEvent {
         tps: Option<f64>,
         generation_ms: Option<u64>,
         reasoning: Option<String>,
+        provider_final_result_json: Option<String>,
     },
     WorkflowNotice {
         kind: String,
@@ -210,11 +212,26 @@ impl DaemonProjection {
                 vec![AppAction::Chat(ChatAction::ThreadDetailReceived(thread))]
             }
             ClientEvent::ThreadDetail(None) => vec![],
-            ClientEvent::ThreadCreated { thread_id, title } => {
-                vec![AppAction::Chat(ChatAction::ThreadCreated {
-                    thread_id,
-                    title,
-                })]
+            ClientEvent::ThreadCreated {
+                thread_id,
+                title,
+                agent_name,
+            } => {
+                let mut actions = vec![AppAction::Chat(ChatAction::ThreadCreated {
+                    thread_id: thread_id.clone(),
+                    title: title.clone(),
+                })];
+                if agent_name.is_some() {
+                    actions.push(AppAction::Chat(ChatAction::ThreadDetailReceived(
+                        crate::state::chat::AgentThread {
+                            id: thread_id,
+                            agent_name,
+                            title,
+                            ..Default::default()
+                        },
+                    )));
+                }
+                actions
             }
 
             // Task events → TaskAction
@@ -340,6 +357,7 @@ impl DaemonProjection {
                 tps,
                 generation_ms,
                 reasoning,
+                provider_final_result_json,
             } => vec![AppAction::Chat(ChatAction::TurnDone {
                 thread_id,
                 input_tokens,
@@ -350,6 +368,7 @@ impl DaemonProjection {
                 tps,
                 generation_ms,
                 reasoning,
+                provider_final_result_json,
             })],
 
             // Error → Status
@@ -402,11 +421,12 @@ mod tests {
             input_tokens: 100,
             output_tokens: 50,
             cost: Some(0.01),
-            provider: Some("openai".into()),
+            provider: Some(amux_shared::providers::PROVIDER_ID_OPENAI.into()),
             model: Some("gpt-4o".into()),
             tps: Some(45.0),
             generation_ms: Some(1200),
             reasoning: Some("summary".into()),
+            provider_final_result_json: None,
         });
         assert!(actions
             .iter()

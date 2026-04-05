@@ -431,7 +431,13 @@ if matches!(
                     ))
                     .await
                     {
-                        Ok((thread_id, response)) => {
+                        Ok(result) => {
+                            let thread_id = result.thread_id;
+                            let response = result.response;
+                            let provider_final_result_json = result
+                                .provider_final_result
+                                .as_ref()
+                                .and_then(|value| serde_json::to_string(value).ok());
                             client_agent_threads.insert(thread_id.clone());
                             framed
                                 .send(DaemonMessage::AgentDirectMessageResponse {
@@ -439,6 +445,7 @@ if matches!(
                                     thread_id,
                                     response,
                                     session_id,
+                                    provider_final_result_json,
                                 })
                                 .await?;
                         }

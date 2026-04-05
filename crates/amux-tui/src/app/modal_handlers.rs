@@ -332,7 +332,7 @@ impl TuiModel {
                                 }
                             }
                             "context_window_tokens" => {
-                                if self.config.provider == "custom" {
+                                if self.config.provider == amux_shared::providers::PROVIDER_ID_CUSTOM {
                                     if let Ok(n) = value.parse::<u32>() {
                                         let next = n.clamp(1000, 2_000_000);
                                         self.config.custom_context_window_tokens = Some(next);

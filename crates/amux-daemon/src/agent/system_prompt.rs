@@ -535,7 +535,10 @@ mod tests {
 
     #[test]
     fn concierge_runtime_identity_prompt_includes_current_day_and_skill_guidance() {
-        let prompt = build_concierge_runtime_identity_prompt("openai", "gpt-5.4");
+        let prompt = build_concierge_runtime_identity_prompt(
+            amux_shared::providers::PROVIDER_ID_OPENAI,
+            "gpt-5.4",
+        );
 
         assert!(prompt.contains("## Time Context"));
         assert!(prompt.contains("Current local day:"));

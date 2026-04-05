@@ -181,6 +181,8 @@ export function createThreadActions(
           model: meta?.model ?? lastMessage.model,
           api_transport: meta?.api_transport ?? lastMessage.api_transport,
           responseId: meta?.responseId ?? lastMessage.responseId,
+          providerFinalResult:
+            meta?.providerFinalResult ?? lastMessage.providerFinalResult,
         };
         const updatedMessages = [...messages.slice(0, -1), updatedLastMessage];
         const tokenDeltaIn = nextInputTokens - lastMessage.inputTokens;

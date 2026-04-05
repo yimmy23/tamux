@@ -1,6 +1,38 @@
 import type { CSSProperties } from "react";
 import type { CommandLogEntry, TranscriptEntry } from "../../lib/types";
 
+export type SessionVaultMode = "timeline" | "transcripts" | "memory";
+
+export type MemoryProvenanceEntry = {
+    id: string;
+    target: string;
+    mode: string;
+    source_kind: string;
+    content: string;
+    fact_keys: string[];
+    thread_id: string | null;
+    task_id: string | null;
+    goal_run_id: string | null;
+    created_at: number;
+    age_days: number;
+    confidence: number;
+    status: string;
+    relationships: Array<{
+        related_entry_id: string;
+        relation_type: string;
+        fact_key?: string | null;
+    }>;
+};
+
+export type MemoryProvenanceReport = {
+    total_entries: number;
+    target_filter?: string | null;
+    summary_by_target: Record<string, number>;
+    summary_by_source: Record<string, number>;
+    summary_by_status: Record<string, number>;
+    entries: MemoryProvenanceEntry[];
+};
+
 export type SessionVaultFilters = {
     query: string;
     workspaceFilter: string;

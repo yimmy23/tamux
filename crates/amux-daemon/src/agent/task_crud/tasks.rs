@@ -196,7 +196,8 @@ impl AgentEngine {
     ) -> bool {
         let handoff_task = {
             let tasks = self.tasks.lock().await;
-            tasks.iter()
+            tasks
+                .iter()
                 .find(|task| {
                     task.awaiting_approval_id.as_deref() == Some(approval_id)
                         && task.source == "thread_handoff"
@@ -205,12 +206,9 @@ impl AgentEngine {
         };
         if let Some(task) = handoff_task {
             let handoff_task_id = task.id.clone();
-            let request = task
-                .command
-                .as_deref()
-                .and_then(|value| {
-                    serde_json::from_str::<PendingThreadHandoffActivation>(value).ok()
-                });
+            let request = task.command.as_deref().and_then(|value| {
+                serde_json::from_str::<PendingThreadHandoffActivation>(value).ok()
+            });
             let Some(request) = request else {
                 return false;
             };
@@ -223,9 +221,7 @@ impl AgentEngine {
                         .await;
                     let updated = {
                         let mut tasks = self.tasks.lock().await;
-                        let Some(task) = tasks
-                            .iter_mut()
-                            .find(|task| task.id == handoff_task_id)
+                        let Some(task) = tasks.iter_mut().find(|task| task.id == handoff_task_id)
                         else {
                             return false;
                         };
@@ -295,9 +291,7 @@ impl AgentEngine {
                         .await;
                     let updated = {
                         let mut tasks = self.tasks.lock().await;
-                        let Some(task) = tasks
-                            .iter_mut()
-                            .find(|task| task.id == handoff_task_id)
+                        let Some(task) = tasks.iter_mut().find(|task| task.id == handoff_task_id)
                         else {
                             return false;
                         };

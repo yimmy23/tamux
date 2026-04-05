@@ -1,8 +1,10 @@
+use amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
+
     #[test]
     fn circuit_breaker_event_deserializes_richer_outage_metadata() {
         let json = serde_json::json!({
             "type": "provider_circuit_open",
-            "provider": "openai",
+            "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
             "failed_model": "gpt-4o",
             "trip_count": 4,
             "reason": "circuit breaker open after repeated failures",
@@ -24,7 +26,7 @@
                 reason,
                 suggested_alternatives,
             } => {
-                assert_eq!(provider, "openai");
+                assert_eq!(provider, PROVIDER_ID_OPENAI);
                 assert_eq!(failed_model.as_deref(), Some("gpt-4o"));
                 assert_eq!(trip_count, 4);
                 assert_eq!(reason, "circuit breaker open after repeated failures");
@@ -43,7 +45,7 @@
     fn circuit_breaker_event_deserializes_legacy_shape_without_reason() {
         let json = serde_json::json!({
             "type": "provider_circuit_open",
-            "provider": "openai",
+            "provider": PROVIDER_ID_OPENAI,
             "trip_count": 2
         });
 
@@ -56,7 +58,7 @@
                 reason,
                 suggested_alternatives,
             } => {
-                assert_eq!(provider, "openai");
+                assert_eq!(provider, PROVIDER_ID_OPENAI);
                 assert!(failed_model.is_none());
                 assert_eq!(trip_count, 2);
                 assert_eq!(reason, "circuit breaker open");
@@ -256,7 +258,8 @@
 
     #[test]
     fn github_copilot_provider_exposes_static_catalog_models() {
-        let provider = get_provider_definition("github-copilot").expect("copilot provider");
+        let provider =
+            get_provider_definition(PROVIDER_ID_GITHUB_COPILOT).expect("copilot provider");
         assert!(!provider.models.is_empty());
         assert_eq!(provider.default_model, "gpt-4.1");
         assert_eq!(provider.default_transport, ApiTransport::Responses);

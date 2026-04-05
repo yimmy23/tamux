@@ -2,6 +2,17 @@
 // OpenAI-compatible implementation
 // ---------------------------------------------------------------------------
 
+use amux_shared::providers::{
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENCODE_ZEN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN, PROVIDER_ID_QWEN_DEEPINFRA,
+    PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN,
+};
+
+const OPENROUTER_ATTRIBUTION_URL: &str = "https://tamux.app";
+const OPENROUTER_ATTRIBUTION_TITLE: &str = "tamux";
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
+
 fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
@@ -84,92 +95,108 @@ fn build_openai_responses_body(
     previous_response_id: Option<&str>,
     codex_auth: bool,
 ) -> serde_json::Value {
-    let mut body = serde_json::json!({
-        "model": config.model,
-        "instructions": system_prompt,
-        "input": messages_to_responses_input(provider, messages, previous_response_id),
-        "stream": true,
-    });
+    let request = build_openai_responses_request(
+        provider,
+        config,
+        system_prompt,
+        messages,
+        tools,
+        previous_response_id,
+        codex_auth,
+    );
+    serde_json::to_value(request).expect("responses request should serialize")
+}
 
-    if let Some(previous_response_id) =
-        previous_response_id.filter(|value| !value.trim().is_empty())
-    {
-        body["previous_response_id"] = serde_json::Value::String(previous_response_id.to_string());
-    }
-
-    if !tools.is_empty() {
-        body["tools"] = serde_json::Value::Array(
-            tools
-                .iter()
-                .map(|tool| {
-                    serde_json::json!({
-                        "type": tool.tool_type,
-                        "name": tool.function.name,
-                        "description": tool.function.description,
-                        "parameters": tool.function.parameters,
-                    })
-                })
-                .collect(),
-        );
-        body["tool_choice"] = serde_json::json!("auto");
-    }
-
-    if let Some(ref schema) = config.response_schema {
-        body["text"] = serde_json::json!({
-            "format": {
-                "type": "json_schema",
-                "name": "structured_output",
-                "strict": true,
-                "schema": schema,
-            }
+fn build_openai_responses_request(
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+    previous_response_id: Option<&str>,
+    codex_auth: bool,
+) -> OpenAiResponsesCreateRequest {
+    let previous_response_id = previous_response_id
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned);
+    let mut text = config
+        .response_schema
+        .as_ref()
+        .map(|schema| OpenAiResponsesTextConfig {
+            format: Some(OpenAiResponsesTextFormat {
+                format_type: "json_schema".to_string(),
+                name: "structured_output".to_string(),
+                strict: true,
+                schema: schema.clone(),
+            }),
+            verbosity: None,
         });
-    }
-
-    if let Some(effort) = normalize_reasoning_effort(&config.reasoning_effort) {
-        let mut reasoning = serde_json::json!({ "effort": effort });
-        if provider == "github-copilot" {
-            if let Some(summary) = copilot_reasoning_summary(&config.reasoning_effort) {
-                reasoning["summary"] = serde_json::Value::String(summary.to_string());
-            }
-        }
-        body["reasoning"] = reasoning;
-    }
 
     if codex_auth {
-        body["store"] = serde_json::Value::Bool(false);
-        body["include"] = serde_json::Value::Array(vec![serde_json::Value::String(
-            "reasoning.encrypted_content".to_string(),
-        )]);
-        if body.get("text").is_none() {
-            body["text"] = serde_json::json!({ "verbosity": "high" });
-        } else if let Some(text_obj) = body.get_mut("text").and_then(|value| value.as_object_mut())
-        {
-            text_obj.insert(
-                "verbosity".to_string(),
-                serde_json::Value::String("high".to_string()),
-            );
-        }
+        text.get_or_insert(OpenAiResponsesTextConfig {
+            format: None,
+            verbosity: None,
+        })
+        .verbosity = Some("high".to_string());
     }
 
-    body
+    OpenAiResponsesCreateRequest {
+        model: config.model.clone(),
+        instructions: Some(system_prompt.to_string()),
+        input: messages_to_responses_input(provider, messages, previous_response_id.as_deref())
+            .into_iter()
+            .map(|item| {
+                serde_json::from_value(item)
+                    .expect("responses input translation should match typed protocol")
+            })
+            .collect(),
+        previous_response_id,
+        tools: tools
+            .iter()
+            .map(|tool| OpenAiResponsesTool {
+                tool_type: tool.tool_type.clone(),
+                name: tool.function.name.clone(),
+                description: tool.function.description.clone(),
+                parameters: tool.function.parameters.clone(),
+            })
+            .collect(),
+        tool_choice: (!tools.is_empty()).then_some(OpenAiResponsesToolChoice::Auto),
+        text,
+        reasoning: normalize_reasoning_effort(&config.reasoning_effort).map(|effort| {
+            OpenAiResponsesReasoning {
+                effort,
+                summary: (provider == PROVIDER_ID_GITHUB_COPILOT)
+                    .then(|| copilot_reasoning_summary(&config.reasoning_effort))
+                    .flatten()
+                    .map(ToOwned::to_owned),
+            }
+        }),
+        store: codex_auth.then_some(false),
+        include: if codex_auth {
+            vec!["reasoning.encrypted_content".to_string()]
+        } else {
+            Vec::new()
+        },
+        stream: true,
+    }
 }
 
 fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
     matches!(
         provider,
-        "openai"
-            | "openrouter"
-            | "qwen"
-            | "qwen-deepinfra"
-            | "opencode-zen"
-            | "z.ai"
-            | "z.ai-coding-plan"
+        PROVIDER_ID_OPENAI
+            | PROVIDER_ID_OPENROUTER
+            | PROVIDER_ID_QWEN
+            | PROVIDER_ID_QWEN_DEEPINFRA
+            | PROVIDER_ID_OPENCODE_ZEN
+            | PROVIDER_ID_Z_AI
+            | PROVIDER_ID_Z_AI_CODING_PLAN
     ) || model.starts_with('o')
         || model.starts_with("gpt-5")
 }
 
 fn dashscope_openai_uses_enable_thinking(provider: &str, model: &str) -> bool {
-    matches!(provider, "qwen" | "alibaba-coding-plan")
+    matches!(provider, PROVIDER_ID_QWEN | PROVIDER_ID_ALIBABA_CODING_PLAN)
         && matches!(
             model,
             "qwen3.5-plus" | "qwen3-max-2026-01-23" | "glm-4.7" | "glm-5"
@@ -186,7 +213,7 @@ fn is_dashscope_coding_plan_anthropic_base_url(base_url: &str) -> bool {
 fn needs_coding_plan_sdk_headers(provider: &str) -> bool {
     matches!(
         provider,
-        "alibaba-coding-plan" | "minimax" | "minimax-coding-plan"
+        PROVIDER_ID_ALIBABA_CODING_PLAN | PROVIDER_ID_MINIMAX | PROVIDER_ID_MINIMAX_CODING_PLAN
     )
 }
 
@@ -245,6 +272,22 @@ fn build_openai_auth_request<'a>(
     )
 }
 
+fn apply_openrouter_attribution_headers(
+    req: reqwest::RequestBuilder,
+    provider: &str,
+) -> reqwest::RequestBuilder {
+    if provider != PROVIDER_ID_OPENROUTER {
+        return req;
+    }
+
+    req.header("HTTP-Referer", OPENROUTER_ATTRIBUTION_URL)
+        .header("X-OpenRouter-Title", OPENROUTER_ATTRIBUTION_TITLE)
+        .header(
+            "X-OpenRouter-Categories",
+            OPENROUTER_ATTRIBUTION_CATEGORIES,
+        )
+}
+
 fn maybe_force_connection_close(
     req: reqwest::RequestBuilder,
     force_connection_close: bool,
@@ -261,7 +304,7 @@ fn apply_openai_auth_headers(
     provider: &str,
     config: &ProviderConfig,
 ) -> reqwest::RequestBuilder {
-    if provider == "github-copilot" {
+    if provider == PROVIDER_ID_GITHUB_COPILOT {
         let req = req
             .header("Accept", "application/json")
             .header("Openai-Intent", "conversation-edits")
@@ -287,9 +330,9 @@ fn apply_openai_auth_headers(
         let auth_method = get_provider_definition(provider)
             .map(|d| d.auth_method)
             .unwrap_or(AuthMethod::Bearer);
-        auth_method.apply(req, &config.api_key)
+        apply_openrouter_attribution_headers(auth_method.apply(req, &config.api_key), provider)
     } else {
-        req
+        apply_openrouter_attribution_headers(req, provider)
     }
 }
 

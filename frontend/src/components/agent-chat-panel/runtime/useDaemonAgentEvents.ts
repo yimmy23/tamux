@@ -114,6 +114,33 @@ export function useDaemonAgentEvents({
     const amux = getAgentBridge();
     if (!amux?.onAgentEvent) return;
 
+    const ensureStreamingAssistantMessage = (threadId: string) => {
+      const messages = useAgentStore.getState().getThreadMessages(threadId);
+      const last = messages[messages.length - 1];
+      if (last?.role === "assistant" && last.isStreaming) {
+        return last;
+      }
+
+      const isExternalAgent = agentBackend === "openclaw" || agentBackend === "hermes";
+      const agentSettings = useAgentStore.getState().agentSettings;
+      addMessage(threadId, {
+        role: "assistant",
+        content: "",
+        provider: isExternalAgent ? agentBackend : agentSettings.active_provider,
+        model: isExternalAgent
+          ? agentBackend
+          : ((agentSettings[agentSettings.active_provider] as any)?.model || ""),
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        isCompactionSummary: false,
+        isStreaming: true,
+      });
+
+      const refreshedMessages = useAgentStore.getState().getThreadMessages(threadId);
+      return refreshedMessages[refreshedMessages.length - 1];
+    };
+
     const cleanupGoalRunWorkspace = (goalRunId: string) => {
       const workspaceId = goalRunWorkspacesRef.current[goalRunId];
       if (!workspaceId) return;
@@ -134,8 +161,7 @@ export function useDaemonAgentEvents({
       switch (event.type) {
         case "delta": {
           if (!tid) break;
-          const messages = useAgentStore.getState().getThreadMessages(tid);
-          const last = messages[messages.length - 1];
+          const last = ensureStreamingAssistantMessage(tid);
           if (last?.role === "assistant" && last.isStreaming) {
             updateLastAssistantMessage(tid, (last.content || "") + (event.content || ""), true);
           }
@@ -143,8 +169,7 @@ export function useDaemonAgentEvents({
         }
         case "reasoning": {
           if (!tid) break;
-          const messages = useAgentStore.getState().getThreadMessages(tid);
-          const last = messages[messages.length - 1];
+          const last = ensureStreamingAssistantMessage(tid);
           if (last?.role === "assistant" && last.isStreaming) {
             updateLastAssistantMessage(tid, last.content || "", true, {
               reasoning: (last.reasoning || "") + (event.content || ""),
@@ -155,8 +180,7 @@ export function useDaemonAgentEvents({
         case "done": {
           if (!tid) break;
           useAgentMissionStore.getState().setSharedCursorMode("idle");
-          const messages = useAgentStore.getState().getThreadMessages(tid);
-          const last = messages[messages.length - 1];
+          const last = ensureStreamingAssistantMessage(tid);
           if (last?.role === "assistant") {
             updateLastAssistantMessage(tid, last.content || "(empty)", false, {
               inputTokens: event.input_tokens ?? 0,
@@ -225,6 +249,7 @@ export function useDaemonAgentEvents({
         case "error": {
           if (!tid) break;
           useAgentMissionStore.getState().setSharedCursorMode("idle");
+          ensureStreamingAssistantMessage(tid);
           updateLastAssistantMessage(tid, `Error: ${event.message}`, false);
           break;
         }

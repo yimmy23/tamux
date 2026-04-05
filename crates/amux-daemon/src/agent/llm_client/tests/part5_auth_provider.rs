@@ -10,10 +10,10 @@ async fn provider_auth_states_respect_codex_helper_state() {
     reset_openai_codex_auth_runtime_for_tests();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
     config.auth_source = AuthSource::ChatgptSubscription;
     config.providers.insert(
-        "openai".to_string(),
+        amux_shared::providers::PROVIDER_ID_OPENAI.to_string(),
         ProviderConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-5.4".to_string(),
@@ -24,6 +24,18 @@ async fn provider_auth_states_respect_codex_helper_state() {
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
     let engine: std::sync::Arc<AgentEngine> = AgentEngine::new_test(manager, config, root.path()).await;
@@ -33,7 +45,7 @@ async fn provider_auth_states_respect_codex_helper_state() {
         .get_provider_auth_states()
         .await
         .into_iter()
-        .find(|state| state.provider_id == "openai")
+        .find(|state| state.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI)
         .expect("openai state should exist");
     assert!(!pending.authenticated);
 
@@ -47,7 +59,7 @@ async fn provider_auth_states_respect_codex_helper_state() {
         .get_provider_auth_states()
         .await
         .into_iter()
-        .find(|state| state.provider_id == "openai")
+        .find(|state| state.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI)
         .expect("openai state should exist");
     assert!(completed.authenticated);
 
@@ -56,7 +68,7 @@ async fn provider_auth_states_respect_codex_helper_state() {
         .get_provider_auth_states()
         .await
         .into_iter()
-        .find(|state| state.provider_id == "openai")
+        .find(|state| state.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI)
         .expect("openai state should exist");
     assert!(!logged_out.authenticated);
 }
@@ -74,10 +86,10 @@ async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
 
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
     config.auth_source = AuthSource::ChatgptSubscription;
     config.providers.insert(
-        "openai".to_string(),
+        amux_shared::providers::PROVIDER_ID_OPENAI.to_string(),
         ProviderConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             model: "gpt-5.4".to_string(),
@@ -88,6 +100,18 @@ async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
             reasoning_effort: String::new(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
     );
     let engine: std::sync::Arc<AgentEngine> = AgentEngine::new_test(manager, config, root.path()).await;
@@ -97,7 +121,7 @@ async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
         .get_provider_auth_states()
         .await
         .into_iter()
-        .find(|state| state.provider_id == "openai")
+        .find(|state| state.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI)
         .expect("openai state should exist");
 
     assert!(openai.authenticated);

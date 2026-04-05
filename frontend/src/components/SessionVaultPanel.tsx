@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from "react";
+import { getBridge } from "../lib/bridge";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { useCommandLogStore } from "../lib/commandLogStore";
 import { useTranscriptStore } from "../lib/transcriptStore";
@@ -7,7 +8,7 @@ import { openPersistedPath, revealPersistedPath } from "../lib/persistence";
 import { SessionVaultContent } from "./session-vault-panel/SessionVaultContent";
 import { SessionVaultFilters } from "./session-vault-panel/SessionVaultFilters";
 import { SessionVaultHeader } from "./session-vault-panel/SessionVaultHeader";
-import { buildTimeline, filterTranscripts } from "./session-vault-panel/shared";
+import { buildTimeline, filterTranscripts, type MemoryProvenanceReport, type SessionVaultMode } from "./session-vault-panel/shared";
 
 /**
  * Session Vault panel (Ctrl+Shift+V) — browse captured transcripts.
@@ -39,8 +40,11 @@ export function SessionVaultPanel({ style, className }: SessionVaultPanelProps =
   const [paneFilter, setPaneFilter] = useState("all");
   const [reasonFilter, setReasonFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
-  const [timelineMode, setTimelineMode] = useState<"timeline" | "transcripts">("timeline");
+  const [timelineMode, setTimelineMode] = useState<SessionVaultMode>("timeline");
   const [timelineIndex, setTimelineIndex] = useState(0);
+  const [memoryReport, setMemoryReport] = useState<MemoryProvenanceReport | null>(null);
+  const [memoryStatus, setMemoryStatus] = useState<string | null>(null);
+  const [loadingMemory, setLoadingMemory] = useState(false);
 
   if (!open) return null;
 
@@ -141,6 +145,70 @@ export function SessionVaultPanel({ style, className }: SessionVaultPanelProps =
     });
   };
 
+  const loadMemoryProvenance = async () => {
+    const bridge = getBridge();
+    if (!bridge?.agentGetMemoryProvenanceReport) {
+      setMemoryStatus("Memory provenance bridge unavailable.");
+      return;
+    }
+    setLoadingMemory(true);
+    try {
+      const result = await bridge.agentGetMemoryProvenanceReport("MEMORY.md", 50) as { report?: MemoryProvenanceReport; target?: string | null } | MemoryProvenanceReport | { error?: string };
+      if (result && typeof result === "object" && "error" in result && result.error) {
+        throw new Error(result.error);
+      }
+      const report = result && typeof result === "object" && "report" in result
+        ? (result.report ?? null)
+        : result as MemoryProvenanceReport;
+      setMemoryReport(report ?? null);
+      setMemoryStatus(report ? `Loaded ${report.total_entries} memory provenance entries.` : "No memory provenance entries found.");
+    } catch (error) {
+      setMemoryStatus(error instanceof Error ? error.message : "Failed to load memory provenance.");
+    } finally {
+      setLoadingMemory(false);
+    }
+  };
+
+  const confirmMemoryEntry = async (entryId: string) => {
+    const bridge = getBridge();
+    if (!bridge?.agentConfirmMemoryProvenanceEntry) {
+      setMemoryStatus("Memory confirmation bridge unavailable.");
+      return;
+    }
+    setLoadingMemory(true);
+    try {
+      const result = await bridge.agentConfirmMemoryProvenanceEntry(entryId) as { entry_id?: string; confirmed_at?: number; error?: string };
+      if (result && typeof result === "object" && "error" in result && result.error) {
+        throw new Error(result.error);
+      }
+      setMemoryStatus(`Confirmed ${result?.entry_id ?? entryId}.`);
+      await loadMemoryProvenance();
+    } catch (error) {
+      setMemoryStatus(error instanceof Error ? error.message : "Failed to confirm memory provenance entry.");
+      setLoadingMemory(false);
+    }
+  };
+
+  const retractMemoryEntry = async (entryId: string) => {
+    const bridge = getBridge();
+    if (!bridge?.agentRetractMemoryProvenanceEntry) {
+      setMemoryStatus("Memory retraction bridge unavailable.");
+      return;
+    }
+    setLoadingMemory(true);
+    try {
+      const result = await bridge.agentRetractMemoryProvenanceEntry(entryId) as { entry_id?: string; retracted_at?: number; error?: string };
+      if (result && typeof result === "object" && "error" in result && result.error) {
+        throw new Error(result.error);
+      }
+      setMemoryStatus(`Retracted ${result?.entry_id ?? entryId}.`);
+      await loadMemoryProvenance();
+    } catch (error) {
+      setMemoryStatus(error instanceof Error ? error.message : "Failed to retract memory provenance entry.");
+      setLoadingMemory(false);
+    }
+  };
+
   return (
     <div
       onClick={toggle}
@@ -206,6 +274,12 @@ export function SessionVaultPanel({ style, className }: SessionVaultPanelProps =
           timeline={timeline}
           timelineMode={timelineMode}
           setTimelineMode={setTimelineMode}
+          memoryReport={memoryReport}
+          memoryStatus={memoryStatus}
+          loadingMemory={loadingMemory}
+          loadMemoryProvenance={loadMemoryProvenance}
+          confirmMemoryEntry={confirmMemoryEntry}
+          retractMemoryEntry={retractMemoryEntry}
           selected={selected}
           setSelectedId={setSelectedId}
           display={display}

@@ -45,6 +45,9 @@ impl AgentEngine {
             thread.updated_at = now_millis();
         }
         self.persist_thread_by_id(&candidate.thread_id).await;
+        let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+            thread_id: candidate.thread_id.clone(),
+        });
 
         let responder_agent_id = self
             .active_agent_id_for_thread(&candidate.thread_id)

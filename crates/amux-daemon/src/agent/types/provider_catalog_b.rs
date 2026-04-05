@@ -96,7 +96,7 @@ pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
 
 pub const OPENROUTER_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
-        id: "anthropic/claude-sonnet-4",
+        id: "arcee-ai/trinity-large-thinking",
         name: "Claude Sonnet 4",
         context_window: 200000,
         modalities: TEXT_ONLY,

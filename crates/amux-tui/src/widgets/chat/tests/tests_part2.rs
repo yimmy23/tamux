@@ -1,4 +1,67 @@
     #[test]
+    fn compaction_artifact_lines_use_standard_message_left_padding() {
+        let chat = chat_with_messages(vec![AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Compacted summary line".into(),
+            message_kind: "compaction_artifact".into(),
+            ..Default::default()
+        }]);
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 40, 0, false);
+        let content_line = lines
+            .iter()
+            .find(|line| {
+                line.message_index == Some(0)
+                    && matches!(line.kind, RenderedLineKind::MessageBody)
+                    && rendered_line_plain_text(line).contains("Compacted summary line")
+            })
+            .expect("compaction artifact content line should render");
+        let plain = rendered_line_plain_text(content_line);
+
+        assert!(
+            plain.starts_with(&" ".repeat(MESSAGE_PADDING_X)),
+            "compaction artifact content should be padded like regular messages, got: {:?}",
+            plain
+        );
+    }
+
+    #[test]
+    fn long_retry_status_message_wraps_across_multiple_lines() {
+        let mut chat = chat_with_messages(vec![AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Earlier response".into(),
+            ..Default::default()
+        }]);
+        chat.reduce(ChatAction::SetRetryStatus {
+            thread_id: "t1".into(),
+            phase: RetryPhase::Waiting,
+            attempt: 1,
+            max_retries: 3,
+            delay_ms: 10_000,
+            failure_class: "network_timeout".into(),
+            message: "Connection to the provider timed out after the upstream gateway stopped responding during the retry window.".into(),
+            received_at_tick: 0,
+        });
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 36, 0, false);
+        let retry_lines: Vec<String> = lines
+            .iter()
+            .filter(|line| matches!(line.kind, RenderedLineKind::RetryStatus))
+            .map(rendered_line_plain_text)
+            .collect();
+
+        let wrapped_error_lines: Vec<&String> = retry_lines
+            .iter()
+            .filter(|line| line.contains("Connection") || line.contains("upstream") || line.contains("retry window"))
+            .collect();
+
+        assert!(
+            wrapped_error_lines.len() >= 2,
+            "retry error message should wrap across multiple visible lines, got: {:?}",
+            retry_lines
+        );
+    }
+    #[test]
     fn hit_test_selects_last_visible_message_instead_of_previous_padding_block() {
         let chat = chat_with_messages(vec![
             AgentMessage {

@@ -2,7 +2,9 @@ use super::*;
 
 impl TuiModel {
     pub(in crate::app) fn handle_delta_event(&mut self, thread_id: String, content: String) {
-        if Self::is_hidden_agent_thread(&thread_id, None) {
+        if Self::is_hidden_agent_thread(&thread_id, None)
+            || self.should_ignore_internal_thread_activity(&thread_id)
+        {
             return;
         }
         self.agent_activity = Some("writing".to_string());
@@ -13,7 +15,9 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_reasoning_event(&mut self, thread_id: String, content: String) {
-        if Self::is_hidden_agent_thread(&thread_id, None) {
+        if Self::is_hidden_agent_thread(&thread_id, None)
+            || self.should_ignore_internal_thread_activity(&thread_id)
+        {
             return;
         }
         self.agent_activity = Some("reasoning".to_string());
@@ -31,7 +35,9 @@ impl TuiModel {
         arguments: String,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
     ) {
-        if Self::is_hidden_agent_thread(&thread_id, None) {
+        if Self::is_hidden_agent_thread(&thread_id, None)
+            || self.should_ignore_internal_thread_activity(&thread_id)
+        {
             return;
         }
         self.agent_activity = Some(format!("⚙  {}", name));
@@ -55,7 +61,9 @@ impl TuiModel {
         is_error: bool,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
     ) {
-        if Self::is_hidden_agent_thread(&thread_id, None) {
+        if Self::is_hidden_agent_thread(&thread_id, None)
+            || self.should_ignore_internal_thread_activity(&thread_id)
+        {
             return;
         }
         self.agent_activity = Some(format!("⚙  {} ✓", name));
@@ -84,8 +92,11 @@ impl TuiModel {
         tps: Option<f64>,
         generation_ms: Option<u64>,
         reasoning: Option<String>,
+        provider_final_result_json: Option<String>,
     ) {
-        if Self::is_hidden_agent_thread(&thread_id, None) {
+        if Self::is_hidden_agent_thread(&thread_id, None)
+            || self.should_ignore_internal_thread_activity(&thread_id)
+        {
             return;
         }
         self.agent_activity = None;
@@ -109,6 +120,7 @@ impl TuiModel {
             tps,
             generation_ms,
             reasoning,
+            provider_final_result_json,
         });
 
         self.dispatch_next_queued_prompt_if_ready();
@@ -210,6 +222,56 @@ impl TuiModel {
                 });
             }
         }
+    }
+
+    pub(in crate::app) fn handle_operator_model_summary_event(&mut self, model_json: String) {
+        let pretty = serde_json::from_str::<serde_json::Value>(&model_json)
+            .ok()
+            .and_then(|value| serde_json::to_string_pretty(&value).ok())
+            .unwrap_or(model_json);
+        self.last_error = Some(pretty);
+        self.error_active = true;
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
+        self.status_line = "Operator model snapshot loaded".to_string();
+    }
+
+    pub(in crate::app) fn handle_operator_model_reset_event(&mut self, ok: bool) {
+        if ok {
+            self.last_error = None;
+            self.error_active = false;
+            self.status_line = "Operator model reset".to_string();
+        } else {
+            self.last_error = Some("Operator model reset failed".to_string());
+            self.error_active = true;
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
+            self.status_line = "Operator model reset failed".to_string();
+        }
+    }
+
+    pub(in crate::app) fn handle_collaboration_sessions_event(&mut self, sessions_json: String) {
+        let pretty = serde_json::from_str::<serde_json::Value>(&sessions_json)
+            .ok()
+            .and_then(|value| serde_json::to_string_pretty(&value).ok())
+            .unwrap_or(sessions_json);
+        self.last_error = Some(pretty);
+        self.error_active = true;
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
+        self.status_line = "Collaboration sessions loaded".to_string();
+    }
+
+    pub(in crate::app) fn handle_generated_tools_event(&mut self, tools_json: String) {
+        let pretty = serde_json::from_str::<serde_json::Value>(&tools_json)
+            .ok()
+            .and_then(|value| serde_json::to_string_pretty(&value).ok())
+            .unwrap_or(tools_json);
+        self.last_error = Some(pretty);
+        self.error_active = true;
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
+        self.status_line = "Generated tools loaded".to_string();
     }
 
     pub(in crate::app) fn handle_operator_profile_session_completed_event(

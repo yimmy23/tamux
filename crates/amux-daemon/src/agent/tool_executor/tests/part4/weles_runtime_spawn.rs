@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) async fn spawn_recording_assistant_server_for_tool_executor(
+pub(crate) async fn spawn_recording_assistant_server_for_tool_executor(
     recorded_bodies: Arc<Mutex<std::collections::VecDeque<String>>>,
 ) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -57,7 +57,7 @@ pub(super) async fn spawn_recording_assistant_server_for_tool_executor(
     format!("http://{addr}/v1")
 }
 
-pub(super) async fn spawn_stub_assistant_server_for_tool_executor(
+pub(crate) async fn spawn_stub_assistant_server_for_tool_executor(
     recorded_bodies: Arc<Mutex<std::collections::VecDeque<String>>>,
     assistant_content: String,
 ) -> String {

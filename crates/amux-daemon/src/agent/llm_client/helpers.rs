@@ -26,7 +26,11 @@ fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<ToolCall> {
         .map(|(idx, tc)| {
             ToolCall::with_default_weles_review(
                 if tc.id.trim().is_empty() {
-                    synthesize_tool_call_id("openai", idx as usize, &tc.name)
+                    synthesize_tool_call_id(
+                        amux_shared::providers::PROVIDER_ID_OPENAI,
+                        idx as usize,
+                        &tc.name,
+                    )
                 } else {
                     tc.id
                 },
@@ -55,7 +59,7 @@ pub async fn fetch_models(
     base_url: &str,
     api_key: &str,
 ) -> Result<Vec<FetchedModel>> {
-    if provider_id == "github-copilot" {
+    if provider_id == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
         return get_provider_definition(provider_id)
             .map(|definition| {
                 definition
@@ -147,7 +151,7 @@ pub async fn validate_provider_connection(
         base_url.trim().to_string()
     };
 
-    if provider_id == "github-copilot" {
+    if provider_id == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
         let models = super::copilot_auth::list_github_copilot_models(api_key, auth_source)?
             .into_iter()
             .map(|model| FetchedModel {
@@ -162,7 +166,9 @@ pub async fn validate_provider_connection(
         return Ok(Some(models));
     }
 
-    if provider_id == "openai" && auth_source == AuthSource::ChatgptSubscription {
+    if provider_id == amux_shared::providers::PROVIDER_ID_OPENAI
+        && auth_source == AuthSource::ChatgptSubscription
+    {
         let client = reqwest::Client::new();
         let config = ProviderConfig {
             base_url: resolved_base_url,
@@ -179,6 +185,18 @@ pub async fn validate_provider_connection(
                 .map(|model| model.context_window)
                 .unwrap_or(128_000),
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         };
         let _ = resolve_openai_codex_request_auth(&client, provider_id, &config).await?;
         return Ok(None);

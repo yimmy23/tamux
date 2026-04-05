@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT;
 
 #[tokio::test]
 async fn copilot_auth_states_include_provider_row_when_unconfigured() {
@@ -25,7 +26,7 @@ async fn copilot_auth_states_include_provider_row_when_unconfigured() {
     let states = engine.get_provider_auth_states().await;
     let copilot = states
         .into_iter()
-        .find(|state| state.provider_id == "github-copilot")
+        .find(|state| state.provider_id == PROVIDER_ID_GITHUB_COPILOT)
         .expect("github copilot provider row should be present");
 
     assert!(!copilot.authenticated);

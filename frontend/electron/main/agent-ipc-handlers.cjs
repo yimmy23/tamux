@@ -77,6 +77,145 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     ipcMain.handle('dismiss-audit-entry', async (_event, entryId) => { try { sendAgentCommand({ type: 'audit-dismiss', entry_id: entryId }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-get-config', async () => sendAgentQuery({ type: 'get-config' }, 'config'));
     ipcMain.handle('agent-get-status', async () => { try { return await sendAgentQuery({ type: 'get-status' }, 'status-response'); } catch (err) { logToFile('warn', 'agent-get-status failed', { error: err?.message ?? String(err) }); return null; } });
+    ipcMain.handle('agent-query-audits', async (_event, actionTypes, since, limit) => {
+        try {
+            return await sendAgentQuery({
+                type: 'query-audits',
+                action_types: Array.isArray(actionTypes) ? actionTypes : null,
+                since: Number.isFinite(since) ? Math.trunc(since) : null,
+                limit: Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : null,
+            }, 'audit-list');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-get-provenance-report', async (_event, limit) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-provenance-report',
+                limit: Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : null,
+            }, 'provenance-report');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-get-memory-provenance-report', async (_event, target, limit) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-memory-provenance-report',
+                target: typeof target === 'string' && target.trim() ? target.trim() : null,
+                limit: Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : null,
+            }, 'memory-provenance-report');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-confirm-memory-provenance-entry', async (_event, entryId) => {
+        try {
+            return await sendAgentQuery({
+                type: 'confirm-memory-provenance-entry',
+                entry_id: entryId,
+            }, 'memory-provenance-confirmed');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-retract-memory-provenance-entry', async (_event, entryId) => {
+        try {
+            return await sendAgentQuery({
+                type: 'retract-memory-provenance-entry',
+                entry_id: entryId,
+            }, 'memory-provenance-retracted');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-get-collaboration-sessions', async (_event, parentTaskId) => {
+        try {
+            return await sendAgentQuery({
+                type: 'get-collaboration-sessions',
+                parent_task_id: typeof parentTaskId === 'string' && parentTaskId.trim() ? parentTaskId.trim() : null,
+            }, 'collaboration-sessions');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-list-generated-tools', async () => {
+        try {
+            return await sendAgentQuery({ type: 'list-generated-tools' }, 'generated-tools');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-run-generated-tool', async (_event, toolName, argsJson) => {
+        try {
+            return await sendAgentQuery({
+                type: 'run-generated-tool',
+                tool_name: toolName,
+                args_json: typeof argsJson === 'string' && argsJson.trim() ? argsJson : '{}',
+            }, 'generated-tool-result');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-activate-generated-tool', async (_event, toolName) => {
+        try {
+            return await sendAgentQuery({
+                type: 'activate-generated-tool',
+                tool_name: toolName,
+            }, 'generated-tool-result');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-promote-generated-tool', async (_event, toolName) => {
+        try {
+            return await sendAgentQuery({
+                type: 'promote-generated-tool',
+                tool_name: toolName,
+            }, 'generated-tool-result');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-retire-generated-tool', async (_event, toolName) => {
+        try {
+            return await sendAgentQuery({
+                type: 'retire-generated-tool',
+                tool_name: toolName,
+            }, 'generated-tool-result');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-vote-on-collaboration-disagreement', async (_event, parentTaskId, disagreementId, taskId, position, confidence) => {
+        try {
+            return await sendAgentQuery({
+                type: 'vote-on-collaboration-disagreement',
+                parent_task_id: parentTaskId,
+                disagreement_id: disagreementId,
+                task_id: taskId,
+                position,
+                confidence: Number.isFinite(confidence) ? confidence : null,
+            }, 'collaboration-vote-result');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-get-operator-model', async () => {
+        try {
+            return await sendAgentQuery({ type: 'get-operator-model' }, 'operator-model');
+        } catch (err) {
+            return { error: err?.message || String(err) };
+        }
+    });
+    ipcMain.handle('agent-reset-operator-model', async () => {
+        try {
+            return await sendAgentQuery({ type: 'reset-operator-model' }, 'operator-model-reset');
+        } catch (err) {
+            return { ok: false, error: err?.message || String(err) };
+        }
+    });
     ipcMain.handle('agent-set-config-item', async (_event, keyPath, value) => { try { sendAgentCommand({ type: 'set-config-item', key_path: keyPath, value_json: JSON.stringify(value) }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-set-provider-model', async (_event, providerId, model) => { try { sendAgentCommand({ type: 'set-provider-model', provider_id: providerId, model }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-set-tier-override', async (_event, tier) => { try { sendAgentCommand({ type: 'set-tier-override', tier: tier || null }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });

@@ -328,12 +328,20 @@ fn current_field_name_chat_tab() {
         state.current_field_name(),
         "tool_synthesis_max_generated_tools"
     );
-    state.reduce(SettingsAction::NavigateField(5));
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "operator_model_inspect");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "operator_model_reset");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "collaboration_sessions_inspect");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "generated_tools_inspect");
+    state.reduce(SettingsAction::NavigateField(4));
     assert_eq!(
         state.current_field_name(),
-        "tool_synthesis_max_generated_tools"
+        "generated_tools_inspect"
     );
-    assert_eq!(state.field_cursor(), 21);
+    assert_eq!(state.field_cursor(), 25);
 }
 
 #[test]
@@ -399,7 +407,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
     assert_eq!(state.field_count(), 8);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
-    assert_eq!(state.field_count(), 22);
+    assert_eq!(state.field_count(), 26);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
     assert_eq!(state.field_count(), 14);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));

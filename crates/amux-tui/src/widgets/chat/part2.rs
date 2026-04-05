@@ -49,19 +49,6 @@ fn build_rendered_lines(
             }
 
             let block_style = message_block_style(msg, theme);
-            let render_compaction_artifact = msg.message_kind == "compaction_artifact";
-            if render_compaction_artifact {
-                for (line, kind) in msg_lines.into_iter().zip(kinds.into_iter()) {
-                    all_lines.push(RenderedChatLine {
-                        line,
-                        message_index: Some(idx),
-                        kind,
-                    });
-                }
-                let end = all_lines.len();
-                message_line_ranges.push((start, end));
-                continue;
-            }
             for _ in 0..MESSAGE_PADDING_Y {
                 all_lines.push(RenderedChatLine {
                     line: blank_message_line(inner_width, block_style),
@@ -208,29 +195,45 @@ fn build_rendered_lines(
                 status.failure_class.replace('_', " ")
             ),
         };
+        let wrapped_summary = wrap_text(&summary, content_width);
+        let wrapped_summary = if wrapped_summary.is_empty() {
+            vec![String::new()]
+        } else {
+            wrapped_summary
+        };
+        let wrapped_message = wrap_text(&status.message, content_width);
+        let wrapped_message = if wrapped_message.is_empty() {
+            vec![String::new()]
+        } else {
+            wrapped_message
+        };
         all_lines.push(RenderedChatLine {
             line: blank_message_line(inner_width, assistant_style),
             message_index: None,
             kind: RenderedLineKind::RetryStatus,
         });
-        all_lines.push(RenderedChatLine {
-            line: pad_message_line(
-                Line::from(vec![Span::styled(summary, theme.fg_dim)]),
-                inner_width,
-                assistant_style,
-            ),
-            message_index: None,
-            kind: RenderedLineKind::RetryStatus,
-        });
-        all_lines.push(RenderedChatLine {
-            line: pad_message_line(
-                Line::from(vec![Span::raw(status.message.clone())]),
-                inner_width,
-                assistant_style,
-            ),
-            message_index: None,
-            kind: RenderedLineKind::RetryStatus,
-        });
+        for line in wrapped_summary {
+            all_lines.push(RenderedChatLine {
+                line: pad_message_line(
+                    Line::from(vec![Span::styled(line, theme.fg_dim)]),
+                    inner_width,
+                    assistant_style,
+                ),
+                message_index: None,
+                kind: RenderedLineKind::RetryStatus,
+            });
+        }
+        for line in wrapped_message {
+            all_lines.push(RenderedChatLine {
+                line: pad_message_line(
+                    Line::from(vec![Span::raw(line)]),
+                    inner_width,
+                    assistant_style,
+                ),
+                message_index: None,
+                kind: RenderedLineKind::RetryStatus,
+            });
+        }
         all_lines.push(RenderedChatLine {
             line: pad_message_line(
                 retry_action_line(status, theme, current_tick, retry_wait_start_selected),

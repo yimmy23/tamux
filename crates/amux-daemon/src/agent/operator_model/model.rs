@@ -104,18 +104,25 @@ pub(crate) enum RiskTolerance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub(crate) struct CognitiveStyle {
     pub avg_message_length: f64,
     pub question_frequency: f64,
     pub confirmation_seeking: f64,
     pub verbosity_preference: VerbosityPreference,
     pub reading_depth: ReadingDepth,
+    pub prefers_summaries: bool,
+    pub skips_reasoning: bool,
     pub message_count: u64,
     pub question_count: u64,
     pub confirmation_count: u64,
+    pub summary_request_count: u64,
+    pub reasoning_skip_request_count: u64,
+    pub detail_request_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub(crate) struct RiskFingerprint {
     pub approval_rate_by_category: HashMap<String, f64>,
     pub avg_response_time_secs: f64,
@@ -125,6 +132,9 @@ pub(crate) struct RiskFingerprint {
     pub denials: u64,
     pub category_requests: HashMap<String, u64>,
     pub category_approvals: HashMap<String, u64>,
+    pub fast_denials_by_category: HashMap<String, u64>,
+    pub auto_approve_categories: Vec<String>,
+    pub auto_deny_categories: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

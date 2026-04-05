@@ -1,4 +1,18 @@
 use super::*;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use ring::rand::SystemRandom;
+use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
+
+const PROVENANCE_SIGNATURE_SCHEME_ED25519: &str = "ed25519";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct ProvenanceSigningMaterial {
+    pub version: u32,
+    pub scheme: String,
+    pub public_key_base64: String,
+    pub pkcs8_base64: String,
+}
 
 pub(super) fn append_line(path: &PathBuf, line: &str) -> Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
@@ -11,12 +25,28 @@ pub(super) fn memory_provenance_entry_from_row(
     now_ms: u64,
 ) -> MemoryProvenanceReportEntry {
     let created_at = row.get::<_, i64>(9).unwrap_or_default().max(0) as u64;
+    let confirmed_at = row
+        .get::<_, Option<i64>>(10)
+        .ok()
+        .flatten()
+        .map(|value| value.max(0) as u64);
+    let retracted_at = row
+        .get::<_, Option<i64>>(11)
+        .ok()
+        .flatten()
+        .map(|value| value.max(0) as u64);
     let fact_keys_json: String = row.get(5).unwrap_or_else(|_| "[]".to_string());
     let fact_keys = serde_json::from_str::<Vec<String>>(&fact_keys_json).unwrap_or_default();
     let age_days = now_ms.saturating_sub(created_at) as f64 / 86_400_000.0;
-    let confidence = memory_provenance_confidence(age_days);
+    let mut confidence = memory_provenance_confidence(age_days);
     let mode: String = row.get(2).unwrap_or_default();
-    let status = if mode == "remove" {
+    let status = if retracted_at.is_some() {
+        confidence = confidence.min(0.2);
+        "retracted"
+    } else if confirmed_at.is_some() {
+        confidence = confidence.max(0.95);
+        "confirmed"
+    } else if mode == "remove" {
         "retracted"
     } else if confidence < 0.55 {
         "uncertain"
@@ -38,6 +68,7 @@ pub(super) fn memory_provenance_entry_from_row(
         age_days,
         confidence,
         status: status.to_string(),
+        relationships: Vec::new(),
     }
 }
 
@@ -83,6 +114,78 @@ pub(super) fn compute_provenance_hash(
 
 pub(super) fn sign_provenance_hash(key: &str, entry_hash: &str) -> String {
     hex_hash(&format!("{key}:{entry_hash}"))
+}
+
+pub(super) fn provenance_signature_scheme_ed25519() -> &'static str {
+    PROVENANCE_SIGNATURE_SCHEME_ED25519
+}
+
+pub(super) fn provenance_signing_material_path(root: &Path) -> PathBuf {
+    root.join("provenance-signing.json")
+}
+
+pub(super) fn legacy_provenance_signing_key_path(root: &Path) -> PathBuf {
+    root.join("provenance-signing.key")
+}
+
+pub(super) fn load_provenance_signing_material(path: &Path) -> Result<ProvenanceSigningMaterial> {
+    let raw = std::fs::read_to_string(path)?;
+    let parsed = serde_json::from_str::<ProvenanceSigningMaterial>(&raw)?;
+    if parsed.scheme != PROVENANCE_SIGNATURE_SCHEME_ED25519 {
+        anyhow::bail!("unsupported provenance signing scheme: {}", parsed.scheme);
+    }
+    Ok(parsed)
+}
+
+pub(super) fn create_provenance_signing_material() -> Result<ProvenanceSigningMaterial> {
+    let rng = SystemRandom::new();
+    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng)
+        .map_err(|_| anyhow::anyhow!("failed to generate ed25519 provenance keypair"))?;
+    let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+        .map_err(|_| anyhow::anyhow!("failed to parse generated ed25519 keypair"))?;
+    Ok(ProvenanceSigningMaterial {
+        version: 1,
+        scheme: PROVENANCE_SIGNATURE_SCHEME_ED25519.to_string(),
+        public_key_base64: BASE64_STANDARD.encode(key_pair.public_key().as_ref()),
+        pkcs8_base64: BASE64_STANDARD.encode(pkcs8.as_ref()),
+    })
+}
+
+pub(super) fn persist_provenance_signing_material(
+    path: &Path,
+    material: &ProvenanceSigningMaterial,
+) -> Result<()> {
+    let serialized = serde_json::to_string_pretty(material)?;
+    std::fs::write(path, serialized)?;
+    Ok(())
+}
+
+pub(super) fn sign_provenance_hash_ed25519(
+    material: &ProvenanceSigningMaterial,
+    entry_hash: &str,
+) -> Result<String> {
+    let pkcs8 = BASE64_STANDARD.decode(&material.pkcs8_base64)?;
+    let key_pair = Ed25519KeyPair::from_pkcs8(&pkcs8)
+        .map_err(|_| anyhow::anyhow!("failed to parse stored ed25519 provenance keypair"))?;
+    Ok(BASE64_STANDARD.encode(key_pair.sign(entry_hash.as_bytes()).as_ref()))
+}
+
+pub(super) fn verify_provenance_signature_ed25519(
+    material: &ProvenanceSigningMaterial,
+    entry_hash: &str,
+    signature: &str,
+) -> bool {
+    let public_key = match BASE64_STANDARD.decode(&material.public_key_base64) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let signature = match BASE64_STANDARD.decode(signature) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    UnparsedPublicKey::new(&ED25519, public_key)
+        .verify(entry_hash.as_bytes(), &signature)
+        .is_ok()
 }
 
 pub(super) fn hex_hash(input: &str) -> String {

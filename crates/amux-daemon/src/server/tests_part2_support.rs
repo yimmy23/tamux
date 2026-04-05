@@ -14,7 +14,7 @@ fn daemon_boxes_large_gateway_hot_path_futures() {
     for required in [
         "Box::pin(loop_agent.run_loop(shutdown_rx)).await;",
         "Box::pin(handle_connection(stream, manager, agent, plugin_manager)).await",
-        "if let Err(e) = Box::pin(agent.send_message_with_session_and_surface(",
+        "if let Err(e) = Box::pin(agent.send_message_with_session_surface_and_target(",
         "match Box::pin(agent.send_direct_message(",
     ] {
         assert!(

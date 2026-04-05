@@ -1,0 +1,7 @@
+[package]
+name = "tamux-shared"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "amux_shared"

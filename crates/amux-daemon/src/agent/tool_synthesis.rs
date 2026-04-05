@@ -255,6 +255,11 @@ pub(super) async fn execute_generated_tool(
 pub(super) fn promote_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
     let mut record = load_generated_tool(agent_data_dir, tool_name)?
         .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
+    if record.status == "new" {
+        anyhow::bail!(
+            "generated tool `{tool_name}` is not ready for promotion; activate and review it first"
+        );
+    }
     let skill_dir = super::skills_dir(agent_data_dir).join("generated");
     std::fs::create_dir_all(&skill_dir)?;
     let path = skill_dir.join(format!("use-{}.md", record.id));
@@ -300,6 +305,26 @@ pub(super) fn activate_generated_tool(agent_data_dir: &Path, tool_name: &str) ->
         .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
     record.status = "active".to_string();
     record.updated_at = now_millis();
+    save_generated_tool(agent_data_dir, &record)?;
+    Ok(serde_json::to_string_pretty(&record)?)
+}
+
+pub(super) fn retire_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
+    let mut record = load_generated_tool(agent_data_dir, tool_name)?
+        .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
+    if let Some(path) = record.promoted_skill_path.as_deref() {
+        let skill_path = Path::new(path);
+        if skill_path.exists() {
+            std::fs::remove_file(skill_path).with_context(|| {
+                format!(
+                    "failed to remove promoted skill artifact for generated tool `{tool_name}`"
+                )
+            })?;
+        }
+    }
+    record.status = "archived".to_string();
+    record.updated_at = now_millis();
+    record.promoted_skill_path = None;
     save_generated_tool(agent_data_dir, &record)?;
     Ok(serde_json::to_string_pretty(&record)?)
 }

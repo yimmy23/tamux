@@ -7,15 +7,24 @@ mod events_status;
 mod events_tasks;
 
 impl TuiModel {
+    fn is_internal_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
+        let normalized_id = thread_id.trim().to_ascii_lowercase();
+        let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
+        normalized_id.starts_with("dm:") || normalized_title.starts_with("internal dm")
+    }
+
     fn is_hidden_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
         let normalized_id = thread_id.trim().to_ascii_lowercase();
         let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
-        normalized_id.starts_with("dm:")
-            || normalized_id.starts_with("handoff:")
-            || normalized_title.starts_with("internal dm")
+        normalized_id.starts_with("handoff:")
             || normalized_title.starts_with("handoff ")
             || normalized_title == "weles"
             || normalized_title.starts_with("weles ")
+    }
+
+    fn should_ignore_internal_thread_activity(&self, thread_id: &str) -> bool {
+        Self::is_internal_agent_thread(thread_id, None)
+            && self.chat.active_thread_id() != Some(thread_id)
     }
 
     pub fn pump_daemon_events(&mut self) {
@@ -41,7 +50,7 @@ impl TuiModel {
         self.publish_attention_surface_if_changed();
     }
 
-    fn handle_client_event(&mut self, event: ClientEvent) {
+    pub(crate) fn handle_client_event(&mut self, event: ClientEvent) {
         if let Some(ref cancelled_id) = self.cancelled_thread_id.clone() {
             let skip = match &event {
                 ClientEvent::Delta { thread_id, .. }
@@ -107,8 +116,12 @@ impl TuiModel {
                 self.handle_thread_detail_event(thread);
             }
             ClientEvent::ThreadDetail(None) => {}
-            ClientEvent::ThreadCreated { thread_id, title } => {
-                self.handle_thread_created_event(thread_id, title);
+            ClientEvent::ThreadCreated {
+                thread_id,
+                title,
+                agent_name,
+            } => {
+                self.handle_thread_created_event(thread_id, title, agent_name);
             }
             ClientEvent::ThreadReloadRequired { thread_id } => {
                 self.handle_thread_reload_required_event(thread_id);
@@ -306,6 +319,7 @@ impl TuiModel {
                 tps,
                 generation_ms,
                 reasoning,
+                provider_final_result_json,
             } => {
                 self.handle_done_event(
                     thread_id,
@@ -317,6 +331,7 @@ impl TuiModel {
                     tps,
                     generation_ms,
                     reasoning,
+                    provider_final_result_json,
                 );
             }
             ClientEvent::ProviderAuthStates(entries) => {
@@ -391,6 +406,18 @@ impl TuiModel {
             }
             ClientEvent::OperatorProfileSummary { summary_json } => {
                 self.handle_operator_profile_summary_event(summary_json);
+            }
+            ClientEvent::OperatorModelSummary { model_json } => {
+                self.handle_operator_model_summary_event(model_json);
+            }
+            ClientEvent::OperatorModelReset { ok } => {
+                self.handle_operator_model_reset_event(ok);
+            }
+            ClientEvent::CollaborationSessions { sessions_json } => {
+                self.handle_collaboration_sessions_event(sessions_json);
+            }
+            ClientEvent::GeneratedTools { tools_json } => {
+                self.handle_generated_tools_event(tools_json);
             }
             ClientEvent::OperatorProfileSessionCompleted {
                 session_id,

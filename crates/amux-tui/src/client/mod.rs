@@ -68,6 +68,7 @@ pub enum ClientEvent {
     ThreadCreated {
         thread_id: String,
         title: String,
+        agent_name: Option<String>,
     },
     ThreadReloadRequired {
         thread_id: String,
@@ -192,6 +193,7 @@ pub enum ClientEvent {
         tps: Option<f64>,
         generation_ms: Option<u64>,
         reasoning: Option<String>,
+        provider_final_result_json: Option<String>,
     },
     WorkflowNotice {
         kind: String,
@@ -269,6 +271,18 @@ pub enum ClientEvent {
     },
     OperatorProfileSummary {
         summary_json: String,
+    },
+    OperatorModelSummary {
+        model_json: String,
+    },
+    OperatorModelReset {
+        ok: bool,
+    },
+    CollaborationSessions {
+        sessions_json: String,
+    },
+    GeneratedTools {
+        tools_json: String,
     },
     OperatorProfileSessionCompleted {
         session_id: String,
@@ -357,4 +371,6 @@ mod tests {
     }
 
     include!("tests/tests_part1.rs");
+    include!("tests/tests_part2.rs");
+    include!("tests/tests_part4.rs");
 }

@@ -5,6 +5,222 @@ use super::helpers::{
 use super::*;
 
 impl AgentEngine {
+    pub(in crate::agent) async fn persist_context_compression_causal_trace(
+        &self,
+        thread_id: &str,
+        task_id: Option<&str>,
+        split_at: usize,
+        message_count: usize,
+        target_tokens: usize,
+        strategy_used: CompactionStrategy,
+    ) {
+        let strategy_label = serde_json::to_string(&strategy_used)
+            .unwrap_or_else(|_| "\"heuristic\"".to_string())
+            .trim_matches('"')
+            .to_string();
+        let factors = vec![
+            crate::agent::learning::traces::CausalFactor {
+                factor_type: crate::agent::learning::traces::FactorType::ResourceConstraint,
+                description: format!(
+                    "context window exceeded budget; compacted {} of {} message(s)",
+                    split_at, message_count
+                ),
+                weight: 0.9,
+            },
+            crate::agent::learning::traces::CausalFactor {
+                factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+                description: format!("compaction strategy: {strategy_label}"),
+                weight: 0.55,
+            },
+        ];
+
+        let selected = crate::agent::learning::traces::DecisionOption {
+            option_type: "context_compression".to_string(),
+            reasoning: format!(
+                "Compressed older thread context to fit within the active token budget using {}.",
+                strategy_label
+            ),
+            rejection_reason: None,
+            estimated_success_prob: Some(0.94),
+            arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}|{}|{}",
+                thread_id,
+                task_id.unwrap_or_default(),
+                split_at,
+                message_count,
+                target_tokens
+            ))),
+        };
+        let config = self.config.read().await.clone();
+        let trace = crate::agent::learning::traces::CausalTrace {
+            trace_id: format!("causal_{}", uuid::Uuid::new_v4()),
+            thread_id: Some(thread_id.to_string()),
+            goal_run_id: None,
+            task_id: task_id.map(str::to_string),
+            decision_type: crate::agent::learning::traces::DecisionType::ContextCompression,
+            selected,
+            rejected_options: Vec::new(),
+            context_hash: crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}|{}|{}|{}",
+                thread_id,
+                task_id.unwrap_or_default(),
+                split_at,
+                message_count,
+                target_tokens,
+                strategy_label
+            )),
+            causal_factors: factors,
+            outcome: crate::agent::learning::traces::CausalTraceOutcome::Success,
+            model_used: Some(config.model),
+            created_at: now_millis(),
+        };
+
+        let selected_json = serde_json::to_string(&trace.selected).unwrap_or_default();
+        let rejected_json = serde_json::to_string(&trace.rejected_options).unwrap_or_default();
+        let factors_json = serde_json::to_string(&trace.causal_factors).unwrap_or_default();
+        let outcome_json = serde_json::to_string(&trace.outcome).unwrap_or_default();
+        if let Err(error) = self
+            .history
+            .insert_causal_trace(
+                &trace.trace_id,
+                trace.thread_id.as_deref(),
+                None,
+                trace.task_id.as_deref(),
+                "context_compression",
+                &selected_json,
+                &rejected_json,
+                &trace.context_hash,
+                &factors_json,
+                &outcome_json,
+                trace.model_used.as_deref(),
+                trace.created_at,
+            )
+            .await
+        {
+            tracing::warn!(
+                thread_id = %thread_id,
+                split_at,
+                message_count,
+                "failed to persist context compression causal trace: {error}"
+            );
+        }
+    }
+
+    pub(in crate::agent) async fn persist_upstream_recovery_causal_trace(
+        &self,
+        thread_id: &str,
+        structured: &crate::agent::llm_client::StructuredUpstreamFailure,
+        recovery_signature: &str,
+        started_investigation: bool,
+        retry_attempted: bool,
+    ) {
+        if !started_investigation && !retry_attempted {
+            return;
+        }
+
+        let mut factors = vec![crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+            description: format!("upstream signature: {recovery_signature}"),
+            weight: 0.9,
+        }];
+        factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PatternMatch,
+            description: format!("upstream class: {}", structured.class),
+            weight: 0.5,
+        });
+        factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::PastFailure,
+            description: crate::agent::summarize_text(&structured.summary, 180),
+            weight: 0.8,
+        });
+        factors.push(crate::agent::learning::traces::CausalFactor {
+            factor_type: crate::agent::learning::traces::FactorType::ResourceConstraint,
+            description: if retry_attempted {
+                "automatic retry repaired thread state before continuing".to_string()
+            } else {
+                "automatic retry was skipped after the daemon started an investigation".to_string()
+            },
+            weight: 0.4,
+        });
+
+        let reasoning = if retry_attempted {
+            "Concierge repaired daemon-managed thread state and retried after detecting a fixable upstream failure."
+        } else {
+            "Concierge started background investigation for a fixable upstream failure, but automatic retry was deferred."
+        };
+        let selected = crate::agent::learning::traces::DecisionOption {
+            option_type: "upstream_recovery".to_string(),
+            reasoning: reasoning.to_string(),
+            rejection_reason: None,
+            estimated_success_prob: Some(if retry_attempted { 0.78 } else { 0.42 }),
+            arguments_hash: Some(crate::agent::learning::traces::hash_context_blob(
+                &structured.diagnostics.to_string(),
+            )),
+        };
+        let outcome = if retry_attempted {
+            crate::agent::learning::traces::CausalTraceOutcome::NearMiss {
+                what_went_wrong: crate::agent::summarize_text(&structured.summary, 220),
+                how_recovered:
+                    "repair the thread state and retry once after starting concierge investigation"
+                        .to_string(),
+            }
+        } else {
+            crate::agent::learning::traces::CausalTraceOutcome::Failure {
+                reason: format!(
+                    "{}; automatic retry was deferred while concierge investigation continued",
+                    crate::agent::summarize_text(&structured.summary, 180)
+                ),
+            }
+        };
+        let config = self.config.read().await.clone();
+        let trace = crate::agent::learning::traces::CausalTrace {
+            trace_id: format!("causal_{}", uuid::Uuid::new_v4()),
+            thread_id: Some(thread_id.to_string()),
+            goal_run_id: None,
+            task_id: None,
+            decision_type: crate::agent::learning::traces::DecisionType::Recovery,
+            selected,
+            rejected_options: Vec::new(),
+            context_hash: crate::agent::learning::traces::hash_context_blob(&format!(
+                "{}|{}|{}",
+                thread_id, recovery_signature, structured.summary
+            )),
+            causal_factors: factors,
+            outcome,
+            model_used: Some(config.model),
+            created_at: now_millis(),
+        };
+
+        let selected_json = serde_json::to_string(&trace.selected).unwrap_or_default();
+        let rejected_json = serde_json::to_string(&trace.rejected_options).unwrap_or_default();
+        let factors_json = serde_json::to_string(&trace.causal_factors).unwrap_or_default();
+        let outcome_json = serde_json::to_string(&trace.outcome).unwrap_or_default();
+        if let Err(error) = self
+            .history
+            .insert_causal_trace(
+                &trace.trace_id,
+                trace.thread_id.as_deref(),
+                None,
+                None,
+                "recovery",
+                &selected_json,
+                &rejected_json,
+                &trace.context_hash,
+                &factors_json,
+                &outcome_json,
+                trace.model_used.as_deref(),
+                trace.created_at,
+            )
+            .await
+        {
+            tracing::warn!(
+                thread_id = %thread_id,
+                signature = %recovery_signature,
+                "failed to persist upstream recovery causal trace: {error}"
+            );
+        }
+    }
+
     pub(in crate::agent) async fn command_blast_radius_advisory(
         &self,
         tool_name: &str,
@@ -69,7 +285,11 @@ impl AgentEngine {
             risk_level: risk.to_string(),
             evidence: format!(
                 "Similar `{}` operations had {} failure(s) and {} near-miss(es) in recent causal history.",
-                command.split_whitespace().take(2).collect::<Vec<_>>().join(" "),
+                command
+                    .split_whitespace()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" "),
                 failure_count,
                 near_miss_count
             ),

@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_OPENAI, PROVIDER_ID_GROQ};
 
 #[tokio::test]
 async fn set_provider_model_json_updates_provider_and_model_atomically() {
@@ -11,12 +12,12 @@ async fn set_provider_model_json_updates_provider_and_model_atomically() {
     engine.set_config(config).await;
 
     engine
-        .set_provider_model_json("openai", "gpt-5.4-mini")
+        .set_provider_model_json(PROVIDER_ID_OPENAI, "gpt-5.4-mini")
         .await
         .unwrap();
 
     let updated = engine.get_config().await;
-    assert_eq!(updated.provider, "openai");
+    assert_eq!(updated.provider, PROVIDER_ID_OPENAI);
     assert_eq!(updated.model, "gpt-5.4-mini");
 }
 
@@ -32,12 +33,12 @@ async fn set_provider_model_json_restores_canonical_base_url_for_predefined_prov
     engine.set_config(config).await;
 
     engine
-        .set_provider_model_json("groq", "llama-3.3-70b-versatile")
+        .set_provider_model_json(PROVIDER_ID_GROQ, "llama-3.3-70b-versatile")
         .await
         .unwrap();
 
     let updated = engine.get_config().await;
-    assert_eq!(updated.provider, "groq");
+    assert_eq!(updated.provider, PROVIDER_ID_GROQ);
     assert_eq!(updated.model, "llama-3.3-70b-versatile");
     assert_eq!(updated.base_url, "https://api.groq.com/openai/v1");
 }
@@ -138,7 +139,7 @@ async fn set_provider_model_json_rejects_invalid_model_without_changing_config()
 
     let before = engine.get_config().await;
     let result = engine
-        .set_provider_model_json("openai", "definitely-not-a-real-model")
+        .set_provider_model_json(PROVIDER_ID_OPENAI, "definitely-not-a-real-model")
         .await;
     assert!(result.is_err());
 
@@ -159,11 +160,11 @@ async fn prepare_provider_model_json_validates_without_mutating_runtime_config()
     engine.set_config(config).await;
 
     let prepared = engine
-        .prepare_provider_model_json("openai", "gpt-5.4-mini")
+        .prepare_provider_model_json(PROVIDER_ID_OPENAI, "gpt-5.4-mini")
         .await
         .expect("provider/model preparation should succeed");
 
-    assert_eq!(prepared.provider, "openai");
+    assert_eq!(prepared.provider, PROVIDER_ID_OPENAI);
     assert_eq!(prepared.model, "gpt-5.4-mini");
 
     let current = engine.get_config().await;

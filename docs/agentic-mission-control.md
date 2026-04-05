@@ -22,6 +22,8 @@
 
 ## Low-Fidelity Wireframes
 
+These wireframes describe the current mission-control layout direction and interaction model. They are intentionally approximate, not a pixel-perfect screenshot of every shipped panel state.
+
 ### Mission Control
 
 ```text
@@ -71,6 +73,8 @@
 +----------------------------------------------------------------------------+
 ```
 
+Current desktop Session Vault behavior also includes a memory provenance mode for durable facts. That view shows active/uncertain/confirmed/retracted states, supports direct confirm and retract actions, and renders persisted `retracts` relationships between memory entries. The TUI does not yet expose the same direct controls.
+
 ## Goal Runner Model
 
 - A **goal run** is the durable unit of autonomy.
@@ -108,7 +112,6 @@ Current top-level goal-run states:
 - Z1: split-pane chrome, tabs, context HUD, shared cursor badge
 - Z2: mission side panel and graph surfaces
 - Z3: modal overlays including the Security Interceptor
-- Z4: future spatial export layer for detached DAG planes and sub-agent lanes
 
 ## BFO Guidance
 

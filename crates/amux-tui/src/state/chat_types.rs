@@ -16,6 +16,7 @@ pub struct AgentMessage {
     pub role: MessageRole,
     pub content: String,
     pub reasoning: Option<String>,
+    pub provider_final_result_json: Option<String>,
     pub tool_name: Option<String>,
     pub tool_arguments: Option<String>,
     pub tool_call_id: Option<String>,
@@ -167,6 +168,7 @@ pub enum ChatAction {
         tps: Option<f64>,
         generation_ms: Option<u64>,
         reasoning: Option<String>,
+        provider_final_result_json: Option<String>,
     },
     SetRetryStatus {
         thread_id: String,

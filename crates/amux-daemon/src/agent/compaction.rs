@@ -1,5 +1,6 @@
 //! Context compaction — token-aware message compression for LLM requests.
 
+use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 use super::llm_client::messages_to_api_format;
 use super::*;
 
@@ -110,7 +111,7 @@ pub(super) fn prepare_llm_request(
         } else {
             default_api_transport_for_provider(&config.provider)
         };
-    if config.provider == "openai"
+    if config.provider == PROVIDER_ID_OPENAI
         && provider_config.auth_source == crate::agent::types::AuthSource::ChatgptSubscription
     {
         selected_transport = ApiTransport::Responses;
@@ -165,7 +166,7 @@ pub(super) fn prepare_llm_request(
                     })
                     .and_then(|(anchor_index, anchor_message)| {
                         let trailing = &messages[anchor_index + 1..];
-                        if config.provider == "github-copilot"
+                        if config.provider == PROVIDER_ID_GITHUB_COPILOT
                             && trailing.iter().any(|message| {
                                 message.role == MessageRole::Tool
                                     || message
@@ -263,6 +264,8 @@ pub(super) fn compact_messages_for_request(
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -797,7 +800,9 @@ fn select_compaction_transport(
     provider_id: &str,
     provider_config: &ProviderConfig,
 ) -> ApiTransport {
-    if provider_id == "openai" && provider_config.auth_source == AuthSource::ChatgptSubscription {
+    if provider_id == PROVIDER_ID_OPENAI
+        && provider_config.auth_source == AuthSource::ChatgptSubscription
+    {
         return ApiTransport::Responses;
     }
 
@@ -922,6 +927,15 @@ impl AgentEngine {
             None,
         )
         .await;
+        self.persist_context_compression_causal_trace(
+            thread_id,
+            task_id,
+            split_at,
+            message_count,
+            candidate.target_tokens,
+            strategy_used,
+        )
+        .await;
         let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
             thread_id: thread_id.to_string(),
         });
@@ -1024,6 +1038,8 @@ impl AgentEngine {
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::CompactionArtifact,
                 compaction_strategy: Some(strategy_used),

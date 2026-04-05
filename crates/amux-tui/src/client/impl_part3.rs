@@ -139,6 +139,24 @@ impl DaemonClient {
                     .send(ClientEvent::OperatorProfileSummary { summary_json })
                     .await;
             }
+            DaemonMessage::AgentOperatorModel { model_json } => {
+                let _ = event_tx
+                    .send(ClientEvent::OperatorModelSummary { model_json })
+                    .await;
+            }
+            DaemonMessage::AgentOperatorModelReset { ok } => {
+                let _ = event_tx.send(ClientEvent::OperatorModelReset { ok }).await;
+            }
+            DaemonMessage::AgentCollaborationSessions { sessions_json } => {
+                let _ = event_tx
+                    .send(ClientEvent::CollaborationSessions { sessions_json })
+                    .await;
+            }
+            DaemonMessage::AgentGeneratedTools { tools_json } => {
+                let _ = event_tx
+                    .send(ClientEvent::GeneratedTools { tools_json })
+                    .await;
+            }
             DaemonMessage::AgentOperatorProfileSessionCompleted {
                 session_id,
                 updated_fields,

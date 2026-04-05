@@ -1,3 +1,4 @@
+use amux_shared::providers::*;
 use super::ProviderDef;
 
 pub const CHAT_ONLY_TRANSPORTS: &[&str] = &["chat_completions"];
@@ -9,7 +10,7 @@ pub const GITHUB_COPILOT_AUTH_SOURCES: &[&str] = &["github_copilot", "api_key"];
 
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
-        id: "openai",
+        id: PROVIDER_ID_OPENAI,
         name: "OpenAI / ChatGPT",
         default_base_url: "https://api.openai.com/v1",
         default_model: "gpt-5.4",
@@ -20,7 +21,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "github-copilot",
+        id: PROVIDER_ID_GITHUB_COPILOT,
         name: "GitHub Copilot",
         default_base_url: "https://api.githubcopilot.com",
         default_model: "gpt-4.1",
@@ -31,7 +32,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "groq",
+        id: PROVIDER_ID_GROQ,
         name: "Groq",
         default_base_url: "https://api.groq.com/openai/v1",
         default_model: "llama-3.3-70b-versatile",
@@ -42,7 +43,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "ollama",
+        id: PROVIDER_ID_OLLAMA,
         name: "Ollama",
         default_base_url: "http://localhost:11434/v1",
         default_model: "llama3.1",
@@ -53,7 +54,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "together",
+        id: PROVIDER_ID_TOGETHER,
         name: "Together",
         default_base_url: "https://api.together.xyz/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
@@ -64,10 +65,10 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "openrouter",
+        id: PROVIDER_ID_OPENROUTER,
         name: "OpenRouter",
         default_base_url: "https://openrouter.ai/api/v1",
-        default_model: "anthropic/claude-sonnet-4",
+        default_model: "arcee-ai/trinity-large-thinking",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
@@ -75,7 +76,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "cerebras",
+        id: PROVIDER_ID_CEREBRAS,
         name: "Cerebras",
         default_base_url: "https://api.cerebras.ai/v1",
         default_model: "llama-3.3-70b",
@@ -86,7 +87,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "qwen",
+        id: PROVIDER_ID_QWEN,
         name: "Qwen",
         default_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
         default_model: "qwen-max",
@@ -97,7 +98,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: Some("https://dashscope-intl.aliyuncs.com/api/v1"),
     },
     ProviderDef {
-        id: "kimi",
+        id: PROVIDER_ID_KIMI,
         name: "Kimi (Moonshot)",
         default_base_url: "https://api.moonshot.ai/v1",
         default_model: "moonshot-v1-32k",
@@ -108,7 +109,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "z.ai",
+        id: PROVIDER_ID_Z_AI,
         name: "Z.AI (GLM)",
         default_base_url: "https://api.z.ai/api/paas/v4",
         default_model: "glm-4-plus",
@@ -119,7 +120,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "z.ai-coding-plan",
+        id: PROVIDER_ID_Z_AI_CODING_PLAN,
         name: "Z.AI Coding Plan",
         default_base_url: "https://api.z.ai/api/coding/paas/v4",
         default_model: "glm-5",
@@ -130,7 +131,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "kimi-coding-plan",
+        id: PROVIDER_ID_KIMI_CODING_PLAN,
         name: "Kimi Coding Plan",
         default_base_url: "https://api.kimi.com/coding/v1",
         default_model: "kimi-for-coding",
@@ -141,7 +142,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "minimax",
+        id: PROVIDER_ID_MINIMAX,
         name: "MiniMax",
         default_base_url: "https://api.minimax.io/anthropic",
         default_model: "MiniMax-M2.7",
@@ -152,7 +153,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "minimax-coding-plan",
+        id: PROVIDER_ID_MINIMAX_CODING_PLAN,
         name: "MiniMax Coding Plan",
         default_base_url: "https://api.minimax.io/anthropic",
         default_model: "MiniMax-M2.7",
@@ -163,7 +164,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "alibaba-coding-plan",
+        id: PROVIDER_ID_ALIBABA_CODING_PLAN,
         name: "Alibaba Coding Plan",
         default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
         default_model: "qwen3.5-plus",
@@ -174,7 +175,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "qwen-deepinfra",
+        id: PROVIDER_ID_QWEN_DEEPINFRA,
         name: "Qwen (DeepInfra)",
         default_base_url: "https://api.deepinfra.com/v1/openai",
         default_model: "Qwen/Qwen2.5-72B-Instruct",
@@ -185,7 +186,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "huggingface",
+        id: PROVIDER_ID_HUGGINGFACE,
         name: "Hugging Face",
         default_base_url: "https://api-inference.huggingface.co/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
@@ -196,7 +197,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "chutes",
+        id: PROVIDER_ID_CHUTES,
         name: "Chutes",
         default_base_url: "https://llm.chutes.ai/v1",
         default_model: "deepseek-ai/DeepSeek-V3",
@@ -207,7 +208,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "featherless",
+        id: PROVIDER_ID_FEATHERLESS,
         name: "Featherless",
         default_base_url: "https://api.featherless.ai/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
@@ -218,7 +219,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "opencode-zen",
+        id: PROVIDER_ID_OPENCODE_ZEN,
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
         default_model: "claude-sonnet-4-5",
@@ -229,7 +230,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
-        id: "custom",
+        id: PROVIDER_ID_CUSTOM,
         name: "Custom",
         default_base_url: "",
         default_model: "",

@@ -1,6 +1,5 @@
 use super::*;
 use amux_protocol::SecurityLevel;
-
 #[derive(Clone)]
 struct DirectThreadResponderConfig {
     agent_name: String,
@@ -11,7 +10,6 @@ struct DirectThreadResponderConfig {
     persona_prompt: String,
     tool_filter: Option<crate::agent::subagent::tool_filter::ToolFilter>,
 }
-
 fn build_direct_thread_responder_config(
     config: &AgentConfig,
     agent_scope_id: &str,
@@ -21,7 +19,6 @@ fn build_direct_thread_responder_config(
     if canonical_scope == MAIN_AGENT_ID {
         return None;
     }
-
     if canonical_scope == CONCIERGE_AGENT_ID {
         let provider_id = config
             .concierge
@@ -40,7 +37,6 @@ fn build_direct_thread_responder_config(
             tool_filter: None,
         });
     }
-
     let matched_def = if canonical_scope == crate::agent::agent_identity::WELES_AGENT_ID {
         sub_agents
             .iter()
@@ -56,7 +52,6 @@ fn build_direct_thread_responder_config(
     } else {
         build_spawned_persona_prompt(canonical_scope)
     };
-
     Some(DirectThreadResponderConfig {
         agent_name: canonical_agent_name(canonical_scope).to_string(),
         provider_id: matched_def
@@ -91,7 +86,6 @@ fn build_direct_thread_responder_config(
         }),
     })
 }
-
 impl<'a> SendMessageRunner<'a> {
     pub(super) async fn initialize(
         engine: &'a AgentEngine,
@@ -107,7 +101,6 @@ impl<'a> SendMessageRunner<'a> {
         initial_scheduled_retry_cycles: u32,
     ) -> Result<Self> {
         let mut config = engine.config.read().await.clone();
-
         let (tid, is_new_thread) = engine
             .get_or_create_thread(thread_id, stored_user_content)
             .await;
@@ -151,7 +144,6 @@ impl<'a> SendMessageRunner<'a> {
                 }
             }
         }
-
         let task_provider_override = {
             let tasks = engine.tasks.lock().await;
             task_id.and_then(|tid| {
@@ -225,7 +217,6 @@ impl<'a> SendMessageRunner<'a> {
                     return Err(error);
                 }
             };
-
         // The active responder can override the provider/model selection, so the
         // runtime config used by the send loop must reflect that effective provider.
         config.provider = active_provider_id.clone();
@@ -237,7 +228,6 @@ impl<'a> SendMessageRunner<'a> {
         config.api_transport = provider_config.api_transport;
         config.reasoning_effort = provider_config.reasoning_effort.clone();
         config.context_window_tokens = provider_config.context_window_tokens;
-
         let (stream_generation, stream_cancel_token, stream_retry_now) =
             engine.begin_stream_cancellation(&tid).await;
         let onecontext_bootstrap = if is_new_thread {
@@ -252,7 +242,6 @@ impl<'a> SendMessageRunner<'a> {
         let skill_preflight = engine
             .build_skill_preflight_context(stored_user_content, preferred_session_id.clone())
             .await?;
-
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
         let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override
@@ -500,7 +489,6 @@ impl<'a> SendMessageRunner<'a> {
                 None,
             );
         }
-
         let has_workspace_topology = engine.session_manager.read_workspace_topology().is_some();
         let mut tools = get_available_tools(&config, &engine.data_dir, has_workspace_topology);
         if let Some(filter) = &task_tool_filter {
@@ -523,7 +511,6 @@ impl<'a> SendMessageRunner<'a> {
         if let Some(task) = current_task_snapshot.as_ref() {
             engine.ensure_subagent_runtime(task, Some(&tid)).await;
         }
-
         let retry_strategy = if !config.auto_retry {
             RetryStrategy::Bounded {
                 max_retries: 0,
@@ -542,7 +529,6 @@ impl<'a> SendMessageRunner<'a> {
         } else {
             config.max_tool_loops
         };
-
         Ok(Self {
             engine,
             task_id,
@@ -606,6 +592,7 @@ impl<'a> SendMessageRunner<'a> {
             tool_side_effect_committed: false,
             attempted_recovery_signatures: std::collections::HashSet::new(),
             recent_policy_tool_outcomes: VecDeque::new(),
+            provider_final_result: None,
             fresh_runner_retry: None,
             handoff_restart: None,
         })

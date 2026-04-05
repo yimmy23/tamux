@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_OPENAI;
 use serde_json::Value;
 
 use amux_protocol::AGENT_NAME_RAROG;
@@ -55,13 +56,13 @@ impl TuiModel {
         &mut self,
         mut entries: Vec<crate::state::ProviderAuthEntry>,
     ) {
-        if self.config.provider == "openai"
+        if self.config.provider == PROVIDER_ID_OPENAI
             && self.config.auth_source == "chatgpt_subscription"
             && self.config.chatgpt_auth_available
         {
             if let Some(openai_entry) = entries
                 .iter_mut()
-                .find(|entry| entry.provider_id == "openai")
+                .find(|entry| entry.provider_id == PROVIDER_ID_OPENAI)
             {
                 openai_entry.authenticated = true;
                 openai_entry.auth_source = "chatgpt_subscription".to_string();

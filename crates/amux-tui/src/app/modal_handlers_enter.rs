@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_CUSTOM;
 
 pub(super) fn begin_custom_model_edit(model: &mut TuiModel) {
     let current = if model.config.custom_model_name.trim().is_empty()
@@ -100,7 +101,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.apply_provider_selection(def.id);
                         model.settings_picker_target = None;
                         model.close_top_modal();
-                        if model.config.provider == "custom" {
+                        if model.config.provider == PROVIDER_ID_CUSTOM {
                             model.settings_navigate_to(3);
                         } else {
                             let models = providers::known_models_for_provider_auth(
@@ -201,7 +202,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             } else {
                                 model_entry.name.clone().unwrap_or_else(|| model_id.clone())
                             };
-                        if model.config.provider != "custom" {
+                        if model.config.provider != PROVIDER_ID_CUSTOM {
                             model.config.context_window_tokens =
                                 model_context_window.unwrap_or(128_000);
                         }

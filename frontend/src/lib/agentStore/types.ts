@@ -165,6 +165,7 @@ export interface AgentMessage {
   model?: string;
   api_transport?: ApiTransportMode;
   responseId?: string;
+  providerFinalResult?: unknown;
   toolCalls?: ToolCall[];
   toolName?: string;
   toolCallId?: string;

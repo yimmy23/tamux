@@ -1,5 +1,76 @@
 use super::*;
 
+fn map_skill_variant_list_response(resp: DaemonMessage) -> Result<Value> {
+    match resp {
+        DaemonMessage::SkillListResult { variants } => Ok(serde_json::json!({
+            "variants": variants,
+        })),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+fn map_skill_variant_inspect_response(identifier: &str, resp: DaemonMessage) -> Result<Value> {
+    match resp {
+        DaemonMessage::SkillInspectResult { variant, content } => Ok(serde_json::json!({
+            "identifier": identifier,
+            "variant": variant,
+            "content": content,
+        })),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+fn map_audit_query_response(resp: DaemonMessage) -> Result<Value> {
+    match resp {
+        DaemonMessage::AuditList { entries_json } => Ok(serde_json::json!({
+            "entries": serde_json::from_str::<Value>(&entries_json).unwrap_or(Value::Array(Vec::new())),
+        })),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+pub(super) async fn tool_list_skill_variants(args: &Value) -> Result<Value> {
+    let status = args
+        .get("status")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|value| value.clamp(1, 200) as usize)
+        .unwrap_or(25);
+
+    let resp = daemon_roundtrip(ClientMessage::SkillList { status, limit }).await?;
+    map_skill_variant_list_response(resp)
+}
+
+pub(super) async fn tool_inspect_skill_variant(args: &Value) -> Result<Value> {
+    let identifier = args
+        .get("identifier")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: identifier"))?
+        .to_string();
+
+    let resp = daemon_roundtrip(ClientMessage::SkillInspect {
+        identifier: identifier.clone(),
+    })
+    .await?;
+    map_skill_variant_inspect_response(&identifier, resp)
+}
+
 pub(super) async fn tool_list_goal_runs() -> Result<Value> {
     let resp = daemon_roundtrip(ClientMessage::AgentListGoalRuns).await?;
 
@@ -87,6 +158,50 @@ pub(super) async fn tool_get_operator_model() -> Result<Value> {
         }
         other => anyhow::bail!("unexpected daemon response: {other:?}"),
     }
+}
+
+pub(super) async fn tool_reset_operator_model() -> Result<Value> {
+    let resp = daemon_roundtrip(ClientMessage::AgentResetOperatorModel).await?;
+
+    match resp {
+        DaemonMessage::AgentOperatorModelReset { ok } => Ok(serde_json::json!({
+            "ok": ok,
+        })),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+pub(super) async fn tool_query_audits(args: &Value) -> Result<Value> {
+    let action_types = args
+        .get("action_types")
+        .and_then(|v| v.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|values| !values.is_empty());
+    let since = args.get("since").and_then(|v| v.as_u64());
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|value| value.clamp(1, 500) as usize);
+
+    let resp = daemon_roundtrip(ClientMessage::AuditQuery {
+        action_types,
+        since,
+        limit,
+    })
+    .await?;
+
+    map_audit_query_response(resp)
 }
 
 pub(super) async fn tool_get_causal_trace_report(args: &Value) -> Result<Value> {
@@ -367,5 +482,80 @@ pub(super) async fn tool_activate_generated_tool(args: &Value) -> Result<Value> 
             anyhow::bail!("daemon error: {message}")
         }
         other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use amux_protocol::SkillVariantPublic;
+
+    fn sample_variant() -> SkillVariantPublic {
+        SkillVariantPublic {
+            variant_id: "var-1".to_string(),
+            skill_name: "build-pipeline".to_string(),
+            variant_name: "frontend".to_string(),
+            relative_path: "generated/build-pipeline--frontend.md".to_string(),
+            status: "active".to_string(),
+            use_count: 5,
+            success_count: 4,
+            failure_count: 1,
+            context_tags: vec!["frontend".to_string(), "rust".to_string()],
+            created_at: 100,
+            updated_at: 200,
+        }
+    }
+
+    #[test]
+    fn map_skill_variant_list_response_returns_variants_payload() {
+        let value = map_skill_variant_list_response(DaemonMessage::SkillListResult {
+            variants: vec![sample_variant()],
+        })
+        .expect("list response should map");
+
+        assert_eq!(value["variants"][0]["skill_name"], "build-pipeline");
+        assert_eq!(value["variants"][0]["variant_name"], "frontend");
+    }
+
+    #[test]
+    fn map_skill_variant_inspect_response_preserves_content_note() {
+        let value = map_skill_variant_inspect_response(
+            "var-1",
+            DaemonMessage::SkillInspectResult {
+                variant: Some(sample_variant()),
+                content: Some(
+                    "## Lifecycle Inspection\n- Status rationale: active branch\n\n# Skill"
+                        .to_string(),
+                ),
+            },
+        )
+        .expect("inspect response should map");
+
+        assert_eq!(value["identifier"], "var-1");
+        assert_eq!(value["variant"]["variant_id"], "var-1");
+        assert!(
+            value["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("Lifecycle Inspection"))
+        );
+    }
+
+    #[test]
+    fn map_audit_query_response_returns_entries_payload() {
+        let value = map_audit_query_response(DaemonMessage::AuditList {
+            entries_json: serde_json::json!([
+                {
+                    "id": 7,
+                    "action_type": "tool",
+                    "summary": "Executed managed command",
+                    "timestamp": 1234
+                }
+            ])
+            .to_string(),
+        })
+        .expect("audit response should map");
+
+        assert_eq!(value["entries"][0]["action_type"], "tool");
+        assert_eq!(value["entries"][0]["summary"], "Executed managed command");
     }
 }

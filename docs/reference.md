@@ -2,7 +2,7 @@
 
 This document collects the practical reference material that used to live in the top-level README: providers, configuration, shortcuts, packaging, runtime integration, and development notes.
 
-For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-tamux-works.md](how-tamux-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md).
+For onboarding, see [getting-started.md](getting-started.md). For runtime architecture, see [how-tamux-works.md](how-tamux-works.md). For deeper agent internals, see [self-orchestrating-agent.md](self-orchestrating-agent.md). For the current memory provenance and operator-control model, see [memory-and-security.md](memory-and-security.md).
 
 ## Paths And Locations
 
@@ -35,7 +35,7 @@ Data directory: `~/.tamux/` on Unix, `%LOCALAPPDATA%\tamux\` on Windows. Existin
 | Kimi Coding Plan | `kimi-coding-plan` | kimi-for-coding | api.kimi.com/coding |
 | Z.AI (GLM) | `z.ai` | glm-4-plus | api.z.ai |
 | Z.AI Coding Plan | `z.ai-coding-plan` | glm-5 | api.z.ai/api/coding/paas/v4 |
-| OpenRouter | `openrouter` | anthropic/claude-sonnet-4 | openrouter.ai |
+| OpenRouter | `openrouter` | arcee-ai/trinity-large-thinking | openrouter.ai |
 | Cerebras | `cerebras` | llama-3.3-70b | api.cerebras.ai |
 | Together | `together` | meta-llama/Llama-3.3-70B-Instruct-Turbo | api.together.xyz |
 | Groq | `groq` | llama-3.3-70b-versatile | api.groq.com |
@@ -56,6 +56,8 @@ Data directory: `~/.tamux/` on Unix, `%LOCALAPPDATA%\tamux\` on Windows. Existin
 - OpenCode Zen auto-selects Anthropic format for Claude models and OpenAI-compatible format for others
 
 Switch providers at any time from the Settings panel. Each provider's base URL, model, and API key are independently configurable, and models can be selected from a searchable list or entered manually.
+
+When OpenRouter is selected, tamux automatically sends app attribution headers using `https://tamux.app` and the `tamux` title so usage can appear in OpenRouter analytics and rankings.
 
 ## Build And Run
 

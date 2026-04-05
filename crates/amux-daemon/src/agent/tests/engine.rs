@@ -1,5 +1,9 @@
 #[cfg(test)]
 use super::*;
+use amux_shared::providers::{
+    PROVIDER_ID_CHATGPT_SUBSCRIPTION, PROVIDER_ID_CUSTOM, PROVIDER_ID_GROQ,
+    PROVIDER_ID_OPENAI,
+};
 use tempfile::TempDir;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
@@ -38,6 +42,18 @@ fn provider_config(
         reasoning_effort: String::new(),
         context_window_tokens: 0,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     }
 }
 
@@ -53,21 +69,25 @@ fn write_openai_subscription_auth() {
         "updated_at": 4_102_444_800_000i64,
         "created_at": 4_102_444_800_000i64
     });
-    super::provider_auth_store::save_provider_auth_state("openai", "chatgpt_subscription", &auth)
-        .expect("write auth fixture");
+    super::provider_auth_store::save_provider_auth_state(
+        PROVIDER_ID_OPENAI,
+        PROVIDER_ID_CHATGPT_SUBSCRIPTION,
+        &auth,
+    )
+    .expect("write auth fixture");
 }
 
 #[tokio::test]
 async fn provider_alternative_excludes_placeholder_provider_row() {
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.providers.insert(
-        "custom".to_string(),
+        PROVIDER_ID_CUSTOM.to_string(),
         provider_config("", "", "", AuthSource::ApiKey),
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
 
-    let suggestion = engine.suggest_alternative_provider("openai").await;
+    let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_OPENAI).await;
 
     assert!(
         suggestion.is_none(),
@@ -78,9 +98,9 @@ async fn provider_alternative_excludes_placeholder_provider_row() {
 #[tokio::test]
 async fn provider_alternative_excludes_failed_provider_itself() {
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.providers.insert(
-        "openai".to_string(),
+        PROVIDER_ID_OPENAI.to_string(),
         provider_config(
             "https://api.openai.com/v1",
             "gpt-4o",
@@ -90,7 +110,7 @@ async fn provider_alternative_excludes_failed_provider_itself() {
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
 
-    let suggestion = engine.suggest_alternative_provider("openai").await;
+    let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_OPENAI).await;
 
     assert!(
         suggestion.is_none(),
@@ -101,9 +121,9 @@ async fn provider_alternative_excludes_failed_provider_itself() {
 #[tokio::test]
 async fn provider_alternative_excludes_open_breaker_provider() {
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.providers.insert(
-        "custom".to_string(),
+        PROVIDER_ID_CUSTOM.to_string(),
         provider_config(
             "https://example.invalid/v1",
             "model-a",
@@ -113,7 +133,7 @@ async fn provider_alternative_excludes_open_breaker_provider() {
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
     {
-        let breaker = engine.circuit_breakers.get("custom").await;
+        let breaker = engine.circuit_breakers.get(PROVIDER_ID_CUSTOM).await;
         let mut breaker = breaker.lock().await;
         let now = now_millis();
         for offset in 0..5 {
@@ -121,7 +141,7 @@ async fn provider_alternative_excludes_open_breaker_provider() {
         }
     }
 
-    let suggestion = engine.suggest_alternative_provider("openai").await;
+    let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_OPENAI).await;
 
     assert!(
         suggestion.is_none(),
@@ -132,9 +152,9 @@ async fn provider_alternative_excludes_open_breaker_provider() {
 #[tokio::test]
 async fn provider_alternative_includes_configured_healthy_provider() {
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.providers.insert(
-        "custom".to_string(),
+        PROVIDER_ID_CUSTOM.to_string(),
         provider_config(
             "https://example.invalid/v1",
             "model-a",
@@ -144,11 +164,11 @@ async fn provider_alternative_includes_configured_healthy_provider() {
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
 
-    let suggestion = engine.suggest_alternative_provider("openai").await;
+    let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_OPENAI).await;
 
     let suggestion = suggestion.expect("healthy provider should be suggested");
     assert!(
-        suggestion.contains("custom"),
+        suggestion.contains(PROVIDER_ID_CUSTOM),
         "expected healthy configured provider to be suggested, got: {suggestion}"
     );
 }
@@ -165,9 +185,9 @@ async fn provider_alternative_excludes_openai_subscription_without_auth() {
     );
 
     let mut config = AgentConfig::default();
-    config.provider = "groq".to_string();
+    config.provider = PROVIDER_ID_GROQ.to_string();
     config.providers.insert(
-        "openai".to_string(),
+        PROVIDER_ID_OPENAI.to_string(),
         provider_config(
             "https://api.openai.com/v1",
             "gpt-5.4",
@@ -177,7 +197,7 @@ async fn provider_alternative_excludes_openai_subscription_without_auth() {
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
 
-    let suggestion = engine.suggest_alternative_provider("groq").await;
+    let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_GROQ).await;
 
     std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
     std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
@@ -200,26 +220,29 @@ async fn provider_alternative_uses_candidate_default_model_for_empty_named_model
     );
 
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.model = "gpt-5.4".to_string();
     config.providers.insert(
-        "groq".to_string(),
+        PROVIDER_ID_GROQ.to_string(),
         provider_config("", "", "groq-key", AuthSource::ApiKey),
     );
     let (engine, _temp_dir) = make_test_engine(config).await;
 
     let resolved = {
         let config = engine.config.read().await;
-        resolve_candidate_provider_config(&config, "groq")
+        resolve_candidate_provider_config(&config, PROVIDER_ID_GROQ)
             .expect("candidate provider should resolve with its default model")
     };
-    let suggestion = engine.suggest_alternative_provider("openai").await;
+    let suggestion = engine.suggest_alternative_provider(PROVIDER_ID_OPENAI).await;
 
     std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
     std::env::remove_var("TAMUX_CODEX_CLI_AUTH_PATH");
     assert_eq!(resolved.model, "llama-3.3-70b-versatile");
     assert!(
-        suggestion.as_deref().unwrap_or_default().contains("groq"),
+        suggestion
+            .as_deref()
+            .unwrap_or_default()
+            .contains(PROVIDER_ID_GROQ),
         "expected groq to remain eligible using its own default model"
     );
 }
@@ -256,7 +279,7 @@ async fn send_message_times_out_hung_provider_request() {
     std::fs::create_dir_all(&data_dir).expect("create agent data dir");
 
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = server_url;
     config.model = "gpt-4o-mini".to_string();
     config.api_transport = ApiTransport::ChatCompletions;

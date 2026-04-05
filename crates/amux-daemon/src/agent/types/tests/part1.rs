@@ -327,10 +327,12 @@ fn interval_mins_to_cron_converts_correctly() {
     assert_eq!(interval_mins_to_cron(0), "* * * * *");
 }
 
+use amux_shared::providers::{PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI};
+
 #[test]
 fn circuit_breaker_event_serde_roundtrip() {
     let event = AgentEvent::ProviderCircuitOpen {
-        provider: "openai".to_string(),
+            provider: PROVIDER_ID_OPENAI.to_string(),
         failed_model: None,
         trip_count: 3,
         reason: "circuit breaker open".to_string(),
@@ -350,7 +352,7 @@ fn circuit_breaker_event_serde_roundtrip() {
             reason,
             suggested_alternatives,
         } => {
-            assert_eq!(provider, "openai");
+            assert_eq!(provider, PROVIDER_ID_OPENAI);
             assert!(failed_model.is_none());
             assert_eq!(trip_count, 3);
             assert_eq!(reason, "circuit breaker open");
@@ -361,13 +363,13 @@ fn circuit_breaker_event_serde_roundtrip() {
     }
 
     let recovery = AgentEvent::ProviderCircuitRecovered {
-        provider: "anthropic".to_string(),
+            provider: PROVIDER_ID_ANTHROPIC.to_string(),
     };
     let json = serde_json::to_string(&recovery).unwrap();
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
     match parsed {
         AgentEvent::ProviderCircuitRecovered { provider } => {
-            assert_eq!(provider, "anthropic");
+                assert_eq!(provider, PROVIDER_ID_ANTHROPIC);
         }
         _ => panic!("wrong variant after deserialize"),
     }

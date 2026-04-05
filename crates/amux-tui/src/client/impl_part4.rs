@@ -1,10 +1,14 @@
 impl DaemonClient {
+    fn is_internal_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
+        let normalized_id = thread_id.unwrap_or_default().trim().to_ascii_lowercase();
+        let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
+        normalized_id.starts_with("dm:") || normalized_title.starts_with("internal dm")
+    }
+
     fn is_hidden_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
         let normalized_id = thread_id.unwrap_or_default().trim().to_ascii_lowercase();
         let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
-        normalized_id.starts_with("dm:")
-            || normalized_id.starts_with("handoff:")
-            || normalized_title.starts_with("internal dm")
+        normalized_id.starts_with("handoff:")
             || normalized_title.starts_with("handoff ")
             || normalized_title == "weles"
             || normalized_title.starts_with("weles ")
@@ -46,6 +50,7 @@ impl DaemonClient {
                 let title = get_string(&event, "title")
                     .unwrap_or_else(|| "New Conversation".to_string());
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                let agent_name = get_string(&event, "agent_name");
                 if Self::is_hidden_agent_thread(Some(thread_id.as_str()), Some(title.as_str())) {
                     return;
                 }
@@ -53,6 +58,7 @@ impl DaemonClient {
                     .send(ClientEvent::ThreadCreated {
                         thread_id,
                         title,
+                        agent_name,
                     })
                     .await;
             }
@@ -147,6 +153,9 @@ impl DaemonClient {
                         tps: event.get("tps").and_then(Value::as_f64),
                         generation_ms: event.get("generation_ms").and_then(Value::as_u64),
                         reasoning: get_string(&event, "reasoning"),
+                        provider_final_result_json: event
+                            .get("provider_final_result")
+                            .and_then(|value| serde_json::to_string(value).ok()),
                     })
                     .await;
             }

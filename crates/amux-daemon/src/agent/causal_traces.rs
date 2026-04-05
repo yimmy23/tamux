@@ -10,8 +10,8 @@ mod persistence;
 #[path = "causal_traces/reporting.rs"]
 mod reporting;
 use helpers::{
-    command_family, estimate_plan_success, estimated_success_probability,
-    pattern_family_from_factor, summarize_outcome, FamilyOutcomeSummary, OutcomeSummary,
+    FamilyOutcomeSummary, OutcomeSummary, command_family, estimate_plan_success,
+    estimated_success_probability, summarize_outcome,
 };
 
 impl AgentEngine {
@@ -240,6 +240,43 @@ impl AgentEngine {
             .unwrap_or(0)
     }
 
+    pub(super) async fn settle_goal_plan_causal_traces(
+        &self,
+        goal_run_id: &str,
+        outcome: &str,
+        reason: Option<&str>,
+    ) -> usize {
+        let outcome_json = match outcome {
+            "success" => {
+                serde_json::to_string(&crate::agent::learning::traces::CausalTraceOutcome::Success)
+                    .unwrap_or_default()
+            }
+            "failure" => serde_json::to_string(
+                &crate::agent::learning::traces::CausalTraceOutcome::Failure {
+                    reason: reason
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or("goal run failed before validating the selected plan")
+                        .to_string(),
+                },
+            )
+            .unwrap_or_default(),
+            "cancelled" => serde_json::to_string(
+                &crate::agent::learning::traces::CausalTraceOutcome::Failure {
+                    reason: reason
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or("goal run was cancelled before validating the selected plan")
+                        .to_string(),
+                },
+            )
+            .unwrap_or_default(),
+            _ => return 0,
+        };
+        self.history
+            .settle_goal_plan_causal_traces(goal_run_id, &outcome_json)
+            .await
+            .unwrap_or(0)
+    }
+
     pub(super) async fn persist_recovery_near_miss_trace(
         &self,
         goal_run: &GoalRun,
@@ -358,114 +395,6 @@ impl AgentEngine {
             .await
         {
             tracing::warn!(goal_run_id = %goal_run.id, task_id = %failed_task.id, "failed to persist recovery near-miss trace: {error}");
-        }
-    }
-
-    pub(super) async fn build_causal_guidance_summary(&self) -> Option<String> {
-        let mut advisories = Vec::new();
-        for tool_name in ["execute_managed_command", "bash_command"] {
-            let records = self
-                .history
-                .list_recent_causal_trace_records(tool_name, 48)
-                .await
-                .ok()?;
-            let mut by_family: HashMap<String, FamilyOutcomeSummary> = HashMap::new();
-            for record in records {
-                let Ok(factors) = serde_json::from_str::<
-                    Vec<crate::agent::learning::traces::CausalFactor>,
-                >(&record.causal_factors_json) else {
-                    continue;
-                };
-                let family = factors.iter().find_map(pattern_family_from_factor)?;
-                let Ok(outcome) = serde_json::from_str::<
-                    crate::agent::learning::traces::CausalTraceOutcome,
-                >(&record.outcome_json) else {
-                    continue;
-                };
-                let Some(summary) = summarize_outcome(outcome) else {
-                    continue;
-                };
-                let entry = by_family.entry(family).or_default();
-                entry.record(summary);
-            }
-
-            for (family, summary) in by_family {
-                let caution_count = summary.failure_count + summary.near_miss_count;
-                if caution_count == 0 {
-                    continue;
-                }
-                let recent_reasons = summary
-                    .reasons
-                    .into_iter()
-                    .map(|reason| crate::agent::summarize_text(&reason, 100))
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                let recovery_hint = if summary.recoveries.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        "; recent recovery pattern: {}",
-                        summary
-                            .recoveries
-                            .into_iter()
-                            .map(|recovery| crate::agent::summarize_text(&recovery, 100))
-                            .collect::<Vec<_>>()
-                            .join("; ")
-                    )
-                };
-                advisories.push(format!(
-                    "- {} / {}: {} failure(s), {} near-miss(es); watch for {}{}",
-                    tool_name,
-                    family,
-                    summary.failure_count,
-                    summary.near_miss_count,
-                    recent_reasons,
-                    recovery_hint
-                ));
-            }
-        }
-
-        if let Ok(records) = self
-            .history
-            .list_recent_causal_trace_records("replan_after_failure", 24)
-            .await
-        {
-            let mut recovery_patterns = Vec::new();
-            for record in records {
-                let Ok(outcome) = serde_json::from_str::<
-                    crate::agent::learning::traces::CausalTraceOutcome,
-                >(&record.outcome_json) else {
-                    continue;
-                };
-                let Some(summary) = summarize_outcome(outcome) else {
-                    continue;
-                };
-                if !summary.is_near_miss {
-                    continue;
-                }
-                if let Some(recovery) = summary.recovery {
-                    if recovery_patterns.len() < 2 {
-                        recovery_patterns.push(crate::agent::summarize_text(&recovery, 110));
-                    }
-                }
-            }
-            if !recovery_patterns.is_empty() {
-                advisories.push(format!(
-                    "- recovery: recent near-miss replans recovered via {}",
-                    recovery_patterns.join("; ")
-                ));
-            }
-        }
-
-        if advisories.is_empty() {
-            None
-        } else {
-            advisories.sort();
-            advisories.truncate(3);
-            Some(format!(
-                "## Recent Causal Guidance\n{}",
-                advisories.join("\n")
-            ))
         }
     }
 }

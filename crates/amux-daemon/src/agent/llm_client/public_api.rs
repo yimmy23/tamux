@@ -360,6 +360,25 @@ pub fn send_completion_request_with_options(
     CompletionStream { rx }
 }
 
+pub async fn count_request_tokens(
+    client: &reqwest::Client,
+    provider: &str,
+    config: &ProviderConfig,
+    system_prompt: &str,
+    messages: &[ApiMessage],
+    tools: &[ToolDefinition],
+) -> Result<AnthropicMessageTokensCount> {
+    let api_type = get_provider_api_type(provider, &config.model, &config.base_url);
+    if api_type != ApiType::Anthropic {
+        return Err(transport_incompatibility_error(
+            provider,
+            "count_tokens is only implemented for Anthropic Messages providers",
+        ));
+    }
+
+    count_anthropic_tokens(client, provider, config, system_prompt, messages, tools).await
+}
+
 /// Convert `AgentMessage` history to API format.
 pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<ApiMessage> {
     let mut pending_tool_results = std::collections::VecDeque::new();

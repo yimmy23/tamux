@@ -34,13 +34,14 @@ impl AgentEngine {
         }
 
         let reply = if allow_escalation && concierge_should_escalate(content) {
-            let (_internal_thread_id, response) = Box::pin(self.send_internal_agent_message(
+            let result = Box::pin(self.send_internal_agent_message(
                 CONCIERGE_AGENT_ID,
                 MAIN_AGENT_ID,
                 content,
                 preferred_session_hint,
             ))
             .await?;
+            let response = result.response;
             format!("I checked with {}. {}", MAIN_AGENT_NAME, response.trim())
         } else {
             self.generate_concierge_reply(&tid).await?
@@ -72,6 +73,8 @@ impl AgentEngine {
             tps: None,
             generation_ms: None,
             reasoning: None,
+            upstream_message: None,
+            provider_final_result: None,
         });
         Ok(())
     }

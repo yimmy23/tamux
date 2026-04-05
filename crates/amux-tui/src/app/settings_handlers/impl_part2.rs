@@ -263,10 +263,11 @@ impl TuiModel {
         match self.auth.action_cursor {
             0 => {
                 if entry.authenticated {
-                    if entry.provider_id == "openai" && entry.auth_source == "chatgpt_subscription"
+                    if entry.provider_id == PROVIDER_ID_OPENAI
+                        && entry.auth_source == "chatgpt_subscription"
                     {
                         self.send_daemon_command(DaemonCommand::LogoutOpenAICodex);
-                    } else if entry.provider_id == "github-copilot"
+                    } else if entry.provider_id == PROVIDER_ID_GITHUB_COPILOT
                         && entry.auth_source == "github_copilot"
                     {
                         match crate::auth::clear_github_copilot_auth() {
@@ -306,11 +307,11 @@ impl TuiModel {
                         self.status_line =
                             format!("Cleared credentials for {}", entry.provider_name);
                     }
-                } else if entry.provider_id == "openai"
+                } else if entry.provider_id == PROVIDER_ID_OPENAI
                     && entry.auth_source == "chatgpt_subscription"
                 {
                     self.send_daemon_command(DaemonCommand::LoginOpenAICodex);
-                } else if entry.provider_id == "github-copilot"
+                } else if entry.provider_id == PROVIDER_ID_GITHUB_COPILOT
                     && entry.auth_source == "github_copilot"
                 {
                     self.start_auth_login(&entry.provider_id, &entry.provider_name);
@@ -319,12 +320,12 @@ impl TuiModel {
                 }
             }
             1 => {
-                if entry.provider_id == "openai" && self.config.chatgpt_auth_available {
+                if entry.provider_id == PROVIDER_ID_OPENAI && self.config.chatgpt_auth_available {
                     self.send_daemon_command(DaemonCommand::LogoutOpenAICodex);
-                } else if entry.provider_id == "openai" {
+                } else if entry.provider_id == PROVIDER_ID_OPENAI {
                     self.send_daemon_command(DaemonCommand::LoginOpenAICodex);
                 } else if !entry.authenticated
-                    && entry.provider_id == "github-copilot"
+                    && entry.provider_id == PROVIDER_ID_GITHUB_COPILOT
                     && entry.auth_source == "github_copilot"
                 {
                     match crate::auth::begin_github_copilot_auth_flow() {
@@ -350,7 +351,9 @@ impl TuiModel {
                 } else {
                     let (base_url, api_key, auth_source) =
                         self.provider_auth_snapshot(&entry.provider_id);
-                    if entry.provider_id == "openai" && auth_source == "chatgpt_subscription" {
+                    if entry.provider_id == PROVIDER_ID_OPENAI
+                        && auth_source == "chatgpt_subscription"
+                    {
                         self.refresh_openai_auth_status();
                         self.status_line =
                             "Refreshing ChatGPT subscription auth status...".to_string();

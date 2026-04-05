@@ -1,5 +1,8 @@
 use super::participants::apply_vote_to_disagreement;
 use super::*;
+use crate::session_manager::SessionManager;
+use tempfile::tempdir;
+use tokio::time::{timeout, Duration};
 
 #[test]
 fn apply_vote_to_disagreement_accumulates_votes_before_resolving() {
@@ -92,4 +95,83 @@ fn detect_disagreements_preserves_existing_votes() {
     assert_eq!(session.disagreements[0].id, "existing");
     assert_eq!(session.disagreements[0].votes.len(), 1);
     assert_eq!(session.disagreements[0].votes[0].task_id, "a");
+}
+
+#[tokio::test]
+async fn vote_on_tight_margin_notifies_operator_escalation() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut events = engine.subscribe();
+
+    engine.collaboration.write().await.insert(
+        "parent-task".to_string(),
+        CollaborationSession {
+            id: "session-1".to_string(),
+            parent_task_id: "parent-task".to_string(),
+            thread_id: Some("thread-collab".to_string()),
+            goal_run_id: None,
+            mission: "decide deployment strategy".to_string(),
+            agents: vec![
+                CollaborativeAgent {
+                    task_id: "a".to_string(),
+                    title: "Research".to_string(),
+                    role: "planning".to_string(),
+                    confidence: 1.0,
+                    status: "running".to_string(),
+                },
+                CollaborativeAgent {
+                    task_id: "b".to_string(),
+                    title: "Review".to_string(),
+                    role: "planning".to_string(),
+                    confidence: 0.9,
+                    status: "running".to_string(),
+                },
+            ],
+            contributions: Vec::new(),
+            disagreements: vec![Disagreement {
+                id: "disagree-1".to_string(),
+                topic: "deployment strategy".to_string(),
+                agents: vec!["a".to_string(), "b".to_string()],
+                positions: vec!["recommend".to_string(), "reject".to_string()],
+                confidence_gap: 0.1,
+                resolution: "pending".to_string(),
+                votes: vec![Vote {
+                    task_id: "a".to_string(),
+                    position: "recommend".to_string(),
+                    weight: 1.0,
+                }],
+            }],
+            consensus: None,
+            updated_at: now_millis(),
+        },
+    );
+
+    let report = engine
+        .vote_on_collaboration_disagreement("parent-task", "disagree-1", "b", "reject", Some(0.9))
+        .await
+        .expect("vote should succeed");
+
+    assert_eq!(report["resolution"], "escalated");
+    let event = timeout(Duration::from_millis(200), events.recv())
+        .await
+        .expect("expected workflow notice")
+        .expect("broadcast receive should succeed");
+
+    match event {
+        AgentEvent::WorkflowNotice {
+            thread_id,
+            kind,
+            message,
+            details,
+        } => {
+            assert_eq!(thread_id, "thread-collab");
+            assert_eq!(kind, "collaboration");
+            assert!(message.contains("Unresolved subagent disagreement"));
+            assert!(details.unwrap_or_default().contains("recommend"));
+        }
+        other => panic!("expected workflow notice, got {other:?}"),
+    }
 }

@@ -244,8 +244,20 @@ async fn run_native_assistant(
                         reasoning: None,
                         input_tokens,
                         output_tokens,
+                        stop_reason: None,
+                        stop_sequence: None,
                         response_id: None,
+                        request_id: None,
+                        upstream_model: None,
+                        upstream_role: None,
+                        upstream_message_type: None,
+                        upstream_container: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         upstream_thread_id: Some(thread_id),
+                        cache_creation_input_tokens: None,
+                        cache_read_input_tokens: None,
+                        server_tool_use: None,
                     }))
                     .await;
                 return Ok(());

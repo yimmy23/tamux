@@ -27,10 +27,23 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 thread_id     TEXT,
                 task_id       TEXT,
                 goal_run_id   TEXT,
-                created_at    INTEGER NOT NULL
+                created_at    INTEGER NOT NULL,
+                confirmed_at  INTEGER,
+                retracted_at  INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_memory_provenance_target_ts ON memory_provenance(target, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_memory_provenance_goal_run ON memory_provenance(goal_run_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_provenance_relationships (
+                id              TEXT PRIMARY KEY,
+                source_entry_id TEXT NOT NULL,
+                target_entry_id TEXT NOT NULL,
+                relation_type   TEXT NOT NULL,
+                fact_key        TEXT,
+                created_at      INTEGER NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_provenance_rel_unique ON memory_provenance_relationships(source_entry_id, target_entry_id, relation_type, fact_key);
+            CREATE INDEX IF NOT EXISTS idx_memory_provenance_rel_source ON memory_provenance_relationships(source_entry_id, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS skill_variants (
                 variant_id         TEXT PRIMARY KEY,

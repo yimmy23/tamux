@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::{PROVIDER_ID_OPENAI, PROVIDER_ID_CHATGPT_SUBSCRIPTION};
 use std::path::{Path, PathBuf};
 
 #[path = "commands_goal_targets.rs"]
@@ -327,8 +328,8 @@ impl TuiModel {
                     self.config
                         .reduce(config::ConfigAction::ModelsFetched(models));
                 }
-                if !(self.config.provider == "openai"
-                    && self.config.auth_source == "chatgpt_subscription")
+                if !(self.config.provider == PROVIDER_ID_OPENAI
+                    && self.config.auth_source == PROVIDER_ID_CHATGPT_SUBSCRIPTION)
                     && providers::supports_model_fetch_for(&self.config.provider)
                 {
                     self.send_daemon_command(DaemonCommand::FetchModels {

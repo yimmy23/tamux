@@ -3,6 +3,7 @@
 use super::*;
 
 mod concierge;
+mod direct_messages;
 
 impl AgentEngine {
     async fn prepare_internal_dm_thread(
@@ -161,6 +162,8 @@ impl AgentEngine {
                     model: msg.model.clone(),
                     api_transport: metadata.api_transport,
                     response_id: metadata.response_id,
+                    upstream_message: metadata.upstream_message,
+                    provider_final_result: metadata.provider_final_result,
                     reasoning: msg.reasoning.clone(),
                     message_kind: metadata.message_kind,
                     compaction_strategy: metadata.compaction_strategy,
@@ -276,6 +279,7 @@ impl AgentEngine {
                 let _ = self.event_tx.send(AgentEvent::ThreadCreated {
                     thread_id: id.clone(),
                     title,
+                    agent_name: Some(canonical_agent_name(&active_agent_id).to_string()),
                 });
             }
         }
@@ -343,6 +347,8 @@ impl AgentEngine {
                     model: msg.model,
                     api_transport: metadata.api_transport,
                     response_id: metadata.response_id,
+                    upstream_message: metadata.upstream_message,
+                    provider_final_result: metadata.provider_final_result,
                     reasoning: msg.reasoning,
                     message_kind: metadata.message_kind,
                     compaction_strategy: metadata.compaction_strategy,
@@ -535,115 +541,6 @@ impl AgentEngine {
         )
         .await;
         Ok(outcome)
-    }
-
-    pub async fn send_direct_message(
-        &self,
-        target: &str,
-        thread_id: Option<&str>,
-        preferred_session_hint: Option<&str>,
-        content: &str,
-    ) -> Result<(String, String)> {
-        if is_concierge_target(target)
-            || thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID)
-        {
-            let target_thread_id = thread_id
-                .unwrap_or(crate::agent::concierge::CONCIERGE_THREAD_ID)
-                .to_string();
-            self.send_concierge_message_on_thread(
-                &target_thread_id,
-                content,
-                preferred_session_hint,
-                true,
-                true,
-            )
-            .await?;
-            let response = self
-                .latest_assistant_message_text(&target_thread_id)
-                .await
-                .unwrap_or_default();
-            return Ok((target_thread_id, response));
-        }
-
-        let target_thread_id = Box::pin(self.send_message_inner(
-            thread_id,
-            content,
-            None,
-            preferred_session_hint,
-            None,
-            None,
-            None,
-            None,
-            true,
-        ))
-        .await?
-        .thread_id;
-        let response = self
-            .latest_assistant_message_text(&target_thread_id)
-            .await
-            .unwrap_or_default();
-        Ok((target_thread_id, response))
-    }
-
-    pub(super) async fn send_internal_agent_message(
-        &self,
-        sender: &str,
-        recipient: &str,
-        content: &str,
-        preferred_session_hint: Option<&str>,
-    ) -> Result<(String, String)> {
-        let wrapped = wrap_internal_message(sender, recipient, content);
-        let dm_thread_id = self
-            .prepare_internal_dm_thread(sender, recipient, &wrapped)
-            .await;
-        if is_concierge_target(recipient) {
-            Box::pin(self.send_concierge_message_on_thread(
-                &dm_thread_id,
-                &wrapped,
-                preferred_session_hint,
-                false,
-                false,
-            ))
-            .await?;
-        } else {
-            Box::pin(self.send_message_inner(
-                Some(&dm_thread_id),
-                &wrapped,
-                None,
-                preferred_session_hint,
-                None,
-                None,
-                None,
-                None,
-                false,
-            ))
-            .await?;
-        }
-        self.ensure_thread_identity(
-            &dm_thread_id,
-            &internal_dm_thread_title(sender, recipient),
-            false,
-        )
-        .await;
-        let response = self
-            .latest_assistant_message_text(&dm_thread_id)
-            .await
-            .unwrap_or_default();
-        Ok((dm_thread_id, response))
-    }
-
-    pub(super) async fn latest_assistant_message_text(&self, thread_id: &str) -> Option<String> {
-        let threads = self.threads.read().await;
-        threads.get(thread_id).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| {
-                    message.role == MessageRole::Assistant && !message.content.trim().is_empty()
-                })
-                .map(|message| message.content.clone())
-        })
     }
 
     pub(super) async fn ensure_thread_identity(&self, thread_id: &str, title: &str, pinned: bool) {

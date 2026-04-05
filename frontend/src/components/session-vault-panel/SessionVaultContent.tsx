@@ -1,12 +1,15 @@
 import type { TranscriptEntry } from "../../lib/types";
+import { SessionVaultMemoryView } from "./SessionVaultMemoryView";
 import { StaticLog } from "../StaticLog";
 import {
     activeModeBtnStyle,
     formatBytes,
     hdrBtn,
+    type MemoryProvenanceReport,
     isTranscriptEntry,
     miniActionBtnStyle,
     modeBtnStyle,
+    type SessionVaultMode,
     timelineBodyStyle,
     timelineCardStyle,
     timelineMetaStyle,
@@ -20,6 +23,12 @@ export function SessionVaultContent({
     timeline,
     timelineMode,
     setTimelineMode,
+    memoryReport,
+    memoryStatus,
+    loadingMemory,
+    loadMemoryProvenance,
+    confirmMemoryEntry,
+    retractMemoryEntry,
     selected,
     setSelectedId,
     display,
@@ -36,8 +45,14 @@ export function SessionVaultContent({
     setTimelineIndex,
 }: {
     timeline: TimelineEntry[];
-    timelineMode: "timeline" | "transcripts";
-    setTimelineMode: (mode: "timeline" | "transcripts") => void;
+    timelineMode: SessionVaultMode;
+    setTimelineMode: (mode: SessionVaultMode) => void;
+    memoryReport: MemoryProvenanceReport | null;
+    memoryStatus: string | null;
+    loadingMemory: boolean;
+    loadMemoryProvenance: () => Promise<void>;
+    confirmMemoryEntry: (entryId: string) => Promise<void>;
+    retractMemoryEntry: (entryId: string) => Promise<void>;
     selected: TranscriptEntry | null;
     setSelectedId: (id: string | null) => void;
     display: TranscriptEntry[];
@@ -62,17 +77,22 @@ export function SessionVaultContent({
                     <div>
                         <div style={{ fontSize: 13, fontWeight: 700 }}>Time Travel Timeline</div>
                         <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
-                            Rewind recent commands and transcript checkpoints for the current scope.
+                            {timelineMode === "memory"
+                                ? "Review memory provenance, with emphasis on uncertain facts that may need operator confirmation later."
+                                : "Rewind recent commands and transcript checkpoints for the current scope."}
                         </div>
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                         <button type="button" onClick={() => setTimelineMode("timeline")} style={{ ...modeBtnStyle, ...(timelineMode === "timeline" ? activeModeBtnStyle : null) }}>Timeline</button>
                         <button type="button" onClick={() => setTimelineMode("transcripts")} style={{ ...modeBtnStyle, ...(timelineMode === "transcripts" ? activeModeBtnStyle : null) }}>Transcripts</button>
+                        <button type="button" onClick={() => { setTimelineMode("memory"); void loadMemoryProvenance(); }} style={{ ...modeBtnStyle, ...(timelineMode === "memory" ? activeModeBtnStyle : null) }}>Memory</button>
                     </div>
                 </div>
 
                 <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 2 }}>
-                    {timeline.length === 0 ? (
+                    {timelineMode === "memory" ? (
+                        <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>Memory Provenance</div>
+                    ) : timeline.length === 0 ? (
                         <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>No timeline events in this scope.</div>
                     ) : timeline.map((entry) => {
                         if (isTranscriptEntry(entry)) {
@@ -116,7 +136,15 @@ export function SessionVaultContent({
             </div>
 
             <div style={{ flex: 1, overflow: "auto" }}>
-                {timelineMode === "transcripts" && display.length === 0 ? (
+                {timelineMode === "memory" ? (
+                    <SessionVaultMemoryView
+                        report={memoryReport}
+                        status={memoryStatus}
+                        loading={loadingMemory}
+                        confirmMemoryEntry={confirmMemoryEntry}
+                        retractMemoryEntry={retractMemoryEntry}
+                    />
+                ) : timelineMode === "transcripts" && display.length === 0 ? (
                     <div
                         style={{
                             padding: 32,

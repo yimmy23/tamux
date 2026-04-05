@@ -1,6 +1,37 @@
 use super::*;
 
 impl AgentEngine {
+    pub(crate) async fn learned_approval_decision(
+        &self,
+        command: &str,
+        risk_level: &str,
+    ) -> Option<ApprovalDecision> {
+        let settings = self.config.read().await.operator_model.clone();
+        if !settings.enabled || !settings.allow_approval_learning {
+            return None;
+        }
+
+        let category = classify_command_category(command, risk_level);
+        let model = self.operator_model.read().await;
+        if model
+            .risk_fingerprint
+            .auto_deny_categories
+            .iter()
+            .any(|candidate| candidate == category)
+        {
+            return Some(ApprovalDecision::Deny);
+        }
+        if model
+            .risk_fingerprint
+            .auto_approve_categories
+            .iter()
+            .any(|candidate| candidate == category)
+        {
+            return Some(ApprovalDecision::ApproveOnce);
+        }
+        None
+    }
+
     pub(crate) async fn build_operator_model_prompt_summary(&self) -> Option<String> {
         let settings = self.config.read().await.operator_model.clone();
         if !settings.enabled {
@@ -22,6 +53,9 @@ impl AgentEngine {
                 model.cognitive_style.avg_message_length,
                 model.cognitive_style.question_frequency * 100.0,
             ));
+            if let Some(reading_pattern) = reading_pattern_summary(&model.cognitive_style) {
+                lines.push(format!("- Reading pattern: {reading_pattern}"));
+            }
         }
         if settings.allow_approval_learning && model.risk_fingerprint.approval_requests > 0 {
             lines.push(format!(
@@ -31,6 +65,24 @@ impl AgentEngine {
                 model.risk_fingerprint.approval_requests,
                 model.risk_fingerprint.avg_response_time_secs,
             ));
+            if !model.risk_fingerprint.auto_approve_categories.is_empty()
+                || !model.risk_fingerprint.auto_deny_categories.is_empty()
+            {
+                let auto_approve = if model.risk_fingerprint.auto_approve_categories.is_empty() {
+                    "none".to_string()
+                } else {
+                    model.risk_fingerprint.auto_approve_categories.join(", ")
+                };
+                let auto_deny = if model.risk_fingerprint.auto_deny_categories.is_empty() {
+                    "none".to_string()
+                } else {
+                    model.risk_fingerprint.auto_deny_categories.join(", ")
+                };
+                lines.push(format!(
+                    "- Learned approval shortcuts: auto-approve [{}]; auto-deny [{}]",
+                    auto_approve, auto_deny
+                ));
+            }
         }
         if settings.allow_message_statistics {
             if let Some(hour) = model.session_rhythm.typical_start_hour_utc {
@@ -105,6 +157,7 @@ impl AgentEngine {
         let is_question = content.contains('?');
         let confirmation_like = contains_confirmation_phrase(content);
         let revision_kind = detect_revision_signal(content);
+        let reading_signal = detect_reading_signal(content);
         let current_hour_utc = current_utc_hour(now);
 
         let thread_created_at = {
@@ -160,8 +213,7 @@ impl AgentEngine {
                     model.cognitive_style.confirmation_count as f64 / next_count as f64;
                 model.cognitive_style.verbosity_preference =
                     verbosity_preference_for_length(model.cognitive_style.avg_message_length);
-                model.cognitive_style.reading_depth =
-                    reading_depth_for_length(model.cognitive_style.avg_message_length);
+                record_reading_signal(&mut model.cognitive_style, reading_signal);
             }
             if settings.allow_implicit_feedback {
                 if revision_kind.is_revision() {
@@ -386,6 +438,7 @@ impl AgentEngine {
             model.risk_fingerprint.denials += 1;
         }
         if let Some(pending) = pending {
+            let category = pending.category.clone();
             if matches!(
                 decision,
                 ApprovalDecision::ApproveOnce | ApprovalDecision::ApproveSession
@@ -393,7 +446,7 @@ impl AgentEngine {
                 *model
                     .risk_fingerprint
                     .category_approvals
-                    .entry(pending.category)
+                    .entry(category.clone())
                     .or_insert(0) += 1;
             }
             let response_secs = now.saturating_sub(pending.requested_at) as f64 / 1000.0;
@@ -408,6 +461,11 @@ impl AgentEngine {
                 && response_secs <= 8.0
             {
                 model.implicit_feedback.fast_denial_count += 1;
+                *model
+                    .risk_fingerprint
+                    .fast_denials_by_category
+                    .entry(category)
+                    .or_insert(0) += 1;
             }
         }
         refresh_risk_metrics(&mut model.risk_fingerprint);

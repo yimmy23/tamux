@@ -176,6 +176,11 @@ pub(super) async fn run_cli_generated_tool(
     args: &serde_json::Value,
     sandbox: &ToolSynthesisSandboxConfig,
 ) -> Result<String> {
+    if !sandbox.allow_filesystem {
+        anyhow::bail!(
+            "generated CLI tools require filesystem access; enable tool_synthesis.sandbox.allow_filesystem first"
+        );
+    }
     let cli = record.cli.as_ref().context("missing CLI spec")?;
     validate_safe_cli_invocation(&cli.invocation)?;
     let mut command = tokio::process::Command::new(&cli.invocation[0]);
@@ -438,5 +443,9 @@ impl AgentEngine {
 
     pub async fn activate_generated_tool_json(&self, tool_name: &str) -> Result<String> {
         activate_generated_tool(&self.data_dir, tool_name)
+    }
+
+    pub async fn retire_generated_tool_json(&self, tool_name: &str) -> Result<String> {
+        retire_generated_tool(&self.data_dir, tool_name)
     }
 }

@@ -139,6 +139,8 @@ export interface AuditEntry {
   confidenceBand: string | null;
   causalTraceId: string | null;
   threadId: string | null;
+  goalRunId?: string | null;
+  taskId?: string | null;
   userAction?: AuditUserAction;
 }
 

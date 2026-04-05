@@ -9,4 +9,4 @@ mod weles_prompt_and_metadata;
 mod weles_runtime_execution;
 mod weles_runtime_spawn;
 
-use weles_runtime_spawn::spawn_stub_assistant_server_for_tool_executor;
+pub(super) use weles_runtime_spawn::spawn_stub_assistant_server_for_tool_executor;

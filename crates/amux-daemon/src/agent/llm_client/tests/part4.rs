@@ -23,6 +23,18 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
         reasoning_effort: "medium".to_string(),
         context_window_tokens: 0,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
     let request = build_anthropic_request(
         &client,
@@ -59,6 +71,63 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
 }
 
 #[test]
+fn anthropic_request_sets_tool_choice_auto_when_tools_are_present() {
+    let client = reqwest::Client::new();
+    let config = ProviderConfig {
+        base_url: "https://api.anthropic.com".to_string(),
+        model: "claude-sonnet-4-6".to_string(),
+        api_key: "secret".to_string(),
+        assistant_id: String::new(),
+        auth_source: AuthSource::ApiKey,
+        api_transport: ApiTransport::ChatCompletions,
+        reasoning_effort: "off".to_string(),
+        context_window_tokens: 0,
+        response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
+    };
+    let request = build_anthropic_request(
+        &client,
+        "anthropic",
+        &config,
+        "system",
+        &[ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text("hello".to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }],
+        &[ToolDefinition {
+            tool_type: "function".to_string(),
+            function: ToolFunctionDef {
+                name: "ping".to_string(),
+                description: "check".to_string(),
+                parameters: serde_json::json!({"type": "object", "properties": {}}),
+            },
+        }],
+        false,
+    )
+    .expect("request should build");
+
+    let body: serde_json::Value = serde_json::from_slice(
+        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+    )
+    .expect("json body");
+    assert_eq!(body["tool_choice"]["type"], "auto");
+}
+
+#[test]
 fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
     let client = reqwest::Client::new();
     let config = ProviderConfig {
@@ -71,6 +140,18 @@ fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
         reasoning_effort: "medium".to_string(),
         context_window_tokens: 0,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
     let messages = vec![ApiMessage {
         role: "user".to_string(),
@@ -131,6 +212,18 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
         reasoning_effort: "medium".to_string(),
         context_window_tokens: 0,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
 
     let request_a = build_anthropic_request(
@@ -184,6 +277,18 @@ fn minimax_attempt_target_uses_anthropic_messages_endpoint() {
         reasoning_effort: "medium".to_string(),
         context_window_tokens: 0,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
 
     let target = effective_attempt_target(
@@ -279,6 +384,18 @@ async fn minimax_anthropic_retry_recovers_after_malformed_http_response() {
             reasoning_effort: "medium".to_string(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
         "system",
         &[ApiMessage {
@@ -393,6 +510,18 @@ async fn minimax_send_path_never_falls_back_to_chat_completions() {
             reasoning_effort: "medium".to_string(),
             context_window_tokens: 0,
             response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
         },
         "system",
         &[ApiMessage {
@@ -435,4 +564,117 @@ async fn minimax_send_path_never_falls_back_to_chat_completions() {
         "minimax send path must not fall back to chat completions: {:?}",
         *request_paths
     );
+}
+
+#[tokio::test]
+async fn anthropic_stream_error_event_emits_error_chunk() {
+    use tokio::io::AsyncWriteExt;
+
+    let client = reqwest::Client::new();
+    let body = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_stream_err\",\"usage\":{\"input_tokens\":1}}}\n\n",
+        "data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Over capacity\"}}\n\n"
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let addr = listener.local_addr().expect("local addr");
+    let body = body.to_string();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let response = client
+        .get(format!("http://{addr}"))
+        .send()
+        .await
+        .expect("send test request");
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_anthropic_sse(response, None, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut saw_error = None;
+    while let Some(chunk) = rx.recv().await {
+        match chunk.expect("chunk") {
+            CompletionChunk::Error { message } => {
+                saw_error = Some(message);
+                break;
+            }
+            CompletionChunk::Done { .. } => {
+                panic!("expected streamed anthropic error to stop with an error chunk")
+            }
+            _ => {}
+        }
+    }
+
+    let message = saw_error.expect("expected anthropic stream error chunk");
+    assert!(message.contains("Anthropic stream error"), "unexpected message: {message}");
+    assert!(message.contains("Over capacity"), "unexpected message: {message}");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn anthropic_message_start_id_is_forwarded_as_response_id() {
+    use tokio::io::AsyncWriteExt;
+
+    let client = reqwest::Client::new();
+    let body = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_response_id\",\"usage\":{\"input_tokens\":3}}}\n\n",
+        "data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\"}}\n\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n",
+        "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":5}}\n\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let addr = listener.local_addr().expect("local addr");
+    let body = body.to_string();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let response = client
+        .get(format!("http://{addr}"))
+        .send()
+        .await
+        .expect("send test request");
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_anthropic_sse(response, None, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut done_chunk = None;
+    while let Some(chunk) = rx.recv().await {
+        if let CompletionChunk::Done { response_id, .. } = chunk.expect("chunk") {
+            done_chunk = Some(response_id);
+            break;
+        }
+    }
+
+    assert_eq!(done_chunk, Some(Some("msg_response_id".to_string())));
+    server.await.expect("server task");
 }

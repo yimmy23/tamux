@@ -219,6 +219,52 @@ fn tab_inside_unmatched_file_reference_keeps_input_focus() {
 }
 
 #[test]
+fn done_event_stores_provider_final_result_on_final_message() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "Answer".to_string(),
+    });
+
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-1".to_string(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: None,
+        provider: Some(amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT.to_string()),
+        model: Some("gpt-5.4".to_string()),
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: Some(
+            r#"{"provider":"open_ai_responses","id":"resp_tui_done"}"#.to_string(),
+        ),
+    });
+
+    let thread = model.chat.active_thread().expect("thread should exist");
+    let last = thread
+        .messages
+        .last()
+        .expect("assistant message should exist");
+    let json = last
+        .provider_final_result_json
+        .as_deref()
+        .expect("provider final result should be stored");
+    let value: serde_json::Value = serde_json::from_str(json).expect("parse provider final result json");
+    assert_eq!(value.get("provider").and_then(|v| v.as_str()), Some("open_ai_responses"));
+    assert_eq!(value.get("id").and_then(|v| v.as_str()), Some("resp_tui_done"));
+}
+
+#[test]
 fn submit_prompt_appends_referenced_files_footer() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();

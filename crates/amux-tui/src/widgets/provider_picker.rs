@@ -3,6 +3,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
+use amux_shared::providers::PROVIDER_ID_CUSTOM;
 use crate::providers::{ProviderDef, PROVIDERS};
 use crate::state::auth::AuthState;
 use crate::state::config::ConfigState;
@@ -13,7 +14,7 @@ pub fn available_provider_defs(auth: &AuthState) -> Vec<&'static ProviderDef> {
     PROVIDERS
         .iter()
         .filter(|provider| {
-            provider.id == "custom"
+            provider.id == PROVIDER_ID_CUSTOM
                 || auth
                     .entries
                     .iter()
@@ -119,6 +120,7 @@ pub fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amux_shared::providers::{PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI};
     use crate::state::auth::{AuthState, ProviderAuthEntry};
 
     #[test]
@@ -126,14 +128,14 @@ mod tests {
         let mut auth = AuthState::new();
         auth.entries = vec![
             ProviderAuthEntry {
-                provider_id: "openai".to_string(),
+                provider_id: PROVIDER_ID_OPENAI.to_string(),
                 provider_name: "OpenAI".to_string(),
                 authenticated: true,
                 auth_source: "api_key".to_string(),
                 model: "gpt-5.4".to_string(),
             },
             ProviderAuthEntry {
-                provider_id: "groq".to_string(),
+                provider_id: PROVIDER_ID_GROQ.to_string(),
                 provider_name: "Groq".to_string(),
                 authenticated: false,
                 auth_source: "api_key".to_string(),
@@ -142,9 +144,9 @@ mod tests {
         ];
 
         let defs = available_provider_defs(&auth);
-        assert!(defs.iter().any(|provider| provider.id == "openai"));
-        assert!(defs.iter().any(|provider| provider.id == "custom"));
-        assert!(!defs.iter().any(|provider| provider.id == "groq"));
+        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_OPENAI));
+        assert!(defs.iter().any(|provider| provider.id == PROVIDER_ID_CUSTOM));
+        assert!(!defs.iter().any(|provider| provider.id == PROVIDER_ID_GROQ));
     }
 
     #[test]
@@ -153,6 +155,6 @@ mod tests {
         let config = ConfigState::new();
         let _theme = ThemeTokens::default();
         assert_eq!(modal.picker_cursor(), 0);
-        assert_eq!(config.provider(), "openai");
+        assert_eq!(config.provider(), PROVIDER_ID_OPENAI);
     }
 }

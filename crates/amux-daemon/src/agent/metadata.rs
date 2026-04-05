@@ -10,6 +10,8 @@ pub(super) struct ParsedMessageMetadata {
     pub weles_review: Option<WelesReviewMeta>,
     pub api_transport: Option<ApiTransport>,
     pub response_id: Option<String>,
+    pub upstream_message: Option<CompletionUpstreamMessage>,
+    pub provider_final_result: Option<CompletionProviderFinalResult>,
     pub message_kind: AgentMessageKind,
     pub compaction_strategy: Option<CompactionStrategy>,
     pub compaction_payload: Option<String>,
@@ -48,6 +50,16 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         .as_ref()
         .and_then(|value| value.get("weles_review"))
         .and_then(|value| serde_json::from_value::<WelesReviewMeta>(value.clone()).ok());
+    let upstream_message = metadata
+        .as_ref()
+        .and_then(|value| value.get("upstream_message"))
+        .and_then(|value| serde_json::from_value::<CompletionUpstreamMessage>(value.clone()).ok());
+    let provider_final_result = metadata
+        .as_ref()
+        .and_then(|value| value.get("provider_final_result"))
+        .and_then(|value| {
+            serde_json::from_value::<CompletionProviderFinalResult>(value.clone()).ok()
+        });
     let message_kind = metadata
         .as_ref()
         .and_then(|value| value.get("message_kind"))
@@ -66,6 +78,8 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         weles_review,
         api_transport,
         response_id: get_str("response_id"),
+        upstream_message,
+        provider_final_result,
         message_kind,
         compaction_strategy,
         compaction_payload: get_str("compaction_payload"),
@@ -146,6 +160,8 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "weles_review": message.weles_review,
         "api_transport": message.api_transport,
         "response_id": message.response_id,
+        "upstream_message": message.upstream_message,
+        "provider_final_result": message.provider_final_result,
         "message_kind": message.message_kind,
         "compaction_strategy": message.compaction_strategy,
         "compaction_payload": message.compaction_payload,

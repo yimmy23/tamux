@@ -1,5 +1,49 @@
 use super::*;
 
+fn settlement_factor_for_outcome(
+    outcome_json: &str,
+) -> Option<crate::agent::learning::traces::CausalFactor> {
+    let outcome = serde_json::from_str::<crate::agent::learning::traces::CausalTraceOutcome>(
+        outcome_json,
+    )
+    .ok()?;
+    match outcome {
+        crate::agent::learning::traces::CausalTraceOutcome::Success => {
+            Some(crate::agent::learning::traces::CausalFactor {
+                factor_type: crate::agent::learning::traces::FactorType::PastSuccess,
+                description: "selected plan completed successfully".to_string(),
+                weight: 0.55,
+            })
+        }
+        crate::agent::learning::traces::CausalTraceOutcome::Failure { reason } => {
+            Some(crate::agent::learning::traces::CausalFactor {
+                factor_type: crate::agent::learning::traces::FactorType::PastFailure,
+                description: reason,
+                weight: 0.85,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn merged_causal_factors_json(
+    current_json: &str,
+    settlement_factor: Option<&crate::agent::learning::traces::CausalFactor>,
+) -> String {
+    let mut factors =
+        serde_json::from_str::<Vec<crate::agent::learning::traces::CausalFactor>>(current_json)
+            .unwrap_or_default();
+    if let Some(factor) = settlement_factor {
+        let exists = factors.iter().any(|current| {
+            current.factor_type == factor.factor_type && current.description == factor.description
+        });
+        if !exists {
+            factors.push(factor.clone());
+        }
+    }
+    serde_json::to_string(&factors).unwrap_or_else(|_| current_json.to_string())
+}
+
 impl HistoryStore {
     pub async fn insert_execution_trace(
         &self,
@@ -224,6 +268,43 @@ impl HistoryStore {
                )",
                     params![task_id, goal_run_id, thread_id, outcome_json],
                 )?;
+                Ok(updated)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn settle_goal_plan_causal_traces(
+        &self,
+        goal_run_id: &str,
+        outcome_json: &str,
+    ) -> Result<usize> {
+        let goal_run_id = goal_run_id.to_string();
+        let outcome_json = outcome_json.to_string();
+        let settlement_factor = settlement_factor_for_outcome(&outcome_json);
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, causal_factors_json
+                     FROM causal_traces
+                     WHERE goal_run_id = ?1
+                       AND json_extract(outcome_json, '$.type') = 'unresolved'
+                       AND json_extract(selected_json, '$.option_type') IN ('goal_plan', 'goal_replan')",
+                )?;
+                let rows = stmt.query_map(params![goal_run_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+
+                let mut updated = 0usize;
+                for row in rows {
+                    let (trace_id, causal_factors_json) = row?;
+                    let merged =
+                        merged_causal_factors_json(&causal_factors_json, settlement_factor.as_ref());
+                    updated += conn.execute(
+                        "UPDATE causal_traces SET outcome_json = ?2, causal_factors_json = ?3 WHERE id = ?1",
+                        params![trace_id, outcome_json, merged],
+                    )?;
+                }
                 Ok(updated)
             })
             .await

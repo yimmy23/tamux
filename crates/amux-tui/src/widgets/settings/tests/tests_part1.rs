@@ -1,3 +1,5 @@
+use amux_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI};
+
 #[test]
 fn settings_handles_empty_state() {
     let settings = SettingsState::new();
@@ -167,7 +169,7 @@ fn auth_tab_shows_chatgpt_logout_when_daemon_auth_is_available() {
     let mut auth = crate::state::auth::AuthState::new();
     auth.loaded = true;
     auth.entries = vec![crate::state::auth::ProviderAuthEntry {
-        provider_id: "openai".to_string(),
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
         provider_name: "OpenAI".to_string(),
         authenticated: false,
         auth_source: "api_key".to_string(),
@@ -257,7 +259,7 @@ fn custom_provider_model_field_invites_inline_edit() {
     ));
     settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
     let mut config = ConfigState::new();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.model = "my-model".to_string();
 
     let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
@@ -280,7 +282,7 @@ fn custom_provider_model_row_shows_active_edit_buffer() {
     settings.reduce(crate::state::settings::SettingsAction::NavigateField(3));
     settings.start_editing("custom_model_entry", "my-model");
     let mut config = ConfigState::new();
-    config.provider = "custom".to_string();
+    config.provider = PROVIDER_ID_CUSTOM.to_string();
     config.model = "my-model".to_string();
 
     let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
@@ -308,7 +310,7 @@ fn subagent_editor_shows_live_name_edit_buffer() {
     let mut editor = crate::state::subagents::SubAgentEditorState::new(
         None,
         0,
-        "openai".to_string(),
+        PROVIDER_ID_OPENAI.to_string(),
         "gpt-5.4".to_string(),
     );
     editor.name = "Old Name".to_string();
@@ -470,7 +472,7 @@ fn protected_weles_row_hides_delete_and_disable_actions() {
         .push(crate::state::subagents::SubAgentEntry {
             id: "weles_builtin".to_string(),
             name: "WELES".to_string(),
-            provider: "openai".to_string(),
+            provider: PROVIDER_ID_OPENAI.to_string(),
             model: "gpt-5.4-mini".to_string(),
             role: Some("testing".to_string()),
             enabled: true,
@@ -539,7 +541,7 @@ fn subagent_editor_renders_reasoning_effort_field() {
     let mut editor = crate::state::subagents::SubAgentEditorState::new(
         Some("weles_builtin".to_string()),
         1,
-        "openai".to_string(),
+        PROVIDER_ID_OPENAI.to_string(),
         "gpt-5.4-mini".to_string(),
     );
     editor.name = "WELES".to_string();

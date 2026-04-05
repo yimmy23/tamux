@@ -228,6 +228,8 @@ async fn gateway_auto_send_thread_response_emits_gateway_request_for_latest_assi
             model: None,
             api_transport: None,
             response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
             reasoning: None,
             message_kind: AgentMessageKind::Normal,
             compaction_strategy: None,

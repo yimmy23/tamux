@@ -64,7 +64,8 @@ fn render_auth_tab<'a>(
         let is_selected = auth.selected == i;
         let marker = if is_selected { "> " } else { "  " };
         let openai_has_chatgpt_auth =
-            entry.provider_id == "openai" && config.chatgpt_auth_available;
+            entry.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI
+                && config.chatgpt_auth_available;
         let effective_authenticated = entry.authenticated || openai_has_chatgpt_auth;
         let dot_style = if effective_authenticated {
             Style::default().fg(Color::Green)
@@ -82,7 +83,9 @@ fn render_auth_tab<'a>(
             String::new()
         };
         let primary_label = auth_primary_label(entry);
-        let test_label = if entry.provider_id == "openai" && openai_has_chatgpt_auth {
+        let test_label = if entry.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI
+            && openai_has_chatgpt_auth
+        {
             "[Logout]"
         } else {
             auth_secondary_label(entry)

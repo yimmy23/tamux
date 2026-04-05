@@ -360,11 +360,15 @@ mod tests {
     #[tokio::test]
     async fn provider_circuit_breaker_isolation() {
         let registry = CircuitBreakerRegistry::from_provider_keys(
-            vec!["openai".to_string(), "anthropic".to_string()].into_iter(),
+            vec![
+                amux_shared::providers::PROVIDER_ID_OPENAI.to_string(),
+                amux_shared::providers::PROVIDER_ID_ANTHROPIC.to_string(),
+            ]
+            .into_iter(),
         );
 
         // Trip OpenAI's breaker
-        let openai_breaker = registry.get("openai").await;
+        let openai_breaker = registry.get(amux_shared::providers::PROVIDER_ID_OPENAI).await;
         {
             let mut b = openai_breaker.lock().await;
             let now = 1000;
@@ -375,7 +379,8 @@ mod tests {
         }
 
         // Anthropic's breaker should still be Closed
-        let anthropic_breaker = registry.get("anthropic").await;
+        let anthropic_breaker =
+            registry.get(amux_shared::providers::PROVIDER_ID_ANTHROPIC).await;
         {
             let mut b = anthropic_breaker.lock().await;
             assert_eq!(b.state(), CircuitState::Closed);

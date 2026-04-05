@@ -73,6 +73,8 @@ impl AgentEngine {
                     model: None,
                     api_transport: None,
                     response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
                     reasoning: None,
                     message_kind: AgentMessageKind::Normal,
                     compaction_strategy: None,
@@ -526,6 +528,8 @@ impl AgentEngine {
             self.persist_goal_runs().await;
             if goal_run.status == GoalRunStatus::Cancelled {
                 self.settle_goal_skill_consultations(&goal_run, "cancelled")
+                    .await;
+                self.settle_goal_plan_causal_traces(&goal_run.id, "cancelled", None)
                     .await;
             }
             self.emit_goal_run_update(&goal_run, Some(goal_run_status_message(&goal_run).into()));

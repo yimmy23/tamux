@@ -1,5 +1,5 @@
 use super::*;
-use crate::agent::llm_client::{parse_structured_upstream_failure, StructuredUpstreamFailure};
+use crate::agent::llm_client::{StructuredUpstreamFailure, parse_structured_upstream_failure};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FixableUpstreamRecoveryAction {
@@ -68,6 +68,14 @@ impl AgentEngine {
                     .to_string(),
                 ),
             );
+            self.persist_upstream_recovery_causal_trace(
+                thread_id,
+                structured,
+                &recovery.signature,
+                started_investigation,
+                true,
+            )
+            .await;
             self.repair_tool_call_sequence(thread_id).await;
             self.clear_thread_continuation_state(thread_id).await;
             return Ok(FixableUpstreamRecoveryDisposition {
@@ -99,6 +107,14 @@ impl AgentEngine {
                     .to_string(),
                 ),
             );
+            self.persist_upstream_recovery_causal_trace(
+                thread_id,
+                structured,
+                &recovery.signature,
+                true,
+                false,
+            )
+            .await;
         }
 
         Ok(FixableUpstreamRecoveryDisposition {

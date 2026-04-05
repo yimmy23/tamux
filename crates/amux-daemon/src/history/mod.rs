@@ -8,7 +8,7 @@ use amux_protocol::{
     HistorySearchHit, SnapshotIndexEntry, TranscriptIndexEntry, WormChainTip,
 };
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_rusqlite;
@@ -277,6 +277,14 @@ pub struct SkillVariantRecord {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SkillVariantInspection {
+    pub record: SkillVariantRecord,
+    pub lifecycle_summary: String,
+    pub selection_summary: String,
+    pub selected_for_context: bool,
+}
+
 impl SkillVariantRecord {
     pub fn success_rate(&self) -> f64 {
         let attempts = self.success_count + self.failure_count;
@@ -314,6 +322,14 @@ pub struct SkillVariantConsultationRecord<'a> {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct MemoryProvenanceRelationship {
+    pub related_entry_id: String,
+    pub relation_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fact_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct MemoryProvenanceReportEntry {
     pub id: String,
     pub target: String,
@@ -328,6 +344,7 @@ pub struct MemoryProvenanceReportEntry {
     pub age_days: f64,
     pub confidence: f64,
     pub status: String,
+    pub relationships: Vec<MemoryProvenanceRelationship>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -351,6 +368,8 @@ pub struct ProvenanceLogEntry {
     pub entry_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_scheme: Option<String>,
     pub agent_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal_run_id: Option<String>,
@@ -371,6 +390,7 @@ pub struct ProvenanceReportEntry {
     pub timestamp: u64,
     pub event_type: String,
     pub summary: String,
+    pub signature_scheme: Option<String>,
     pub agent_id: String,
     pub goal_run_id: Option<String>,
     pub task_id: Option<String>,

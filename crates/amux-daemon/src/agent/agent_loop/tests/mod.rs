@@ -13,6 +13,7 @@ mod part1;
 mod part2;
 mod part3;
 mod part4;
+mod part5;
 
 fn http_request_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
@@ -419,8 +420,7 @@ async fn spawn_anthropic_rebuild_sensitive_retry_server(
             };
             let recorded_bodies = recorded_bodies.clone();
             tokio::spawn(async move {
-                let request =
-                    read_http_request(&mut socket, "anthropic fresh retry request").await;
+                let request = read_http_request(&mut socket, "anthropic fresh retry request").await;
                 let body = request_body(&request);
                 recorded_bodies
                     .lock()

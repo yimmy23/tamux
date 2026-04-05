@@ -235,6 +235,28 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
+            "name": "list_skill_variants",
+            "description": "List daemon-tracked skill variants with lifecycle status, usage counters, and context tags.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "status": { "type": "string", "description": "Optional lifecycle status filter such as active, archived, merged, or promoted-to-canonical" },
+                    "limit": { "type": "integer", "description": "Maximum number of variants to return" }
+                }
+            }
+        },
+        {
+            "name": "inspect_skill_variant",
+            "description": "Inspect a daemon-tracked skill variant by variant ID or skill name, including lifecycle inspection notes and current skill content.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "identifier": { "type": "string", "description": "Variant ID or skill identifier to inspect" }
+                },
+                "required": ["identifier"]
+            }
+        },
+        {
             "name": "start_goal_run",
             "description": "Start a durable goal run that plans, executes child tasks, handles approvals, and reflects on outcomes.",
             "inputSchema": {
@@ -284,6 +306,11 @@ pub(super) fn tool_definitions() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
+            "name": "reset_operator_model",
+            "description": "Reset the daemon's aggregate operator model, clearing learned shortcuts and accumulated operator telemetry.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
             "name": "get_causal_trace_report",
             "description": "Summarize causal trace outcomes for a tool or decision option, including success/failure counts and recent reasons.",
             "inputSchema": {
@@ -326,6 +353,28 @@ pub(super) fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "limit": { "type": "integer", "description": "Maximum number of recent provenance entries to include" }
+                }
+            }
+        },
+        {
+            "name": "query_audits",
+            "description": "Query daemon action-audit entries by action type and time window.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action_types": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional action type filters such as tool, goal, task, or audit"
+                    },
+                    "since": {
+                        "type": "integer",
+                        "description": "Optional Unix timestamp in milliseconds to filter recent entries"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of audit entries to return"
+                    }
                 }
             }
         },
@@ -413,6 +462,58 @@ pub(super) fn tool_definitions() -> Value {
                 },
                 "required": ["path"]
             }
+        },
+        {
+            "name": "semantic_query",
+            "description": "Query the daemon semantic environment for packages, dependencies, services, imports, conventions, or temporal workspace history.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["summary", "packages", "dependencies", "dependents", "services", "service_dependencies", "service_dependents", "imports", "imported_by", "conventions", "temporal"],
+                        "description": "Semantic query kind"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Optional package, service, file fragment, or convention target"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results to render"
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "Optional explicit workspace root override when no session context exists"
+                    }
+                }
+            }
         }
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_definitions;
+
+    #[test]
+    fn tool_definitions_include_query_audits() {
+        let defs = tool_definitions();
+        let tools = defs.as_array().expect("tool definitions should be an array");
+        assert!(
+            tools.iter().any(|tool| tool["name"] == "query_audits"),
+            "query_audits tool definition should be present"
+        );
+    }
+
+    #[test]
+    fn tool_definitions_include_semantic_query() {
+        let defs = tool_definitions();
+        let tools = defs.as_array().expect("tool definitions should be an array");
+        assert!(
+            tools.iter().any(|tool| tool["name"] == "semantic_query"),
+            "semantic_query tool definition should be present"
+        );
+    }
+
 }

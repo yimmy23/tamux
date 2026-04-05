@@ -140,6 +140,10 @@ pub enum DaemonCommand {
         defer_until_unix_ms: Option<u64>,
     },
     GetOperatorProfileSummary,
+    GetOperatorModel,
+    ResetOperatorModel,
+    GetCollaborationSessions,
+    GetGeneratedTools,
     SetOperatorProfileConsent {
         consent_key: String,
         granted: bool,

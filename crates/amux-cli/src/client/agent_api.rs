@@ -20,6 +20,7 @@ pub struct DirectMessageResponse {
     pub thread_id: String,
     pub response: String,
     pub session_id: Option<String>,
+    pub provider_final_result_json: Option<String>,
 }
 
 pub async fn send_direct_message(
@@ -41,11 +42,13 @@ pub async fn send_direct_message(
             thread_id,
             response,
             session_id,
+            provider_final_result_json,
         } => Ok(DirectMessageResponse {
             target,
             thread_id,
             response,
             session_id,
+            provider_final_result_json,
         }),
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),

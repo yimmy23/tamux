@@ -1,4 +1,5 @@
 use super::*;
+use amux_shared::providers::PROVIDER_ID_OPENAI;
 
 #[test]
 fn parse_plugin_command_basic() {
@@ -96,6 +97,8 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         model: None,
                         api_transport: None,
                         response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -118,6 +121,8 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         model: None,
                         api_transport: None,
                         response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
                         reasoning: None,
                         message_kind: AgentMessageKind::Normal,
                         compaction_strategy: None,
@@ -155,7 +160,7 @@ async fn policy_halt_aborts_before_guarded_tool_execution_and_persists_failure_t
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
-    config.provider = "openai".to_string();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = spawn_tool_call_server().await;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();

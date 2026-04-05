@@ -234,6 +234,38 @@ fn render_chat_tab<'a>(
         );
     }
 
+    for (idx, label) in [
+        (22usize, "Inspect Operator Model"),
+        (23usize, "Reset Operator Model"),
+        (24usize, "Inspect Collaboration"),
+        (25usize, "Inspect Generated Tools"),
+    ] {
+        let is_selected = settings.field_cursor() == idx;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if is_selected { "> " } else { "  " },
+                if is_selected {
+                    theme.accent_primary
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled(
+                format!("{label:<22}"),
+                if is_selected {
+                    theme.accent_primary
+                } else {
+                    theme.fg_active
+                },
+            ),
+            if is_selected {
+                Span::styled("  [Enter: run]", theme.fg_dim)
+            } else {
+                Span::raw("")
+            },
+        ]));
+    }
+
     lines
 }
 

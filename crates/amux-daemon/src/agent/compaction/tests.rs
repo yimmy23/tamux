@@ -1,6 +1,9 @@
 use super::*;
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
+use amux_shared::providers::{
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+};
 use tempfile::tempdir;
 
 fn sample_provider_config() -> ProviderConfig {
@@ -14,6 +17,18 @@ fn sample_provider_config() -> ProviderConfig {
         reasoning_effort: "low".to_string(),
         context_window_tokens: 128_000,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     }
 }
 
@@ -94,6 +109,8 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -116,6 +133,8 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 model: None,
                 api_transport: None,
                 response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
                 reasoning: None,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,
@@ -140,7 +159,7 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
 #[test]
 fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
     let mut config = AgentConfig::default();
-    config.provider = "github-copilot".to_string();
+    config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
 
     let provider = ProviderConfig {
         base_url: "https://api.githubcopilot.com".to_string(),
@@ -152,6 +171,18 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
         reasoning_effort: "high".to_string(),
         context_window_tokens: 128_000,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
 
     let thread = sample_thread(vec![
@@ -175,10 +206,12 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             weles_review: None,
             input_tokens: 11,
             output_tokens: 7,
-            provider: Some("github-copilot".to_string()),
+            provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
             model: Some("gpt-5.4".to_string()),
             api_transport: Some(ApiTransport::Responses),
             response_id: Some("resp_123".to_string()),
+            upstream_message: None,
+            provider_final_result: None,
             reasoning: Some("reasoned".to_string()),
             message_kind: AgentMessageKind::Normal,
             compaction_strategy: None,
@@ -201,6 +234,8 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             model: None,
             api_transport: None,
             response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
             reasoning: None,
             message_kind: AgentMessageKind::Normal,
             compaction_strategy: None,
@@ -224,7 +259,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
 #[test]
 fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_up_turns() {
     let mut config = AgentConfig::default();
-    config.provider = "github-copilot".to_string();
+    config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
 
     let provider = ProviderConfig {
         base_url: "https://api.githubcopilot.com".to_string(),
@@ -236,6 +271,18 @@ fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_u
         reasoning_effort: "high".to_string(),
         context_window_tokens: 128_000,
         response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
     };
 
     let thread = sample_thread(vec![
@@ -252,10 +299,12 @@ fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_u
             weles_review: None,
             input_tokens: 11,
             output_tokens: 7,
-            provider: Some("github-copilot".to_string()),
+            provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
             model: Some("gpt-5.4".to_string()),
             api_transport: Some(ApiTransport::Responses),
             response_id: Some("resp_123".to_string()),
+            upstream_message: None,
+            provider_final_result: None,
             reasoning: Some("reasoned".to_string()),
             message_kind: AgentMessageKind::Normal,
             compaction_strategy: None,
@@ -285,19 +334,19 @@ fn default_agent_config_exposes_heuristic_compaction_strategy_defaults() {
 #[test]
 fn agent_config_roundtrip_preserves_nested_compaction_provider_settings() {
     let config: AgentConfig = serde_json::from_value(serde_json::json!({
-        "provider": "openai",
+        "provider": PROVIDER_ID_OPENAI,
         "model": "gpt-5.4",
         "compaction": {
             "strategy": "custom_model",
             "weles": {
-                "provider": "openai",
+                "provider": PROVIDER_ID_OPENAI,
                 "model": "gpt-5.4-mini",
                 "reasoning_effort": "low"
             },
             "custom_model": {
-                "provider": "openrouter",
+                "provider": PROVIDER_ID_OPENROUTER,
                 "base_url": "https://openrouter.ai/api/v1",
-                "model": "anthropic/claude-sonnet-4",
+                "model": "arcee-ai/trinity-large-thinking",
                 "api_key": "router-key",
                 "assistant_id": "",
                 "auth_source": "api_key",
@@ -310,10 +359,10 @@ fn agent_config_roundtrip_preserves_nested_compaction_provider_settings() {
     .expect("config should deserialize");
 
     assert_eq!(config.compaction.strategy, CompactionStrategy::CustomModel);
-    assert_eq!(config.compaction.weles.provider, "openai");
+    assert_eq!(config.compaction.weles.provider, PROVIDER_ID_OPENAI);
     assert_eq!(config.compaction.weles.model, "gpt-5.4-mini");
     assert_eq!(config.compaction.weles.reasoning_effort, "low");
-    assert_eq!(config.compaction.custom_model.provider, "openrouter");
+    assert_eq!(config.compaction.custom_model.provider, PROVIDER_ID_OPENROUTER);
     assert_eq!(
         config.compaction.custom_model.base_url,
         "https://openrouter.ai/api/v1"
@@ -333,7 +382,7 @@ fn agent_config_roundtrip_preserves_nested_compaction_provider_settings() {
     assert_eq!(serialized["compaction"]["weles"]["model"], "gpt-5.4-mini");
     assert_eq!(
         serialized["compaction"]["custom_model"]["provider"],
-        "openrouter"
+        PROVIDER_ID_OPENROUTER
     );
     assert_eq!(
         serialized["compaction"]["custom_model"]["reasoning_effort"],
@@ -359,6 +408,8 @@ fn compaction_artifact_message_roundtrip_preserves_runtime_metadata() {
         model: None,
         api_transport: None,
         response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
         reasoning: None,
         timestamp: 99,
         message_kind: AgentMessageKind::CompactionArtifact,
@@ -413,6 +464,8 @@ fn compaction_candidate_ignores_messages_before_latest_artifact() {
             model: None,
             api_transport: None,
             response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
             reasoning: None,
             message_kind: AgentMessageKind::CompactionArtifact,
             compaction_strategy: Some(CompactionStrategy::Heuristic),
@@ -516,5 +569,50 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     assert_eq!(
         restored_artifact.compaction_payload,
         artifact.compaction_payload
+    );
+}
+
+#[tokio::test]
+async fn compaction_persists_context_compression_causal_trace() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+    config.compaction.strategy = CompactionStrategy::Heuristic;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let provider = sample_provider_config();
+    let thread_id = "compaction-trace-thread";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            sample_thread(vec![
+                sample_message("older one"),
+                sample_message("older two"),
+                sample_message("recent one"),
+            ]),
+        );
+        let thread = threads.get_mut(thread_id).expect("thread should exist");
+        thread.id = thread_id.to_string();
+    }
+
+    let inserted = engine
+        .maybe_persist_compaction_artifact(thread_id, None, &config, &provider)
+        .await
+        .expect("compaction should succeed");
+    assert!(inserted, "compaction artifact should be inserted");
+
+    let records = engine
+        .history
+        .list_recent_causal_trace_records("context_compression", 1)
+        .await
+        .expect("list context compression traces");
+    assert_eq!(
+        records.len(),
+        1,
+        "compaction should persist one context compression causal trace"
     );
 }
