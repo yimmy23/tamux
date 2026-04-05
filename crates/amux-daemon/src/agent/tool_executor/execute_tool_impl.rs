@@ -123,11 +123,6 @@ pub fn execute_tool<'a>(
     } else {
         false
     };
-    let planner_required_before_governance = if !thread_id.trim().is_empty() && task_id.is_none() {
-        agent.planner_required_for_thread(thread_id).await
-    } else {
-        false
-    };
     let classification =
         crate::agent::weles_governance::classify_tool_call(tool_call.function.name.as_str(), &args);
     let governance_decision = if !crate::agent::weles_governance::should_guard_classification(
@@ -250,7 +245,7 @@ pub fn execute_tool<'a>(
         )
         && !trusted_weles_internal_task
         && agent.get_todos(thread_id).await.is_empty()
-        && (task_id.is_some() || planner_required_before_governance)
+        && task_id.is_some()
     {
         let bootstrapped = maybe_bootstrap_todo_plan_for_background_tool(
             agent,

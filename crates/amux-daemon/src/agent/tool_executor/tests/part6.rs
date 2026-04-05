@@ -416,7 +416,7 @@
     }
 
     #[tokio::test]
-    async fn spawn_subagent_bootstraps_todos_for_planned_chat_threads() {
+    async fn spawn_subagent_does_not_require_todo_bootstrap_for_chat_threads() {
         let root = tempdir().expect("tempdir should succeed");
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
@@ -477,7 +477,135 @@
 
         assert!(
             !result.is_error,
-            "spawn_subagent should bootstrap plan state instead of failing: {}",
+            "spawn_subagent should run from a chat thread without forcing plan bootstrap: {}",
+            result.content
+        );
+        assert!(result.content.contains("Spawned subagent"));
+
+        let todos = engine.get_todos(thread_id).await;
+        assert!(
+            todos.is_empty(),
+            "chat-thread subagent spawning should not auto-bootstrap todos"
+        );
+
+        let tasks = engine.list_tasks().await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].source, "subagent");
+        assert_eq!(tasks[0].parent_thread_id.as_deref(), Some(thread_id));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_bootstraps_todos_for_goal_run_tasks() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-goal-subagents";
+        let task_id = "task-goal-subagents";
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                crate::agent::types::AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: None,
+                    title: "Goal work".to_string(),
+                    messages: vec![crate::agent::types::AgentMessage::user(
+                        "Start the release goal and delegate the code review.",
+                        1,
+                    )],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: 1,
+                    updated_at: 1,
+                },
+            );
+        }
+        engine.tasks.lock().await.push_back(crate::agent::types::AgentTask {
+            id: task_id.to_string(),
+            title: "Run release goal".to_string(),
+            description: "Delegate review from the goal run.".to_string(),
+            status: crate::agent::types::TaskStatus::Queued,
+            priority: crate::agent::types::TaskPriority::High,
+            progress: 0,
+            created_at: 1,
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some(thread_id.to_string()),
+            source: "goal_run".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: None,
+            session_id: None,
+            goal_run_id: Some("goal-1".to_string()),
+            goal_run_title: Some("Release the build".to_string()),
+            goal_step_id: Some("step-1".to_string()),
+            goal_step_title: Some("Delegate review".to_string()),
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: None,
+            awaiting_approval_id: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-goal-spawn-subagent-bootstrap".to_string(),
+            ToolFunction {
+                name: "spawn_subagent".to_string(),
+                arguments: serde_json::json!({
+                    "title": "Review release notes",
+                    "description": "Check the release notes and report issues before the goal continues."
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            Some(task_id),
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "goal-run subagent spawning should bootstrap plan state instead of failing: {}",
             result.content
         );
         assert!(result.content.contains("Spawned subagent"));
@@ -486,14 +614,9 @@
         assert_eq!(todos.len(), 1);
         assert_eq!(todos[0].status, TodoStatus::InProgress);
         assert!(
-            todos[0].content.contains("Write foundational skill files"),
-            "bootstrap todo should reflect the delegated work"
+            todos[0].content.contains("Review release notes"),
+            "goal-run bootstrap todo should reflect the delegated work"
         );
-
-        let tasks = engine.list_tasks().await;
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].source, "subagent");
-        assert_eq!(tasks[0].parent_thread_id.as_deref(), Some(thread_id));
     }
 
     #[tokio::test]
