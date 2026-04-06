@@ -83,23 +83,58 @@ impl TuiModel {
         provider_id: &str,
         provider_value: &serde_json::Value,
     ) -> u32 {
-        if provider_id == PROVIDER_ID_CUSTOM {
-            return provider_value
-                .get("context_window_tokens")
-                .and_then(|value| value.as_u64())
-                .map(|value| value.max(1000) as u32)
-                .unwrap_or(128_000);
-        }
-
         let model = provider_value
             .get("model")
             .and_then(|value| value.as_str())
             .unwrap_or("");
+        let auth_source = provider_value
+            .get("auth_source")
+            .and_then(|value| value.as_str())
+            .unwrap_or(providers::default_auth_source_for(provider_id));
+        let custom_model_name = provider_value
+            .get("custom_model_name")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
+        if let Some(context_window) = providers::resolve_context_window_for_provider_auth(
+            provider_id,
+            auth_source,
+            model,
+            custom_model_name,
+        ) {
+            return context_window;
+        }
+
+        if providers::model_uses_context_window_override(
+            provider_id,
+            auth_source,
+            model,
+            custom_model_name,
+        ) {
+            return provider_value
+                .get("context_window_tokens")
+                .and_then(|value| value.as_u64())
+                .map(|value| value.max(1000) as u32)
+                .unwrap_or(providers::default_custom_model_context_window());
+        }
+
         providers::known_context_window_for(provider_id, model).unwrap_or(128_000)
     }
 
     fn effective_current_context_window(&self) -> u32 {
-        if self.config.provider == PROVIDER_ID_CUSTOM {
+        if let Some(context_window) = providers::resolve_context_window_for_provider_auth(
+            &self.config.provider,
+            &self.config.auth_source,
+            &self.config.model,
+            &self.config.custom_model_name,
+        ) {
+            context_window
+        } else if providers::model_uses_context_window_override(
+            &self.config.provider,
+            &self.config.auth_source,
+            &self.config.model,
+            &self.config.custom_model_name,
+        ) {
             self.config.custom_context_window_tokens.unwrap_or(128_000)
         } else {
             providers::known_context_window_for(&self.config.provider, &self.config.model)
@@ -168,9 +203,26 @@ impl TuiModel {
             "auth_source": auth_source,
             "api_transport": api_transport,
             "reasoning_effort": &self.config.reasoning_effort,
-            "context_window_tokens": if provider_id == PROVIDER_ID_CUSTOM {
+            "context_window_tokens": if providers::resolve_context_window_for_provider_auth(
+                provider_id,
+                &auth_source,
+                Self::provider_field_str(&ui_value, "model", "model").unwrap_or(""),
+                Self::provider_field_str(&ui_value, "custom_model_name", "custom_model_name").unwrap_or(""),
+            ).is_some() {
+                providers::resolve_context_window_for_provider_auth(
+                    provider_id,
+                    &auth_source,
+                    Self::provider_field_str(&ui_value, "model", "model").unwrap_or(""),
+                    Self::provider_field_str(&ui_value, "custom_model_name", "custom_model_name").unwrap_or(""),
+                ).unwrap_or(128_000) as u64
+            } else if providers::model_uses_context_window_override(
+                provider_id,
+                &auth_source,
+                Self::provider_field_str(&ui_value, "model", "model").unwrap_or(""),
+                Self::provider_field_str(&ui_value, "custom_model_name", "custom_model_name").unwrap_or(""),
+            ) {
                 Self::provider_field_u64(&ui_value, "context_window_tokens", "context_window_tokens")
-                    .unwrap_or(128_000)
+                    .unwrap_or(providers::default_custom_model_context_window() as u64)
             } else {
                 providers::known_context_window_for(
                     provider_id,

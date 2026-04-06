@@ -171,6 +171,43 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
 }
 
 #[test]
+fn build_config_patch_value_preserves_custom_model_context_override_for_non_custom_provider() {
+    let mut model = make_model();
+    model.config.provider = PROVIDER_ID_OPENROUTER.to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.base_url = "https://openrouter.ai/api/v1".to_string();
+    model.config.model = "openrouter/custom-preview".to_string();
+    model.config.custom_model_name = "Custom Preview".to_string();
+    model.config.context_window_tokens = 333_000;
+    model.config.custom_context_window_tokens = Some(333_000);
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "provider": "openrouter",
+        "providers": {
+            "openrouter": {
+                "base_url": "https://openrouter.ai/api/v1",
+                "model": "openrouter/custom-preview",
+                "custom_model_name": "Custom Preview",
+                "auth_source": "api_key",
+                "api_transport": "chat_completions",
+                "context_window_tokens": 333000
+            }
+        }
+    }));
+
+    let json = model.build_config_patch_value();
+
+    assert_eq!(json["context_window_tokens"], serde_json::json!(333000));
+    assert_eq!(
+        json["providers"]["openrouter"]["context_window_tokens"],
+        serde_json::json!(333000)
+    );
+    assert_eq!(
+        json["openrouter"]["context_window_tokens"],
+        serde_json::json!(333000)
+    );
+}
+
+#[test]
 fn build_config_patch_value_round_trips_daemon_backed_settings() {
     let mut model = make_model();
     model.config.provider = PROVIDER_ID_OPENAI.to_string();

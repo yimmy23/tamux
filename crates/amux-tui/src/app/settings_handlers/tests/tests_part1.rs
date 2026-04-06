@@ -109,6 +109,27 @@ fn activating_model_for_custom_provider_starts_inline_custom_model_edit() {
 }
 
 #[test]
+fn activating_context_length_for_custom_model_starts_inline_edit() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.provider = "openrouter".to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.model = "openrouter/custom-preview".to_string();
+    model.config.custom_model_name = "Custom Preview".to_string();
+    model.config.context_window_tokens = 333_000;
+    model.config.custom_context_window_tokens = Some(333_000);
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Provider));
+    model.settings.reduce(SettingsAction::NavigateField(7));
+    assert_eq!(model.settings.current_field_name(), "context_window_tokens");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.settings.editing_field(), Some("context_window_tokens"));
+    assert_eq!(model.settings.edit_buffer(), "333000");
+}
+
+#[test]
 fn activating_message_loop_delay_starts_inline_edit() {
     let (mut model, _daemon_rx) = make_model();
     focus_settings_field(&mut model, SettingsTab::Advanced, "message_loop_delay_ms");

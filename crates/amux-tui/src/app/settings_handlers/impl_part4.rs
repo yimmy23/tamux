@@ -259,13 +259,20 @@ impl TuiModel {
                 "tool_synthesis_max_generated_tools",
                 &self.config.tool_synthesis_max_generated_tools.to_string(),
             ),
-            "context_window_tokens" if self.config.provider == PROVIDER_ID_CUSTOM => {
+            "context_window_tokens"
+                if providers::model_uses_context_window_override(
+                    &self.config.provider,
+                    &self.config.auth_source,
+                    &self.config.model,
+                    &self.config.custom_model_name,
+                ) =>
+            {
                 self.settings.start_editing(
                     "context_window_tokens",
                     &self
                         .config
                         .custom_context_window_tokens
-                        .unwrap_or(128_000)
+                        .unwrap_or(providers::default_custom_model_context_window())
                         .to_string(),
                 )
             }

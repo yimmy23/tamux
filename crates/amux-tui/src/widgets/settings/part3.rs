@@ -65,7 +65,12 @@ use amux_shared::providers::PROVIDER_ID_CUSTOM;
         config.reasoning_effort().to_string()
     };
     let context_window_val = format!("{} tok", config.context_window_tokens);
-    let context_hint = if config.provider == PROVIDER_ID_CUSTOM {
+    let context_hint = if providers::model_uses_context_window_override(
+        &config.provider,
+        &config.auth_source,
+        &config.model,
+        &config.custom_model_name,
+    ) {
         " [Enter: edit]"
     } else {
         ""

@@ -98,3 +98,21 @@ fn known_models_github_copilot_matches_static_catalog() {
     assert!(models.iter().any(|model| model.id == "raptor-mini"));
     assert!(models.iter().any(|model| model.id == "goldeneye"));
 }
+
+#[test]
+fn custom_model_name_can_resolve_known_provider_context_window() {
+    assert_eq!(
+        resolve_context_window_for_provider_auth(
+            PROVIDER_ID_GITHUB_COPILOT,
+            "github_copilot",
+            "totally-custom-runtime-id",
+            "Raptor mini (Preview)",
+        ),
+        Some(264_000)
+    );
+}
+
+#[test]
+fn unknown_custom_model_uses_264k_default_context_window() {
+    assert_eq!(default_custom_model_context_window(), 264_000);
+}

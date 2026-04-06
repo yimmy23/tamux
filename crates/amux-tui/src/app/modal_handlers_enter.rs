@@ -190,19 +190,25 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model
                             .config
                             .reduce(config::ConfigAction::SetModel(model_id.clone()));
-                        model.config.custom_model_name =
-                            if providers::known_models_for_provider_auth(
-                                &model.config.provider,
-                                &model.config.auth_source,
-                            )
-                            .iter()
-                            .any(|entry| entry.id == model_id)
-                            {
-                                String::new()
-                            } else {
-                                model_entry.name.clone().unwrap_or_else(|| model_id.clone())
-                            };
-                        if model.config.provider != PROVIDER_ID_CUSTOM {
+                        if providers::model_uses_context_window_override(
+                            &model.config.provider,
+                            &model.config.auth_source,
+                            &model.config.model,
+                            &model.config.custom_model_name,
+                        ) {
+                            model.config.custom_model_name = model_entry
+                                .name
+                                .clone()
+                                .unwrap_or_else(|| model_id.clone());
+                            let next_context = model_context_window
+                                .unwrap_or(model.config.custom_context_window_tokens.unwrap_or(
+                                    providers::default_custom_model_context_window(),
+                                ));
+                            model.config.custom_context_window_tokens = Some(next_context);
+                            model.config.context_window_tokens = next_context;
+                        } else {
+                            model.config.custom_model_name.clear();
+                            model.config.custom_context_window_tokens = None;
                             model.config.context_window_tokens =
                                 model_context_window.unwrap_or(128_000);
                         }

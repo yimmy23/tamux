@@ -137,6 +137,11 @@ const EMPTY_MODELS: ModelDefinition[] = [];
 const CHAT_ONLY_TRANSPORTS: ApiTransportMode[] = ["chat_completions"];
 const RESPONSES_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["responses", "chat_completions"];
 const NATIVE_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["native_assistant", "chat_completions"];
+export const DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 264_000;
+
+function normalizeModelLookupValue(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
 
 export function normalizeAgentProviderId(value: unknown): AgentProviderId {
   if (typeof value !== "string") {
@@ -308,18 +313,62 @@ export function getModelDefinition(
   return getProviderModels(providerId, auth_source).find((model) => model.id === trimmed);
 }
 
-export function getEffectiveContextWindow(
+export function resolveProviderModelDefinition(
   providerId: AgentProviderId,
-  config: Pick<AgentProviderConfig, "model" | "context_window_tokens" | "auth_source">,
-): number {
-  if (providerId === "custom") {
-    if (typeof config.context_window_tokens === "number" && config.context_window_tokens > 0) {
-      return Math.max(1000, Math.trunc(config.context_window_tokens));
-    }
-    return 128_000;
+  auth_source: AuthSource | undefined,
+  ...candidates: Array<string | undefined>
+): ModelDefinition | undefined {
+  const normalizedCandidates = candidates
+    .map((candidate) => normalizeModelLookupValue(candidate))
+    .filter((candidate, index, all) => candidate.length > 0 && all.indexOf(candidate) === index);
+
+  if (normalizedCandidates.length === 0) {
+    return undefined;
   }
 
-  return getModelDefinition(providerId, config.model, config.auth_source)?.contextWindow ?? 128_000;
+  return getProviderModels(providerId, auth_source).find((model) => {
+    const normalizedId = normalizeModelLookupValue(model.id);
+    const normalizedName = normalizeModelLookupValue(model.name);
+    return normalizedCandidates.includes(normalizedId)
+      || normalizedCandidates.includes(normalizedName);
+  });
+}
+
+export function modelUsesContextWindowOverride(
+  providerId: AgentProviderId,
+  modelId: string,
+  custom_model_name?: string,
+  auth_source?: AuthSource,
+): boolean {
+  if (providerId === "custom") {
+    return true;
+  }
+
+  return Boolean(
+    (modelId.trim().length > 0 || (custom_model_name ?? "").trim().length > 0)
+    && !resolveProviderModelDefinition(providerId, auth_source, modelId, custom_model_name),
+  );
+}
+
+export function getEffectiveContextWindow(
+  providerId: AgentProviderId,
+  config: Pick<AgentProviderConfig, "model" | "custom_model_name" | "context_window_tokens" | "auth_source">,
+): number {
+  const resolvedModel = resolveProviderModelDefinition(
+    providerId,
+    config.auth_source,
+    config.model,
+    config.custom_model_name,
+  );
+  if (resolvedModel) {
+    return resolvedModel.contextWindow;
+  }
+
+  if (typeof config.context_window_tokens === "number" && config.context_window_tokens > 0) {
+    return Math.max(1000, Math.trunc(config.context_window_tokens));
+  }
+
+  return DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW;
 }
 
 export function providerSupportsResponseContinuity(providerId: AgentProviderId): boolean {

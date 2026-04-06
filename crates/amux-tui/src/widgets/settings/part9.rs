@@ -74,7 +74,12 @@ fn render_advanced_value<'a>(
         spans.push(Span::styled(hint, theme.fg_dim));
     }
     if field_name == "context_window_tokens"
-        && config.provider != amux_shared::providers::PROVIDER_ID_CUSTOM
+        && !providers::model_uses_context_window_override(
+            &config.provider,
+            &config.auth_source,
+            &config.model,
+            &config.custom_model_name,
+        )
     {
         spans.push(Span::styled("  [derived]", theme.fg_dim));
     }
@@ -233,7 +238,12 @@ fn render_advanced_tab<'a>(
         "Context Len Tok: ",
         config.context_window_tokens.to_string(),
         "context_window_tokens",
-        if config.provider == amux_shared::providers::PROVIDER_ID_CUSTOM {
+        if providers::model_uses_context_window_override(
+            &config.provider,
+            &config.auth_source,
+            &config.model,
+            &config.custom_model_name,
+        ) {
             "  [Enter: edit]"
         } else {
             ""

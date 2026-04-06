@@ -32,6 +32,65 @@ pub const NATIVE_AND_CHAT_TRANSPORTS: &[&str] = &["native_assistant", "chat_comp
 pub const API_KEY_ONLY_AUTH_SOURCES: &[&str] = &["api_key"];
 pub const OPENAI_AUTH_SOURCES: &[&str] = &["chatgpt_subscription", "api_key"];
 pub const GITHUB_COPILOT_AUTH_SOURCES: &[&str] = &["github_copilot", "api_key"];
+pub const DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW: u32 = 264_000;
+
+fn normalize_model_lookup_value(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+pub fn default_custom_model_context_window() -> u32 {
+    DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
+}
+
+pub fn resolve_context_window_for_provider_auth(
+    provider_id: &str,
+    auth_source: &str,
+    model_id: &str,
+    custom_model_name: &str,
+) -> Option<u32> {
+    let lookup_values = [model_id, custom_model_name]
+        .into_iter()
+        .map(normalize_model_lookup_value)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if lookup_values.is_empty() {
+        return None;
+    }
+
+    known_models_for_provider_auth(provider_id, auth_source)
+        .into_iter()
+        .find(|model| {
+            let id = normalize_model_lookup_value(&model.id);
+            let name = model
+                .name
+                .as_deref()
+                .map(normalize_model_lookup_value)
+                .unwrap_or_default();
+            lookup_values.iter().any(|value| value == &id || (!name.is_empty() && value == &name))
+        })
+        .and_then(|model| model.context_window)
+}
+
+pub fn model_uses_context_window_override(
+    provider_id: &str,
+    auth_source: &str,
+    model_id: &str,
+    custom_model_name: &str,
+) -> bool {
+    if provider_id == PROVIDER_ID_CUSTOM {
+        return true;
+    }
+
+    (model_id.trim().len() > 0 || custom_model_name.trim().len() > 0)
+        && resolve_context_window_for_provider_auth(
+            provider_id,
+            auth_source,
+            model_id,
+            custom_model_name,
+        )
+        .is_none()
+}
 
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {

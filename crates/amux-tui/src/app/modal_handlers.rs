@@ -249,11 +249,39 @@ impl TuiModel {
                                     };
                                 if !model_id.is_empty() {
                                     self.config.model = model_id.to_string();
-                                    self.config.custom_model_name = if name.is_empty() {
-                                        model_id.to_string()
+                                    let resolved_context_window =
+                                        providers::resolve_context_window_for_provider_auth(
+                                            &self.config.provider,
+                                            &self.config.auth_source,
+                                            &self.config.model,
+                                            name,
+                                        );
+                                    if providers::model_uses_context_window_override(
+                                        &self.config.provider,
+                                        &self.config.auth_source,
+                                        &self.config.model,
+                                        name,
+                                    ) {
+                                        self.config.custom_model_name = if name.is_empty() {
+                                            model_id.to_string()
+                                        } else {
+                                            name.to_string()
+                                        };
+                                        let next_context = resolved_context_window.unwrap_or(
+                                            providers::default_custom_model_context_window(),
+                                        );
+                                        self.config.custom_context_window_tokens = Some(next_context);
+                                        self.config.context_window_tokens = next_context;
                                     } else {
-                                        name.to_string()
-                                    };
+                                        self.config.custom_model_name = if name.is_empty() {
+                                            String::new()
+                                        } else {
+                                            name.to_string()
+                                        };
+                                        self.config.custom_context_window_tokens = None;
+                                        self.config.context_window_tokens = resolved_context_window
+                                            .unwrap_or(128_000);
+                                    }
                                 }
                             }
                             "gateway_prefix" => self.config.gateway_prefix = value,
@@ -332,7 +360,12 @@ impl TuiModel {
                                 }
                             }
                             "context_window_tokens" => {
-                                if self.config.provider == amux_shared::providers::PROVIDER_ID_CUSTOM {
+                                if providers::model_uses_context_window_override(
+                                    &self.config.provider,
+                                    &self.config.auth_source,
+                                    &self.config.model,
+                                    &self.config.custom_model_name,
+                                ) {
                                     if let Ok(n) = value.parse::<u32>() {
                                         let next = n.clamp(1000, 2_000_000);
                                         self.config.custom_context_window_tokens = Some(next);

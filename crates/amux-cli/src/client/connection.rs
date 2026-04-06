@@ -3,6 +3,12 @@ use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use tokio_util::codec::Framed;
 
+pub(super) fn closed_connection_error() -> anyhow::Error {
+    anyhow::anyhow!(
+        "daemon closed connection; this often indicates a tamux CLI/daemon version mismatch or a daemon crash. restart tamux-daemon so it matches the current CLI version and try again"
+    )
+}
+
 /// Connect to the daemon and return a framed stream.
 pub(super) async fn connect(
 ) -> Result<Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, AmuxCodec>> {
@@ -33,7 +39,7 @@ pub(super) async fn roundtrip(msg: ClientMessage) -> Result<DaemonMessage> {
     let resp = framed
         .next()
         .await
-        .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))??;
+        .ok_or_else(closed_connection_error)??;
     Ok(resp)
 }
 
@@ -56,7 +62,7 @@ where
         let resp = framed
             .next()
             .await
-            .ok_or_else(|| anyhow::anyhow!("daemon closed connection"))??;
+            .ok_or_else(closed_connection_error)??;
         if let Some(result) = f(resp) {
             return result;
         }

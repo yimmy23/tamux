@@ -297,6 +297,32 @@ fn custom_provider_model_row_shows_active_edit_buffer() {
 }
 
 #[test]
+fn custom_model_context_row_invites_edit_for_non_custom_provider() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Provider,
+    ));
+    settings.reduce(crate::state::settings::SettingsAction::NavigateField(7));
+    let mut config = ConfigState::new();
+    config.provider = "openrouter".to_string();
+    config.auth_source = "api_key".to_string();
+    config.model = "openrouter/custom-preview".to_string();
+    config.custom_model_name = "Custom Preview".to_string();
+    config.context_window_tokens = 333_000;
+    config.custom_context_window_tokens = Some(333_000);
+
+    let lines = render_provider_tab(&settings, &config, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("> Ctx Length      333000 tok [Enter: edit]"));
+    assert!(!text.contains("[derived]"));
+}
+
+#[test]
 fn subagent_editor_shows_live_name_edit_buffer() {
     let mut settings = SettingsState::new();
     settings.reduce(crate::state::settings::SettingsAction::SwitchTab(

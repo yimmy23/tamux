@@ -3,7 +3,7 @@ import { getDaemonOwnedAuthCapability, getProviderAuthSupportOptions } from "@/l
 import { getBridge } from "@/lib/bridge";
 import { PRIMARY_AGENT_NAME } from "@/lib/agentNames";
 import type { AgentProviderConfig, AgentProviderId, AgentSettings } from "../../lib/agentStore";
-import { getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, normalizeAuthSource } from "../../lib/agentStore";
+import { DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW, getDefaultApiTransport, getDefaultAuthSource, getDefaultModelForProvider, getEffectiveContextWindow, getProviderApiType, getProviderDefinition, getProviderModels, getSupportedApiTransports, getSupportedAuthSources, modelUsesContextWindowOverride, normalizeAuthSource, resolveProviderModelDefinition } from "../../lib/agentStore";
 import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
@@ -86,6 +86,12 @@ export function AgentTab({
     const isCustomProvider = settings.active_provider === "custom";
     const showUrlEditor = isCustomProvider || useCustomUrl || Boolean(providerConfig.base_url && providerConfig.base_url !== providerDef?.defaultBaseUrl);
     const effectiveContextWindow = getEffectiveContextWindow(settings.active_provider, providerConfig);
+    const canEditContextWindow = modelUsesContextWindowOverride(
+        settings.active_provider,
+        providerConfig.model,
+        providerConfig.custom_model_name,
+        effectiveAuthSource,
+    );
     const activeProviderAuthState = providerAuthStates.find((state) => state.provider_id === settings.active_provider);
     const subscriptionAuthUi = deriveOpenAICodexAuthUi(subscriptionAuthStatus);
     const providerAuthenticated = effectiveAuthSource === "chatgpt_subscription"
@@ -343,11 +349,25 @@ export function AgentTab({
                             providerId={settings.active_provider}
                             value={providerConfig.model}
                             customName={providerConfig.custom_model_name}
-                            onChange={(value, custom_model_name) => updateSetting(settings.active_provider, {
-                                ...providerConfig,
-                                model: value,
-                                custom_model_name: custom_model_name && custom_model_name !== value ? custom_model_name : "",
-                            })}
+                            onChange={(value, custom_model_name) => {
+                                const nextCustomModelName = custom_model_name && custom_model_name !== value
+                                    ? custom_model_name
+                                    : "";
+                                const resolvedModel = resolveProviderModelDefinition(
+                                    settings.active_provider,
+                                    effectiveAuthSource,
+                                    value,
+                                    nextCustomModelName,
+                                );
+                                updateSetting(settings.active_provider, {
+                                    ...providerConfig,
+                                    model: value,
+                                    custom_model_name: nextCustomModelName,
+                                    context_window_tokens: resolvedModel
+                                        ? null
+                                        : DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
+                                });
+                            }}
                             base_url={providerConfig.base_url || providerDef?.defaultBaseUrl}
                             api_key={providerConfig.api_key}
                             auth_source={effectiveAuthSource}
@@ -499,9 +519,9 @@ export function AgentTab({
                         </SettingRow>
                     ) : null}
                     <SettingRow label="Context Length">
-                        {isCustomProvider ? (
+                        {canEditContextWindow ? (
                             <NumberInput
-                                value={providerConfig.context_window_tokens ?? 128000}
+                                value={providerConfig.context_window_tokens ?? effectiveContextWindow}
                                 min={16000}
                                 max={2000000}
                                 step={1000}
