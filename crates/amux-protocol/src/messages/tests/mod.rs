@@ -687,15 +687,6 @@ fn sample_community_skill_entry() -> CommunitySkillEntry {
     }
 }
 
-fn sample_symbol_match() -> SymbolMatch {
-    SymbolMatch {
-        path: "src/lib.rs".to_string(),
-        line: 42,
-        kind: "function".to_string(),
-        snippet: "fn build_tool() -> Result<()> {".to_string(),
-    }
-}
-
 fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
     SkillDiscoveryCandidatePublic {
         variant_id: "local:git_rebase_workflow:v1".to_string(),
@@ -723,6 +714,50 @@ fn sample_skill_discovery_result() -> SkillDiscoveryResultPublic {
         workspace_tags: vec!["git".to_string(), "rebase".to_string()],
         candidates: vec![sample_skill_discovery_candidate()],
     }
+}
+
+#[test]
+fn minimal_skill_discovery_result_deserializes_with_defaults() {
+    let result_json = serde_json::json!({
+        "query": "debug panic",
+        "confidence_tier": "strong",
+        "recommended_action": "read_skill",
+        "candidates": [{
+            "skill_name": "systematic-debugging",
+            "score": 93.0,
+            "reasons": ["matched debug", "workspace rust", "active variant"]
+        }]
+    })
+    .to_string();
+
+    let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
+    assert_eq!(result.query, "debug panic");
+    assert!(!result.required);
+    assert_eq!(result.confidence_tier, "strong");
+    assert_eq!(result.recommended_action, "read_skill");
+    assert!(!result.explicit_rationale_required);
+    assert!(result.workspace_tags.is_empty());
+    assert_eq!(result.candidates.len(), 1);
+    let candidate = &result.candidates[0];
+    assert_eq!(candidate.variant_id, "");
+    assert_eq!(candidate.skill_name, "systematic-debugging");
+    assert_eq!(candidate.variant_name, "");
+    assert_eq!(candidate.relative_path, "");
+    assert_eq!(candidate.status, "");
+    assert!((candidate.score - 93.0).abs() < f64::EPSILON);
+    assert_eq!(candidate.confidence_tier, "");
+    assert_eq!(
+        candidate.reasons,
+        vec![
+            "matched debug".to_string(),
+            "workspace rust".to_string(),
+            "active variant".to_string()
+        ]
+    );
+    assert!(candidate.context_tags.is_empty());
+    assert_eq!(candidate.use_count, 0);
+    assert_eq!(candidate.success_count, 0);
+    assert_eq!(candidate.failure_count, 0);
 }
 
 #[test]
@@ -851,22 +886,18 @@ fn skill_search_result_round_trip() {
 }
 
 #[test]
-fn client_message_find_symbol_preserves_pre_change_wire_discriminant() {
-    let msg = ClientMessage::FindSymbol {
-        workspace_root: "/tmp/workspace".to_string(),
-        symbol: "build_tool".to_string(),
-        limit: Some(3),
-    };
-    assert_bincode_variant_index(&msg, 32);
+fn client_message_agent_logout_openai_codex_preserves_pre_change_wire_discriminant() {
+    let msg = ClientMessage::AgentLogoutOpenAICodex;
+    assert_bincode_variant_index(&msg, 162);
 }
 
 #[test]
-fn daemon_message_symbol_search_result_preserves_pre_change_wire_discriminant() {
-    let msg = DaemonMessage::SymbolSearchResult {
-        symbol: "build_tool".to_string(),
-        matches: vec![sample_symbol_match()],
+fn daemon_message_agent_openai_codex_auth_logout_result_preserves_pre_change_wire_discriminant() {
+    let msg = DaemonMessage::AgentOpenAICodexAuthLogoutResult {
+        ok: true,
+        error: None,
     };
-    assert_bincode_variant_index(&msg, 28);
+    assert_bincode_variant_index(&msg, 134);
 }
 
 #[test]
