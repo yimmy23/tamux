@@ -38,6 +38,30 @@ fn add_available_tools_part_d(
             }
         })));
     }
+    tools.push(tool_def("list_threads", "List existing agent threads as lightweight summaries with optional deterministic filters.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "created_after": { "type": "integer", "minimum": 0, "description": "Include threads created at or after this Unix timestamp in milliseconds" },
+            "created_before": { "type": "integer", "minimum": 0, "description": "Include threads created at or before this Unix timestamp in milliseconds" },
+            "updated_after": { "type": "integer", "minimum": 0, "description": "Include threads updated at or after this Unix timestamp in milliseconds" },
+            "updated_before": { "type": "integer", "minimum": 0, "description": "Include threads updated at or before this Unix timestamp in milliseconds" },
+            "agent_name": { "type": "string", "description": "Optional canonical or alias agent filter (case-insensitive)" },
+            "title_query": { "type": "string", "description": "Optional case-insensitive substring match against the thread title" },
+            "pinned": { "type": "boolean", "description": "Optional pinned-state filter" },
+            "include_internal": { "type": "boolean", "description": "Include otherwise hidden WELES and handoff threads when true" },
+            "limit": { "type": "integer", "minimum": 0, "description": "Optional maximum number of matching thread summaries to return" },
+            "offset": { "type": "integer", "minimum": 0, "description": "Optional number of matching thread summaries to skip before returning results" }
+        }
+    })));
+    tools.push(tool_def("get_thread", "Fetch one agent thread and its messages by thread ID, with optional message truncation and internal-thread access.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "thread_id": { "type": "string", "description": "Thread ID to fetch" },
+            "message_limit": { "type": "integer", "minimum": 0, "description": "Optional maximum number of most recent messages to return" },
+            "include_internal": { "type": "boolean", "description": "Allow access to otherwise hidden WELES and handoff threads when true" }
+        },
+        "required": ["thread_id"]
+    })));
     tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
         "type": "object",
         "properties": {

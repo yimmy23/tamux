@@ -11,6 +11,7 @@ include!("catalog/part_a.rs");
 include!("catalog/part_b.rs");
 include!("catalog/part_c.rs");
 include!("catalog/part_d.rs");
+include!("thread_tools.rs");
 
 pub fn reorder_tools_by_heuristics(
     tools: &mut [ToolDefinition],

@@ -1,6 +1,27 @@
 //! Thread CRUD operations — list, get, delete, planner detection.
 
 use super::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ThreadListFilter {
+    pub created_after: Option<u64>,
+    pub created_before: Option<u64>,
+    pub updated_after: Option<u64>,
+    pub updated_before: Option<u64>,
+    pub agent_name: Option<String>,
+    pub title_query: Option<String>,
+    pub pinned: Option<bool>,
+    pub include_internal: bool,
+    pub limit: Option<usize>,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ThreadDetailResult {
+    pub thread: AgentThread,
+    pub messages_truncated: bool,
+}
 
 impl AgentEngine {
     pub async fn set_thread_client_surface(
@@ -93,26 +114,60 @@ impl AgentEngine {
     }
 
     pub async fn list_threads(&self) -> Vec<AgentThread> {
+        self.list_threads_filtered(&ThreadListFilter::default()).await
+    }
+
+    pub(crate) async fn list_threads_filtered(&self, filter: &ThreadListFilter) -> Vec<AgentThread> {
         let threads = self.threads.read().await;
-        let mut list: Vec<AgentThread> = threads.values().map(summarize_thread_for_list).collect();
-        list.retain(|thread| {
-            !crate::agent::concierge::is_user_visible_thread(thread)
-                && !crate::agent::is_internal_handoff_thread(&thread.id)
+        let mut list: Vec<AgentThread> = threads
+            .values()
+            .filter(|thread| thread_matches_list_filter(thread, filter))
+            .map(summarize_thread_for_list)
+            .collect();
+
+        list.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| a.id.cmp(&b.id))
         });
-        list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        list
+
+        let limit = filter.limit.unwrap_or(usize::MAX);
+        list.into_iter().skip(filter.offset).take(limit).collect()
     }
 
     pub async fn get_thread(&self, thread_id: &str) -> Option<AgentThread> {
-        self.threads
-            .read()
+        self.get_thread_filtered(thread_id, false, None)
             .await
-            .get(thread_id)
-            .cloned()
-            .filter(|thread| {
-                !crate::agent::concierge::is_user_visible_thread(thread)
-                    && !crate::agent::is_internal_handoff_thread(&thread.id)
-            })
+            .map(|result| result.thread)
+    }
+
+    pub(crate) async fn get_thread_filtered(
+        &self,
+        thread_id: &str,
+        include_internal: bool,
+        message_limit: Option<usize>,
+    ) -> Option<ThreadDetailResult> {
+        let mut thread = self.threads.read().await.get(thread_id).cloned()?;
+        if !thread_is_query_visible(&thread, include_internal) {
+            return None;
+        }
+
+        let messages_truncated = if let Some(limit) = message_limit {
+            if thread.messages.len() > limit {
+                let keep_from = thread.messages.len().saturating_sub(limit);
+                thread.messages = thread.messages.into_iter().skip(keep_from).collect();
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        Some(ThreadDetailResult {
+            thread,
+            messages_truncated,
+        })
     }
 
     pub async fn planner_required_for_thread(&self, thread_id: &str) -> bool {
@@ -145,6 +200,87 @@ impl AgentEngine {
         }
         removed
     }
+}
+
+fn thread_is_visible_by_default(thread: &AgentThread) -> bool {
+    !crate::agent::concierge::is_user_visible_thread(thread)
+        && !crate::agent::is_internal_handoff_thread(&thread.id)
+}
+
+fn thread_is_query_visible(thread: &AgentThread, include_internal: bool) -> bool {
+    include_internal || thread_is_visible_by_default(thread)
+}
+
+fn canonical_thread_agent_name(agent_name: Option<&str>) -> &'static str {
+    let normalized = agent_name.unwrap_or("").trim();
+    if normalized.is_empty() {
+        return crate::agent::agent_identity::canonical_agent_name(
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+        );
+    }
+
+    crate::agent::agent_identity::canonical_agent_name(normalized)
+}
+
+fn thread_matches_list_filter(thread: &AgentThread, filter: &ThreadListFilter) -> bool {
+    if !thread_is_query_visible(thread, filter.include_internal) {
+        return false;
+    }
+
+    if let Some(created_after) = filter.created_after {
+        if thread.created_at < created_after {
+            return false;
+        }
+    }
+
+    if let Some(created_before) = filter.created_before {
+        if thread.created_at > created_before {
+            return false;
+        }
+    }
+
+    if let Some(updated_after) = filter.updated_after {
+        if thread.updated_at < updated_after {
+            return false;
+        }
+    }
+
+    if let Some(updated_before) = filter.updated_before {
+        if thread.updated_at > updated_before {
+            return false;
+        }
+    }
+
+    if let Some(pinned) = filter.pinned {
+        if thread.pinned != pinned {
+            return false;
+        }
+    }
+
+    if let Some(agent_name) = filter.agent_name.as_deref() {
+        let expected = canonical_thread_agent_name(Some(agent_name));
+        let actual = canonical_thread_agent_name(thread.agent_name.as_deref());
+        if !actual.eq_ignore_ascii_case(expected) {
+            return false;
+        }
+    }
+
+    if let Some(title_query) = filter
+        .title_query
+        .as_deref()
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
+    {
+        if !thread
+            .title
+            .to_ascii_lowercase()
+            .contains(&title_query.to_ascii_lowercase())
+        {
+            return false;
+        }
+    }
+
+    true
 }
 
 fn summarize_thread_for_list(thread: &AgentThread) -> AgentThread {

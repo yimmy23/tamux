@@ -383,6 +383,8 @@ pub fn execute_tool<'a>(
         "list_collaboration_sessions" => {
             execute_list_collaboration_sessions(&args, agent, task_id).await
         }
+        "list_threads" => execute_list_threads(&args, agent).await,
+        "get_thread" => execute_get_thread(&args, agent).await,
         "enqueue_task" => execute_enqueue_task(&args, agent).await,
         "list_tasks" => execute_list_tasks(&args, agent).await,
         "cancel_task" => execute_cancel_task(&args, agent).await,
