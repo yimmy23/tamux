@@ -1448,20 +1448,28 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
 }
 
 #[tokio::test]
-async fn auto_retry_wait_repeats_scheduled_retry_cycles_until_cancelled() {
+async fn auto_retry_wait_escalates_to_fresh_runner_after_repeated_waits() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
     let request_counter = Arc::new(AtomicUsize::new(0));
+    let success_request_started = Arc::new(tokio::sync::Notify::new());
+    let release_success_request = Arc::new(tokio::sync::Notify::new());
     let mut config = AgentConfig::default();
     config.provider = PROVIDER_ID_CUSTOM.to_string();
-    config.base_url = spawn_transient_transport_failure_server(request_counter.clone()).await;
+    config.base_url = spawn_transient_failures_then_blocking_success_server(
+        request_counter.clone(),
+        2,
+        success_request_started.clone(),
+        release_success_request.clone(),
+    )
+    .await;
     config.model = "gpt-4.1".to_string();
     config.api_key = "test-key".to_string();
     config.auth_source = AuthSource::ApiKey;
     config.api_transport = ApiTransport::ChatCompletions;
     config.auto_retry = true;
-    config.max_retries = 1;
-    config.retry_delay_ms = 100;
+    config.max_retries = 0;
+    config.retry_delay_ms = 5;
     config.providers.insert(
         "custom".to_string(),
         ProviderConfig {
@@ -1533,37 +1541,45 @@ async fn auto_retry_wait_repeats_scheduled_retry_cycles_until_cancelled() {
         }
     });
 
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(1700), async {
-            loop {
-                if request_counter.load(Ordering::SeqCst) > 4 {
-                    break;
+    let initial_generation = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if request_counter.load(Ordering::SeqCst) >= 1 {
+                let streams = engine.stream_cancellations.lock().await;
+                if let Some(entry) = streams.get(thread_id) {
+                    break entry.generation;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-        })
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("initial stream generation should be registered");
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), success_request_started.notified())
         .await
-        .is_ok(),
-        "expected multiple scheduled retry cycles to perform real reconnect attempts"
-    );
+        .expect("fresh recovery request should start after repeated waits");
+
+    let refreshed_generation = {
+        let streams = engine.stream_cancellations.lock().await;
+        streams
+            .get(thread_id)
+            .map(|entry| entry.generation)
+            .expect("fresh recovery stream should replace the active stream entry")
+    };
     assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(50), &mut task)
-            .await
-            .is_err(),
-        "send loop should keep retrying until explicitly cancelled"
+        refreshed_generation > initial_generation,
+        "repeated auto-retry waits should replace the broken stream with a fresh runner"
     );
-    assert!(
-        engine.stop_stream(thread_id).await,
-        "stream should be cancellable"
-    );
+
+    release_success_request.notify_waiters();
 
     let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
         .await
-        .expect("cancelled retry loop should finish");
+        .expect("fresh recovery loop should finish");
     let joined = result.expect("join send task");
-    if let Err(error) = joined {
-        panic!("cancelled retry loop should end cleanly: {error}");
-    }
+    let outcome = joined.expect("fresh recovery loop should succeed");
+    assert_eq!(outcome.thread_id, thread_id);
+    assert_eq!(request_counter.load(Ordering::SeqCst), 3);
 }
 
 #[tokio::test]

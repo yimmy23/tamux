@@ -481,7 +481,7 @@ pub(super) fn build_external_agent_prompt(
     )
 }
 
-fn render_skill_index(skills_root: &std::path::Path) -> Option<String> {
+pub(super) fn render_skill_index(skills_root: &std::path::Path) -> Option<String> {
     let mut skills = Vec::new();
     collect_skill_stems(skills_root, skills_root, &mut skills);
     skills.sort();

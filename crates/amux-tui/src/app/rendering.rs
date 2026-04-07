@@ -517,6 +517,7 @@ impl TuiModel {
                 modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
+                modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
@@ -669,7 +670,19 @@ impl TuiModel {
                     render_helpers::render_status_modal(
                         frame,
                         overlay_area,
+                        "STATUS",
                         &self.status_modal_body(),
+                        0,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::PromptViewer => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "PROMPT",
+                        &self.prompt_modal_body(),
+                        self.prompt_modal_scroll,
                         &self.theme,
                     );
                 }
@@ -693,6 +706,7 @@ impl TuiModel {
             modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
             modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
+            modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),

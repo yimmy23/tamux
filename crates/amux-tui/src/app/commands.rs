@@ -392,7 +392,7 @@ impl TuiModel {
             }
             "quit" => self.pending_quit = true,
             "prompt" => {
-                self.status_line = "System prompt: use /settings -> Agent tab".to_string();
+                self.request_prompt_inspection(None);
             }
             "goal" => {
                 self.open_new_goal_view();

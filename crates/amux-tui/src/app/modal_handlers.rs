@@ -830,6 +830,30 @@ impl TuiModel {
             return false;
         }
 
+        if kind == modal::ModalKind::PromptViewer {
+            match code {
+                KeyCode::Esc => {
+                    self.close_top_modal();
+                }
+                KeyCode::Char('/') => {
+                    self.close_top_modal();
+                    self.input.reduce(input::InputAction::InsertChar('/'));
+                    self.focus = FocusArea::Input;
+                }
+                KeyCode::Down | KeyCode::Char('j') => self.step_prompt_modal_scroll(1),
+                KeyCode::Up | KeyCode::Char('k') => self.step_prompt_modal_scroll(-1),
+                KeyCode::PageDown => self.page_prompt_modal_scroll(1),
+                KeyCode::PageUp => self.page_prompt_modal_scroll(-1),
+                KeyCode::Home => self.set_prompt_modal_scroll(0),
+                KeyCode::End => {
+                    let max_scroll = self.prompt_modal_max_scroll();
+                    self.set_prompt_modal_scroll(max_scroll);
+                }
+                _ => {}
+            }
+            return false;
+        }
+
         if kind == modal::ModalKind::WhatsAppLink {
             match code {
                 KeyCode::Esc | KeyCode::Char('c') | KeyCode::Char('C') => {

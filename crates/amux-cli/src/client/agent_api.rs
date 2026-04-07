@@ -1,5 +1,6 @@
 use amux_protocol::{ClientMessage, DaemonMessage};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use super::connection::roundtrip;
 
@@ -21,6 +22,23 @@ pub struct DirectMessageResponse {
     pub response: String,
     pub session_id: Option<String>,
     pub provider_final_result_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentPromptInspectionSection {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentPromptInspection {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub provider_id: String,
+    pub model: String,
+    pub sections: Vec<AgentPromptInspectionSection>,
+    pub final_prompt: String,
 }
 
 pub async fn send_direct_message(
@@ -77,6 +95,16 @@ pub async fn send_status_query() -> Result<AgentStatusSnapshot> {
             gateway_statuses_json,
             recent_actions_json,
         }),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_prompt_query(agent_id: Option<String>) -> Result<AgentPromptInspection> {
+    match roundtrip(ClientMessage::AgentInspectPrompt { agent_id }).await? {
+        DaemonMessage::AgentPromptInspection { prompt_json } => {
+            Ok(serde_json::from_str(&prompt_json)?)
+        }
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
     }

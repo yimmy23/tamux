@@ -297,6 +297,7 @@ pub enum ClientEvent {
         operator_profile_scheduler_fallback: bool,
     },
     StatusSnapshot(AgentStatusSnapshotVm),
+    PromptInspection(AgentPromptInspectionVm),
 
     TierChanged {
         new_tier: String,
@@ -347,6 +348,23 @@ pub struct AgentStatusSnapshotVm {
     pub provider_health_json: String,
     pub gateway_statuses_json: String,
     pub recent_actions_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AgentPromptInspectionSectionVm {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AgentPromptInspectionVm {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub provider_id: String,
+    pub model: String,
+    pub sections: Vec<AgentPromptInspectionSectionVm>,
+    pub final_prompt: String,
 }
 
 pub struct DaemonClient {

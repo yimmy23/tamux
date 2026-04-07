@@ -14,6 +14,7 @@ mod part2;
 mod part3;
 mod part4;
 mod part5;
+mod part6;
 
 fn http_request_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
@@ -396,6 +397,115 @@ async fn spawn_transient_failure_then_blocking_server(
 
                 release_second_request.notified().await;
                 let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
+}
+
+async fn spawn_transient_failures_then_blocking_success_server(
+    request_counter: Arc<AtomicUsize>,
+    failures_before_success: usize,
+    success_request_started: Arc<tokio::sync::Notify>,
+    release_success_request: Arc<tokio::sync::Notify>,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind transient blocking success server");
+    let addr = listener
+        .local_addr()
+        .expect("transient blocking success server addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let request_counter = request_counter.clone();
+            let success_request_started = success_request_started.clone();
+            let release_success_request = release_success_request.clone();
+            tokio::spawn(async move {
+                let attempt = request_counter.fetch_add(1, Ordering::SeqCst);
+                let _request =
+                    read_http_request(&mut socket, "transient blocking success request").await;
+
+                if attempt < failures_before_success {
+                    let _ = socket.shutdown().await;
+                    return;
+                }
+
+                success_request_started.notify_waiters();
+                release_success_request.notified().await;
+                let response = concat!(
+                    "HTTP/1.1 200 OK\r\n",
+                    "content-type: text/event-stream\r\n",
+                    "cache-control: no-cache\r\n",
+                    "connection: close\r\n",
+                    "\r\n",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"Recovered on a fresh stream\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write transient blocking success response");
+            });
+        }
+    });
+
+    format!("http://{addr}/v1")
+}
+
+async fn spawn_timeout_failures_then_blocking_success_server(
+    request_counter: Arc<AtomicUsize>,
+    failures_before_success: usize,
+    success_request_started: Arc<tokio::sync::Notify>,
+    release_success_request: Arc<tokio::sync::Notify>,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind timeout blocking success server");
+    let addr = listener
+        .local_addr()
+        .expect("timeout blocking success server addr");
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let request_counter = request_counter.clone();
+            let success_request_started = success_request_started.clone();
+            let release_success_request = release_success_request.clone();
+            tokio::spawn(async move {
+                let attempt = request_counter.fetch_add(1, Ordering::SeqCst);
+                let _request =
+                    read_http_request(&mut socket, "timeout blocking success request").await;
+
+                if attempt < failures_before_success {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let _ = socket.shutdown().await;
+                    return;
+                }
+
+                success_request_started.notify_waiters();
+                release_success_request.notified().await;
+                let response = concat!(
+                    "HTTP/1.1 200 OK\r\n",
+                    "content-type: text/event-stream\r\n",
+                    "cache-control: no-cache\r\n",
+                    "connection: close\r\n",
+                    "\r\n",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"Recovered after timeout stream restart\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write timeout blocking success response");
             });
         }
     });

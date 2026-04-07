@@ -674,6 +674,84 @@ fn done_event_persists_final_reasoning_into_chat_message() {
 }
 
 #[test]
+fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::User,
+            content: "Retry this".to_string(),
+            ..Default::default()
+        },
+    });
+
+    model.handle_client_event(ClientEvent::RetryStatus {
+        thread_id: "thread-1".to_string(),
+        phase: "retrying".to_string(),
+        attempt: 1,
+        max_retries: 3,
+        delay_ms: 1_000,
+        failure_class: "temporary_upstream".to_string(),
+        message: "upstream timeout".to_string(),
+    });
+    assert_eq!(model.agent_activity.as_deref(), Some("retrying"));
+    assert!(model.chat.retry_status().is_some());
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "Recovered answer".to_string(),
+    });
+
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-1".to_string(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: None,
+        provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
+        model: Some("gpt-5.4".to_string()),
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: Some("result_json".to_string()),
+    });
+
+    assert!(
+        model.agent_activity.is_none(),
+        "done should clear the retrying placeholder"
+    );
+    assert!(
+        model.chat.retry_status().is_none(),
+        "done should clear visible retry status"
+    );
+
+    model.handle_client_event(ClientEvent::RetryStatus {
+        thread_id: "thread-1".to_string(),
+        phase: "retrying".to_string(),
+        attempt: 1,
+        max_retries: 3,
+        delay_ms: 1_000,
+        failure_class: "temporary_upstream".to_string(),
+        message: "late retry status".to_string(),
+    });
+
+    assert!(
+        model.agent_activity.is_none(),
+        "late retry events for a completed turn must not restore the retrying placeholder"
+    );
+    assert!(
+        model.chat.retry_status().is_none(),
+        "late retry events for a completed turn must not restore retry status UI"
+    );
+}
+
+#[test]
 fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
     let mut model = make_model();
     model.concierge.provider = Some("alibaba-coding-plan".to_string());

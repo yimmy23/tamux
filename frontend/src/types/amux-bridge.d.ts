@@ -331,6 +331,14 @@ declare global {
                 operator_profile_scheduler_fallback?: boolean;
             };
         } | null>;
+        agentInspectPrompt?: (agentId?: string | null) => Promise<{
+            agent_id: string;
+            agent_name: string;
+            provider_id: string;
+            model: string;
+            sections: Array<{ id: string; title: string; content: string }>;
+            final_prompt: string;
+        } | null>;
         agentQueryAudits?: (actionTypes?: string[] | null, since?: number | null, limit?: number | null) => Promise<unknown>;
         agentGetProvenanceReport?: (limit?: number | null) => Promise<unknown>;
         agentGetMemoryProvenanceReport?: (target?: string | null, limit?: number | null) => Promise<unknown>;

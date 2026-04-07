@@ -64,6 +64,9 @@ pub enum DaemonCommand {
         max_bytes: Option<usize>,
     },
     RequestAgentStatus,
+    RequestPromptInspection {
+        agent_id: Option<String>,
+    },
     SendMessage {
         thread_id: Option<String>,
         content: String,

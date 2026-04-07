@@ -4,6 +4,7 @@
 pub enum ModalKind {
     CommandPalette,
     Status,
+    PromptViewer,
     ThreadPicker,
     GoalPicker,
     ProviderPicker,
@@ -420,7 +421,7 @@ fn default_command_items() -> Vec<CommandItem> {
         },
         CommandItem {
             command: "prompt".into(),
-            description: "Edit system prompt".into(),
+            description: "Inspect assembled system prompt".into(),
         },
         CommandItem {
             command: "attach".into(),

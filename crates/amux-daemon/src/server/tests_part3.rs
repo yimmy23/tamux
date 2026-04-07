@@ -422,6 +422,54 @@
         serde_json::from_str(raw).expect("json payload should decode")
     }
 
+    #[tokio::test]
+    async fn inspect_prompt_returns_sectioned_main_agent_prompt() {
+        let mut config = AgentConfig::default();
+        config.system_prompt = "Custom operator prompt".to_string();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        let mut conn = spawn_test_connection_with_config(config).await;
+
+        conn.framed
+            .send(ClientMessage::AgentInspectPrompt { agent_id: None })
+            .await
+            .expect("send inspect prompt request");
+
+        let payload = match conn.recv().await {
+            DaemonMessage::AgentPromptInspection { prompt_json } => parse_json(&prompt_json),
+            other => panic!("expected AgentPromptInspection, got {other:?}"),
+        };
+
+        assert_eq!(payload.get("agent_id").and_then(|value| value.as_str()), Some("swarog"));
+        assert_eq!(
+            payload.get("agent_name").and_then(|value| value.as_str()),
+            Some("Svarog")
+        );
+
+        let sections = payload
+            .get("sections")
+            .and_then(|value| value.as_array())
+            .expect("sections should be an array");
+        assert!(
+            sections.iter().any(|section| {
+                section.get("id").and_then(|value| value.as_str()) == Some("base_prompt")
+                    && section.get("content").and_then(|value| value.as_str())
+                        == Some("Custom operator prompt")
+            }),
+            "base prompt section should reflect the configured operator prompt"
+        );
+
+        let final_prompt = payload
+            .get("final_prompt")
+            .and_then(|value| value.as_str())
+            .expect("final prompt should be present");
+        assert!(final_prompt.contains("Custom operator prompt"));
+        assert!(final_prompt.contains("## Local Skills"));
+        assert!(final_prompt.contains("## Runtime Identity"));
+
+        conn.shutdown().await;
+    }
+
     fn extract_state_from_auth_url(auth_url: &str) -> String {
         url::Url::parse(auth_url)
             .expect("auth url should parse")

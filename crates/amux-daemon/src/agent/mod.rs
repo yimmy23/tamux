@@ -52,6 +52,7 @@ mod operational_context;
 mod operator_model;
 mod orchestrator_policy;
 mod persistence;
+mod prompt_inspection;
 mod provenance;
 mod provider_auth_store;
 mod provider_resolution;

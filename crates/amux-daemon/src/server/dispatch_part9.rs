@@ -2,6 +2,7 @@ if matches!(
         &msg,
         ClientMessage::SkillPublish{ .. } |
         ClientMessage::AgentStatusQuery |
+        ClientMessage::AgentInspectPrompt{ .. } |
         ClientMessage::AgentSetTierOverride{ .. } |
         ClientMessage::PluginList{ .. } |
         ClientMessage::PluginGet{ .. } |
@@ -142,6 +143,23 @@ if matches!(
                 ClientMessage::AgentStatusQuery => {
                     let msg = agent.get_status_snapshot().await;
                     framed.send(msg).await?;
+                }
+
+                ClientMessage::AgentInspectPrompt { agent_id } => {
+                    match agent.inspect_prompt_json(agent_id.as_deref()).await {
+                        Ok(prompt_json) => {
+                            framed
+                                .send(DaemonMessage::AgentPromptInspection { prompt_json })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
                 }
 
                 ClientMessage::AgentSetTierOverride { tier } => {

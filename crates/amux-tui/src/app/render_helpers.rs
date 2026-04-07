@@ -13,14 +13,22 @@ pub(super) fn render_help_modal(frame: &mut Frame, area: Rect, theme: &ThemeToke
 pub(super) fn render_status_modal(
     frame: &mut Frame,
     area: Rect,
+    title: &str,
     body: &str,
+    scroll: usize,
     theme: &ThemeTokens,
 ) {
-    status_modal::render_status_modal(frame, area, body, theme);
+    status_modal::render_status_modal(frame, area, title, body, scroll, theme);
 }
 
 pub(super) fn format_status_modal_text(snapshot: &crate::client::AgentStatusSnapshotVm) -> String {
     status_modal::format_status_modal_text(snapshot)
+}
+
+pub(super) fn format_prompt_modal_text(
+    prompt: &crate::client::AgentPromptInspectionVm,
+) -> String {
+    status_modal::format_prompt_modal_text(prompt)
 }
 
 pub(super) fn render_effort_picker(

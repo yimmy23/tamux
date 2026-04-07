@@ -179,6 +179,9 @@ impl TuiModel {
                 modal::ModalKind::ApprovalCenter => {
                     self.step_approval_selection(-1);
                 }
+                modal::ModalKind::PromptViewer => {
+                    self.step_prompt_modal_scroll(-3);
+                }
                 _ => {}
             },
             MouseEventKind::ScrollDown if inside => match kind {
@@ -203,6 +206,9 @@ impl TuiModel {
                 modal::ModalKind::ApprovalCenter => {
                     self.step_approval_selection(1);
                 }
+                modal::ModalKind::PromptViewer => {
+                    self.step_prompt_modal_scroll(3);
+                }
                 _ => {}
             },
             MouseEventKind::Down(MouseButton::Left) if !inside => {
@@ -210,6 +216,7 @@ impl TuiModel {
                     kind,
                     modal::ModalKind::Help
                         | modal::ModalKind::Status
+                        | modal::ModalKind::PromptViewer
                         | modal::ModalKind::CommandPalette
                         | modal::ModalKind::ThreadPicker
                         | modal::ModalKind::GoalPicker

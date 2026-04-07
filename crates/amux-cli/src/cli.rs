@@ -108,6 +108,25 @@ pub(crate) enum Commands {
     /// Show current agent status.
     Status,
 
+    /// Show the assembled system prompt for an agent.
+    Prompt {
+        /// Inspect a specific agent id or name.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Inspect the WELES prompt.
+        #[arg(long, conflicts_with_all = ["agent", "concierge", "rarog"])]
+        weles: bool,
+        /// Inspect the Rarog concierge prompt.
+        #[arg(long, conflicts_with_all = ["agent", "weles", "rarog"])]
+        concierge: bool,
+        /// Inspect the Rarog concierge prompt.
+        #[arg(long, conflicts_with_all = ["agent", "weles", "concierge"])]
+        rarog: bool,
+        /// Emit the raw daemon payload as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// View and modify daemon configuration.
     Settings {
         #[command(subcommand)]

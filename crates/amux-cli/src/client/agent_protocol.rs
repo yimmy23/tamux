@@ -190,6 +190,10 @@ pub(super) enum AgentBridgeCommand {
         confidence: Option<f64>,
     },
     GetStatus,
+    InspectPrompt {
+        #[serde(default)]
+        agent_id: Option<String>,
+    },
     SetTierOverride {
         tier: Option<String>,
     },

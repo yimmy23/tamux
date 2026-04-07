@@ -1,6 +1,32 @@
 use super::*;
 
 impl TuiModel {
+    fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
+        if self.chat.is_streaming() || self.chat.retry_status().is_some() || self.agent_activity.is_some() {
+            return true;
+        }
+
+        match self.chat.active_thread_id() {
+            None => true,
+            Some(active_thread_id) if active_thread_id != thread_id => false,
+            Some(_) => self
+                .chat
+                .active_thread()
+                .and_then(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|message| {
+                            !message.content.trim().is_empty()
+                                && !matches!(message.role, chat::MessageRole::System)
+                        })
+                        .map(|message| message.role == chat::MessageRole::User)
+                })
+                .unwrap_or(false),
+        }
+    }
+
     pub(in crate::app) fn handle_delta_event(&mut self, thread_id: String, content: String) {
         if Self::is_hidden_agent_thread(&thread_id, None)
             || self.should_ignore_internal_thread_activity(&thread_id)
@@ -343,6 +369,11 @@ impl TuiModel {
             self.status_modal_loading = false;
             self.status_modal_error = Some(message.clone());
         }
+        if self.prompt_modal_loading {
+            self.prompt_modal_loading = false;
+            self.prompt_modal_error = Some(message.clone());
+            self.prompt_modal_scroll = 0;
+        }
         let should_refresh_subagents = {
             let lowercase = message.to_ascii_lowercase();
             lowercase.contains("sub-agent")
@@ -396,6 +427,9 @@ impl TuiModel {
             if !self.chat.is_streaming() {
                 self.agent_activity = None;
             }
+            return;
+        }
+        if phase != "waiting" && !self.should_accept_retry_status_event(thread_id.as_str()) {
             return;
         }
         self.retry_wait_start_selected = false;

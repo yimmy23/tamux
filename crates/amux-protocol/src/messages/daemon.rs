@@ -115,6 +115,7 @@ pub enum DaemonMessage {
     SkillPublishResult { #[serde(default)] operation_id: Option<String>, success: bool, message: String },
     AgentTierChanged { previous_tier: String, new_tier: String, reason: String },
     AgentStatusResponse { tier: String, feature_flags_json: String, activity: String, #[serde(default)] active_thread_id: Option<String>, #[serde(default)] active_goal_run_id: Option<String>, #[serde(default)] active_goal_run_title: Option<String>, provider_health_json: String, gateway_statuses_json: String, recent_actions_json: String, diagnostics_json: String },
+    AgentPromptInspection { prompt_json: String },
     PluginListResult { plugins: Vec<PluginInfo> },
     PluginGetResult { plugin: Option<PluginInfo>, settings_schema: Option<String> },
     PluginActionResult { success: bool, message: String },

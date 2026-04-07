@@ -8,6 +8,7 @@ import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
 import { OperatorModelControls } from "./OperatorModelControls";
+import { PromptPreviewSection } from "./PromptPreviewSection";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function normalizeLlmStreamTimeoutInput(value: string): number | null {
@@ -293,6 +294,17 @@ export function AgentTab({
                         style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }} />
                 </SettingRow>
             </Section>
+
+            <PromptPreviewSection
+                backend={settings.agent_backend}
+                refreshKey={[
+                    settings.agent_backend,
+                    settings.system_prompt,
+                    settings.active_provider,
+                    providerConfig.model,
+                    providerConfig.custom_model_name,
+                ].join("|")}
+            />
 
             {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
                 <Section title={`${PRIMARY_AGENT_NAME} Provider`}>

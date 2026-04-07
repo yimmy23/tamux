@@ -95,6 +95,13 @@ impl TuiModel {
                     }
                 } else if cmd == "attach" && !args.is_empty() {
                     self.attach_file(args);
+                } else if cmd == "prompt" {
+                    let requested_agent = if args.trim().is_empty() {
+                        None
+                    } else {
+                        Some(args.trim().to_string())
+                    };
+                    self.request_prompt_inspection(requested_agent);
                 } else if cmd == "explain" {
                     self.execute_command("explain");
                 } else if cmd == "diverge" {
