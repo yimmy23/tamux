@@ -254,34 +254,73 @@ fn tool_result_updates_status() {
 }
 
 #[test]
-fn reasoning_before_tool_call_attaches_to_final_assistant_reply() {
+fn reasoning_and_tool_calls_preserve_transcript_continuity() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
         thread_id: "t1".into(),
         title: "Test".into(),
     });
+    state.reduce(ChatAction::SelectThread("t1".into()));
     state.reduce(ChatAction::Reasoning {
         thread_id: "t1".into(),
-        content: "The operator wants to talk to Weles.".into(),
+        content: "First reasoning".into(),
     });
     state.reduce(ChatAction::ToolCall {
         thread_id: "t1".into(),
-        call_id: "handoff-call".into(),
-        name: "handoff_thread_agent".into(),
+        call_id: "call-1".into(),
+        name: "tool_one".into(),
         args: "{}".into(),
         weles_review: None,
     });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
-        call_id: "handoff-call".into(),
-        name: "handoff_thread_agent".into(),
+        call_id: "call-1".into(),
+        name: "tool_one".into(),
         content: "done".into(),
         is_error: false,
         weles_review: None,
     });
+    state.reduce(ChatAction::Reasoning {
+        thread_id: "t1".into(),
+        content: "Second reasoning".into(),
+    });
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "call-2".into(),
+        name: "tool_two".into(),
+        args: "{}".into(),
+        weles_review: None,
+    });
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "call-2".into(),
+        name: "tool_two".into(),
+        content: "done".into(),
+        is_error: false,
+        weles_review: None,
+    });
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "call-3".into(),
+        name: "tool_three".into(),
+        args: "{}".into(),
+        weles_review: None,
+    });
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "call-3".into(),
+        name: "tool_three".into(),
+        content: "done".into(),
+        is_error: false,
+        weles_review: None,
+    });
+    state.reduce(ChatAction::Reasoning {
+        thread_id: "t1".into(),
+        content: "Final reasoning".into(),
+    });
     state.reduce(ChatAction::Delta {
         thread_id: "t1".into(),
-        content: "I'm Weles.".into(),
+        content: "Final message".into(),
     });
     state.reduce(ChatAction::TurnDone {
         thread_id: "t1".into(),
@@ -297,17 +336,33 @@ fn reasoning_before_tool_call_attaches_to_final_assistant_reply() {
     });
 
     let thread = state.active_thread().expect("thread should exist");
-    let assistant_messages: Vec<&AgentMessage> = thread
+    let transcript: Vec<(MessageRole, Option<&str>, &str)> = thread
         .messages
         .iter()
-        .filter(|message| message.role == MessageRole::Assistant)
+        .map(|message| {
+            (
+                message.role,
+                message.tool_name.as_deref(),
+                message.reasoning.as_deref().unwrap_or(message.content.as_str()),
+            )
+        })
         .collect();
-    assert_eq!(assistant_messages.len(), 1);
-    assert_eq!(assistant_messages[0].content, "I'm Weles.");
+
     assert_eq!(
-        assistant_messages[0].reasoning.as_deref(),
-        Some("The operator wants to talk to Weles.")
+        transcript,
+        vec![
+            (MessageRole::Assistant, None, "First reasoning"),
+            (MessageRole::Tool, Some("tool_one"), "done"),
+            (MessageRole::Assistant, None, "Second reasoning"),
+            (MessageRole::Tool, Some("tool_two"), "done"),
+            (MessageRole::Tool, Some("tool_three"), "done"),
+            (MessageRole::Assistant, None, "Final reasoning"),
+        ]
     );
+
+    let final_message = thread.messages.last().expect("final message should exist");
+    assert_eq!(final_message.content, "Final message");
+    assert_eq!(final_message.reasoning.as_deref(), Some("Final reasoning"));
 }
 
 #[test]

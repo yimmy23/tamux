@@ -188,7 +188,7 @@ impl TuiModel {
         }
     }
 
-    fn render_conversation_panel(&self, frame: &mut Frame, area: Rect) {
+    fn render_conversation_panel(&mut self, frame: &mut Frame, area: Rect) {
         if self.should_show_operator_profile_onboarding() {
             let question = self.operator_profile.question.as_ref().map(|question| {
                 widgets::operator_profile_onboarding::OperatorProfileQuestionView {
@@ -275,6 +275,32 @@ impl TuiModel {
                 widgets::chat::render_cached(frame, area, &self.chat, snapshot, mouse_selection);
                 return;
             }
+        }
+
+        if let Some(snapshot) = self.chat_selection_snapshot.as_ref().filter(|snapshot| {
+            widgets::chat::cached_snapshot_matches_render(
+                snapshot,
+                area,
+                &self.chat,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            )
+        }) {
+            widgets::chat::render_cached(frame, area, &self.chat, snapshot, mouse_selection);
+            return;
+        }
+
+        self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
+            area,
+            &self.chat,
+            &self.theme,
+            self.tick_counter,
+            self.retry_wait_start_selected,
+        );
+
+        if let Some(snapshot) = self.chat_selection_snapshot.as_ref() {
+            widgets::chat::render_cached(frame, area, &self.chat, snapshot, mouse_selection);
+            return;
         }
 
         widgets::chat::render(

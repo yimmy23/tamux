@@ -115,6 +115,7 @@ fn selection_snapshot(
     if inner.width == 0 || inner.height == 0 {
         return None;
     }
+    let key = render_cache_key(area, chat, current_tick, retry_wait_start_selected);
 
     let (all_lines, message_line_ranges) = build_rendered_lines(
         chat,
@@ -137,8 +138,10 @@ fn selection_snapshot(
         visible_window_bounds(all_lines.len(), inner.height as usize, scroll);
 
     Some(SelectionSnapshot {
+        key,
         inner,
         all_lines,
+        message_line_ranges,
         start_idx,
         end_idx,
         padding,

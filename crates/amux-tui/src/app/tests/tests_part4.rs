@@ -197,6 +197,99 @@ fn render_during_active_drag_reuses_cached_snapshot_and_shows_highlight() {
 }
 
 #[test]
+fn repeated_chat_renders_reuse_cached_snapshot_when_transcript_is_unchanged() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::User,
+            content: (1..=200)
+                .map(|idx| format!("line {idx}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            ..Default::default()
+        },
+    });
+
+    widgets::chat::reset_build_rendered_lines_call_count();
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("first render should succeed");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("second render should succeed");
+
+    assert_eq!(
+        widgets::chat::build_rendered_lines_call_count(),
+        1,
+        "unchanged chat renders should reuse the cached transcript snapshot"
+    );
+}
+
+#[test]
+fn scrolling_reuses_cached_snapshot_and_updates_visible_window() {
+    let mut model = build_model();
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::User,
+            content: (1..=200)
+                .map(|idx| format!("line {idx}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            ..Default::default()
+        },
+    });
+
+    widgets::chat::reset_build_rendered_lines_call_count();
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("first render should succeed");
+    let before = terminal.backend().buffer().clone();
+
+    model.chat.reduce(chat::ChatAction::ScrollChat(8));
+
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("second render after scroll should succeed");
+    let after = terminal.backend().buffer().clone();
+
+    assert_eq!(
+        widgets::chat::build_rendered_lines_call_count(),
+        1,
+        "scrolling should reuse the cached transcript snapshot instead of rebuilding all lines"
+    );
+    assert_ne!(
+        before, after,
+        "scrolling should still change the visible transcript window"
+    );
+}
+
+#[test]
 fn stale_cached_snapshot_is_ignored_after_sidebar_layout_change() {
     let mut model = build_model();
     model.show_sidebar_override = Some(false);

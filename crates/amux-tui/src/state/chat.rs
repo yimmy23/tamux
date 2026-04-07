@@ -27,6 +27,7 @@ pub struct ChatState {
     threads: Vec<AgentThread>,
     active_thread_id: Option<String>,
     thread_activity: std::collections::HashMap<String, ThreadActivityState>,
+    render_revision: u64,
     scroll_offset: usize,
     scroll_locked: bool,
     transcript_mode: TranscriptMode,
@@ -44,6 +45,7 @@ impl ChatState {
             threads: Vec::new(),
             active_thread_id: None,
             thread_activity: std::collections::HashMap::new(),
+            render_revision: 0,
             scroll_offset: 0,
             expanded_reasoning: std::collections::HashSet::new(),
             scroll_locked: false,
@@ -147,6 +149,26 @@ impl ChatState {
             .unwrap_or(&[])
     }
 
+    pub fn render_revision(&self) -> u64 {
+        self.render_revision
+    }
+
+    pub fn render_cache_epoch(&self, current_tick: u64) -> u64 {
+        if self.copied_message_feedback.is_some() {
+            return current_tick;
+        }
+
+        if self
+            .retry_status()
+            .is_some_and(|status| status.phase == RetryPhase::Waiting)
+        {
+            let ticks_per_second = (1_000 / crate::app::TUI_TICK_RATE_MS).max(1);
+            return current_tick / ticks_per_second;
+        }
+
+        0
+    }
+
     pub fn has_running_tool_calls(&self) -> bool {
         self.active_tool_calls()
             .iter()
@@ -180,6 +202,10 @@ impl ChatState {
             || self.has_running_tool_calls()
     }
 
+    fn bump_render_revision(&mut self) {
+        self.render_revision = self.render_revision.wrapping_add(1);
+    }
+
     fn move_thread_to_front(&mut self, thread_id: &str) {
         let Some(index) = self
             .threads
@@ -196,6 +222,7 @@ impl ChatState {
     }
 
     pub fn reduce(&mut self, action: ChatAction) {
+        let mut should_bump_render_revision = true;
         match action {
             ChatAction::Delta { thread_id, content } => {
                 self.pinned_message_top = None;
@@ -235,21 +262,17 @@ impl ChatState {
                 self.pinned_message_top = None;
                 let (content, reasoning) = {
                     let activity = self.activity_for_thread_mut(&thread_id);
-                    if activity.streaming_content.is_empty() {
-                        (String::new(), None)
+                    let content = std::mem::take(&mut activity.streaming_content);
+                    let reasoning = if activity.streaming_reasoning.is_empty() {
+                        None
                     } else {
-                        let content = std::mem::take(&mut activity.streaming_content);
-                        let reasoning = if activity.streaming_reasoning.is_empty() {
-                            None
-                        } else {
-                            Some(std::mem::take(&mut activity.streaming_reasoning))
-                        };
-                        (content, reasoning)
-                    }
+                        Some(std::mem::take(&mut activity.streaming_reasoning))
+                    };
+                    (content, reasoning)
                 };
                 // Flush any accumulated streaming content as an ASST message first
                 // (the assistant said something before calling the tool)
-                if !content.is_empty() {
+                if !content.is_empty() || reasoning.is_some() {
                     if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                         thread.messages.push(AgentMessage {
                             role: MessageRole::Assistant,
@@ -595,6 +618,7 @@ impl ChatState {
             }
 
             ChatAction::ScrollChat(delta) => {
+                should_bump_render_revision = false;
                 self.pinned_message_top = None;
                 if delta > 0 {
                     self.scroll_offset = self.scroll_offset.saturating_add(delta as usize);
@@ -609,6 +633,7 @@ impl ChatState {
             }
 
             ChatAction::PinMessageTop(index) => {
+                should_bump_render_revision = false;
                 self.pinned_message_top = Some(index);
                 self.scroll_locked = false;
             }
@@ -632,6 +657,7 @@ impl ChatState {
             ChatAction::ForceStopStreaming => {
                 // Finalize current streaming as incomplete message with [stopped] marker
                 let Some(thread_id) = self.active_thread_id.clone() else {
+                    self.bump_render_revision();
                     return;
                 };
                 let (content, reasoning) = if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
@@ -663,6 +689,10 @@ impl ChatState {
                 }
                 self.thread_activity.remove(&thread_id);
             }
+        }
+
+        if should_bump_render_revision {
+            self.bump_render_revision();
         }
     }
 }
