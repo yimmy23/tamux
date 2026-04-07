@@ -120,7 +120,7 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
 /// Append available sub-agent registry to a task prompt so the LLM
 /// knows what specialist sub-agents it can delegate work to.
 pub(super) fn append_sub_agent_registry(prompt: &mut String, sub_agents: &[SubAgentDefinition]) {
-    let enabled: Vec<&SubAgentDefinition> = sub_agents.iter().filter(|sa| sa.enabled).collect();
+    let enabled: Vec<&SubAgentDefinition> = sub_agents.iter().filter(|sa| sa.is_spawnable()).collect();
     if enabled.is_empty() {
         return;
     }
@@ -413,6 +413,61 @@ mod tests {
         assert!(
             builtin_skills_source_dir().join("README.md").exists(),
             "expected built-in skills source dir to resolve to the repo skills tree"
+        );
+    }
+
+    #[test]
+    fn append_sub_agent_registry_excludes_protected_entries_from_spawnable_list() {
+        let mut prompt = String::new();
+        let visible = SubAgentDefinition {
+            id: "researcher".to_string(),
+            name: "Researcher".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("investigator".to_string()),
+            system_prompt: Some("Investigate the assigned area.".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: None,
+            created_at: 1,
+        };
+        let protected = SubAgentDefinition {
+            id: "weles_builtin".to_string(),
+            name: "WELES".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("governance".to_string()),
+            system_prompt: Some("Protect tool execution.".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: true,
+            immutable_identity: true,
+            disable_allowed: false,
+            delete_allowed: false,
+            protected_reason: Some("Daemon-owned WELES registry entry".to_string()),
+            reasoning_effort: None,
+            created_at: 1,
+        };
+
+        append_sub_agent_registry(&mut prompt, &[visible, protected]);
+
+        assert!(prompt.contains("Researcher"), "spawnable subagents should remain visible");
+        assert!(
+            !prompt.contains("WELES"),
+            "protected subagents should not be advertised as spawnable: {prompt}"
         );
     }
 }

@@ -163,13 +163,18 @@ async fn execute_spawn_subagent(
     // Look up a matching SubAgentDefinition by title/name and apply overrides.
     {
         let effective_sub_agents = agent.list_sub_agents().await;
-        let title_lower = title.to_lowercase();
-        let matched_def = effective_sub_agents.iter().find(|sa| {
-            sa.enabled
-                && sa.id != crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID
-                && (sa.name.to_lowercase() == title_lower
-                    || sa.role.as_deref().map(|r| r.to_lowercase()) == Some(title_lower.clone()))
-        });
+        let matched_def = effective_sub_agents
+            .iter()
+            .find(|sa| sa.enabled && sa.matches_spawn_request(&title));
+        if let Some(def) = matched_def {
+            if let Some(reason) = def.protected_reason.as_deref() {
+                anyhow::bail!(
+                    "protected sub-agent '{}' is reserved and cannot be spawned via spawn_subagent: {}",
+                    def.name,
+                    reason
+                );
+            }
+        }
         if let Some(def) = matched_def {
             subagent.override_provider = Some(def.provider.clone());
             subagent.override_model = Some(def.model.clone());

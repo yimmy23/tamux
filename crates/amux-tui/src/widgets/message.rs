@@ -87,6 +87,69 @@ pub(crate) fn render_markdown_pub(content: &str, width: usize) -> Vec<Line<'stat
     render_markdown(content, width)
 }
 
+fn normalize_markdown_for_tui(content: &str) -> String {
+    let mut normalized = String::with_capacity(content.len());
+    let mut active_fence: Option<(char, usize)> = None;
+
+    for segment in content.split_inclusive('\n') {
+        let (line, newline) = match segment.strip_suffix('\n') {
+            Some(line) => (line, "\n"),
+            None => (segment, ""),
+        };
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let leading_len = line.len().saturating_sub(trimmed.len());
+        let leading = &line[..leading_len];
+
+        if let Some((marker, marker_len)) = fence_marker(trimmed) {
+            let rest = &trimmed[marker_len..];
+
+            match active_fence {
+                Some((active_marker, active_len))
+                    if marker == active_marker
+                        && marker_len >= active_len
+                        && rest.trim().is_empty() =>
+                {
+                    active_fence = None;
+                    normalized.push_str(line);
+                    normalized.push_str(newline);
+                    continue;
+                }
+                None => {
+                    active_fence = Some((marker, marker_len));
+                    if rest.trim().is_empty() {
+                        normalized.push_str(leading);
+                        normalized.extend(std::iter::repeat_n(marker, marker_len));
+                        normalized.push_str("text");
+                        normalized.push_str(newline);
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        normalized.push_str(line);
+        normalized.push_str(newline);
+    }
+
+    normalized
+}
+
+fn fence_marker(line: &str) -> Option<(char, usize)> {
+    let mut chars = line.chars();
+    let marker = chars.next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+
+    let marker_len = line.chars().take_while(|ch| *ch == marker).count();
+    if marker_len < 3 {
+        return None;
+    }
+
+    Some((marker, marker_len))
+}
+
 fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
     if content.is_empty() {
         return vec![];
@@ -127,7 +190,8 @@ fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
 }
 
 fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
-    let md_text = tui_markdown::from_str(content);
+    let normalized = normalize_markdown_for_tui(content);
+    let md_text = tui_markdown::from_str(&normalized);
     // Convert ratatui_core::Line to ratatui::Line via plain text + styles
     let mut result = Vec::new();
     for md_line in md_text.lines {

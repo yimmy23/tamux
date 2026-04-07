@@ -332,6 +332,20 @@ pub struct SubAgentDefinition {
     pub created_at: u64,
 }
 
+impl SubAgentDefinition {
+    pub fn is_spawnable(&self) -> bool {
+        self.enabled && self.protected_reason.is_none()
+    }
+
+    pub fn matches_spawn_request(&self, requested_title: &str) -> bool {
+        self.name.eq_ignore_ascii_case(requested_title)
+            || self
+                .role
+                .as_deref()
+                .is_some_and(|role| role.eq_ignore_ascii_case(requested_title))
+    }
+}
+
 /// Snapshot of a provider's authentication status for UI display.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderAuthState {
