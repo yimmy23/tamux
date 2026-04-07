@@ -8,6 +8,7 @@ fn add_available_tools_part_d(
         tools.push(tool_def("broadcast_contribution", "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
             "type": "object",
             "properties": {
+                "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope for parent/operator-originated contributions" },
                 "topic": { "type": "string", "description": "Short topic under discussion" },
                 "position": { "type": "string", "description": "Your current stance or recommendation" },
                 "evidence": { "type": "array", "items": { "type": "string" }, "description": "Supporting evidence bullets" },

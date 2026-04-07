@@ -28,6 +28,34 @@ async fn consolidation_state_set_get_round_trips() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn search_returns_history_hits_from_fts_join() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .record_managed_finish(&ManagedHistoryRecord {
+            execution_id: "exec-1".to_string(),
+            session_id: "session-1".to_string(),
+            workspace_id: Some("workspace-1".to_string()),
+            command: "cargo build --workspace".to_string(),
+            rationale: "Verify the daemon build stays green".to_string(),
+            source: "test".to_string(),
+            exit_code: Some(0),
+            duration_ms: Some(250),
+            snapshot_path: None,
+        })
+        .await?;
+
+    let (summary, hits) = store.search("build", 8).await?;
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "cargo build --workspace");
+    assert!(summary.contains("Found 1 historical matches"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 // ── Successful trace query test (Phase 5) ────────────────────────────
 
 #[tokio::test]

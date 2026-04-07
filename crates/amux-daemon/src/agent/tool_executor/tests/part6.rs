@@ -578,6 +578,183 @@
         assert_eq!(tasks[0].parent_thread_id.as_deref(), Some(thread_id));
     }
 
+    #[tokio::test]
+    async fn read_peer_memory_honors_explicit_parent_task_id_without_current_task() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.collaboration.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let parent = engine
+            .enqueue_task(
+                "Parent coordinator".to_string(),
+                "Coordinate the child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        let child_a = engine
+            .enqueue_task(
+                "Research child".to_string(),
+                "Inspect deployment risks".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        let child_b = engine
+            .enqueue_task(
+                "Review child".to_string(),
+                "Cross-check deployment risks".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        engine
+            .register_subagent_collaboration(&parent.id, &child_a)
+            .await;
+        engine
+            .register_subagent_collaboration(&parent.id, &child_b)
+            .await;
+        engine
+            .record_collaboration_contribution(
+                &parent.id,
+                &child_a.id,
+                "deploy",
+                "recommend staged rollout",
+                vec!["smoke tests are stable".to_string()],
+                0.82,
+            )
+            .await
+            .expect("seed contribution should succeed");
+
+        let result = super::execute_read_peer_memory(
+            &serde_json::json!({ "parent_task_id": parent.id }),
+            &engine,
+            None,
+        )
+        .await
+        .expect("explicit parent scope should work without a current task");
+
+        let report: serde_json::Value =
+            serde_json::from_str(&result).expect("result should be valid json");
+        assert_eq!(
+            report["shared_context"]
+                .as_array()
+                .expect("shared_context should be an array")
+                .len(),
+            1
+        );
+        assert_eq!(
+            report["shared_context"][0]["task_id"],
+            serde_json::Value::String(child_a.id.clone())
+        );
+        assert_eq!(
+            report["peers"]
+                .as_array()
+                .expect("peers should be an array")
+                .len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn broadcast_contribution_honors_explicit_parent_task_id_without_current_task() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.collaboration.enabled = true;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let parent = engine
+            .enqueue_task(
+                "Parent coordinator".to_string(),
+                "Coordinate the child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        let child = engine
+            .enqueue_task(
+                "Research child".to_string(),
+                "Inspect deployment risks".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        engine
+            .register_subagent_collaboration(&parent.id, &child)
+            .await;
+
+        let result = super::execute_broadcast_contribution(
+            &serde_json::json!({
+                "parent_task_id": parent.id,
+                "topic": "deploy",
+                "position": "hold until the migration completes",
+                "evidence": ["operator wants to preserve retrieval visibility"],
+                "confidence": 0.95
+            }),
+            &engine,
+            "thread-parent",
+            None,
+        )
+        .await
+        .expect("explicit parent scope should allow parent-context contributions");
+
+        let report: serde_json::Value =
+            serde_json::from_str(&result).expect("result should be valid json");
+        assert_eq!(report["contribution"]["task_id"], "operator");
+        assert_eq!(report["contribution"]["topic"], "deploy");
+
+        let session = engine
+            .collaboration_sessions_json(Some(&parent.id))
+            .await
+            .expect("session lookup should succeed");
+        assert_eq!(session["contributions"].as_array().unwrap_or(&Vec::new()).len(), 1);
+    }
+
     async fn spawn_model_fetch_server(models_body: serde_json::Value) -> String {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpListener;

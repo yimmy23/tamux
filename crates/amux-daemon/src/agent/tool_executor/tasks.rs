@@ -70,17 +70,35 @@ async fn execute_broadcast_contribution(
     if !agent.config.read().await.collaboration.enabled {
         anyhow::bail!("collaboration capability is disabled in agent config");
     }
-    let task_id =
-        task_id.ok_or_else(|| anyhow::anyhow!("broadcast_contribution requires a current task"))?;
-    let task = agent
-        .list_tasks()
-        .await
-        .into_iter()
-        .find(|task| task.id == task_id)
-        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
-    let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
-        anyhow::anyhow!("broadcast_contribution is only available inside subagents")
-    })?;
+    let explicit_parent_task_id = args
+        .get("parent_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let task = if let Some(task_id) = task_id {
+        Some(
+            agent
+                .list_tasks()
+                .await
+                .into_iter()
+                .find(|task| task.id == task_id)
+                .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
+        )
+    } else {
+        None
+    };
+    let parent_task_id = explicit_parent_task_id
+        .or_else(|| task.as_ref().and_then(|task| task.parent_task_id.clone()))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "broadcast_contribution requires a current task or explicit parent_task_id"
+            )
+        })?;
+    let contributor_task_id = task
+        .as_ref()
+        .map(|task| task.id.clone())
+        .unwrap_or_else(|| "operator".to_string());
     let topic = args
         .get("topic")
         .and_then(|value| value.as_str())
@@ -113,7 +131,7 @@ async fn execute_broadcast_contribution(
     let report = agent
         .record_collaboration_contribution(
             &parent_task_id,
-            task_id,
+            &contributor_task_id,
             topic,
             position,
             evidence,
@@ -126,13 +144,13 @@ async fn execute_broadcast_contribution(
             "subagent broadcast a collaboration contribution",
             serde_json::json!({
                 "parent_task_id": parent_task_id,
-                "task_id": task_id,
+                "task_id": contributor_task_id,
                 "topic": topic,
                 "position": position,
                 "thread_id": thread_id,
             }),
-            task.goal_run_id.as_deref(),
-            Some(task_id),
+            task.as_ref().and_then(|task| task.goal_run_id.as_deref()),
+            task.as_ref().map(|task| task.id.as_str()),
             Some(thread_id),
             None,
             None,
@@ -149,24 +167,35 @@ async fn execute_read_peer_memory(
     if !agent.config.read().await.collaboration.enabled {
         anyhow::bail!("collaboration capability is disabled in agent config");
     }
-    let task_id =
-        task_id.ok_or_else(|| anyhow::anyhow!("read_peer_memory requires a current task"))?;
-    let task = agent
-        .list_tasks()
-        .await
-        .into_iter()
-        .find(|task| task.id == task_id)
-        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
-    let parent_task_id = args
+    let explicit_parent_task_id = args
         .get("parent_task_id")
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or(task.parent_task_id.clone())
-        .ok_or_else(|| anyhow::anyhow!("read_peer_memory is only available inside subagents"))?;
+        .map(ToOwned::to_owned);
+    let task = if let Some(task_id) = task_id {
+        Some(
+            agent
+                .list_tasks()
+                .await
+                .into_iter()
+                .find(|task| task.id == task_id)
+                .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
+        )
+    } else {
+        None
+    };
+    let parent_task_id = explicit_parent_task_id
+        .or_else(|| task.as_ref().and_then(|task| task.parent_task_id.clone()))
+        .ok_or_else(|| {
+            anyhow::anyhow!("read_peer_memory requires a current task or explicit parent_task_id")
+        })?;
+    let requester_task_id = task
+        .as_ref()
+        .map(|task| task.id.as_str())
+        .unwrap_or("operator");
     let report = agent
-        .collaboration_peer_memory_json(&parent_task_id, task_id)
+        .collaboration_peer_memory_json(&parent_task_id, requester_task_id)
         .await?;
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }

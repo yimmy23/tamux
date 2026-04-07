@@ -99,6 +99,33 @@ fn daemon_tool_timeout_seconds(tool_name: &str, args: &serde_json::Value) -> u64
         .min(MAX_DAEMON_TOOL_TIMEOUT_SECS)
 }
 
+fn normalize_onecontext_simple_query(query: &str) -> String {
+    let mut normalized = String::with_capacity(query.len());
+    let mut last_was_space = true;
+
+    for ch in query.chars() {
+        let mapped = if ch.is_alphanumeric() || ch == '_' {
+            ch
+        } else if ch.is_whitespace() {
+            ' '
+        } else {
+            ' '
+        };
+
+        if mapped == ' ' {
+            if !last_was_space {
+                normalized.push(' ');
+            }
+            last_was_space = true;
+        } else {
+            normalized.push(mapped);
+            last_was_space = false;
+        }
+    }
+
+    normalized.trim().to_string()
+}
+
 fn onecontext_search_request(args: &serde_json::Value) -> Result<OnecontextSearchRequest> {
     let query = args
         .get("query")
@@ -134,10 +161,22 @@ fn onecontext_search_request(args: &serde_json::Value) -> Result<OnecontextSearc
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    let bounded_query = query
+    let prepared_query = if no_regex {
+        normalize_onecontext_simple_query(query)
+    } else {
+        query.to_string()
+    };
+
+    let bounded_query = prepared_query
         .chars()
         .take(ONECONTEXT_TOOL_QUERY_MAX_CHARS)
         .collect::<String>();
+
+    if bounded_query.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "'query' must contain at least one searchable keyword"
+        ));
+    }
 
     Ok(OnecontextSearchRequest {
         bounded_query,

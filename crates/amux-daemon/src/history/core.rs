@@ -319,7 +319,7 @@ impl HistoryStore {
         let query = query.to_string();
         self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT history_entries.id, kind, title, excerpt, path, timestamp, bm25(history_fts) \
+                "SELECT history_entries.id, history_entries.kind, history_entries.title, history_entries.excerpt, history_entries.path, history_entries.timestamp, bm25(history_fts) \
                  FROM history_fts JOIN history_entries ON history_entries.id = history_fts.id \
                  WHERE history_fts MATCH ?1 ORDER BY bm25(history_fts) LIMIT ?2",
             )?;

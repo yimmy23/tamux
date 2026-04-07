@@ -175,3 +175,118 @@ async fn vote_on_tight_margin_notifies_operator_escalation() {
         other => panic!("expected workflow notice, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn collaboration_sessions_json_reads_persisted_session_when_memory_is_empty() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let session = CollaborationSession {
+        id: "session-1".to_string(),
+        parent_task_id: "parent-task".to_string(),
+        thread_id: Some("thread-1".to_string()),
+        goal_run_id: None,
+        mission: "recover persisted collaboration".to_string(),
+        agents: vec![CollaborativeAgent {
+            task_id: "child-1".to_string(),
+            title: "Research".to_string(),
+            role: "research".to_string(),
+            confidence: 0.8,
+            status: "completed".to_string(),
+        }],
+        contributions: vec![Contribution {
+            id: "contrib-1".to_string(),
+            task_id: "child-1".to_string(),
+            topic: "retrieval".to_string(),
+            position: "persist session".to_string(),
+            evidence: vec!["session was saved to sqlite".to_string()],
+            confidence: 0.8,
+            created_at: now_millis(),
+        }],
+        disagreements: Vec::new(),
+        consensus: None,
+        updated_at: now_millis(),
+    };
+
+    engine
+        .history
+        .upsert_collaboration_session(
+            &session.parent_task_id,
+            &serde_json::to_string(&session).expect("session should serialize"),
+            session.updated_at,
+        )
+        .await
+        .expect("persisted session should save");
+
+    let report = engine
+        .collaboration_sessions_json(Some("parent-task"))
+        .await
+        .expect("persisted session should be readable");
+
+    assert_eq!(report["id"], "session-1");
+    assert_eq!(report["parent_task_id"], "parent-task");
+    assert_eq!(report["mission"], "recover persisted collaboration");
+    assert_eq!(report["agents"][0]["task_id"], "child-1");
+}
+
+#[tokio::test]
+async fn record_collaboration_outcome_creates_session_for_solo_subagent() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Coordinate the child work".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let mut child = engine
+        .enqueue_task(
+            "Daemon Persistence Advantages".to_string(),
+            "Explain why daemon-first persistence survives overnight runs".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-child".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    child.status = TaskStatus::Completed;
+    child.result = Some("SQLite-backed state survives process and UI restarts".to_string());
+
+    engine.record_collaboration_outcome(&child, "success").await;
+
+    let report = engine
+        .collaboration_sessions_json(Some(&child.id))
+        .await
+        .expect("solo subagent should now have a collaboration session");
+
+    assert_eq!(report["parent_task_id"], child.id);
+    assert_eq!(report["agents"][0]["task_id"], child.id);
+    assert_eq!(
+        report["contributions"][0]["task_id"],
+        serde_json::Value::String(child.id.clone())
+    );
+    assert!(report["contributions"][0]["position"] == "recommended");
+}

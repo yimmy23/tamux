@@ -284,3 +284,65 @@ async fn onecontext_search_rejects_negative_timeout_seconds() {
         .to_string()
         .contains("'timeout_seconds' must be a non-negative integer"));
 }
+
+#[tokio::test]
+async fn onecontext_search_reports_exit_status_when_stderr_is_empty() {
+    let error = execute_onecontext_search_with_runner(
+        &serde_json::json!({ "query": "event retrieval", "scope": "event" }),
+        true,
+        |_| async move {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: std::process::ExitStatus::from_raw(256),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::ExitStatusExt;
+                Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                    status: std::process::ExitStatus::from_raw(1),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                })
+            }
+        },
+    )
+    .await
+    .expect_err("nonzero exit with empty stderr should include exit context");
+
+    let message = error.to_string();
+    assert!(message.contains("onecontext search failed"));
+    assert!(message.contains("event scope"));
+    assert!(message.contains("exit status"));
+}
+
+#[tokio::test]
+async fn onecontext_search_normalizes_simple_query_before_runner() {
+    let result = execute_onecontext_search_with_runner(
+        &serde_json::json!({
+            "query": "Collaboration Architecture Ideation Elm-style\nbroadcast contribution daemon-first",
+            "scope": "event",
+            "no_regex": true
+        }),
+        true,
+        |request| async move {
+            assert_eq!(
+                request.bounded_query,
+                "Collaboration Architecture Ideation Elm style broadcast contribution daemon first"
+            );
+            Ok::<std::process::Output, anyhow::Error>(std::process::Output {
+                status: successful_exit_status(),
+                stdout: b"No events found.\n".to_vec(),
+                stderr: Vec::new(),
+            })
+        },
+    )
+    .await
+    .expect("sanitized simple query should be passed to the runner");
+
+    assert!(result.contains("OneContext results"));
+}

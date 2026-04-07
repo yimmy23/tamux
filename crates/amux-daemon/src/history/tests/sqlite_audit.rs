@@ -78,6 +78,85 @@ async fn async_connection_roundtrip() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn replace_thread_snapshot_replaces_messages_without_losing_thread_row() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "snapshot-thread";
+    let thread = AgentDbThread {
+        id: thread_id.to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("test-agent".to_string()),
+        title: "Original Thread".to_string(),
+        created_at: 1000,
+        updated_at: 1000,
+        message_count: 1,
+        total_tokens: 1,
+        last_preview: "old body".to_string(),
+        metadata_json: None,
+    };
+    let old_message = AgentDbMessage {
+        id: "old-message".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 1001,
+        role: "assistant".to_string(),
+        content: "old body".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(1),
+        total_tokens: Some(1),
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    };
+    store.create_thread(&thread).await?;
+    store.add_message(&old_message).await?;
+
+    let refreshed_thread = AgentDbThread {
+        title: "Updated Thread".to_string(),
+        updated_at: 2000,
+        message_count: 1,
+        total_tokens: 2,
+        last_preview: "new body".to_string(),
+        ..thread.clone()
+    };
+    let new_message = AgentDbMessage {
+        id: "new-message".to_string(),
+        thread_id: thread_id.to_string(),
+        created_at: 2001,
+        role: "assistant".to_string(),
+        content: "new body".to_string(),
+        provider: None,
+        model: None,
+        input_tokens: Some(0),
+        output_tokens: Some(2),
+        total_tokens: Some(2),
+        reasoning: None,
+        tool_calls_json: None,
+        metadata_json: None,
+    };
+
+    store
+        .replace_thread_snapshot(&refreshed_thread, &[new_message.clone()])
+        .await?;
+
+    let loaded_thread = store
+        .get_thread(thread_id)
+        .await?
+        .expect("thread should still exist after snapshot replacement");
+    assert_eq!(loaded_thread.title, "Updated Thread");
+
+    let loaded_messages = store.list_messages(thread_id, Some(10)).await?;
+    assert_eq!(loaded_messages.len(), 1);
+    assert_eq!(loaded_messages[0].id, new_message.id);
+    assert_eq!(loaded_messages[0].content, new_message.content);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 /// FOUN-01 + FOUN-02: Concurrent reads and writes do not produce "database is locked" errors.
 #[tokio::test]
 async fn concurrent_read_write() -> Result<()> {
