@@ -34,14 +34,12 @@ pub(crate) async fn discover_local_skills(
         }
 
         let skill_path = skills_root.join(&record.relative_path);
-        let Ok(content) = std::fs::read_to_string(&skill_path).with_context(|| {
+        let content = std::fs::read_to_string(&skill_path).with_context(|| {
             format!(
                 "failed to read skill recommendation file {}",
                 skill_path.display()
             )
-        }) else {
-            continue;
-        };
+        })?;
         candidates.push(SkillCandidateInput {
             metadata: extract_skill_metadata(&record.relative_path, &content),
             excerpt: excerpt_skill(&content),
@@ -62,7 +60,7 @@ pub(crate) async fn sync_skill_catalog(history: &HistoryStore, skills_root: &Pat
     let mut files = Vec::new();
     collect_skill_documents(skills_root, &mut files)?;
     for path in files {
-        let _ = history.register_skill_document(&path).await;
+        history.register_skill_document(&path).await?;
     }
     Ok(())
 }
@@ -79,7 +77,12 @@ fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry.path();
         if path.is_dir() {
             collect_skill_documents(&path, out)?;
-        } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
+        } else if path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(|name| name.eq_ignore_ascii_case("skill.md"))
+            .unwrap_or(false)
+        {
             out.push(path);
         }
     }

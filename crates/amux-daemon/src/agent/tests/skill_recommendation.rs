@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::fs;
 use tempfile::tempdir;
 
-fn write_skill(
+fn write_markdown(
     root: &std::path::Path,
     relative: &str,
     content: &str,
@@ -19,6 +19,14 @@ fn write_skill(
     }
     fs::write(&path, content)?;
     Ok(path)
+}
+
+fn write_skill(
+    root: &std::path::Path,
+    skill_dir: &str,
+    content: &str,
+) -> Result<std::path::PathBuf> {
+    write_markdown(root, &format!("{skill_dir}/SKILL.md"), content)
 }
 
 #[test]
@@ -72,7 +80,7 @@ async fn rank_skill_candidates_prefers_context_and_success() -> Result<()> {
 
     let strong = write_skill(
         &generated,
-        "debug-rust-build.md",
+        "debug-rust-build",
         r#"---
 description: Debug Rust build and cargo test failures.
 keywords: [rust, cargo, build]
@@ -87,7 +95,7 @@ triggers: [build failure, cargo test]
     )?;
     let weak_variant = write_skill(
         &generated,
-        "debug-rust-build--legacy.md",
+        "debug-rust-build--legacy",
         r#"---
 description: Older Rust build debugging flow.
 keywords: [rust, build]
@@ -98,7 +106,7 @@ keywords: [rust, build]
     )?;
     let other = write_skill(
         &generated,
-        "debug-python-service.md",
+        "debug-python-service",
         r#"---
 description: Debug Python service startup issues.
 keywords: [python, service]
@@ -168,7 +176,7 @@ async fn confidence_tier_is_none_when_scores_do_not_clear_threshold() -> Result<
 
     let skill = write_skill(
         &generated,
-        "frontend-polish.md",
+        "frontend-polish",
         r#"---
 description: Polish a React UI flow.
 keywords: [react, css]
@@ -192,6 +200,129 @@ keywords: [react, css]
     assert_eq!(result.confidence, SkillRecommendationConfidence::None);
     assert_eq!(result.recommended_action, SkillRecommendationAction::None);
     assert!(result.recommendations.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn never_used_skill_does_not_look_recent_after_catalog_sync() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let builtin = skills_root.join("builtin");
+
+    write_skill(
+        &builtin,
+        "debug-rust-build",
+        r#"---
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+---
+
+# Debug Rust Build
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "debug rust build timeout",
+        &[],
+        3,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.60,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(result.confidence, SkillRecommendationConfidence::None);
+    assert!(result.recommendations.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn catalog_sync_indexes_only_skill_entrypoints() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let builtin = skills_root.join("builtin");
+
+    write_skill(
+        &builtin,
+        "debug-rust-build",
+        r#"---
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+---
+
+# Debug Rust Build
+"#,
+    )?;
+    write_markdown(
+        &builtin,
+        "debug-rust-build/README.md",
+        "# Notes\nThis is documentation, not a skill entrypoint.\n",
+    )?;
+    write_markdown(
+        &builtin,
+        "debug-rust-build/references/flow.md",
+        "# Reference\nAdditional reference material.\n",
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "debug rust build failure",
+        &["rust".to_string()],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    let indexed = store.list_skill_variants(None, 10).await?;
+
+    assert_eq!(indexed.len(), 1);
+    assert_eq!(result.recommendations.len(), 1);
+    assert_eq!(result.recommendations[0].record.skill_name, "debug-rust-build");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_skills_errors_when_indexed_skill_file_is_missing() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let builtin = skills_root.join("builtin");
+
+    let skill_path = write_skill(
+        &builtin,
+        "debug-rust-build",
+        r#"---
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+---
+
+# Debug Rust Build
+"#,
+    )?;
+    store.register_skill_document(&skill_path).await?;
+    fs::remove_file(&skill_path)?;
+
+    let error = discover_local_skills(
+        &store,
+        &skills_root,
+        "debug rust build failure",
+        &["rust".to_string()],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await
+    .expect_err("missing skill file should be surfaced");
+
+    assert!(error.to_string().contains("failed to read skill recommendation file"));
 
     Ok(())
 }

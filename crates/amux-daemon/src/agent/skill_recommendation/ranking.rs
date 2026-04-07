@@ -158,7 +158,9 @@ fn score_history(record: &SkillVariantRecord) -> f64 {
 }
 
 fn score_recency(record: &SkillVariantRecord) -> f64 {
-    let reference = record.last_used_at.unwrap_or(record.updated_at);
+    let Some(reference) = record.last_used_at else {
+        return 0.0;
+    };
     let age_secs = crate::history::now_ts().saturating_sub(reference);
     match age_secs {
         0..=RECENCY_DAY_SECS => 1.0,
