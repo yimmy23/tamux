@@ -163,6 +163,25 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
     }
 
     #[test]
+    fn skill_recommendation_config_deserializes_partial_json_with_defaults() {
+        let json = serde_json::json!({
+            "enabled": false,
+            "strong_match_threshold": 0.91,
+            "community_preapprove_timeout_secs": 45
+        })
+        .to_string();
+
+        let cfg: SkillRecommendationConfig = serde_json::from_str(&json).unwrap();
+        assert!(!cfg.enabled);
+        assert!(cfg.require_read_on_strong_match);
+        assert!((cfg.strong_match_threshold - 0.91).abs() < f64::EPSILON);
+        assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!(cfg.background_community_search);
+        assert_eq!(cfg.community_preapprove_timeout_secs, 45);
+        assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
+    }
+
+    #[test]
     fn skill_discovery_config_defaults() {
         let cfg = SkillDiscoveryConfig::default();
         assert_eq!(cfg.min_tool_count, 8);

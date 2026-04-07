@@ -39,7 +39,6 @@ pub enum DaemonMessage {
     SnapshotIndexEntries { entries_json: String },
     AgentEventRows { events_json: String },
     SkillGenerated { title: String, path: String },
-    SkillDiscoverResult { result_json: String },
     SymbolSearchResult { symbol: String, matches: Vec<SymbolMatch> },
     SnapshotList { snapshots: Vec<SnapshotInfo> },
     SnapshotRestored { snapshot_id: String, ok: bool, message: String },
@@ -147,4 +146,5 @@ pub enum DaemonMessage {
     AgentOpenAICodexAuthStatus { status_json: String },
     AgentOpenAICodexAuthLoginResult { result_json: String },
     AgentOpenAICodexAuthLogoutResult { ok: bool, error: Option<String> },
+    SkillDiscoverResult { result_json: String },
 }

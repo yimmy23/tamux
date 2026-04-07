@@ -1,7 +1,21 @@
 use super::*;
 use crate::codec::{AmuxCodec, DaemonCodec};
 use bytes::BytesMut;
+use serde::Serialize;
 use tokio_util::codec::{Decoder, Encoder};
+
+fn assert_bincode_variant_index<T: Serialize>(value: &T, expected_index: u32) {
+    let bytes = bincode::serialize(value).unwrap();
+    assert!(
+        bytes.len() >= 4,
+        "bincode payload must include a variant index"
+    );
+    assert_eq!(
+        &bytes[..4],
+        &expected_index.to_le_bytes(),
+        "variant index changed in the wire format"
+    );
+}
 
 #[test]
 fn agent_provider_validation_bincode_roundtrip() {
@@ -673,6 +687,15 @@ fn sample_community_skill_entry() -> CommunitySkillEntry {
     }
 }
 
+fn sample_symbol_match() -> SymbolMatch {
+    SymbolMatch {
+        path: "src/lib.rs".to_string(),
+        line: 42,
+        kind: "function".to_string(),
+        snippet: "fn build_tool() -> Result<()> {".to_string(),
+    }
+}
+
 fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
     SkillDiscoveryCandidatePublic {
         skill_id: "local:git_rebase_workflow".to_string(),
@@ -822,6 +845,25 @@ fn skill_search_result_round_trip() {
         }
         other => panic!("unexpected variant: {:?}", other),
     }
+}
+
+#[test]
+fn client_message_find_symbol_preserves_pre_change_wire_discriminant() {
+    let msg = ClientMessage::FindSymbol {
+        workspace_root: "/tmp/workspace".to_string(),
+        symbol: "build_tool".to_string(),
+        limit: Some(3),
+    };
+    assert_bincode_variant_index(&msg, 32);
+}
+
+#[test]
+fn daemon_message_symbol_search_result_preserves_pre_change_wire_discriminant() {
+    let msg = DaemonMessage::SymbolSearchResult {
+        symbol: "build_tool".to_string(),
+        matches: vec![sample_symbol_match()],
+    };
+    assert_bincode_variant_index(&msg, 28);
 }
 
 #[test]
