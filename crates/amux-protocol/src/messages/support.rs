@@ -89,24 +89,28 @@ pub struct CommunitySkillEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SkillDiscoveryCandidatePublic {
-    pub skill_id: String,
+    pub variant_id: String,
     pub skill_name: String,
-    pub title: String,
-    pub summary: String,
-    pub source: String,
-    pub match_score: f64,
-    pub strong_match: bool,
-    pub metadata_json: String,
+    pub variant_name: String,
+    pub relative_path: String,
+    pub status: String,
+    pub score: f64,
+    pub confidence_tier: String,
+    pub reasons: Vec<String>,
+    pub context_tags: Vec<String>,
+    pub use_count: u32,
+    pub success_count: u32,
+    pub failure_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SkillDiscoveryResultPublic {
     pub query: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<usize>,
-    #[serde(default)]
+    pub required: bool,
+    pub confidence_tier: String,
+    pub recommended_action: String,
+    pub explicit_rationale_required: bool,
+    pub workspace_tags: Vec<String>,
     pub candidates: Vec<SkillDiscoveryCandidatePublic>,
 }
 

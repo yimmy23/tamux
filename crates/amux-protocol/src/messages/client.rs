@@ -172,5 +172,5 @@ pub enum ClientMessage {
     AgentGetOpenAICodexAuthStatus,
     AgentLoginOpenAICodex,
     AgentLogoutOpenAICodex,
-    SkillDiscover { query: String, session_id: Option<String>, limit: Option<usize> },
+    SkillDiscover { query: String, session_id: Option<SessionId>, limit: usize },
 }

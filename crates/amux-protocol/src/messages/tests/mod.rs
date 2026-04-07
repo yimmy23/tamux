@@ -698,26 +698,29 @@ fn sample_symbol_match() -> SymbolMatch {
 
 fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
     SkillDiscoveryCandidatePublic {
-        skill_id: "local:git_rebase_workflow".to_string(),
+        variant_id: "local:git_rebase_workflow:v1".to_string(),
         skill_name: "git_rebase_workflow".to_string(),
-        title: "Git Rebase Workflow".to_string(),
-        summary: "Safely rebase a feature branch with conflict checks.".to_string(),
-        source: "local".to_string(),
-        match_score: 0.94,
-        strong_match: true,
-        metadata_json: serde_json::json!({
-            "status": "active",
-            "relative_path": "drafts/git_rebase_workflow/SKILL.md",
-        })
-        .to_string(),
+        variant_name: "v1".to_string(),
+        relative_path: "drafts/git_rebase_workflow/SKILL.md".to_string(),
+        status: "active".to_string(),
+        score: 0.94,
+        confidence_tier: "strong".to_string(),
+        reasons: vec!["matches git rebase workflow".to_string()],
+        context_tags: vec!["git".to_string(), "rebase".to_string()],
+        use_count: 12,
+        success_count: 10,
+        failure_count: 2,
     }
 }
 
 fn sample_skill_discovery_result() -> SkillDiscoveryResultPublic {
     SkillDiscoveryResultPublic {
         query: "git rebase workflow".to_string(),
-        session_id: Some("session-123".to_string()),
-        limit: Some(5),
+        required: true,
+        confidence_tier: "strong".to_string(),
+        recommended_action: "surface_relevant_skill".to_string(),
+        explicit_rationale_required: true,
+        workspace_tags: vec!["git".to_string(), "rebase".to_string()],
         candidates: vec![sample_skill_discovery_candidate()],
     }
 }
@@ -868,10 +871,11 @@ fn daemon_message_symbol_search_result_preserves_pre_change_wire_discriminant() 
 
 #[test]
 fn skill_discover_round_trip() {
+    let expected_session_id = SessionId::new_v4();
     let msg = ClientMessage::SkillDiscover {
         query: "git rebase workflow".to_string(),
-        session_id: Some("session-123".to_string()),
-        limit: Some(5),
+        session_id: Some(expected_session_id),
+        limit: 5,
     };
     let bytes = bincode::serialize(&msg).unwrap();
     let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
@@ -882,8 +886,8 @@ fn skill_discover_round_trip() {
             limit,
         } => {
             assert_eq!(query, "git rebase workflow");
-            assert_eq!(session_id.as_deref(), Some("session-123"));
-            assert_eq!(limit, Some(5));
+            assert_eq!(session_id, Some(expected_session_id));
+            assert_eq!(limit, 5);
         }
         other => panic!("unexpected variant: {:?}", other),
     }
@@ -901,13 +905,27 @@ fn skill_discover_result_round_trip() {
         DaemonMessage::SkillDiscoverResult { result_json } => {
             let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
             assert_eq!(result.query, "git rebase workflow");
-            assert_eq!(result.session_id.as_deref(), Some("session-123"));
-            assert_eq!(result.limit, Some(5));
+            assert!(result.required);
+            assert_eq!(result.confidence_tier, "strong");
+            assert_eq!(result.recommended_action, "surface_relevant_skill");
+            assert!(result.explicit_rationale_required);
+            assert_eq!(result.workspace_tags, vec!["git", "rebase"]);
             assert_eq!(result.candidates.len(), 1);
+            assert_eq!(result.candidates[0].variant_id, "local:git_rebase_workflow:v1");
             assert_eq!(result.candidates[0].skill_name, "git_rebase_workflow");
-            assert_eq!(result.candidates[0].source, "local");
-            assert!(result.candidates[0].strong_match);
-            assert!((result.candidates[0].match_score - 0.94).abs() < f64::EPSILON);
+            assert_eq!(result.candidates[0].variant_name, "v1");
+            assert_eq!(result.candidates[0].relative_path, "drafts/git_rebase_workflow/SKILL.md");
+            assert_eq!(result.candidates[0].status, "active");
+            assert!((result.candidates[0].score - 0.94).abs() < f64::EPSILON);
+            assert_eq!(result.candidates[0].confidence_tier, "strong");
+            assert_eq!(
+                result.candidates[0].reasons,
+                vec!["matches git rebase workflow".to_string()]
+            );
+            assert_eq!(result.candidates[0].context_tags, vec!["git", "rebase"]);
+            assert_eq!(result.candidates[0].use_count, 12);
+            assert_eq!(result.candidates[0].success_count, 10);
+            assert_eq!(result.candidates[0].failure_count, 2);
         }
         other => panic!("unexpected variant: {:?}", other),
     }
