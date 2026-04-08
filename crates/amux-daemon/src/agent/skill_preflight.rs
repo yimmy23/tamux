@@ -95,9 +95,6 @@ impl AgentEngine {
         skill_identifier: &str,
     ) -> Option<LatestSkillDiscoveryState> {
         let mut state = self.get_thread_skill_discovery_state(thread_id).await?;
-        if !state.confidence_tier.eq_ignore_ascii_case("strong") {
-            return Some(state);
-        }
         let expected = state
             .read_skill_identifier
             .as_deref()
@@ -252,14 +249,10 @@ fn build_latest_skill_discovery_state(
         .first()
         .map(|recommendation| recommendation.record.skill_name.clone());
     let confidence_tier = confidence_label(result.confidence).to_string();
-    let recommended_action = if confidence_tier == "strong" {
-        recommended_skill
-            .as_ref()
-            .map(|skill_name| format!("read_skill {skill_name}"))
-            .unwrap_or_else(|| "read_skill".to_string())
-    } else {
-        "justify_skill_skip".to_string()
-    };
+    let recommended_action = recommended_action_label(
+        result.recommended_action,
+        recommended_skill.as_deref(),
+    );
 
     LatestSkillDiscoveryState {
         query: query.to_string(),
@@ -268,8 +261,8 @@ fn build_latest_skill_discovery_state(
         recommended_action,
         read_skill_identifier: recommended_skill.filter(|_| {
             matches!(
-                result.confidence,
-                super::skill_recommendation::SkillRecommendationConfidence::Strong
+                result.recommended_action,
+                super::skill_recommendation::SkillRecommendationAction::ReadSkill
             )
         }),
         skip_rationale: None,
@@ -293,6 +286,12 @@ fn build_skill_preflight_prompt(
             body.push_str(
                 "- Hard gate: do not call non-discovery tools until you read the recommended skill.\n",
             );
+        }
+        _ if state.recommended_action.starts_with("read_skill") => {
+            body.push_str(&format!(
+                "- Recommendation: prefer `{}` before other substantial tools. If you intentionally bypass the suggested local workflow, record why with `justify_skill_skip`.\n",
+                state.recommended_action
+            ));
         }
         _ => {
             body.push_str(
@@ -367,7 +366,7 @@ fn confidence_label(
 fn action_label(value: super::skill_recommendation::SkillRecommendationAction) -> &'static str {
     match value {
         super::skill_recommendation::SkillRecommendationAction::ReadSkill => "read_skill",
-        super::skill_recommendation::SkillRecommendationAction::JustifySkip => "justify_skip",
+        super::skill_recommendation::SkillRecommendationAction::JustifySkip => "justify_skill_skip",
         super::skill_recommendation::SkillRecommendationAction::None => "none",
     }
 }
@@ -379,9 +378,6 @@ fn recommended_action_label(
     match (action, top_skill_name) {
         (super::skill_recommendation::SkillRecommendationAction::ReadSkill, Some(skill_name)) => {
             format!("read_skill {skill_name}")
-        }
-        (super::skill_recommendation::SkillRecommendationAction::JustifySkip, Some(skill_name)) => {
-            format!("justify_skip {skill_name}")
         }
         _ => action_label(action).to_string(),
     }

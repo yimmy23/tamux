@@ -150,7 +150,7 @@ impl AgentEngine {
             gateway_reply_tool(&msg.platform, &msg.channel).0
         );
 
-        if let Err(e) = Box::pin(self.send_message(None, &prompt)).await {
+        if let Err(e) = Box::pin(self.send_internal_message(None, &prompt)).await {
             tracing::error!(error = %e, "gateway: failed to send reset confirmation");
         }
         true

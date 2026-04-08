@@ -32,7 +32,7 @@ impl AgentEngine {
                 item.prompt
             );
 
-            let result = match self.send_message(None, &prompt).await {
+            let result = match self.send_internal_message(None, &prompt).await {
                 Ok(thread_id) => {
                     let threads = self.threads.read().await;
                     let response = threads

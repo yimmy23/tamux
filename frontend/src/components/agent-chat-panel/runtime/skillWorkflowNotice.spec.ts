@@ -8,11 +8,11 @@ function assert(condition: unknown, message: string): void {
 
 const weakGate = formatSkillWorkflowNotice(
   "skill-gate",
-  "Weak skill discovery recommends justify_skill_skip before read_file; allowing the tool call to proceed.",
+  "Weak skill discovery recommends read_skill systematic-debugging before read_file; allowing the tool call to proceed.",
   JSON.stringify({
     recommended_skill: "systematic-debugging",
     confidence_tier: "weak",
-    recommended_action: "justify_skill_skip",
+    recommended_action: "read_skill systematic-debugging",
   }),
 );
 

@@ -205,6 +205,60 @@ keywords: [react, css]
 }
 
 #[tokio::test]
+async fn planning_skill_is_recommended_for_architecture_synthesis_requests() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let builtin = skills_root.join("builtin");
+
+    write_skill(
+        &builtin,
+        "brainstorming",
+        r#"---
+name: brainstorming
+description: Guide feature design before implementation.
+keywords:
+  - design
+  - planning
+triggers:
+  - feature work
+  - modifying behavior
+  - architecture change
+---
+
+# Brainstorming
+
+Use this workflow for cross-document architecture synthesis and implementation planning.
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "synthesize architecture across docs and plan implementation changes",
+        &[],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert_eq!(result.confidence, SkillRecommendationConfidence::Weak);
+    assert_eq!(
+        result.recommended_action,
+        SkillRecommendationAction::ReadSkill
+    );
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("brainstorming")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn never_used_skill_does_not_look_recent_after_catalog_sync() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;

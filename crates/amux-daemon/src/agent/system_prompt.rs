@@ -9,7 +9,7 @@ const LOCAL_SKILL_WORKFLOW_PROMPT: &str =
      - Tamux runs local skill discovery before non-trivial work and surfaces the ranked result in the runtime prompt and workflow notices.\n\
      - Treat that discovery result as the source of truth instead of relying on raw `list_skills` output.\n\
      - If the top match is strong, call `read_skill` for the recommended skill before other substantial tools.\n\
-    - If discovery confidence is weak or none, `justify_skill_skip` is recommended when you intentionally proceed without a local skill, but it is not a hard prerequisite for other substantial tools.\n\
+    - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
      - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
      - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n";
 
@@ -103,7 +103,7 @@ pub(super) fn build_system_prompt(
              - Built-in skills: {}/builtin/ (tamux reference docs for terminals, browser, tasks, goals, memory, safety, etc.)\n\
              - Before non-trivial work, consult MEMORY.md and USER.md, then follow the daemon-provided skill discovery result for this turn.\n\
              - Strong matches require `read_skill` before other substantial tools.\n\
-             - Weak or no matches may use `justify_skill_skip` to record why no local skill fits, but it is guidance rather than a hard blocker.\n\
+             - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
              - `list_skills` remains the raw catalog view, not the decision authority for the task.\n\
              - The `builtin/cheatsheet` skill provides a quick reference for all available MCP tools.\n\
              - Prefer reusing an existing skill over inventing a brand-new workflow.\n",
