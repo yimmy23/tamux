@@ -396,6 +396,18 @@ impl AgentEngine {
         .thread_id)
     }
 
+    pub(super) async fn send_internal_message(
+        &self,
+        thread_id: Option<&str>,
+        content: &str,
+    ) -> Result<String> {
+        Ok(Box::pin(self.send_message_inner(
+            thread_id, content, None, None, None, None, None, None, false,
+        ))
+        .await?
+        .thread_id)
+    }
+
     pub async fn send_message_with_ephemeral_user_override(
         &self,
         thread_id: Option<&str>,
@@ -508,7 +520,7 @@ impl AgentEngine {
             None,
             None,
             client_surface,
-            true,
+            false,
         ))
         .await
     }

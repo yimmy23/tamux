@@ -8,6 +8,24 @@ use std::collections::BTreeSet;
 
 const MAX_USE_SCORE: f64 = 8.0;
 const RECENCY_DAY_SECS: u64 = 86_400;
+const PROCESS_INTENT_TOKENS: &[&str] = &[
+    "architect",
+    "behavior",
+    "brainstorm",
+    "debug",
+    "design",
+    "feature",
+    "guide",
+    "implement",
+    "investigate",
+    "modify",
+    "plan",
+    "playbook",
+    "refactor",
+    "review",
+    "workflow",
+    "synthes",
+];
 
 pub(super) fn rank_skill_candidates(
     candidates: Vec<SkillCandidateInput>,
@@ -123,6 +141,7 @@ fn score_candidate(
     let history_score = score_history(&candidate.record);
     let recency_score = score_recency(&candidate.record);
     let lifecycle_bonus = lifecycle_bonus(&candidate.record);
+    let process_bonus = process_skill_match_bonus(&candidate.metadata, query_tokens);
     let built_in_bonus = if candidate.metadata.built_in {
         0.02
     } else {
@@ -133,6 +152,7 @@ fn score_candidate(
         + (history_score * 0.20)
         + (recency_score * 0.06)
         + lifecycle_bonus
+        + process_bonus
         + built_in_bonus;
 
     CandidateScore {
@@ -242,11 +262,62 @@ fn action_for(
         SkillRecommendationConfidence::Strong if cfg.require_read_on_strong_match => {
             SkillRecommendationAction::ReadSkill
         }
-        SkillRecommendationConfidence::Strong | SkillRecommendationConfidence::Weak => {
-            SkillRecommendationAction::JustifySkip
-        }
+        SkillRecommendationConfidence::Weak => SkillRecommendationAction::ReadSkill,
+        SkillRecommendationConfidence::Strong => SkillRecommendationAction::JustifySkip,
         SkillRecommendationConfidence::None => SkillRecommendationAction::None,
     }
+}
+
+fn process_skill_match_bonus(
+    metadata: &crate::agent::skill_recommendation::types::SkillDocumentMetadata,
+    query_tokens: &BTreeSet<String>,
+) -> f64 {
+    let intent_tokens = process_intent_tokens(metadata);
+    if intent_tokens.is_empty() {
+        return 0.0;
+    }
+
+    let process_token_count = intent_tokens
+        .iter()
+        .filter(|token| PROCESS_INTENT_TOKENS.contains(&token.as_str()))
+        .count();
+    let non_process_token_count = intent_tokens.len().saturating_sub(process_token_count);
+    if process_token_count < 3 || process_token_count < non_process_token_count {
+        return 0.0;
+    }
+
+    let matched_process_terms = query_tokens
+        .iter()
+        .filter(|token| {
+            intent_tokens.contains(token.as_str())
+                && PROCESS_INTENT_TOKENS.contains(&token.as_str())
+        })
+        .count();
+    if matched_process_terms < 2 {
+        return 0.0;
+    }
+
+    let extra_matches = matched_process_terms.saturating_sub(2) as f64;
+    (0.18 + (extra_matches * 0.07)).min(0.25)
+}
+
+fn process_intent_tokens(
+    metadata: &crate::agent::skill_recommendation::types::SkillDocumentMetadata,
+) -> BTreeSet<String> {
+    let mut tokens = BTreeSet::new();
+    for value in &metadata.headings {
+        tokens.extend(tokenize(value));
+    }
+    for value in &metadata.keywords {
+        tokens.extend(tokenize(value));
+    }
+    for value in &metadata.triggers {
+        tokens.extend(tokenize(value));
+    }
+    if let Some(summary) = metadata.summary.as_deref() {
+        tokens.extend(tokenize(summary));
+    }
+    tokens
 }
 
 fn tokenize(input: &str) -> BTreeSet<String> {
@@ -266,13 +337,56 @@ fn tokenize(input: &str) -> BTreeSet<String> {
         .split(|character: char| {
             !character.is_ascii_alphanumeric() && character != '-' && character != '_'
         })
-        .map(|token| token.trim_matches(|character: char| !character.is_ascii_alphanumeric()))
-        .filter(|token| {
-            token.len() >= 3
-                && !STOPWORDS
+        .filter_map(|token| {
+            let trimmed =
+                token.trim_matches(|character: char| !character.is_ascii_alphanumeric());
+            if trimmed.len() < 3
+                || STOPWORDS
                     .iter()
-                    .any(|stopword| token.eq_ignore_ascii_case(stopword))
+                    .any(|stopword| trimmed.eq_ignore_ascii_case(stopword))
+            {
+                return None;
+            }
+            Some(normalize_token(trimmed))
         })
-        .map(|token| token.to_ascii_lowercase())
         .collect()
+}
+
+fn normalize_token(token: &str) -> String {
+    let lower = token.to_ascii_lowercase();
+    if lower.starts_with("architect") {
+        "architect".to_string()
+    } else if lower.starts_with("brainstorm") {
+        "brainstorm".to_string()
+    } else if lower.starts_with("debug") {
+        "debug".to_string()
+    } else if lower.starts_with("design") {
+        "design".to_string()
+    } else if lower.starts_with("implement") {
+        "implement".to_string()
+    } else if lower.starts_with("investigat") {
+        "investigate".to_string()
+    } else if lower.starts_with("modif") {
+        "modify".to_string()
+    } else if lower.starts_with("behavio") {
+        "behavior".to_string()
+    } else if lower.starts_with("plan") {
+        "plan".to_string()
+    } else if lower.starts_with("playbook") {
+        "playbook".to_string()
+    } else if lower.starts_with("refactor") {
+        "refactor".to_string()
+    } else if lower.starts_with("review") {
+        "review".to_string()
+    } else if lower.starts_with("workflow") {
+        "workflow".to_string()
+    } else if lower.starts_with("synthes") {
+        "synthes".to_string()
+    } else if lower.starts_with("feature") {
+        "feature".to_string()
+    } else if lower.starts_with("guide") {
+        "guide".to_string()
+    } else {
+        lower
+    }
 }

@@ -35,6 +35,56 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
             .contains("Box::pin(run_with_agent_scope(agent_scope_id, async move {"),
         "send_message_inner should box the oversized agent loop future"
     );
+
+    assert!(
+        messaging_production.contains(
+            "self.send_message_inner(thread_id, content, None, None, None, None, None, None, true)"
+        ),
+        "operator-facing send_message should mark Copilot initiator as user"
+    );
+    assert!(
+        messaging_production.contains(
+            "self.send_message_inner(\n            thread_id, content, None, None, None, None, None, None, false,"
+        ) || messaging_production.contains(
+            "self.send_message_inner(thread_id, content, None, None, None, None, None, None, false)"
+        ),
+        "internal send_message helper should mark Copilot initiator as agent"
+    );
+    assert!(
+        messaging_production.contains(
+            "backend_override,\n            None,\n            None,\n            client_surface,\n            false,"
+        ),
+        "send_task_message should mark Copilot initiator as agent"
+    );
+}
+
+#[test]
+fn daemon_generated_message_paths_use_internal_initiator() {
+    let heartbeat = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/heartbeat.rs"),
+    )
+    .expect("read heartbeat.rs");
+    let heartbeat_legacy = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/heartbeat/legacy.rs"),
+    )
+    .expect("read heartbeat/legacy.rs");
+    let gateway_message_helpers = fs::read_to_string(
+        repo_root().join("crates/amux-daemon/src/agent/gateway_loop/message_helpers.rs"),
+    )
+    .expect("read gateway_loop/message_helpers.rs");
+
+    assert!(
+        heartbeat.contains("send_internal_message(None, &synthesis_prompt)"),
+        "heartbeat synthesis should use agent initiator"
+    );
+    assert!(
+        heartbeat_legacy.contains("send_internal_message(None, &prompt)"),
+        "legacy heartbeat checks should use agent initiator"
+    );
+    assert!(
+        gateway_message_helpers.contains("send_internal_message(None, &prompt)"),
+        "gateway reset confirmations should use agent initiator"
+    );
 }
 
 #[test]

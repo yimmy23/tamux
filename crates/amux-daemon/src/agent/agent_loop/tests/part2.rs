@@ -2308,7 +2308,7 @@ async fn weak_match_allows_progress_without_skip_rationale() {
         .expect("thread should persist");
     let metadata = persisted.metadata_json.expect("thread metadata");
     assert!(!metadata.contains("\"skip_rationale\""));
-    assert!(metadata.contains("\"recommended_action\":\"justify_skill_skip\""));
+    assert!(metadata.contains("\"recommended_action\":\"read_skill debugging-playbook\""));
     assert!(metadata.contains("\"compliant\":false"));
 }
 

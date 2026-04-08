@@ -402,7 +402,7 @@ impl AgentEngine {
         // --- Phase 4: Single LLM synthesis call (per D-09, D-10, BEAT-08) ---
         let checks_json = serde_json::to_string(&check_results).unwrap_or_default();
         let (synthesis_json, actionable, digest_text, digest_items, llm_tokens) =
-            match self.send_message(None, &synthesis_prompt).await {
+            match self.send_internal_message(None, &synthesis_prompt).await {
                 Ok(thread_id) => {
                     let threads = self.threads.read().await;
                     let response = threads
