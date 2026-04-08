@@ -1,4 +1,4 @@
-use crate::cli::Commands;
+use crate::cli::{Commands, ThreadAction};
 use crate::commands::core::should_check_for_updates;
 
 #[test]
@@ -13,6 +13,9 @@ fn checks_updates_for_user_facing_commands() {
     }));
     assert!(should_check_for_updates(&Commands::Setup));
     assert!(should_check_for_updates(&Commands::List));
+    assert!(should_check_for_updates(&Commands::Thread {
+        action: ThreadAction::List { json: false },
+    }));
 }
 
 #[test]

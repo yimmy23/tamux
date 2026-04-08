@@ -76,7 +76,10 @@ if matches!(
 
                 ClientMessage::AgentDeleteThread { thread_id } => {
                     client_agent_threads.remove(&thread_id);
-                    agent.delete_thread(&thread_id).await;
+                    let deleted = agent.delete_thread(&thread_id).await;
+                    framed
+                        .send(DaemonMessage::AgentThreadDeleted { thread_id, deleted })
+                        .await?;
                 }
 
                 ClientMessage::AgentAddTask {

@@ -4,6 +4,7 @@ async fn run_native_assistant(
     config: &ProviderConfig,
     messages: &[ApiMessage],
     upstream_thread_id: Option<&str>,
+    copilot_initiator: CopilotInitiator,
     force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
@@ -42,6 +43,7 @@ async fn run_native_assistant(
                 &url,
                 provider,
                 config,
+                copilot_initiator,
                 force_connection_close,
             )
                 .body("{}".to_string())
@@ -94,7 +96,14 @@ async fn run_native_assistant(
         "content": user_text,
     });
     let add_message_response =
-        build_openai_auth_request(client, &message_url, provider, config, force_connection_close)
+        build_openai_auth_request(
+            client,
+            &message_url,
+            provider,
+            config,
+            copilot_initiator,
+            force_connection_close,
+        )
             .body(add_message_body.to_string())
             .send()
             .await?;
@@ -138,6 +147,7 @@ async fn run_native_assistant(
         &run_url,
         provider,
         config,
+        copilot_initiator,
         force_connection_close,
     )
         .body(run_body.to_string())
@@ -186,7 +196,12 @@ async fn run_native_assistant(
     for _ in 0..180u32 {
         tokio::time::sleep(Duration::from_millis(1000)).await;
         let status_response = maybe_force_connection_close(
-            apply_openai_auth_headers(client.get(&run_status_url), provider, config),
+            apply_openai_auth_headers(
+                client.get(&run_status_url),
+                provider,
+                config,
+                copilot_initiator,
+            ),
             force_connection_close,
         )
         .send()
@@ -235,6 +250,7 @@ async fn run_native_assistant(
                         config,
                         &base_url,
                         &thread_id,
+                        copilot_initiator,
                         force_connection_close,
                     )
                         .await?;

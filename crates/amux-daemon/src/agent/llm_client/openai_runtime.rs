@@ -4,11 +4,12 @@ async fn fetch_native_assistant_message(
     config: &ProviderConfig,
     base_url: &str,
     thread_id: &str,
+    copilot_initiator: CopilotInitiator,
     force_connection_close: bool,
 ) -> Result<String> {
     let url = format!("{base_url}/threads/{thread_id}/messages?order=desc&limit=20");
     let response = maybe_force_connection_close(
-        apply_openai_auth_headers(client.get(&url), provider, config),
+        apply_openai_auth_headers(client.get(&url), provider, config, copilot_initiator),
         force_connection_close,
     )
         .send()
@@ -67,6 +68,7 @@ async fn run_openai_chat_completions(
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
+    copilot_initiator: CopilotInitiator,
     force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
@@ -119,7 +121,14 @@ async fn run_openai_chat_completions(
     }
 
     let req = apply_dashscope_coding_plan_sdk_headers(
-        build_openai_auth_request(client, &url, provider, config, force_connection_close),
+        build_openai_auth_request(
+            client,
+            &url,
+            provider,
+            config,
+            copilot_initiator,
+            force_connection_close,
+        ),
         provider,
         &config.base_url,
         ApiType::OpenAI,
@@ -397,6 +406,7 @@ async fn run_openai_responses(
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
     previous_response_id: Option<&str>,
+    copilot_initiator: CopilotInitiator,
     force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
@@ -431,7 +441,14 @@ async fn run_openai_responses(
             force_connection_close,
         )
     } else {
-        build_openai_auth_request(client, &url, provider, config, force_connection_close)
+        build_openai_auth_request(
+            client,
+            &url,
+            provider,
+            config,
+            copilot_initiator,
+            force_connection_close,
+        )
     };
     let response = req.body(body.to_string()).send().await?;
 

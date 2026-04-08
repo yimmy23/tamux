@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::llm_client::CopilotInitiator;
 
 pub(super) fn inter_request_delay(
     loop_count: u32,
@@ -168,6 +169,11 @@ impl<'a> SendMessageRunner<'a> {
         } else {
             self.engine.http_client.clone()
         };
+        let copilot_initiator = if self.loop_count <= 1 {
+            self.initial_copilot_initiator
+        } else {
+            CopilotInitiator::Agent
+        };
         let mut stream = crate::agent::llm_client::send_completion_request_with_options(
             &request_client,
             &self.config.provider,
@@ -181,6 +187,7 @@ impl<'a> SendMessageRunner<'a> {
             llm_retry_strategy,
             crate::agent::llm_client::CompletionRequestOptions {
                 force_connection_close: prepared_request.force_connection_close,
+                copilot_initiator,
             },
         );
 

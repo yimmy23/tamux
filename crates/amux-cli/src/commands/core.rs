@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 
-use crate::cli::{Cli, Commands, InstallTarget, SettingsAction};
+use crate::cli::{Cli, Commands, InstallTarget, SettingsAction, ThreadAction};
 use crate::commands::common::{
     find_sibling_binary, handle_post_setup_action, launch_gui, launch_tui, resolve_dm_target,
     LaunchTarget,
@@ -24,6 +24,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Prompt { .. }
             | Commands::Stats
             | Commands::Settings { .. }
+            | Commands::Thread { .. }
             | Commands::Dm { .. }
             | Commands::Setup
             | Commands::Ping
@@ -81,6 +82,77 @@ fn format_direct_message_output(
     }
 
     Ok(rendered)
+}
+
+fn format_thread_list_output(
+    threads: &[client::AgentThreadRecord],
+    json: bool,
+) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(threads).map_err(Into::into);
+    }
+
+    if threads.is_empty() {
+        return Ok("No threads found.".to_string());
+    }
+
+    let mut rendered = String::new();
+    for thread in threads {
+        let updated = format_timestamp(thread.updated_at as i64);
+        let agent_name = thread.agent_name.as_deref().unwrap_or("unknown");
+        rendered.push_str(&format!(
+            "{} [{}] {} ({})\n",
+            thread.id, updated, thread.title, agent_name
+        ));
+    }
+    Ok(rendered.trim_end().to_string())
+}
+
+fn format_thread_detail_output(
+    thread: Option<&client::AgentThreadRecord>,
+    json: bool,
+) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(&thread).map_err(Into::into);
+    }
+
+    let Some(thread) = thread else {
+        return Ok("Thread not found.".to_string());
+    };
+
+    let mut rendered = String::new();
+    rendered.push_str(&format!("ID:      {}\n", thread.id));
+    rendered.push_str(&format!("Title:   {}\n", thread.title));
+    rendered.push_str(&format!(
+        "Agent:   {}\n",
+        thread.agent_name.as_deref().unwrap_or("unknown")
+    ));
+    rendered.push_str(&format!(
+        "Updated: {}\n",
+        format_timestamp(thread.updated_at as i64)
+    ));
+    rendered.push_str("Messages:\n");
+    if thread.messages.is_empty() {
+        rendered.push_str("  (none)");
+    } else {
+        for message in &thread.messages {
+            rendered.push_str(&format!(
+                "  - {}: {}\n",
+                message.role,
+                message.content.replace('\n', " ")
+            ));
+        }
+        rendered.truncate(rendered.trim_end().len());
+    }
+    Ok(rendered)
+}
+
+fn format_thread_delete_output(thread_id: &str, deleted: bool) -> String {
+    if deleted {
+        format!("Deleted thread {}.", thread_id)
+    } else {
+        format!("Thread {} was not found.", thread_id)
+    }
 }
 
 fn format_status_output(
@@ -270,10 +342,12 @@ pub(crate) async fn run_default() -> Result<()> {
 mod tests {
     use super::{
         default_startup_action, format_direct_message_output, format_prompt_output,
-        format_status_output, DefaultStartupAction,
+        format_status_output, format_thread_delete_output, format_thread_detail_output,
+        format_thread_list_output, DefaultStartupAction,
     };
     use crate::client::{
         AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
+        AgentThreadMessageRecord, AgentThreadRecord,
         DirectMessageResponse,
     };
     use crate::setup_wizard::SetupProbe;
@@ -403,6 +477,93 @@ mod tests {
         assert!(rendered.contains("provider_final_result:"));
         assert!(rendered.contains("\"provider\": \"anthropic_message\""));
         assert!(rendered.contains("\"id\": \"msg_1\""));
+    }
+
+    #[test]
+    fn thread_list_plain_output_shows_recent_threads() {
+        let rendered = format_thread_list_output(
+            &[
+                AgentThreadRecord {
+                    id: "thread-1".to_string(),
+                    agent_name: Some("swarog".to_string()),
+                    title: "First thread".to_string(),
+                    messages: Vec::new(),
+                    pinned: false,
+                    created_at: 0,
+                    updated_at: 1_712_345_678_000,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                },
+                AgentThreadRecord {
+                    id: "thread-2".to_string(),
+                    agent_name: None,
+                    title: "Second thread".to_string(),
+                    messages: Vec::new(),
+                    pinned: false,
+                    created_at: 0,
+                    updated_at: 1_712_345_679_000,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                },
+            ],
+            false,
+        )
+        .expect("render thread list");
+
+        assert!(rendered.contains("thread-1"));
+        assert!(rendered.contains("First thread"));
+        assert!(rendered.contains("swarog"));
+        assert!(rendered.contains("thread-2"));
+    }
+
+    #[test]
+    fn thread_detail_plain_output_shows_messages() {
+        let rendered = format_thread_detail_output(
+            Some(&AgentThreadRecord {
+                id: "thread-1".to_string(),
+                agent_name: Some("swarog".to_string()),
+                title: "Thread title".to_string(),
+                messages: vec![
+                    AgentThreadMessageRecord {
+                        id: "msg-1".to_string(),
+                        role: "user".to_string(),
+                        content: "hello".to_string(),
+                        timestamp: 1,
+                    },
+                    AgentThreadMessageRecord {
+                        id: "msg-2".to_string(),
+                        role: "assistant".to_string(),
+                        content: "world".to_string(),
+                        timestamp: 2,
+                    },
+                ],
+                pinned: false,
+                created_at: 0,
+                updated_at: 1_712_345_678_000,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+            }),
+            false,
+        )
+        .expect("render thread detail");
+
+        assert!(rendered.contains("ID:      thread-1"));
+        assert!(rendered.contains("Title:   Thread title"));
+        assert!(rendered.contains("Messages:"));
+        assert!(rendered.contains("- user: hello"));
+        assert!(rendered.contains("- assistant: world"));
+    }
+
+    #[test]
+    fn thread_delete_output_reports_deleted_state() {
+        assert_eq!(
+            format_thread_delete_output("thread-1", true),
+            "Deleted thread thread-1."
+        );
+        assert_eq!(
+            format_thread_delete_output("thread-1", false),
+            "Thread thread-1 was not found."
+        );
     }
 
     #[test]
@@ -594,6 +755,35 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
                 };
                 client::send_config_set(json_pointer, value_json).await?;
                 println!("{key} = {value}");
+            }
+        },
+        Commands::Thread { action } => match action {
+            ThreadAction::List { json } => {
+                let threads = client::send_thread_list_query().await?;
+                println!("{}", format_thread_list_output(&threads, json)?);
+            }
+            ThreadAction::Get { thread_id, json } => {
+                let thread = client::send_thread_get_query(thread_id).await?;
+                println!("{}", format_thread_detail_output(thread.as_ref(), json)?);
+            }
+            ThreadAction::Delete { thread_id, yes } => {
+                if !yes {
+                    use std::io::{self, Write};
+                    print!("Delete thread {thread_id}? [y/N] ");
+                    io::stdout().flush()?;
+                    let mut answer = String::new();
+                    io::stdin().read_line(&mut answer)?;
+                    let normalized = answer.trim().to_ascii_lowercase();
+                    if normalized != "y" && normalized != "yes" {
+                        println!("Aborted.");
+                        return Ok(());
+                    }
+                }
+                let result = client::send_thread_delete(thread_id).await?;
+                println!(
+                    "{}",
+                    format_thread_delete_output(&result.thread_id, result.deleted)
+                );
             }
         },
         Commands::Dm {

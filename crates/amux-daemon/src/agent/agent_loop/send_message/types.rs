@@ -30,6 +30,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) task_termination_eval:
         Option<crate::agent::subagent::termination::TerminationEvaluator>,
     pub(super) task_type_for_trace: String,
+    pub(super) initial_copilot_initiator: crate::agent::llm_client::CopilotInitiator,
     pub(super) tools: Vec<ToolDefinition>,
     pub(super) retry_strategy: RetryStrategy,
     pub(super) max_loops: u32,

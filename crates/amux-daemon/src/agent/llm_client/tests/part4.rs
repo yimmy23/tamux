@@ -128,6 +128,15 @@ fn anthropic_request_sets_tool_choice_auto_when_tools_are_present() {
 }
 
 #[test]
+fn github_copilot_provider_does_not_support_native_assistant_transport() {
+    let provider = get_provider_definition(PROVIDER_ID_GITHUB_COPILOT)
+        .expect("github copilot provider should exist");
+
+    assert!(provider.native_transport_kind.is_none());
+    assert!(!provider.supported_transports.contains(&ApiTransport::NativeAssistant));
+}
+
+#[test]
 fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
     let client = reqwest::Client::new();
     let config = ProviderConfig {

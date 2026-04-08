@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::llm_client::CopilotInitiator;
 use amux_protocol::SecurityLevel;
 
 const COMMUNITY_SCOUT_RESULT_LIMIT: usize = 5;
@@ -402,6 +403,11 @@ impl<'a> SendMessageRunner<'a> {
                 task_type,
             )
         };
+        let initial_copilot_initiator = if record_operator {
+            CopilotInitiator::User
+        } else {
+            CopilotInitiator::Agent
+        };
         let weles_runtime_override = current_task_snapshot.as_ref().and_then(|task| {
             (task.sub_agent_def_id.as_deref()
                 == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID))
@@ -643,6 +649,7 @@ impl<'a> SendMessageRunner<'a> {
             task_context_budget,
             task_termination_eval,
             task_type_for_trace: task_type_for_trace.clone(),
+            initial_copilot_initiator,
             tools,
             retry_strategy,
             max_loops,

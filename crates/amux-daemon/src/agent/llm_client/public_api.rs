@@ -101,8 +101,25 @@ pub(crate) fn compute_retry_delay_ms_for_attempt(base_delay_ms: u64, attempt: u3
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+pub(crate) enum CopilotInitiator {
+    User,
+    #[default]
+    Agent,
+}
+
+impl CopilotInitiator {
+    pub(crate) fn as_header_value(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Agent => "agent",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct CompletionRequestOptions {
     pub force_connection_close: bool,
+    pub copilot_initiator: CopilotInitiator,
 }
 
 /// Send a completion request. Returns a stream of `CompletionChunk`.
@@ -200,6 +217,7 @@ pub fn send_completion_request_with_options(
                             &config,
                             &messages,
                             upstream_thread_id.as_deref(),
+                            options.copilot_initiator,
                             options.force_connection_close,
                             &tx,
                         )
@@ -213,6 +231,7 @@ pub fn send_completion_request_with_options(
                             &system_prompt,
                             &messages,
                             &tools,
+                            options.copilot_initiator,
                             options.force_connection_close,
                             &tx,
                         )
@@ -227,6 +246,7 @@ pub fn send_completion_request_with_options(
                             &messages,
                             &tools,
                             previous_response_id.as_deref(),
+                            options.copilot_initiator,
                             options.force_connection_close,
                             &tx,
                         )

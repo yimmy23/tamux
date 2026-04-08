@@ -2,7 +2,29 @@ use amux_protocol::{ClientMessage, DaemonMessage};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::connection::roundtrip;
+use super::connection::{connect, roundtrip};
+use futures::SinkExt;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentThreadMessageRecord {
+    pub id: String,
+    pub role: String,
+    pub content: String,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentThreadRecord {
+    pub id: String,
+    pub agent_name: Option<String>,
+    pub title: String,
+    pub messages: Vec<AgentThreadMessageRecord>,
+    pub pinned: bool,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+}
 
 /// Status response fields from the daemon.
 pub struct AgentStatusSnapshot {
@@ -22,6 +44,11 @@ pub struct DirectMessageResponse {
     pub response: String,
     pub session_id: Option<String>,
     pub provider_final_result_json: Option<String>,
+}
+
+pub struct DeleteThreadResponse {
+    pub thread_id: String,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -95,6 +122,41 @@ pub async fn send_status_query() -> Result<AgentStatusSnapshot> {
             gateway_statuses_json,
             recent_actions_json,
         }),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_thread_list_query() -> Result<Vec<AgentThreadRecord>> {
+    match roundtrip(ClientMessage::AgentListThreads).await? {
+        DaemonMessage::AgentThreadList { threads_json } => Ok(serde_json::from_str(&threads_json)?),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_thread_get_query(thread_id: String) -> Result<Option<AgentThreadRecord>> {
+    match roundtrip(ClientMessage::AgentGetThread { thread_id }).await? {
+        DaemonMessage::AgentThreadDetail { thread_json } => Ok(serde_json::from_str(&thread_json)?),
+        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_thread_delete(thread_id: String) -> Result<DeleteThreadResponse> {
+    let mut framed = connect().await?;
+    framed
+        .send(ClientMessage::AgentDeleteThread {
+            thread_id: thread_id.clone(),
+        })
+        .await?;
+    let resp = futures::StreamExt::next(&mut framed)
+        .await
+        .ok_or_else(super::connection::closed_connection_error)??;
+    match resp {
+        DaemonMessage::AgentThreadDeleted { thread_id, deleted } => {
+            Ok(DeleteThreadResponse { thread_id, deleted })
+        }
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
     }

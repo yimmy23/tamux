@@ -183,6 +183,7 @@ use amux_shared::providers::{
             client.get("https://models.github.ai/inference/chat/completions"),
             PROVIDER_ID_GITHUB_COPILOT,
             &config,
+            CopilotInitiator::User,
         )
         .build()
         .expect("request should build");
@@ -254,6 +255,7 @@ use amux_shared::providers::{
             client.get("https://api.githubcopilot.com/chat/completions"),
             PROVIDER_ID_GITHUB_COPILOT,
             &config,
+            CopilotInitiator::User,
         )
         .build()
         .expect("request should build");
@@ -273,6 +275,78 @@ use amux_shared::providers::{
             Some("user")
         );
         assert!(request.headers().get("user-agent").is_some());
+    }
+
+    #[test]
+    fn github_copilot_internal_requests_use_agent_initiator() {
+        let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+        let _guard = EnvGuard::new(&[
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            "TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI",
+            "TAMUX_GITHUB_COPILOT_DISABLE_ENV_AUTH",
+            "COPILOT_GITHUB_TOKEN",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+        ]);
+        let root = tempdir().unwrap();
+        let db_path = root.path().join("provider-auth.db");
+        std::env::set_var("TAMUX_PROVIDER_AUTH_DB_PATH", &db_path);
+        std::env::set_var("TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI", "1");
+        std::env::set_var("TAMUX_GITHUB_COPILOT_DISABLE_ENV_AUTH", "1");
+        let auth = serde_json::json!({
+            "auth_mode": "github_copilot",
+            "access_token": "ghu_browser_token",
+            "source": "test",
+            "updated_at": 1,
+            "created_at": 1
+        });
+        provider_auth_store::save_provider_auth_state(
+            PROVIDER_ID_GITHUB_COPILOT,
+            "github_copilot",
+            &auth,
+        )
+        .unwrap();
+
+        let client = reqwest::Client::new();
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-4.1".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::ChatCompletions,
+            reasoning_effort: String::new(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        };
+        let request = apply_openai_auth_headers(
+            client.get("https://api.githubcopilot.com/chat/completions"),
+            PROVIDER_ID_GITHUB_COPILOT,
+            &config,
+            CopilotInitiator::Agent,
+        )
+        .build()
+        .expect("request should build");
+
+        assert_eq!(
+            request
+                .headers()
+                .get("x-initiator")
+                .and_then(|value| value.to_str().ok()),
+            Some("agent")
+        );
     }
 
     #[test]
@@ -306,6 +380,7 @@ use amux_shared::providers::{
             client.get("https://openrouter.ai/api/v1/chat/completions"),
             PROVIDER_ID_OPENROUTER,
             &config,
+            CopilotInitiator::Agent,
         )
         .build()
         .expect("request should build");

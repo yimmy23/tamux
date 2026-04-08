@@ -260,6 +260,7 @@ fn build_openai_auth_request<'a>(
     url: &str,
     provider: &str,
     config: &ProviderConfig,
+    copilot_initiator: CopilotInitiator,
     force_connection_close: bool,
 ) -> reqwest::RequestBuilder {
     maybe_force_connection_close(
@@ -267,6 +268,7 @@ fn build_openai_auth_request<'a>(
             client.post(url).header("Content-Type", "application/json"),
             provider,
             config,
+            copilot_initiator,
         ),
         force_connection_close,
     )
@@ -303,12 +305,13 @@ fn apply_openai_auth_headers(
     req: reqwest::RequestBuilder,
     provider: &str,
     config: &ProviderConfig,
+    copilot_initiator: CopilotInitiator,
 ) -> reqwest::RequestBuilder {
     if provider == PROVIDER_ID_GITHUB_COPILOT {
         let req = req
             .header("Accept", "application/json")
             .header("Openai-Intent", "conversation-edits")
-            .header("x-initiator", "user")
+            .header("x-initiator", copilot_initiator.as_header_value())
             .header("User-Agent", "tamux-daemon");
         if let Some(resolved) =
             super::copilot_auth::resolve_github_copilot_auth(&config.api_key, config.auth_source)

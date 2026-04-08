@@ -133,6 +133,12 @@ pub(crate) enum Commands {
         action: SettingsAction,
     },
 
+    /// Inspect and manage agent threads.
+    Thread {
+        #[command(subcommand)]
+        action: ThreadAction,
+    },
+
     /// Send a direct message to svarog or Rarog from the CLI.
     Dm {
         /// Continue a specific thread.
@@ -347,9 +353,36 @@ pub(crate) enum SettingsAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub(crate) enum ThreadAction {
+    /// List recent agent threads.
+    #[command(alias = "ls")]
+    List {
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one agent thread and its messages.
+    Get {
+        /// Thread ID to fetch.
+        thread_id: String,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete one agent thread.
+    Delete {
+        /// Thread ID to delete.
+        thread_id: String,
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, SkillAction};
+    use super::{Cli, Commands, SkillAction, ThreadAction};
     use clap::{CommandFactory, Parser};
 
     #[test]
@@ -370,6 +403,50 @@ mod tests {
                 assert_eq!(limit, 3);
             }
             other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_list_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "thread", "list", "--json"])
+            .expect("thread list subcommand should parse");
+        match cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::List { json },
+            }) => {
+                assert!(json);
+            }
+            other => panic!("expected thread list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_get_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "thread", "get", "thread-123"])
+            .expect("thread get subcommand should parse");
+        match cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::Get { thread_id, json },
+            }) => {
+                assert_eq!(thread_id, "thread-123");
+                assert!(!json);
+            }
+            other => panic!("expected thread get command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_delete_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "thread", "delete", "thread-123", "--yes"])
+            .expect("thread delete subcommand should parse");
+        match cli.command {
+            Some(Commands::Thread {
+                action: ThreadAction::Delete { thread_id, yes },
+            }) => {
+                assert_eq!(thread_id, "thread-123");
+                assert!(yes);
+            }
+            other => panic!("expected thread delete command, got {other:?}"),
         }
     }
 
