@@ -308,6 +308,10 @@ pub struct TuiModel {
     status_modal_snapshot: Option<crate::client::AgentStatusSnapshotVm>,
     status_modal_loading: bool,
     status_modal_error: Option<String>,
+    prompt_modal_snapshot: Option<crate::client::AgentPromptInspectionVm>,
+    prompt_modal_loading: bool,
+    prompt_modal_error: Option<String>,
+    prompt_modal_scroll: usize,
 
     // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,
@@ -315,6 +319,7 @@ pub struct TuiModel {
     chat_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     chat_drag_current_point: Option<widgets::chat::SelectionPoint>,
     chat_selection_snapshot: Option<widgets::chat::CachedSelectionSnapshot>,
+    chat_scrollbar_drag_grab_offset: Option<u16>,
 
     // Active mouse drag selection in the work-context preview pane
     work_context_drag_anchor: Option<Position>,

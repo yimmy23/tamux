@@ -163,6 +163,25 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
     }
 
     #[test]
+    fn skill_recommendation_config_deserializes_partial_json_with_defaults() {
+        let json = serde_json::json!({
+            "enabled": false,
+            "strong_match_threshold": 0.91,
+            "community_preapprove_timeout_secs": 45
+        })
+        .to_string();
+
+        let cfg: SkillRecommendationConfig = serde_json::from_str(&json).unwrap();
+        assert!(!cfg.enabled);
+        assert!(cfg.require_read_on_strong_match);
+        assert!((cfg.strong_match_threshold - 0.91).abs() < f64::EPSILON);
+        assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!(cfg.background_community_search);
+        assert_eq!(cfg.community_preapprove_timeout_secs, 45);
+        assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
+    }
+
+    #[test]
     fn skill_discovery_config_defaults() {
         let cfg = SkillDiscoveryConfig::default();
         assert_eq!(cfg.min_tool_count, 8);
@@ -176,6 +195,79 @@ use amux_shared::providers::{PROVIDER_ID_ARCEE, PROVIDER_ID_GITHUB_COPILOT};
         let cfg: SkillDiscoveryConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(cfg.min_tool_count, 8);
         assert_eq!(cfg.min_replan_count, 1);
+    }
+
+    #[test]
+    fn skill_recommendation_config_defaults() {
+        let cfg = SkillRecommendationConfig::default();
+        assert!(cfg.enabled);
+        assert!(cfg.require_read_on_strong_match);
+        assert!((cfg.strong_match_threshold - 0.85).abs() < f64::EPSILON);
+        assert!((cfg.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!(cfg.background_community_search);
+        assert_eq!(cfg.community_preapprove_timeout_secs, 30);
+        assert_eq!(cfg.suggest_global_enable_after_approvals, 3);
+    }
+
+    #[test]
+    fn agent_config_deserializes_legacy_skill_discovery_without_skill_recommendation() {
+        let json = serde_json::json!({
+            "skill_discovery": {
+                "min_tool_count": 13,
+                "min_replan_count": 2,
+                "min_quality_score": 0.91,
+                "novelty_similarity_threshold": 0.42
+            }
+        })
+        .to_string();
+
+        let cfg: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg.skill_discovery.min_tool_count, 13);
+        assert_eq!(cfg.skill_discovery.min_replan_count, 2);
+        assert!((cfg.skill_discovery.min_quality_score - 0.91).abs() < f64::EPSILON);
+        assert!((cfg.skill_discovery.novelty_similarity_threshold - 0.42).abs() < f64::EPSILON);
+        assert!(cfg.skill_recommendation.enabled);
+        assert!(cfg.skill_recommendation.require_read_on_strong_match);
+        assert!((cfg.skill_recommendation.strong_match_threshold - 0.85).abs() < f64::EPSILON);
+        assert!((cfg.skill_recommendation.weak_match_threshold - 0.60).abs() < f64::EPSILON);
+        assert!(cfg.skill_recommendation.background_community_search);
+        assert_eq!(cfg.skill_recommendation.community_preapprove_timeout_secs, 30);
+        assert_eq!(cfg.skill_recommendation.suggest_global_enable_after_approvals, 3);
+    }
+
+    #[test]
+    fn agent_config_deserializes_skill_recommendation_without_disturbing_skill_discovery() {
+        let json = serde_json::json!({
+            "skill_discovery": {
+                "min_tool_count": 21,
+                "min_replan_count": 4,
+                "min_quality_score": 0.95,
+                "novelty_similarity_threshold": 0.33
+            },
+            "skill_recommendation": {
+                "enabled": false,
+                "require_read_on_strong_match": false,
+                "strong_match_threshold": 0.97,
+                "weak_match_threshold": 0.51,
+                "background_community_search": false,
+                "community_preapprove_timeout_secs": 45,
+                "suggest_global_enable_after_approvals": 8
+            }
+        })
+        .to_string();
+
+        let cfg: AgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg.skill_discovery.min_tool_count, 21);
+        assert_eq!(cfg.skill_discovery.min_replan_count, 4);
+        assert!((cfg.skill_discovery.min_quality_score - 0.95).abs() < f64::EPSILON);
+        assert!((cfg.skill_discovery.novelty_similarity_threshold - 0.33).abs() < f64::EPSILON);
+        assert!(!cfg.skill_recommendation.enabled);
+        assert!(!cfg.skill_recommendation.require_read_on_strong_match);
+        assert!((cfg.skill_recommendation.strong_match_threshold - 0.97).abs() < f64::EPSILON);
+        assert!((cfg.skill_recommendation.weak_match_threshold - 0.51).abs() < f64::EPSILON);
+        assert!(!cfg.skill_recommendation.background_community_search);
+        assert_eq!(cfg.skill_recommendation.community_preapprove_timeout_secs, 45);
+        assert_eq!(cfg.skill_recommendation.suggest_global_enable_after_approvals, 8);
     }
 
     #[test]

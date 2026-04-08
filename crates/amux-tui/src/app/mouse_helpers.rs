@@ -7,6 +7,21 @@ impl TuiModel {
         self.chat_drag_anchor_point = None;
         self.chat_drag_current_point = None;
         self.chat_selection_snapshot = None;
+        self.chat_scrollbar_drag_grab_offset = None;
+    }
+
+    pub(in super::super) fn set_chat_scroll_offset(&mut self, target: usize) {
+        let current = self.chat.scroll_offset();
+        if target == current {
+            return;
+        }
+
+        let delta = if target > current {
+            (target - current).min(i32::MAX as usize) as i32
+        } else {
+            -((current - target).min(i32::MAX as usize) as i32)
+        };
+        self.chat.reduce(chat::ChatAction::ScrollChat(delta));
     }
 
     pub(in super::super) fn clear_work_context_drag_selection(&mut self) {
@@ -179,6 +194,9 @@ impl TuiModel {
                 modal::ModalKind::ApprovalCenter => {
                     self.step_approval_selection(-1);
                 }
+                modal::ModalKind::PromptViewer => {
+                    self.step_prompt_modal_scroll(-3);
+                }
                 _ => {}
             },
             MouseEventKind::ScrollDown if inside => match kind {
@@ -203,6 +221,9 @@ impl TuiModel {
                 modal::ModalKind::ApprovalCenter => {
                     self.step_approval_selection(1);
                 }
+                modal::ModalKind::PromptViewer => {
+                    self.step_prompt_modal_scroll(3);
+                }
                 _ => {}
             },
             MouseEventKind::Down(MouseButton::Left) if !inside => {
@@ -210,6 +231,7 @@ impl TuiModel {
                     kind,
                     modal::ModalKind::Help
                         | modal::ModalKind::Status
+                        | modal::ModalKind::PromptViewer
                         | modal::ModalKind::CommandPalette
                         | modal::ModalKind::ThreadPicker
                         | modal::ModalKind::GoalPicker

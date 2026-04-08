@@ -1,7 +1,7 @@
 use super::*;
 use amux_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX_CODING_PLAN,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
 };
 use std::sync::mpsc;
 use tokio::sync::mpsc::unbounded_channel;
@@ -820,4 +820,105 @@ fn sync_config_to_daemon_emits_provider_model_and_base_url_items_for_provider_sw
     assert!(saw_provider, "expected /provider update to be emitted");
     assert!(saw_model, "expected /model update to be emitted");
     assert!(saw_base_url, "expected /base_url update to be emitted");
+}
+
+#[test]
+fn sync_config_to_daemon_emits_second_provider_switch_after_returning_from_custom() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = PROVIDER_ID_MINIMAX_CODING_PLAN.to_string();
+    model.config.base_url = "https://api.minimax.io/anthropic".to_string();
+    model.config.model = "MiniMax-M2.7".to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.api_transport = "chat_completions".to_string();
+    model.config.reasoning_effort = "high".to_string();
+    model.config.context_window_tokens = 205_000;
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "provider": "minimax-coding-plan",
+        "base_url": "https://api.minimax.io/anthropic",
+        "model": "MiniMax-M2.7",
+        "auth_source": "api_key",
+        "api_transport": "chat_completions",
+        "providers": {
+            "minimax-coding-plan": {
+                "base_url": "https://api.minimax.io/anthropic",
+                "model": "MiniMax-M2.7",
+                "auth_source": "api_key",
+                "api_transport": "chat_completions",
+                "reasoning_effort": "high",
+                "context_window_tokens": 205000
+            },
+            "custom": {
+                "base_url": "",
+                "model": "",
+                "auth_source": "api_key",
+                "api_transport": "responses",
+                "reasoning_effort": "high",
+                "context_window_tokens": 128000
+            }
+        }
+    }));
+
+    model.config.provider = PROVIDER_ID_CUSTOM.to_string();
+    model.config.base_url = "http://localhost:11434/v1".to_string();
+    model.config.model = "llama3.1".to_string();
+    model.config.api_transport = "chat_completions".to_string();
+    model.config.context_window_tokens = 128_000;
+
+    model.sync_config_to_daemon();
+
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.config.provider = PROVIDER_ID_MINIMAX_CODING_PLAN.to_string();
+    model.config.base_url = "https://api.minimax.io/anthropic".to_string();
+    model.config.model = "MiniMax-M2.7".to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.api_transport = "chat_completions".to_string();
+    model.config.context_window_tokens = 205_000;
+
+    model.sync_config_to_daemon();
+
+    let mut saw_provider = false;
+    let mut saw_model = false;
+    let mut saw_base_url = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        match command {
+            DaemonCommand::SetConfigItem {
+                key_path,
+                value_json,
+            } => match key_path.as_str() {
+                "/provider" => {
+                    saw_provider = true;
+                    assert_eq!(value_json, format!("\"{}\"", PROVIDER_ID_MINIMAX_CODING_PLAN));
+                }
+                "/model" => {
+                    saw_model = true;
+                    assert_eq!(value_json, "\"MiniMax-M2.7\"");
+                }
+                "/base_url" => {
+                    saw_base_url = true;
+                    assert_eq!(value_json, "\"https://api.minimax.io/anthropic\"");
+                }
+                _ => {}
+            },
+            DaemonCommand::SetProviderModel { .. } => {
+                panic!("provider switches should persist through config items")
+            }
+            other => panic!("unexpected daemon command: {other:?}"),
+        }
+    }
+
+    assert!(
+        saw_provider,
+        "expected second provider switch to emit /provider update"
+    );
+    assert!(
+        saw_model,
+        "expected second provider switch to emit /model update"
+    );
+    assert!(
+        saw_base_url,
+        "expected second provider switch to emit /base_url update"
+    );
 }

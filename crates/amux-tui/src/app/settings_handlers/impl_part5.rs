@@ -176,25 +176,30 @@ impl TuiModel {
                     raw["consolidation"]["enabled"] = serde_json::Value::Bool(next);
                 }
             }
-            "feat_skill_discovery_enabled" => {
+            "feat_skill_recommendation_enabled" | "feat_skill_background_community_search" => {
+                let key = match field.as_str() {
+                    "feat_skill_recommendation_enabled" => "enabled",
+                    "feat_skill_background_community_search" => "background_community_search",
+                    _ => return,
+                };
                 let current = self
                     .config
                     .agent_config_raw
                     .as_ref()
-                    .and_then(|r| r.get("skill_discovery"))
-                    .and_then(|s| s.get("enabled"))
+                    .and_then(|r| r.get("skill_recommendation"))
+                    .and_then(|s| s.get(key))
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
                 let next = !current;
                 self.send_daemon_command(DaemonCommand::SetConfigItem {
-                    key_path: "/skill_discovery/enabled".to_string(),
+                    key_path: format!("/skill_recommendation/{key}"),
                     value_json: next.to_string(),
                 });
                 if let Some(ref mut raw) = self.config.agent_config_raw {
-                    if raw.get("skill_discovery").is_none() {
-                        raw["skill_discovery"] = serde_json::json!({});
+                    if raw.get("skill_recommendation").is_none() {
+                        raw["skill_recommendation"] = serde_json::json!({});
                     }
-                    raw["skill_discovery"]["enabled"] = serde_json::Value::Bool(next);
+                    raw["skill_recommendation"][key] = serde_json::Value::Bool(next);
                 }
             }
             "whatsapp_link_device" => {
@@ -420,5 +425,4 @@ impl TuiModel {
         }
         false
     }
-
 }

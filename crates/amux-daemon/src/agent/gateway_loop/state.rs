@@ -326,7 +326,9 @@ pub(super) fn build_gateway_agent_prompt(
          Reply naturally in plain text. Your final assistant response will be delivered back to the user automatically.\n\
          If you expect a longer multi-step tool run and want to send an early progress update, you may call {reply_tool_name} first with a brief acknowledgment such as \"On it, give me a moment...\", then continue with the rest of the work.",
     );
-    if let Some(active_responder_name) = active_responder_name.filter(|value| !value.trim().is_empty()) {
+    if let Some(active_responder_name) =
+        active_responder_name.filter(|value| !value.trim().is_empty())
+    {
         prompt.push_str("\n\n");
         prompt.push_str(&format!(
             "Current active responder for this thread: {active_responder_name}. You are already speaking as {active_responder_name} here. \

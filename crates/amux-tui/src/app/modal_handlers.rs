@@ -534,19 +534,40 @@ impl TuiModel {
                                     }
                                 }
                             }
-                            "feat_skill_promotion_threshold" => {
+                            "feat_skill_community_preapprove_timeout_secs" => {
                                 if let Ok(n) = value.parse::<u64>() {
-                                    let clamped = n.clamp(1, 100);
+                                    let clamped = n.clamp(5, 300);
                                     self.send_daemon_command(DaemonCommand::SetConfigItem {
-                                        key_path: "/skill_discovery/promotion_threshold"
-                                            .to_string(),
+                                        key_path:
+                                            "/skill_recommendation/community_preapprove_timeout_secs"
+                                                .to_string(),
                                         value_json: format!("{}", clamped),
                                     });
                                     if let Some(ref mut raw) = self.config.agent_config_raw {
-                                        if raw.get("skill_discovery").is_none() {
-                                            raw["skill_discovery"] = serde_json::json!({});
+                                        if raw.get("skill_recommendation").is_none() {
+                                            raw["skill_recommendation"] = serde_json::json!({});
                                         }
-                                        raw["skill_discovery"]["promotion_threshold"] =
+                                        raw["skill_recommendation"]
+                                            ["community_preapprove_timeout_secs"] =
+                                            serde_json::json!(clamped);
+                                    }
+                                }
+                            }
+                            "feat_skill_suggest_global_enable_after_approvals" => {
+                                if let Ok(n) = value.parse::<u64>() {
+                                    let clamped = n.clamp(1, 12);
+                                    self.send_daemon_command(DaemonCommand::SetConfigItem {
+                                        key_path:
+                                            "/skill_recommendation/suggest_global_enable_after_approvals"
+                                                .to_string(),
+                                        value_json: format!("{}", clamped),
+                                    });
+                                    if let Some(ref mut raw) = self.config.agent_config_raw {
+                                        if raw.get("skill_recommendation").is_none() {
+                                            raw["skill_recommendation"] = serde_json::json!({});
+                                        }
+                                        raw["skill_recommendation"]
+                                            ["suggest_global_enable_after_approvals"] =
                                             serde_json::json!(clamped);
                                     }
                                 }
@@ -824,6 +845,30 @@ impl TuiModel {
                 }
                 KeyCode::Char('o') | KeyCode::Char('O') | KeyCode::Enter => {
                     self.handle_modal_enter(kind);
+                }
+                _ => {}
+            }
+            return false;
+        }
+
+        if kind == modal::ModalKind::PromptViewer {
+            match code {
+                KeyCode::Esc => {
+                    self.close_top_modal();
+                }
+                KeyCode::Char('/') => {
+                    self.close_top_modal();
+                    self.input.reduce(input::InputAction::InsertChar('/'));
+                    self.focus = FocusArea::Input;
+                }
+                KeyCode::Down | KeyCode::Char('j') => self.step_prompt_modal_scroll(1),
+                KeyCode::Up | KeyCode::Char('k') => self.step_prompt_modal_scroll(-1),
+                KeyCode::PageDown => self.page_prompt_modal_scroll(1),
+                KeyCode::PageUp => self.page_prompt_modal_scroll(-1),
+                KeyCode::Home => self.set_prompt_modal_scroll(0),
+                KeyCode::End => {
+                    let max_scroll = self.prompt_modal_max_scroll();
+                    self.set_prompt_modal_scroll(max_scroll);
                 }
                 _ => {}
             }

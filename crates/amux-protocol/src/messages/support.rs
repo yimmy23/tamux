@@ -88,6 +88,51 @@ pub struct CommunitySkillEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkillDiscoveryCandidatePublic {
+    #[serde(default)]
+    pub variant_id: String,
+    #[serde(default)]
+    pub skill_name: String,
+    #[serde(default)]
+    pub variant_name: String,
+    #[serde(default)]
+    pub relative_path: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub score: f64,
+    #[serde(default)]
+    pub confidence_tier: String,
+    #[serde(default)]
+    pub reasons: Vec<String>,
+    #[serde(default)]
+    pub context_tags: Vec<String>,
+    #[serde(default)]
+    pub use_count: u32,
+    #[serde(default)]
+    pub success_count: u32,
+    #[serde(default)]
+    pub failure_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkillDiscoveryResultPublic {
+    pub query: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub confidence_tier: String,
+    #[serde(default)]
+    pub recommended_action: String,
+    #[serde(default)]
+    pub explicit_rationale_required: bool,
+    #[serde(default)]
+    pub workspace_tags: Vec<String>,
+    #[serde(default)]
+    pub candidates: Vec<SkillDiscoveryCandidatePublic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScanReportPublic {
     pub verdict: String,
     pub findings_count: u32,

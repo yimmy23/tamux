@@ -1,5 +1,8 @@
 use super::*;
 use amux_protocol::SecurityLevel;
+
+const COMMUNITY_SCOUT_RESULT_LIMIT: usize = 5;
+
 #[derive(Clone)]
 struct DirectThreadResponderConfig {
     agent_name: String,
@@ -86,6 +89,77 @@ fn build_direct_thread_responder_config(
         }),
     })
 }
+
+fn spawn_background_community_scout(
+    engine: &AgentEngine,
+    thread_id: &str,
+    query: &str,
+    config: &AgentConfig,
+) {
+    if !config.skill_recommendation.background_community_search {
+        return;
+    }
+
+    let event_tx = engine.event_tx.clone();
+    let data_dir = engine
+        .data_dir
+        .parent()
+        .unwrap_or(engine.data_dir.as_path())
+        .to_path_buf();
+    let registry_url = config
+        .extra
+        .get("registry_url")
+        .and_then(|value| value.as_str())
+        .unwrap_or("https://registry.tamux.dev")
+        .to_string();
+    let community_preapprove_timeout_secs = config
+        .skill_recommendation
+        .community_preapprove_timeout_secs;
+    let suggest_global_enable_after_approvals = config
+        .skill_recommendation
+        .suggest_global_enable_after_approvals;
+    let thread_id = thread_id.to_string();
+    let query = query.to_string();
+
+    tokio::spawn(async move {
+        let (candidates, error) =
+            match crate::agent::skill_recommendation::discover_community_skills(
+                &data_dir,
+                &registry_url,
+                &query,
+                COMMUNITY_SCOUT_RESULT_LIMIT,
+            )
+            .await
+            {
+                Ok(candidates) => (candidates, None),
+                Err(error) => (Vec::new(), Some(error.to_string())),
+            };
+
+        let message = if candidates.is_empty() {
+            "Background community scout found no additional install candidates.".to_string()
+        } else {
+            format!(
+                "Background community scout found {} install candidate(s).",
+                candidates.len()
+            )
+        };
+        let details = serde_json::json!({
+            "query": query,
+            "candidates": candidates,
+            "community_preapprove_timeout_secs": community_preapprove_timeout_secs,
+            "suggest_global_enable_after_approvals": suggest_global_enable_after_approvals,
+            "error": error,
+        });
+
+        let _ = event_tx.send(AgentEvent::WorkflowNotice {
+            thread_id,
+            kind: "skill-community-scout".to_string(),
+            message,
+            details: Some(details.to_string()),
+        });
+    });
+}
+
 impl<'a> SendMessageRunner<'a> {
     pub(super) async fn initialize(
         engine: &'a AgentEngine,
@@ -243,6 +317,11 @@ impl<'a> SendMessageRunner<'a> {
         let skill_preflight = engine
             .build_skill_preflight_context(stored_user_content, preferred_session_id.clone())
             .await?;
+        if let Some(skill_preflight) = skill_preflight.as_ref() {
+            engine
+                .set_thread_skill_discovery_state(&tid, skill_preflight.state.clone())
+                .await;
+        }
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
         let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override
@@ -458,9 +537,9 @@ impl<'a> SendMessageRunner<'a> {
                 .push_str("Use this as historical context from prior sessions when relevant:\n");
             system_prompt.push_str(recall);
         }
-        if let Some(skill_preflight) = skill_preflight.as_deref() {
+        if let Some(skill_preflight) = skill_preflight.as_ref() {
             system_prompt.push_str("\n\n## Preloaded Skills\n");
-            system_prompt.push_str(skill_preflight);
+            system_prompt.push_str(&skill_preflight.prompt_context);
         }
         match engine
             .maybe_build_honcho_context(&tid, stored_user_content)
@@ -486,12 +565,14 @@ impl<'a> SendMessageRunner<'a> {
             )),
         );
         if skill_preflight.is_some() {
+            let skill_preflight = skill_preflight.as_ref().expect("checked Some");
             engine.emit_workflow_notice(
                 &tid,
                 "skill-preflight",
-                "Preloaded relevant local skills for this turn before tool execution.",
-                None,
+                skill_preflight.workflow_message.clone(),
+                skill_preflight.workflow_details.clone(),
             );
+            spawn_background_community_scout(engine, &tid, stored_user_content, &config);
         }
         let has_workspace_topology = engine.session_manager.read_workspace_topology().is_some();
         let mut tools = get_available_tools(&config, &engine.data_dir, has_workspace_topology);

@@ -10,6 +10,16 @@ impl TuiModel {
         self.status_modal_error = None;
     }
 
+    pub(in crate::app) fn handle_prompt_inspection_event(
+        &mut self,
+        prompt: crate::client::AgentPromptInspectionVm,
+    ) {
+        self.prompt_modal_snapshot = Some(prompt);
+        self.prompt_modal_loading = false;
+        self.prompt_modal_error = None;
+        self.prompt_modal_scroll = 0;
+    }
+
     pub(in crate::app) fn handle_agent_config_event(
         &mut self,
         cfg: crate::wire::AgentConfigSnapshot,

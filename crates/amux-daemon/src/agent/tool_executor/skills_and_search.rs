@@ -126,7 +126,7 @@ async fn execute_read_skill(
         .display()
         .to_string();
 
-    let mut body = if let Some(variant) = variant {
+    let mut body = if let Some(ref variant) = variant {
         let tags = if variant.context_tags.is_empty() {
             "none".to_string()
         } else {
@@ -150,7 +150,34 @@ async fn execute_read_skill(
             "\n\n... (truncated, showing {max_lines} of {total_lines} lines)"
         ));
     }
+    let compliance_identifier = variant
+        .as_ref()
+        .map(|entry| entry.skill_name.as_str())
+        .unwrap_or(skill);
+    let _ = agent
+        .record_thread_skill_read_compliance(thread_id, compliance_identifier)
+        .await;
     Ok(body)
+}
+
+async fn execute_justify_skill_skip(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+) -> Result<String> {
+    let rationale = args
+        .get("rationale")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'rationale' argument"))?;
+    let state = agent
+        .record_thread_skill_skip_rationale(thread_id, rationale)
+        .await?;
+    Ok(format!(
+        "Recorded skill skip rationale. Confidence={} compliant={} next_action={}.",
+        state.confidence_tier, state.compliant, state.recommended_action
+    ))
 }
 
 async fn execute_update_todo(
@@ -468,4 +495,3 @@ async fn execute_ddg_search(
         ))
     }
 }
-

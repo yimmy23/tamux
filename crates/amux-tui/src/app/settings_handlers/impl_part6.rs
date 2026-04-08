@@ -115,18 +115,32 @@ impl TuiModel {
                     .start_editing("feat_heuristic_promotion_threshold", &current);
                 true
             }
-            "feat_skill_promotion_threshold" => {
+            "feat_skill_community_preapprove_timeout_secs" => {
                 let current = self
                     .config
                     .agent_config_raw
                     .as_ref()
-                    .and_then(|r| r.get("skill_discovery"))
-                    .and_then(|s| s.get("promotion_threshold"))
+                    .and_then(|r| r.get("skill_recommendation"))
+                    .and_then(|s| s.get("community_preapprove_timeout_secs"))
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "30".to_string());
+                self.settings
+                    .start_editing("feat_skill_community_preapprove_timeout_secs", &current);
+                true
+            }
+            "feat_skill_suggest_global_enable_after_approvals" => {
+                let current = self
+                    .config
+                    .agent_config_raw
+                    .as_ref()
+                    .and_then(|r| r.get("skill_recommendation"))
+                    .and_then(|s| s.get("suggest_global_enable_after_approvals"))
                     .and_then(|v| v.as_u64())
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "3".to_string());
                 self.settings
-                    .start_editing("feat_skill_promotion_threshold", &current);
+                    .start_editing("feat_skill_suggest_global_enable_after_approvals", &current);
                 true
             }
             _ => false,
@@ -173,7 +187,8 @@ impl TuiModel {
                 | "feat_check_unreplied_messages"
                 | "feat_check_repo_changes"
                 | "feat_consolidation_enabled"
-                | "feat_skill_discovery_enabled"
+                | "feat_skill_recommendation_enabled"
+                | "feat_skill_background_community_search"
                 | "whatsapp_link_device"
                 | "whatsapp_relink_device"
         ) || self.current_settings_field_name().starts_with("tool_")

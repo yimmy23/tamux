@@ -100,6 +100,32 @@ fn select_ready_task_indices_fail_closed_when_goal_metadata_missing_for_goal_lin
 }
 
 #[test]
+fn select_ready_task_indices_allows_four_parallel_child_daemon_tasks() {
+    let mut tasks = VecDeque::new();
+    for id in 0..4 {
+        let mut task = make_task(&format!("child-{id}"), TaskStatus::Queued, None);
+        task.source = "subagent".to_string();
+        task.parent_task_id = Some("parent-task".to_string());
+        tasks.push_back(task);
+    }
+
+    let selected = select_ready_task_indices(&tasks, &[], &HashMap::new(), &make_default_config());
+
+    assert_eq!(selected.len(), 4, "up to four child daemon tasks should dispatch in parallel");
+
+    let lanes = selected.into_iter().map(|(_, lane)| lane).collect::<Vec<_>>();
+    assert_eq!(
+        lanes,
+        vec![
+            "daemon-subagent:child-0".to_string(),
+            "daemon-subagent:child-1".to_string(),
+            "daemon-subagent:child-2".to_string(),
+            "daemon-subagent:child-3".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn select_ready_task_indices_assigns_second_weles_lane_when_first_is_busy() {
     let mut tasks = VecDeque::new();
     let mut active = make_task("weles-active", TaskStatus::InProgress, None);

@@ -53,6 +53,16 @@ fn markdown_wraps_to_requested_width() {
 }
 
 #[test]
+fn markdown_empty_code_fence_language_is_normalized() {
+    let sanitized = normalize_markdown_for_tui("before\n```\nplain text\n```\nafter");
+
+    assert!(
+        sanitized.contains("```text\nplain text\n```"),
+        "expected empty fence language to be normalized, got {sanitized:?}"
+    );
+}
+
+#[test]
 fn markdown_tables_render_as_columns() {
     let lines = render_markdown(
         "| Skill | Size | Purpose |\n|---|---|---|\n| tamux-rust-dev.md | 3.4KB | Build and test Rust crates |",

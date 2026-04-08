@@ -1,4 +1,6 @@
-use anyhow::Result;
+use amux_protocol::{SessionId, SessionInfo};
+use anyhow::{Context, Result};
+use std::path::Path;
 
 use crate::cli::SkillAction;
 use crate::client;
@@ -25,6 +27,15 @@ pub(crate) async fn run(action: SkillAction) -> Result<()> {
                 }
                 println!("\n{} skill(s) shown.", variants.len());
             }
+        }
+        SkillAction::Discover {
+            query,
+            session,
+            limit,
+        } => {
+            let session_id = resolve_skill_discovery_session(session.as_deref()).await?;
+            let result = client::send_skill_discover(&query, session_id, limit).await?;
+            println!("{}", render_skill_discovery(&result));
         }
         SkillAction::Inspect { name } => {
             let (variant, content) = client::send_skill_inspect(&name).await?;
@@ -142,4 +153,231 @@ pub(crate) async fn run(action: SkillAction) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn render_skill_discovery(result: &amux_protocol::SkillDiscoveryResultPublic) -> String {
+    let mut lines = vec![
+        format!("Confidence: {}", display_or_none(&result.confidence_tier)),
+        format!(
+            "Next action: {}",
+            display_or_none(&result.recommended_action)
+        ),
+    ];
+
+    if result.candidates.is_empty() {
+        lines.push("No matching skills found.".to_string());
+        return lines.join("\n");
+    }
+
+    for (index, candidate) in result.candidates.iter().enumerate() {
+        lines.push(format!(
+            "{}. {} [{}] score={}",
+            index + 1,
+            candidate.skill_name,
+            candidate.status,
+            (candidate.score * 100.0).round() as u32
+        ));
+        let reasons = if candidate.reasons.is_empty() {
+            "none".to_string()
+        } else {
+            candidate.reasons.join(", ")
+        };
+        lines.push(format!("   reasons: {reasons}"));
+    }
+
+    lines.join("\n")
+}
+
+fn display_or_none(value: &str) -> &str {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        "none"
+    } else {
+        trimmed
+    }
+}
+
+fn parse_skill_discovery_session(value: Option<&str>) -> Result<Option<SessionId>> {
+    value
+        .map(|session| {
+            session
+                .parse()
+                .with_context(|| format!("invalid session ID `{session}`"))
+        })
+        .transpose()
+}
+
+fn infer_skill_discovery_session_for_cwd(
+    sessions: &[SessionInfo],
+    cwd: &Path,
+) -> Option<SessionId> {
+    sessions
+        .iter()
+        .filter(|session| session.is_alive)
+        .filter_map(|session| {
+            let session_cwd = session.cwd.as_deref()?;
+            let session_path = Path::new(session_cwd);
+            cwd.starts_with(session_path)
+                .then_some((session_path.components().count(), session.id))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, session_id)| session_id)
+}
+
+async fn resolve_skill_discovery_session(value: Option<&str>) -> Result<Option<SessionId>> {
+    if let Some(session_id) = parse_skill_discovery_session(value)? {
+        return Ok(Some(session_id));
+    }
+
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(_) => return Ok(None),
+    };
+    let sessions = client::list_sessions().await?;
+    Ok(infer_skill_discovery_session_for_cwd(&sessions, &cwd))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        infer_skill_discovery_session_for_cwd, parse_skill_discovery_session,
+        render_skill_discovery,
+    };
+    use amux_protocol::SessionInfo;
+    use std::path::Path;
+
+    #[test]
+    fn render_skill_discovery_formats_ranked_candidates() {
+        let rendered = render_skill_discovery(&amux_protocol::SkillDiscoveryResultPublic {
+            query: "debug panic".to_string(),
+            required: true,
+            confidence_tier: "strong".to_string(),
+            recommended_action: "read_skill systematic-debugging".to_string(),
+            explicit_rationale_required: false,
+            workspace_tags: vec!["rust".to_string()],
+            candidates: vec![amux_protocol::SkillDiscoveryCandidatePublic {
+                variant_id: "local:systematic-debugging:v1".to_string(),
+                skill_name: "systematic-debugging".to_string(),
+                variant_name: "v1".to_string(),
+                relative_path: "generated/systematic-debugging/SKILL.md".to_string(),
+                status: "active".to_string(),
+                score: 0.93,
+                confidence_tier: "strong".to_string(),
+                reasons: vec![
+                    "matched debug".to_string(),
+                    "workspace rust".to_string(),
+                    "14/16 successful uses".to_string(),
+                ],
+                context_tags: vec!["rust".to_string()],
+                use_count: 16,
+                success_count: 14,
+                failure_count: 2,
+            }],
+        });
+
+        assert!(rendered.contains("Confidence: strong"));
+        assert!(rendered.contains("Next action: read_skill systematic-debugging"));
+        assert!(rendered.contains("1. systematic-debugging [active] score=93"));
+        assert!(rendered.contains("reasons: matched debug, workspace rust, 14/16 successful uses"));
+    }
+
+    #[test]
+    fn infer_skill_discovery_session_matches_exact_cwd() {
+        let expected =
+            uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").expect("valid test uuid");
+        let sessions = vec![
+            SessionInfo {
+                id: expected,
+                title: Some("repo".to_string()),
+                cwd: Some("/workspace/repo".to_string()),
+                cols: 80,
+                rows: 24,
+                created_at: 1,
+                workspace_id: None,
+                exit_code: None,
+                is_alive: true,
+                active_command: None,
+            },
+            SessionInfo {
+                id: uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001")
+                    .expect("valid test uuid"),
+                title: Some("other".to_string()),
+                cwd: Some("/workspace/repo/subdir".to_string()),
+                cols: 80,
+                rows: 24,
+                created_at: 2,
+                workspace_id: None,
+                exit_code: None,
+                is_alive: true,
+                active_command: None,
+            },
+        ];
+
+        let selected =
+            infer_skill_discovery_session_for_cwd(&sessions, Path::new("/workspace/repo"));
+
+        assert_eq!(selected, Some(expected));
+    }
+
+    #[test]
+    fn infer_skill_discovery_session_prefers_nearest_ancestor_cwd() {
+        let repo_root =
+            uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440010").expect("valid test uuid");
+        let subdir =
+            uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440011").expect("valid test uuid");
+        let sessions = vec![
+            SessionInfo {
+                id: repo_root,
+                title: Some("repo".to_string()),
+                cwd: Some("/workspace/repo".to_string()),
+                cols: 80,
+                rows: 24,
+                created_at: 1,
+                workspace_id: None,
+                exit_code: None,
+                is_alive: true,
+                active_command: None,
+            },
+            SessionInfo {
+                id: subdir,
+                title: Some("subdir".to_string()),
+                cwd: Some("/workspace/repo/services/api".to_string()),
+                cols: 80,
+                rows: 24,
+                created_at: 2,
+                workspace_id: None,
+                exit_code: None,
+                is_alive: true,
+                active_command: None,
+            },
+        ];
+
+        let selected = infer_skill_discovery_session_for_cwd(
+            &sessions,
+            Path::new("/workspace/repo/services/api/src"),
+        );
+
+        assert_eq!(selected, Some(subdir));
+    }
+
+    #[test]
+    fn parse_skill_discovery_session_rejects_invalid_uuid() {
+        let result = parse_skill_discovery_session(Some("not-a-uuid"));
+
+        assert!(result.is_err(), "invalid session id should be rejected");
+    }
+
+    #[test]
+    fn parse_skill_discovery_session_returns_uuid() {
+        let parsed = parse_skill_discovery_session(Some("550e8400-e29b-41d4-a716-446655440000"))
+            .expect("valid session id should parse");
+
+        assert_eq!(
+            parsed,
+            Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+                    .expect("valid test uuid")
+            )
+        );
+    }
 }

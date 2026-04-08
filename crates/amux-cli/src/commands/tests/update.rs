@@ -4,6 +4,13 @@ use crate::commands::core::should_check_for_updates;
 #[test]
 fn checks_updates_for_user_facing_commands() {
     assert!(should_check_for_updates(&Commands::Status));
+    assert!(should_check_for_updates(&Commands::Prompt {
+        agent: None,
+        weles: false,
+        concierge: false,
+        rarog: false,
+        json: false,
+    }));
     assert!(should_check_for_updates(&Commands::Setup));
     assert!(should_check_for_updates(&Commands::List));
 }

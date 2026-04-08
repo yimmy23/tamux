@@ -27,6 +27,128 @@ fn content_inner(area: Rect) -> Rect {
     area
 }
 
+fn scrollbar_layout_from_metrics(
+    area: Rect,
+    total_lines: usize,
+    scroll: usize,
+) -> Option<ChatScrollbarLayout> {
+    if area.width <= SCROLLBAR_WIDTH || area.height == 0 || total_lines <= area.height as usize {
+        return None;
+    }
+
+    let viewport = area.height as usize;
+    let max_scroll = total_lines.saturating_sub(viewport);
+    let scroll = scroll.min(max_scroll);
+    let content = Rect::new(
+        area.x,
+        area.y,
+        area.width.saturating_sub(SCROLLBAR_WIDTH),
+        area.height,
+    );
+    let scrollbar = Rect::new(
+        area.x.saturating_add(area.width).saturating_sub(SCROLLBAR_WIDTH),
+        area.y,
+        SCROLLBAR_WIDTH,
+        area.height,
+    );
+
+    let thumb_height = ((viewport * viewport) / total_lines).max(1).min(viewport) as u16;
+    let track_span = scrollbar.height.saturating_sub(thumb_height);
+    let thumb_offset = if max_scroll == 0 || track_span == 0 {
+        0
+    } else {
+        (((max_scroll.saturating_sub(scroll)) * track_span as usize) + (max_scroll / 2))
+            / max_scroll
+    } as u16;
+    let thumb = Rect::new(
+        scrollbar.x,
+        scrollbar.y.saturating_add(thumb_offset),
+        scrollbar.width,
+        thumb_height,
+    );
+
+    Some(ChatScrollbarLayout {
+        content,
+        scrollbar,
+        thumb,
+        scroll,
+        max_scroll,
+    })
+}
+
+fn scroll_offset_from_thumb_offset(
+    thumb_offset: u16,
+    track_span: u16,
+    max_scroll: usize,
+) -> usize {
+    if max_scroll == 0 || track_span == 0 {
+        return 0;
+    }
+
+    let toward_bottom =
+        ((thumb_offset as usize * max_scroll) + (track_span as usize / 2)) / track_span as usize;
+    max_scroll.saturating_sub(toward_bottom.min(max_scroll))
+}
+
+pub(crate) fn scrollbar_layout(
+    area: Rect,
+    chat: &ChatState,
+    theme: &ThemeTokens,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+) -> Option<ChatScrollbarLayout> {
+    if area.width <= SCROLLBAR_WIDTH || area.height == 0 {
+        return None;
+    }
+
+    let (all_lines, message_line_ranges) = build_rendered_lines(
+        chat,
+        theme,
+        area.width as usize,
+        current_tick,
+        retry_wait_start_selected,
+    );
+    let scroll = resolved_scroll(
+        chat,
+        all_lines.len(),
+        area.height as usize,
+        &message_line_ranges,
+    );
+
+    scrollbar_layout_from_metrics(area, all_lines.len(), scroll)
+}
+
+pub(crate) fn scrollbar_scroll_offset_for_pointer(
+    area: Rect,
+    chat: &ChatState,
+    theme: &ThemeTokens,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+    pointer_row: u16,
+    grab_offset: u16,
+) -> Option<usize> {
+    let layout = scrollbar_layout(area, chat, theme, current_tick, retry_wait_start_selected)?;
+    let track_span = layout.scrollbar.height.saturating_sub(layout.thumb.height);
+    let clamped_row = pointer_row.clamp(
+        layout.scrollbar.y,
+        layout
+            .scrollbar
+            .y
+            .saturating_add(layout.scrollbar.height)
+            .saturating_sub(1),
+    );
+    let desired_top = clamped_row
+        .saturating_sub(layout.scrollbar.y)
+        .saturating_sub(grab_offset)
+        .min(track_span);
+
+    Some(scroll_offset_from_thumb_offset(
+        desired_top,
+        track_span,
+        layout.max_scroll,
+    ))
+}
+
 fn visible_lines(
     all_lines: &[RenderedChatLine],
     inner_height: usize,
@@ -115,6 +237,7 @@ fn selection_snapshot(
     if inner.width == 0 || inner.height == 0 {
         return None;
     }
+    let key = render_cache_key(area, chat, current_tick, retry_wait_start_selected);
 
     let (all_lines, message_line_ranges) = build_rendered_lines(
         chat,
@@ -137,8 +260,10 @@ fn selection_snapshot(
         visible_window_bounds(all_lines.len(), inner.height as usize, scroll);
 
     Some(SelectionSnapshot {
+        key,
         inner,
         all_lines,
+        message_line_ranges,
         start_idx,
         end_idx,
         padding,

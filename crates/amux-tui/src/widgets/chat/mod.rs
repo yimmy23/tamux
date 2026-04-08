@@ -13,6 +13,7 @@ use crate::theme::ThemeTokens;
 const MESSAGE_PADDING_X: usize = 2;
 const MESSAGE_PADDING_Y: usize = 1;
 const TOGGLE_BUTTON_HIT_WIDTH: usize = 2;
+const SCROLLBAR_WIDTH: u16 = 1;
 
 #[cfg(test)]
 thread_local! {

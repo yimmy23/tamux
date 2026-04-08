@@ -58,6 +58,27 @@ Skill file: [operating/tasks.md](operating/tasks.md)
 
 ---
 
+## Subagents
+
+Use provider/model discovery before pinning a spawned agent to a specific runtime config.
+
+| Tool | Purpose | Key Parameters |
+| --- | --- | --- |
+| `fetch_authenticated_providers` | List authenticated providers that are ready to run child agents | -- |
+| `fetch_provider_models` | Fetch remotely available models for one authenticated provider | `provider` |
+| `spawn_subagent` | Spawn a bounded child task, optionally with explicit `provider`/`model` overrides | `title`, `description`, `provider?`, `model?`, `runtime?`, `session?` |
+
+Recommended flow:
+
+```
+fetch_authenticated_providers   -> choose provider
+fetch_provider_models           -> provider: "openai"
+spawn_subagent                  -> title, description, provider, model
+list_subagents                  -> monitor child progress
+```
+
+---
+
 ## Goal Runners
 
 Skill file: [operating/goals.md](operating/goals.md)

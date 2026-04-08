@@ -1,151 +1,196 @@
 use super::*;
-use crate::history::SkillVariantRecord;
+use crate::agent::types::SkillRecommendationConfig;
 use amux_protocol::SessionId;
-use std::collections::BTreeSet;
-use std::path::Path;
 
 const MAX_SKILL_PREFLIGHT_MATCHES: usize = 3;
-const MAX_SKILL_PREFLIGHT_LINES: usize = 40;
-const MAX_SKILL_PREFLIGHT_CHARS: usize = 2400;
+
+pub(crate) struct SkillPreflightContext {
+    pub prompt_context: String,
+    pub state: LatestSkillDiscoveryState,
+    pub workflow_message: String,
+    pub workflow_details: Option<String>,
+}
 
 impl AgentEngine {
+    pub(crate) async fn discover_skill_recommendations_public(
+        &self,
+        query: &str,
+        session_id: Option<SessionId>,
+        limit: usize,
+    ) -> Result<amux_protocol::SkillDiscoveryResultPublic> {
+        let context = self.run_skill_discovery(query, session_id, limit).await?;
+
+        Ok(translate_skill_discovery_result(
+            query,
+            &context.context_tags,
+            &context.result,
+            &context.cfg,
+        ))
+    }
+
     pub(super) async fn build_skill_preflight_context(
         &self,
         content: &str,
         session_id: Option<SessionId>,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<SkillPreflightContext>> {
         if !should_run_skill_preflight(content) {
             return Ok(None);
         }
 
-        let skills_root = skills_dir(&self.data_dir);
-        sync_skill_catalog(&skills_root, &self.history).await?;
+        let context = self
+            .run_skill_discovery(content, session_id, MAX_SKILL_PREFLIGHT_MATCHES)
+            .await?;
+        let state = build_latest_skill_discovery_state(content, &context.result);
+
+        Ok(Some(SkillPreflightContext {
+            prompt_context: build_skill_preflight_prompt(content, &context.result, &state),
+            workflow_message: format!(
+                "Skill discovery confidence: {}. Next action: {}.",
+                state.confidence_tier, state.recommended_action
+            ),
+            workflow_details: serde_json::to_string(&state).ok(),
+            state,
+        }))
+    }
+
+    pub(crate) async fn refresh_thread_skill_discovery_state(
+        &self,
+        thread_id: &str,
+        query: &str,
+        session_id: Option<SessionId>,
+        limit: usize,
+    ) -> Result<LatestSkillDiscoveryState> {
+        let context = self.run_skill_discovery(query, session_id, limit).await?;
+        let state = build_latest_skill_discovery_state(query, &context.result);
+        self.set_thread_skill_discovery_state(thread_id, state.clone())
+            .await;
+        Ok(state)
+    }
+
+    pub(crate) async fn record_thread_skill_skip_rationale(
+        &self,
+        thread_id: &str,
+        rationale: &str,
+    ) -> Result<LatestSkillDiscoveryState> {
+        let trimmed = rationale.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("skip rationale must not be empty");
+        }
+
+        let mut state = self
+            .get_thread_skill_discovery_state(thread_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("no active skill discovery state for this thread"))?;
+        state.skip_rationale = Some(trimmed.to_string());
+        state.compliant = !state.confidence_tier.eq_ignore_ascii_case("strong");
+        state.updated_at = now_millis();
+        self.set_thread_skill_discovery_state(thread_id, state.clone())
+            .await;
+        Ok(state)
+    }
+
+    pub(crate) async fn record_thread_skill_read_compliance(
+        &self,
+        thread_id: &str,
+        skill_identifier: &str,
+    ) -> Option<LatestSkillDiscoveryState> {
+        let mut state = self.get_thread_skill_discovery_state(thread_id).await?;
+        if !state.confidence_tier.eq_ignore_ascii_case("strong") {
+            return Some(state);
+        }
+        let expected = state
+            .read_skill_identifier
+            .as_deref()
+            .or(state.recommended_skill.as_deref())?;
+        if !skill_identifier_matches(expected, skill_identifier) {
+            return Some(state);
+        }
+
+        state.compliant = true;
+        state.updated_at = now_millis();
+        self.set_thread_skill_discovery_state(thread_id, state.clone())
+            .await;
+        Some(state)
+    }
+
+    async fn run_skill_discovery(
+        &self,
+        query: &str,
+        session_id: Option<SessionId>,
+        limit: usize,
+    ) -> Result<SkillDiscoveryComputation> {
+        let skills_root = self.history.data_dir().to_path_buf();
         let context_tags = resolve_skill_context_tags(&self.session_manager, session_id).await;
-        let matches =
-            select_skill_matches(&self.history, &skills_root, content, &context_tags).await?;
-        if matches.is_empty() {
-            return Ok(None);
-        }
-
-        let mut body = String::from(
-            "Daemon skill preflight loaded these local skills before tool execution. Reuse them when they fit the task.\n",
-        );
-        for skill_match in matches {
-            let tags = if skill_match.record.context_tags.is_empty() {
-                "none".to_string()
-            } else {
-                skill_match.record.context_tags.join(", ")
-            };
-            body.push_str(&format!(
-                "\n- {} [{} | status={} | uses={} | success={:.0}% | tags={}]\n  Reason: {}\n  Path: {}\n{}\n",
-                skill_match.record.skill_name,
-                skill_match.record.variant_name,
-                skill_match.record.status,
-                skill_match.record.use_count,
-                skill_match.record.success_rate() * 100.0,
-                tags,
-                skill_match.reason,
-                skill_match.record.relative_path,
-                skill_match.excerpt
-            ));
-        }
-
-        Ok(Some(body))
+        let cfg = self.config.read().await.skill_recommendation.clone();
+        let result = super::skill_recommendation::discover_local_skills(
+            &self.history,
+            &skills_root,
+            query,
+            &context_tags,
+            limit,
+            &cfg,
+        )
+        .await?;
+        Ok(SkillDiscoveryComputation {
+            context_tags,
+            cfg,
+            result,
+        })
     }
 }
 
-struct SkillPreflightMatch {
-    record: SkillVariantRecord,
-    reason: String,
-    excerpt: String,
-    score: i32,
+struct SkillDiscoveryComputation {
+    context_tags: Vec<String>,
+    cfg: SkillRecommendationConfig,
+    result: super::skill_recommendation::SkillDiscoveryResult,
 }
 
-async fn select_skill_matches(
-    history: &HistoryStore,
-    skills_root: &Path,
-    content: &str,
+fn translate_skill_discovery_result(
+    query: &str,
     context_tags: &[String],
-) -> Result<Vec<SkillPreflightMatch>> {
-    let request_tokens = tokenize(content);
-    let request_text = content.to_ascii_lowercase();
-    let tool_heavy_request = looks_tool_heavy(&request_text);
-    let mut matches = Vec::new();
+    result: &super::skill_recommendation::SkillDiscoveryResult,
+    cfg: &SkillRecommendationConfig,
+) -> amux_protocol::SkillDiscoveryResultPublic {
+    let top_skill_name = result
+        .recommendations
+        .first()
+        .map(|recommendation| recommendation.record.skill_name.as_str());
 
-    for record in history.list_skill_variants(None, 256).await? {
-        if matches!(record.status.as_str(), "archived" | "merged" | "draft") {
-            continue;
-        }
-
-        let score = score_skill_variant(&record, &request_tokens, context_tags, tool_heavy_request);
-        if score < 24 {
-            continue;
-        }
-
-        let skill_path = skills_root.join(&record.relative_path);
-        let content = std::fs::read_to_string(&skill_path).with_context(|| {
-            format!(
-                "failed to read skill preflight file {}",
-                skill_path.display()
+    amux_protocol::SkillDiscoveryResultPublic {
+        query: query.to_string(),
+        required: !matches!(
+            result.recommended_action,
+            super::skill_recommendation::SkillRecommendationAction::None
+        ),
+        confidence_tier: confidence_label(result.confidence).to_string(),
+        recommended_action: recommended_action_label(result.recommended_action, top_skill_name),
+        explicit_rationale_required: matches!(
+            result.recommended_action,
+            super::skill_recommendation::SkillRecommendationAction::JustifySkip
+        ),
+        workspace_tags: context_tags.to_vec(),
+        candidates: result
+            .recommendations
+            .iter()
+            .map(
+                |recommendation| amux_protocol::SkillDiscoveryCandidatePublic {
+                    variant_id: recommendation.record.variant_id.clone(),
+                    skill_name: recommendation.record.skill_name.clone(),
+                    variant_name: recommendation.record.variant_name.clone(),
+                    relative_path: recommendation.record.relative_path.clone(),
+                    status: recommendation.record.status.clone(),
+                    score: recommendation.score,
+                    confidence_tier: candidate_confidence_label(recommendation.score, cfg)
+                        .to_string(),
+                    reasons: split_reasons(&recommendation.reason),
+                    context_tags: recommendation.record.context_tags.clone(),
+                    use_count: recommendation.record.use_count,
+                    success_count: recommendation.record.success_count,
+                    failure_count: recommendation.record.failure_count,
+                },
             )
-        })?;
-        matches.push(SkillPreflightMatch {
-            reason: build_reason(&record, &request_tokens, context_tags, tool_heavy_request),
-            excerpt: excerpt_skill(&content),
-            record,
-            score,
-        });
+            .collect(),
     }
-
-    matches.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| right.record.success_count.cmp(&left.record.success_count))
-            .then_with(|| right.record.use_count.cmp(&left.record.use_count))
-            .then_with(|| left.record.relative_path.cmp(&right.record.relative_path))
-    });
-
-    let mut selected = Vec::new();
-    let mut seen_families = BTreeSet::new();
-    for skill_match in matches {
-        if seen_families.insert(skill_match.record.skill_name.clone()) {
-            selected.push(skill_match);
-        }
-        if selected.len() >= MAX_SKILL_PREFLIGHT_MATCHES {
-            break;
-        }
-    }
-
-    Ok(selected)
-}
-
-async fn sync_skill_catalog(skills_root: &Path, history: &HistoryStore) -> Result<()> {
-    let mut files = Vec::new();
-    collect_skill_documents(skills_root, &mut files)?;
-    for path in files {
-        let _ = history.register_skill_document(&path).await;
-    }
-    Ok(())
-}
-
-fn collect_skill_documents(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_skill_documents(&path, out)?;
-        } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
-            out.push(path);
-        }
-    }
-    Ok(())
 }
 
 async fn resolve_skill_context_tags(
@@ -198,157 +243,202 @@ fn should_run_skill_preflight(content: &str) -> bool {
     .any(|keyword| normalized.contains(keyword))
 }
 
-fn looks_tool_heavy(content: &str) -> bool {
-    [
-        "tool", "command", "terminal", "session", "browser", "mcp", "api",
-    ]
-    .iter()
-    .any(|keyword| content.contains(keyword))
-}
+fn build_latest_skill_discovery_state(
+    query: &str,
+    result: &super::skill_recommendation::SkillDiscoveryResult,
+) -> LatestSkillDiscoveryState {
+    let recommended_skill = result
+        .recommendations
+        .first()
+        .map(|recommendation| recommendation.record.skill_name.clone());
+    let confidence_tier = confidence_label(result.confidence).to_string();
+    let recommended_action = if confidence_tier == "strong" {
+        recommended_skill
+            .as_ref()
+            .map(|skill_name| format!("read_skill {skill_name}"))
+            .unwrap_or_else(|| "read_skill".to_string())
+    } else {
+        "justify_skill_skip".to_string()
+    };
 
-fn score_skill_variant(
-    record: &SkillVariantRecord,
-    request_tokens: &BTreeSet<String>,
-    context_tags: &[String],
-    tool_heavy_request: bool,
-) -> i32 {
-    let searchable = format!(
-        "{} {} {} {}",
-        record.skill_name,
-        record.variant_name,
-        record.relative_path,
-        record.context_tags.join(" ")
-    )
-    .to_ascii_lowercase();
-    let overlap = request_tokens
-        .iter()
-        .filter(|token| searchable.contains(token.as_str()))
-        .count() as i32;
-    let context_overlap = context_tags
-        .iter()
-        .filter(|tag| {
-            record
-                .context_tags
-                .iter()
-                .any(|record_tag| record_tag == *tag)
-        })
-        .count() as i32;
-    let mut score = overlap * 28 + context_overlap * 10;
-    score += status_bonus(&record.status);
-    score += record.use_count.min(20) as i32;
-    score += (record.success_rate() * 10.0).round() as i32;
-    if record.is_canonical() {
-        score += 2;
-    }
-    if tool_heavy_request && record.relative_path.contains("builtin/cheatsheet") {
-        score += 20;
-    }
-    score
-}
-
-fn status_bonus(status: &str) -> i32 {
-    match status {
-        "promoted-to-canonical" => 18,
-        "active" => 12,
-        "deprecated" => 3,
-        _ => 0,
+    LatestSkillDiscoveryState {
+        query: query.to_string(),
+        confidence_tier,
+        recommended_skill: recommended_skill.clone(),
+        recommended_action,
+        read_skill_identifier: recommended_skill.filter(|_| {
+            matches!(
+                result.confidence,
+                super::skill_recommendation::SkillRecommendationConfidence::Strong
+            )
+        }),
+        skip_rationale: None,
+        compliant: false,
+        updated_at: now_millis(),
     }
 }
 
-fn build_reason(
-    record: &SkillVariantRecord,
-    request_tokens: &BTreeSet<String>,
-    context_tags: &[String],
-    tool_heavy_request: bool,
+fn build_skill_preflight_prompt(
+    query: &str,
+    result: &super::skill_recommendation::SkillDiscoveryResult,
+    state: &LatestSkillDiscoveryState,
 ) -> String {
-    let searchable = format!(
-        "{} {} {} {}",
-        record.skill_name,
-        record.variant_name,
-        record.relative_path,
-        record.context_tags.join(" ")
-    )
-    .to_ascii_lowercase();
-    let matched_tokens = request_tokens
-        .iter()
-        .filter(|token| searchable.contains(token.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    let matched_context = context_tags
-        .iter()
-        .filter(|tag| {
-            record
-                .context_tags
-                .iter()
-                .any(|record_tag| record_tag == *tag)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut body = format!(
+        "Daemon skill discovery already evaluated this request.\n- Query: {query}\n- Confidence: {}\n- Next action: {}\n",
+        state.confidence_tier, state.recommended_action
+    );
 
-    let mut reasons = Vec::new();
-    if !matched_tokens.is_empty() {
-        reasons.push(format!("request matched {}", matched_tokens.join(", ")));
+    match state.confidence_tier.as_str() {
+        "strong" => {
+            body.push_str(
+                "- Hard gate: do not call non-discovery tools until you read the recommended skill.\n",
+            );
+        }
+        _ => {
+            body.push_str(
+                "- Recommendation: if you proceed without a local skill, record the rationale with `justify_skill_skip`; this is guidance, not a hard prerequisite for other tools.\n",
+            );
+        }
     }
-    if !matched_context.is_empty() {
-        reasons.push(format!(
-            "workspace context matched {}",
-            matched_context.join(", ")
+
+    if result.recommendations.is_empty() {
+        body.push_str(
+            "- No installed skill cleared the weak threshold. If you continue, explain why no local skill fits; `justify_skill_skip` can record that rationale.\n",
+        );
+        return body;
+    }
+
+    for recommendation in &result.recommendations {
+        let tags = if recommendation.record.context_tags.is_empty() {
+            "none".to_string()
+        } else {
+            recommendation.record.context_tags.join(", ")
+        };
+        let summary = recommendation
+            .metadata
+            .summary
+            .as_deref()
+            .unwrap_or("No summary extracted.");
+        let reasons = split_reasons(&recommendation.reason).join(", ");
+        body.push_str(&format!(
+            "\n- {} [{} | status={} | score={:.2} | tags={}]\n  Reasons: {}\n  Summary: {}\n  Path: {}\n",
+            recommendation.record.skill_name,
+            recommendation.record.variant_name,
+            recommendation.record.status,
+            recommendation.score,
+            tags,
+            reasons,
+            summary,
+            recommendation.record.relative_path,
         ));
     }
-    if tool_heavy_request && record.relative_path.contains("builtin/cheatsheet") {
-        reasons
-            .push("request is tool-heavy, so the builtin tool cheatsheet is relevant".to_string());
-    }
-    if reasons.is_empty() {
-        reasons.push("historical success and skill ranking made this a likely fit".to_string());
-    }
-    reasons.join("; ")
+
+    body
 }
 
-fn excerpt_skill(content: &str) -> String {
-    let mut excerpt = content
-        .lines()
-        .take(MAX_SKILL_PREFLIGHT_LINES)
-        .collect::<Vec<_>>()
-        .join("\n");
-    if excerpt.len() > MAX_SKILL_PREFLIGHT_CHARS {
-        let new_len = excerpt
-            .char_indices()
-            .take_while(|(idx, ch)| *idx + ch.len_utf8() <= MAX_SKILL_PREFLIGHT_CHARS)
-            .map(|(idx, ch)| idx + ch.len_utf8())
-            .last()
-            .unwrap_or(0);
-        excerpt.truncate(new_len);
-        excerpt.push_str("\n...");
-    } else if content.lines().count() > MAX_SKILL_PREFLIGHT_LINES {
-        excerpt.push_str("\n...");
+fn skill_identifier_matches(expected: &str, actual: &str) -> bool {
+    let expected = expected.trim();
+    let actual = actual.trim();
+    if expected.is_empty() || actual.is_empty() {
+        return false;
     }
-    excerpt
+
+    expected.eq_ignore_ascii_case(actual)
+        || actual
+            .rsplit('/')
+            .next()
+            .is_some_and(|segment| expected.eq_ignore_ascii_case(segment))
+        || actual
+            .trim_end_matches(".md")
+            .trim_end_matches("/SKILL")
+            .ends_with(expected)
 }
 
-fn tokenize(content: &str) -> BTreeSet<String> {
-    content
-        .split(|character: char| {
-            !character.is_ascii_alphanumeric() && character != '-' && character != '_'
+fn confidence_label(
+    value: super::skill_recommendation::SkillRecommendationConfidence,
+) -> &'static str {
+    match value {
+        super::skill_recommendation::SkillRecommendationConfidence::Strong => "strong",
+        super::skill_recommendation::SkillRecommendationConfidence::Weak => "weak",
+        super::skill_recommendation::SkillRecommendationConfidence::None => "none",
+    }
+}
+
+fn action_label(value: super::skill_recommendation::SkillRecommendationAction) -> &'static str {
+    match value {
+        super::skill_recommendation::SkillRecommendationAction::ReadSkill => "read_skill",
+        super::skill_recommendation::SkillRecommendationAction::JustifySkip => "justify_skip",
+        super::skill_recommendation::SkillRecommendationAction::None => "none",
+    }
+}
+
+fn recommended_action_label(
+    action: super::skill_recommendation::SkillRecommendationAction,
+    top_skill_name: Option<&str>,
+) -> String {
+    match (action, top_skill_name) {
+        (super::skill_recommendation::SkillRecommendationAction::ReadSkill, Some(skill_name)) => {
+            format!("read_skill {skill_name}")
+        }
+        (super::skill_recommendation::SkillRecommendationAction::JustifySkip, Some(skill_name)) => {
+            format!("justify_skip {skill_name}")
+        }
+        _ => action_label(action).to_string(),
+    }
+}
+
+fn candidate_confidence_label(score: f64, cfg: &SkillRecommendationConfig) -> &'static str {
+    if score >= cfg.strong_match_threshold {
+        "strong"
+    } else if score >= cfg.weak_match_threshold {
+        "weak"
+    } else {
+        "none"
+    }
+}
+
+fn split_reasons(reason: &str) -> Vec<String> {
+    let parts = reason
+        .split(';')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if let Some(rest) = value.strip_prefix("matched request terms ") {
+                format!("matched {rest}")
+            } else if let Some(rest) = value.strip_prefix("matched workspace tags ") {
+                format!("workspace {rest}")
+            } else if value.starts_with("historical success ") {
+                reason_usage_summary(value)
+            } else {
+                value.to_string()
+            }
         })
-        .map(|token| token.trim_matches(|character: char| !character.is_ascii_alphanumeric()))
-        .filter(|token| token.len() >= 3)
-        .map(|token| token.to_ascii_lowercase())
-        .collect()
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        vec![reason.to_string()]
+    } else {
+        parts
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn reason_usage_summary(value: &str) -> String {
+    let words = value.split_whitespace().collect::<Vec<_>>();
+    let uses = words
+        .iter()
+        .position(|word| *word == "across")
+        .and_then(|index| words.get(index + 1))
+        .and_then(|count| count.parse::<u32>().ok());
+    let success_percent = words
+        .get(2)
+        .map(|value| value.trim_end_matches('%'))
+        .and_then(|value| value.parse::<u32>().ok());
 
-    #[test]
-    fn excerpt_skill_truncates_on_utf8_boundary() {
-        let content = format!("{}\n{}", "a".repeat(MAX_SKILL_PREFLIGHT_CHARS - 2), "│tail");
-        let excerpt = excerpt_skill(&content);
-        let trimmed = excerpt.strip_suffix("\n...").unwrap_or(&excerpt);
-
-        assert!(trimmed.is_char_boundary(trimmed.len()));
-        assert!(trimmed.len() <= MAX_SKILL_PREFLIGHT_CHARS);
-        assert!(!trimmed.ends_with('\u{FFFD}'));
+    match (uses, success_percent) {
+        (Some(uses), Some(success_percent)) => {
+            let successes = ((uses as f64) * (success_percent as f64 / 100.0)).round() as u32;
+            format!("{successes}/{uses} successful uses")
+        }
+        _ => value.to_string(),
     }
 }

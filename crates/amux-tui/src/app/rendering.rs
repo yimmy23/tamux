@@ -188,7 +188,7 @@ impl TuiModel {
         }
     }
 
-    fn render_conversation_panel(&self, frame: &mut Frame, area: Rect) {
+    fn render_conversation_panel(&mut self, frame: &mut Frame, area: Rect) {
         if self.should_show_operator_profile_onboarding() {
             let question = self.operator_profile.question.as_ref().map(|question| {
                 widgets::operator_profile_onboarding::OperatorProfileQuestionView {
@@ -272,9 +272,56 @@ impl TuiModel {
                 .as_ref()
                 .filter(|snapshot| widgets::chat::cached_snapshot_matches_area(snapshot, area))
             {
-                widgets::chat::render_cached(frame, area, &self.chat, snapshot, mouse_selection);
+                widgets::chat::render_cached(
+                    frame,
+                    area,
+                    &self.chat,
+                    &self.theme,
+                    snapshot,
+                    mouse_selection,
+                );
                 return;
             }
+        }
+
+        if let Some(snapshot) = self.chat_selection_snapshot.as_ref().filter(|snapshot| {
+            widgets::chat::cached_snapshot_matches_render(
+                snapshot,
+                area,
+                &self.chat,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            )
+        }) {
+            widgets::chat::render_cached(
+                frame,
+                area,
+                &self.chat,
+                &self.theme,
+                snapshot,
+                mouse_selection,
+            );
+            return;
+        }
+
+        self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
+            area,
+            &self.chat,
+            &self.theme,
+            self.tick_counter,
+            self.retry_wait_start_selected,
+        );
+
+        if let Some(snapshot) = self.chat_selection_snapshot.as_ref() {
+            widgets::chat::render_cached(
+                frame,
+                area,
+                &self.chat,
+                &self.theme,
+                snapshot,
+                mouse_selection,
+            );
+            return;
         }
 
         widgets::chat::render(
@@ -517,6 +564,7 @@ impl TuiModel {
                 modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
                 modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
+                modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),
@@ -669,7 +717,19 @@ impl TuiModel {
                     render_helpers::render_status_modal(
                         frame,
                         overlay_area,
+                        "STATUS",
                         &self.status_modal_body(),
+                        0,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::PromptViewer => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "PROMPT",
+                        &self.prompt_modal_body(),
+                        self.prompt_modal_scroll,
                         &self.theme,
                     );
                 }
@@ -693,6 +753,7 @@ impl TuiModel {
             modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
             modal::ModalKind::Status => render_helpers::centered_rect(72, 70, area),
+            modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::QueuedPrompts => render_helpers::centered_rect(72, 42, area),

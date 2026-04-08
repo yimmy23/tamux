@@ -314,6 +314,42 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[tokio::test]
+    async fn agent_prompt_inspection_emits_prompt_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        let should_continue = DaemonClient::handle_daemon_message(
+            DaemonMessage::AgentPromptInspection {
+                prompt_json: serde_json::json!({
+                    "agent_id": "swarog",
+                    "agent_name": "Svarog",
+                    "provider_id": "openai",
+                    "model": "gpt-5.4-mini",
+                    "sections": [{
+                        "id": "base_prompt",
+                        "title": "Base Prompt",
+                        "content": "Custom operator prompt",
+                    }],
+                    "final_prompt": "Custom operator prompt\n\n## Runtime Identity",
+                })
+                .to_string(),
+            },
+            &event_tx,
+        )
+        .await;
+
+        assert!(should_continue);
+        match event_rx.recv().await.expect("expected prompt inspection event") {
+            ClientEvent::PromptInspection(prompt) => {
+                assert_eq!(prompt.agent_id, "swarog");
+                assert_eq!(prompt.agent_name, "Svarog");
+                assert_eq!(prompt.sections.len(), 1);
+                assert!(prompt.final_prompt.contains("## Runtime Identity"));
+            }
+            other => panic!("expected prompt inspection event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn daemon_openai_codex_auth_replies_emit_client_events() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 

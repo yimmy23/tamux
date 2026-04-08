@@ -343,6 +343,8 @@ pub fn execute_tool<'a>(
         "allocate_terminal" => {
             execute_allocate_terminal(&args, session_manager, session_id, event_tx).await
         }
+        "fetch_authenticated_providers" => execute_fetch_authenticated_providers(agent).await,
+        "fetch_provider_models" => execute_fetch_provider_models(&args, agent).await,
         "spawn_subagent" => {
             execute_spawn_subagent(
                 &args,
@@ -381,6 +383,8 @@ pub fn execute_tool<'a>(
         "list_collaboration_sessions" => {
             execute_list_collaboration_sessions(&args, agent, task_id).await
         }
+        "list_threads" => execute_list_threads(&args, agent).await,
+        "get_thread" => execute_get_thread(&args, agent).await,
         "enqueue_task" => execute_enqueue_task(&args, agent).await,
         "list_tasks" => execute_list_tasks(&args, agent).await,
         "cancel_task" => execute_cancel_task(&args, agent).await,
@@ -479,6 +483,7 @@ pub fn execute_tool<'a>(
             )
             .await
         }
+        "justify_skill_skip" => execute_justify_skill_skip(&args, agent, thread_id).await,
         "synthesize_tool" => synthesize_tool(&args, agent, agent_data_dir, http_client).await,
         "list_generated_tools" => list_generated_tools(agent_data_dir),
         "promote_generated_tool" => {

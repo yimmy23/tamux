@@ -9,7 +9,10 @@ pub(super) fn format_status_modal_text(snapshot: &AgentStatusSnapshotVm) -> Stri
     let mut rendered = String::from("Agent Status\n============\n");
     rendered.push_str(&format!("Version:  {}\n", env!("CARGO_PKG_VERSION")));
     rendered.push_str(&format!("Tier:     {}\n", snapshot.tier.replace('_', " ")));
-    rendered.push_str(&format!("Activity: {}\n", snapshot.activity.replace('_', " ")));
+    rendered.push_str(&format!(
+        "Activity: {}\n",
+        snapshot.activity.replace('_', " ")
+    ));
 
     if let Some(title) = &snapshot.active_goal_run_title {
         rendered.push_str(&format!("Goal:     {title}\n"));
@@ -59,7 +62,8 @@ pub(super) fn format_status_modal_text(snapshot: &AgentStatusSnapshotVm) -> Stri
         }
     }
 
-    if let Ok(actions) = serde_json::from_str::<Vec<serde_json::Value>>(&snapshot.recent_actions_json)
+    if let Ok(actions) =
+        serde_json::from_str::<Vec<serde_json::Value>>(&snapshot.recent_actions_json)
     {
         if !actions.is_empty() {
             rendered.push_str("\nRecent Actions:\n");
@@ -80,14 +84,37 @@ pub(super) fn format_status_modal_text(snapshot: &AgentStatusSnapshotVm) -> Stri
     rendered.trim_end().to_string()
 }
 
+pub(super) fn format_prompt_modal_text(prompt: &crate::client::AgentPromptInspectionVm) -> String {
+    let mut rendered = String::from("Agent Prompt\n============\n");
+    rendered.push_str(&format!(
+        "Agent:    {} ({})\n",
+        prompt.agent_name, prompt.agent_id
+    ));
+    rendered.push_str(&format!("Provider: {}\n", prompt.provider_id));
+    rendered.push_str(&format!("Model:    {}\n", prompt.model));
+
+    for section in &prompt.sections {
+        rendered.push_str("\n");
+        rendered.push_str(&format!("[{}]\n", section.title));
+        rendered.push_str(section.content.trim());
+        rendered.push('\n');
+    }
+
+    rendered.push_str("\nFinal Prompt\n------------\n");
+    rendered.push_str(prompt.final_prompt.trim());
+    rendered.trim_end().to_string()
+}
+
 pub(super) fn render_status_modal(
     frame: &mut Frame,
     area: Rect,
+    title: &str,
     body: &str,
+    scroll: usize,
     theme: &ThemeTokens,
 ) {
     let block = Block::default()
-        .title(" STATUS ")
+        .title(format!(" {title} "))
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .border_style(theme.accent_secondary);
@@ -101,11 +128,19 @@ pub(super) fn render_status_modal(
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(inner);
 
-    frame.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }), layout[0]);
+    frame.render_widget(
+        Paragraph::new(body)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll.min(u16::MAX as usize) as u16, 0)),
+        layout[0],
+    );
 
     let hints = Line::from(vec![
         Span::styled("Esc", theme.fg_active),
         Span::styled(" close", theme.fg_dim),
+        Span::raw("  "),
+        Span::styled("j/k", theme.fg_active),
+        Span::styled(" scroll", theme.fg_dim),
     ]);
     frame.render_widget(Paragraph::new(hints), layout[1]);
 }
@@ -124,7 +159,8 @@ mod tests {
             active_goal_run_title: Some("Close release gap".to_string()),
             provider_health_json: r#"{"openai":{"can_execute":true,"trip_count":0}}"#.to_string(),
             gateway_statuses_json: r#"{"slack":{"status":"connected"}}"#.to_string(),
-            recent_actions_json: r#"[{"action_type":"tool_call","summary":"Ran status"}]"#.to_string(),
+            recent_actions_json: r#"[{"action_type":"tool_call","summary":"Ran status"}]"#
+                .to_string(),
         });
 
         assert!(rendered.contains("Version:"));

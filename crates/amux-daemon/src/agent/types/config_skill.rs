@@ -151,6 +151,57 @@ impl Default for SkillDiscoveryConfig {
     }
 }
 
+/// Runtime skill recommender thresholds and behavior controls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillRecommendationConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub require_read_on_strong_match: bool,
+    #[serde(default = "default_skill_recommendation_strong_match_threshold")]
+    pub strong_match_threshold: f64,
+    #[serde(default = "default_skill_recommendation_weak_match_threshold")]
+    pub weak_match_threshold: f64,
+    #[serde(default = "default_true")]
+    pub background_community_search: bool,
+    #[serde(default = "default_skill_recommendation_community_preapprove_timeout_secs")]
+    pub community_preapprove_timeout_secs: u64,
+    #[serde(default = "default_skill_recommendation_suggest_global_enable_after_approvals")]
+    pub suggest_global_enable_after_approvals: u32,
+}
+
+fn default_skill_recommendation_strong_match_threshold() -> f64 {
+    0.85
+}
+
+fn default_skill_recommendation_weak_match_threshold() -> f64 {
+    0.60
+}
+
+fn default_skill_recommendation_community_preapprove_timeout_secs() -> u64 {
+    30
+}
+
+fn default_skill_recommendation_suggest_global_enable_after_approvals() -> u32 {
+    3
+}
+
+impl Default for SkillRecommendationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            require_read_on_strong_match: default_true(),
+            strong_match_threshold: default_skill_recommendation_strong_match_threshold(),
+            weak_match_threshold: default_skill_recommendation_weak_match_threshold(),
+            background_community_search: default_true(),
+            community_preapprove_timeout_secs:
+                default_skill_recommendation_community_preapprove_timeout_secs(),
+            suggest_global_enable_after_approvals:
+                default_skill_recommendation_suggest_global_enable_after_approvals(),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Skill promotion config (Phase 6)
 // ---------------------------------------------------------------------------
@@ -203,4 +254,3 @@ pub struct ConsolidationResult {
     pub skills_tested: usize,
     pub skills_promoted: usize,
 }
-

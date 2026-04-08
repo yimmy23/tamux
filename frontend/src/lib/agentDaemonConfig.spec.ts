@@ -114,6 +114,26 @@ assert(
   "Daemon config should forward WELES review concurrency settings",
 );
 
+assert(
+  buildDaemonAgentConfig(DEFAULT_AGENT_SETTINGS).skill_recommendation?.enabled === true,
+  "Daemon config should serialize skill recommendation enablement",
+);
+
+assert(
+  buildDaemonAgentConfig(DEFAULT_AGENT_SETTINGS).skill_recommendation?.community_preapprove_timeout_secs === 30,
+  "Daemon config should serialize the skill recommendation preapprove timeout",
+);
+
+assert(
+  buildDaemonAgentConfig(DEFAULT_AGENT_SETTINGS).skill_recommendation?.background_community_search === true,
+  "Daemon config should serialize background community skill discovery",
+);
+
+assert(
+  buildDaemonAgentConfig(DEFAULT_AGENT_SETTINGS).skill_recommendation?.suggest_global_enable_after_approvals === 3,
+  "Daemon config should serialize the global-enable suggestion threshold",
+);
+
 const customModelProviderConfig = {
   ...DEFAULT_AGENT_SETTINGS.openrouter,
   model: "openrouter/custom-preview",

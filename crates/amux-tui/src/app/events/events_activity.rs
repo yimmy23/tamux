@@ -1,15 +1,170 @@
 use super::*;
 
+fn parse_workflow_notice_details(details: Option<&str>) -> Option<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(details?).ok()
+}
+
+fn normalized_skill_workflow_notice(
+    kind: &str,
+    message: &str,
+    details: Option<&str>,
+) -> Option<(String, String, Option<String>)> {
+    let parsed = parse_workflow_notice_details(details);
+    let recommended_skill = parsed
+        .as_ref()
+        .and_then(|value| value.get("recommended_skill"))
+        .and_then(|value| value.as_str());
+    let confidence_tier = parsed
+        .as_ref()
+        .and_then(|value| value.get("confidence_tier"))
+        .and_then(|value| value.as_str());
+    let recommended_action = parsed
+        .as_ref()
+        .and_then(|value| value.get("recommended_action"))
+        .and_then(|value| value.as_str());
+    let skip_rationale = parsed
+        .as_ref()
+        .and_then(|value| value.get("skip_rationale"))
+        .and_then(|value| value.as_str());
+
+    match kind {
+        "skill-preflight" => {
+            let normalized_kind = if confidence_tier == Some("strong") {
+                "skill-discovery-required"
+            } else {
+                "skill-discovery-recommended"
+            };
+            let status = [
+                if normalized_kind == "skill-discovery-required" {
+                    Some("Skill gate required".to_string())
+                } else {
+                    Some("Skill guidance ready".to_string())
+                },
+                recommended_skill.map(|value| format!("skill={value}")),
+                confidence_tier.map(|value| format!("confidence={value}")),
+                recommended_action.map(|value| format!("next={value}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" | ");
+            let activity = if normalized_kind == "skill-discovery-required" {
+                Some("skill gate".to_string())
+            } else {
+                Some("skill review".to_string())
+            };
+            Some((normalized_kind.to_string(), status, activity))
+        }
+        "skill-gate" => {
+            let status = [
+                Some("Skill gate blocked progress".to_string()),
+                recommended_skill.map(|value| format!("skill={value}")),
+                recommended_action.map(|value| format!("next={value}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" | ");
+            Some((
+                "skill-discovery-required".to_string(),
+                status,
+                Some("skill gate".to_string()),
+            ))
+        }
+        "skill-discovery-skipped" => {
+            let status = [
+                Some("Skill recommendation skipped".to_string()),
+                recommended_skill.map(|value| format!("skill={value}")),
+                skip_rationale.map(|value| format!("why={value}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" | ");
+            Some((kind.to_string(), status, None))
+        }
+        "skill-community-scout" => {
+            let candidates = parsed
+                .as_ref()
+                .and_then(|value| value.get("candidates"))
+                .and_then(|value| value.as_array())
+                .map(|value| value.len());
+            let timeout = parsed
+                .as_ref()
+                .and_then(|value| value.get("community_preapprove_timeout_secs"))
+                .and_then(|value| value.as_u64());
+            let status = [
+                Some("Community scout update".to_string()),
+                candidates.map(|value| format!("candidates={value}")),
+                timeout.map(|value| format!("timeout={}s", value)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" | ");
+            Some((kind.to_string(), status, Some("skill scout".to_string())))
+        }
+        "skill-discovery-required" | "skill-discovery-recommended" => Some((
+            kind.to_string(),
+            message.to_string(),
+            Some(if kind == "skill-discovery-required" {
+                "skill gate".to_string()
+            } else {
+                "skill review".to_string()
+            }),
+        )),
+        _ => None,
+    }
+}
+
 impl TuiModel {
+    fn should_surface_thread_activity(&self, thread_id: &str) -> bool {
+        match self.chat.active_thread_id() {
+            None => true,
+            Some(active_thread_id) => active_thread_id == thread_id,
+        }
+    }
+
+    fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
+        if self.chat.is_streaming()
+            || self.chat.retry_status().is_some()
+            || self.agent_activity.is_some()
+        {
+            return true;
+        }
+
+        match self.chat.active_thread_id() {
+            None => true,
+            Some(active_thread_id) if active_thread_id != thread_id => false,
+            Some(_) => self
+                .chat
+                .active_thread()
+                .and_then(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|message| {
+                            !message.content.trim().is_empty()
+                                && !matches!(message.role, chat::MessageRole::System)
+                        })
+                        .map(|message| message.role == chat::MessageRole::User)
+                })
+                .unwrap_or(false),
+        }
+    }
+
     pub(in crate::app) fn handle_delta_event(&mut self, thread_id: String, content: String) {
         if Self::is_hidden_agent_thread(&thread_id, None)
             || self.should_ignore_internal_thread_activity(&thread_id)
         {
             return;
         }
-        self.agent_activity = Some("writing".to_string());
-        self.anticipatory
-            .reduce(crate::state::AnticipatoryAction::Clear);
+        if self.should_surface_thread_activity(&thread_id) {
+            self.agent_activity = Some("writing".to_string());
+            self.anticipatory
+                .reduce(crate::state::AnticipatoryAction::Clear);
+        }
         self.chat
             .reduce(chat::ChatAction::Delta { thread_id, content });
     }
@@ -20,9 +175,11 @@ impl TuiModel {
         {
             return;
         }
-        self.agent_activity = Some("reasoning".to_string());
-        self.anticipatory
-            .reduce(crate::state::AnticipatoryAction::Clear);
+        if self.should_surface_thread_activity(&thread_id) {
+            self.agent_activity = Some("reasoning".to_string());
+            self.anticipatory
+                .reduce(crate::state::AnticipatoryAction::Clear);
+        }
         self.chat
             .reduce(chat::ChatAction::Reasoning { thread_id, content });
     }
@@ -40,9 +197,11 @@ impl TuiModel {
         {
             return;
         }
-        self.agent_activity = Some(format!("⚙  {}", name));
-        self.anticipatory
-            .reduce(crate::state::AnticipatoryAction::Clear);
+        if self.should_surface_thread_activity(&thread_id) {
+            self.agent_activity = Some(format!("⚙  {}", name));
+            self.anticipatory
+                .reduce(crate::state::AnticipatoryAction::Clear);
+        }
         self.chat.reduce(chat::ChatAction::ToolCall {
             thread_id,
             call_id,
@@ -66,9 +225,11 @@ impl TuiModel {
         {
             return;
         }
-        self.agent_activity = Some(format!("⚙  {} ✓", name));
-        self.anticipatory
-            .reduce(crate::state::AnticipatoryAction::Clear);
+        if self.should_surface_thread_activity(&thread_id) {
+            self.agent_activity = Some(format!("⚙  {} ✓", name));
+            self.anticipatory
+                .reduce(crate::state::AnticipatoryAction::Clear);
+        }
         self.chat.reduce(chat::ChatAction::ToolResult {
             thread_id,
             call_id,
@@ -99,16 +260,18 @@ impl TuiModel {
         {
             return;
         }
-        self.agent_activity = None;
-        self.pending_stop = false;
-        self.anticipatory
-            .reduce(crate::state::AnticipatoryAction::Clear);
-        if self
-            .input_notice
-            .as_ref()
-            .is_some_and(|notice| notice.kind == InputNoticeKind::Warning)
-        {
-            self.input_notice = None;
+        if self.should_surface_thread_activity(&thread_id) {
+            self.agent_activity = None;
+            self.pending_stop = false;
+            self.anticipatory
+                .reduce(crate::state::AnticipatoryAction::Clear);
+            if self
+                .input_notice
+                .as_ref()
+                .is_some_and(|notice| notice.kind == InputNoticeKind::Warning)
+            {
+                self.input_notice = None;
+            }
         }
         self.chat.reduce(chat::ChatAction::TurnDone {
             thread_id,
@@ -343,6 +506,11 @@ impl TuiModel {
             self.status_modal_loading = false;
             self.status_modal_error = Some(message.clone());
         }
+        if self.prompt_modal_loading {
+            self.prompt_modal_loading = false;
+            self.prompt_modal_error = Some(message.clone());
+            self.prompt_modal_scroll = 0;
+        }
         let should_refresh_subagents = {
             let lowercase = message.to_ascii_lowercase();
             lowercase.contains("sub-agent")
@@ -398,6 +566,9 @@ impl TuiModel {
             }
             return;
         }
+        if phase != "waiting" && !self.should_accept_retry_status_event(thread_id.as_str()) {
+            return;
+        }
         self.retry_wait_start_selected = false;
         self.agent_activity = Some(match phase.as_str() {
             "waiting" => "retry wait".to_string(),
@@ -435,11 +606,20 @@ impl TuiModel {
                 }
             }
         }
-        self.status_line = if let Some(details) = details_ref {
-            format!("{message} ({details})")
+        if let Some((_normalized_kind, status_line, agent_activity)) =
+            normalized_skill_workflow_notice(&kind, &message, details_ref)
+        {
+            self.status_line = status_line;
+            if let Some(agent_activity) = agent_activity {
+                self.agent_activity = Some(agent_activity);
+            }
         } else {
-            message.clone()
-        };
+            self.status_line = if let Some(details) = details_ref {
+                format!("{message} ({details})")
+            } else {
+                message.clone()
+            };
+        }
         if kind == "operator-profile-warning" {
             let warning = if let Some(details) = details_ref {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(details) {

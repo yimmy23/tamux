@@ -76,13 +76,68 @@ async fn restore_weles_runtime_context(engine: &AgentEngine, task: &mut AgentTas
 
 mod save;
 
+async fn canonicalize_aline_startup_repo_root(repo_root: &str) -> Option<String> {
+    let show_toplevel = tokio::time::timeout(
+        Duration::from_secs(1),
+        tokio::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(repo_root)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !show_toplevel.status.success() {
+        return None;
+    }
+    let normalized_root = String::from_utf8_lossy(&show_toplevel.stdout)
+        .trim()
+        .to_string();
+    if normalized_root.is_empty() {
+        return None;
+    }
+
+    let common_dir_output = tokio::time::timeout(
+        Duration::from_secs(1),
+        tokio::process::Command::new("git")
+            .args(["rev-parse", "--git-common-dir"])
+            .current_dir(&normalized_root)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+
+    if common_dir_output.status.success() {
+        let common_dir = String::from_utf8_lossy(&common_dir_output.stdout)
+            .trim()
+            .to_string();
+        if !common_dir.is_empty() {
+            let resolved_common_dir = std::path::Path::new(&normalized_root).join(&common_dir);
+            if let Ok(canonical_common_dir) = std::fs::canonicalize(&resolved_common_dir) {
+                if canonical_common_dir
+                    .file_name()
+                    .is_some_and(|name| name == std::ffi::OsStr::new(".git"))
+                {
+                    if let Some(parent) = canonical_common_dir.parent() {
+                        return Some(parent.to_string_lossy().to_string());
+                    }
+                }
+                return Some(canonical_common_dir.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    Some(normalized_root)
+}
+
 impl AgentEngine {
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
     /// Load persisted state (threads, tasks, heartbeat, memory, config).
-    pub async fn hydrate(&self) -> Result<()> {
+    pub async fn hydrate(self: &Arc<Self>) -> Result<()> {
         // Load config from SQLite-backed config items.
         match self.history.list_agent_config_items().await {
             Ok(items) if !items.is_empty() => {
@@ -105,6 +160,7 @@ impl AgentEngine {
                 let mut threads = HashMap::new();
                 let mut handoff_states = HashMap::new();
                 let mut thread_client_surfaces = HashMap::new();
+                let mut thread_skill_discovery_states = HashMap::new();
                 for thread_row in thread_rows {
                     let thread_id = thread_row.id.clone();
                     let thread_title = thread_row.title.clone();
@@ -112,6 +168,12 @@ impl AgentEngine {
                         parse_thread_metadata(thread_row.metadata_json.as_deref());
                     if let Some(client_surface) = thread_metadata.client_surface {
                         thread_client_surfaces.insert(thread_id.clone(), client_surface);
+                    }
+                    if let Some(latest_skill_discovery_state) =
+                        thread_metadata.latest_skill_discovery_state.clone()
+                    {
+                        thread_skill_discovery_states
+                            .insert(thread_id.clone(), latest_skill_discovery_state);
                     }
                     let handoff_state = normalized_thread_handoff_state(
                         &thread_id,
@@ -188,6 +250,7 @@ impl AgentEngine {
                 *self.threads.write().await = threads;
                 *self.thread_handoff_states.write().await = handoff_states;
                 *self.thread_client_surfaces.write().await = thread_client_surfaces;
+                *self.thread_skill_discovery_states.write().await = thread_skill_discovery_states;
             }
             Ok(_) => {}
             Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),
@@ -640,12 +703,137 @@ impl AgentEngine {
             self.ensure_repo_watcher(&thread_id, &repo_root).await;
         }
 
+        let startup_repo_roots = self.collect_aline_startup_repo_roots().await;
+        match startup_repo_roots.as_slice() {
+            [repo_root] => self.schedule_aline_startup_reconciliation(repo_root.clone()),
+            [] => {
+                let mut summary = super::aline_startup::AlineStartupSummary::skipped(
+                    super::aline_startup::AlineStartupShortCircuitReason::NoRepoRoots,
+                );
+                summary.aline_available = self.aline_startup_is_available();
+                #[cfg(test)]
+                self.record_aline_startup_summary_for_tests(summary.clone())
+                    .await;
+                super::log_aline_startup_summary(std::path::Path::new("<none>"), &summary);
+                tracing::info!(
+                    short_circuit_reason = "no_repo_roots",
+                    repo_root_count = 0,
+                    "skipping Aline startup reconciliation because no repo root was resolved during hydrate"
+                );
+            }
+            repo_roots => {
+                let mut summary = super::aline_startup::AlineStartupSummary::skipped(
+                    super::aline_startup::AlineStartupShortCircuitReason::MultipleRepoRoots,
+                );
+                summary.aline_available = self.aline_startup_is_available();
+                #[cfg(test)]
+                self.record_aline_startup_summary_for_tests(summary.clone())
+                    .await;
+                super::log_aline_startup_summary(std::path::Path::new("<none>"), &summary);
+                tracing::info!(
+                    short_circuit_reason = "multiple_repo_roots",
+                    repo_root_count = repo_roots.len(),
+                    "skipping Aline startup reconciliation because multiple repo roots were resolved during hydrate"
+                );
+            }
+        }
+
         tracing::info!("agent engine hydrated from {:?}", self.data_dir);
 
         // Initialize gateway runtime ownership and spawn the standalone gateway when enabled.
         self.maybe_spawn_gateway().await;
 
         Ok(())
+    }
+
+    async fn collect_aline_startup_repo_roots(&self) -> Vec<String> {
+        let mut persisted_raw_repo_roots = std::collections::HashMap::<String, u64>::new();
+        let mut live_repo_roots = std::collections::BTreeSet::new();
+
+        {
+            let contexts = self.thread_work_contexts.read().await;
+            for context in contexts.values() {
+                for entry in &context.entries {
+                    if let Some(repo_root) = entry
+                        .repo_root
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        persisted_raw_repo_roots
+                            .entry(repo_root.to_string())
+                            .and_modify(|updated_at| {
+                                *updated_at = (*updated_at).max(entry.updated_at)
+                            })
+                            .or_insert(entry.updated_at);
+                    }
+                }
+            }
+        }
+
+        for session in self.session_manager.list().await {
+            let Some(cwd) = session.cwd else {
+                continue;
+            };
+            if let Some(repo_root) = crate::git::find_git_root(&cwd) {
+                if let Some(repo_root) = canonicalize_aline_startup_repo_root(&repo_root).await {
+                    live_repo_roots.insert(repo_root);
+                }
+            }
+        }
+
+        if !live_repo_roots.is_empty() {
+            return live_repo_roots.into_iter().collect();
+        }
+
+        let Some(latest_updated_at) = persisted_raw_repo_roots.values().copied().max() else {
+            return Vec::new();
+        };
+
+        let mut canonical_persisted_repo_roots = std::collections::HashMap::<String, u64>::new();
+        for (raw_repo_root, updated_at) in persisted_raw_repo_roots {
+            if updated_at != latest_updated_at {
+                continue;
+            }
+            if let Some(repo_root) = canonicalize_aline_startup_repo_root(&raw_repo_root).await {
+                canonical_persisted_repo_roots
+                    .entry(repo_root)
+                    .and_modify(|existing| *existing = (*existing).max(updated_at))
+                    .or_insert(updated_at);
+            }
+        }
+
+        let Some(latest_updated_at) = canonical_persisted_repo_roots.values().copied().max() else {
+            return Vec::new();
+        };
+
+        canonical_persisted_repo_roots
+            .into_iter()
+            .filter_map(|(repo_root, updated_at)| {
+                (updated_at == latest_updated_at).then_some(repo_root)
+            })
+            .collect()
+    }
+
+    fn schedule_aline_startup_reconciliation(self: &Arc<Self>, repo_root: String) {
+        if self
+            .aline_startup_reconcile_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(error) = engine
+                .run_aline_startup_reconciliation(PathBuf::from(&repo_root))
+                .await
+            {
+                tracing::warn!(repo_root = %repo_root, %error, "Aline startup reconciliation failed");
+            }
+            engine.notify_aline_startup_reconciliation_finished_for_tests();
+        });
     }
 }
 

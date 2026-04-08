@@ -238,6 +238,49 @@ impl TuiModel {
                         }
                     } else if matches!(self.main_pane_view, MainPaneView::Conversation) {
                         let pos = Position::new(mouse.column, mouse.row);
+                        if pos.x == chat_area.x.saturating_add(chat_area.width).saturating_sub(1) {
+                            if let Some(layout) = widgets::chat::scrollbar_layout(
+                                chat_area,
+                                &self.chat,
+                                &self.theme,
+                                self.tick_counter,
+                                self.retry_wait_start_selected,
+                            ) {
+                                let in_scrollbar = pos.y >= layout.scrollbar.y
+                                    && pos.y
+                                        < layout
+                                            .scrollbar
+                                            .y
+                                            .saturating_add(layout.scrollbar.height);
+                                if in_scrollbar {
+                                    self.clear_chat_drag_selection();
+                                    let default_grab_offset = layout.thumb.height / 2;
+                                    let grab_offset = if pos.y >= layout.thumb.y
+                                        && pos.y < layout.thumb.y.saturating_add(layout.thumb.height)
+                                    {
+                                        pos.y.saturating_sub(layout.thumb.y)
+                                    } else {
+                                        default_grab_offset.min(layout.thumb.height.saturating_sub(1))
+                                    };
+                                    if let Some(target) =
+                                        widgets::chat::scrollbar_scroll_offset_for_pointer(
+                                            chat_area,
+                                            &self.chat,
+                                            &self.theme,
+                                            self.tick_counter,
+                                            self.retry_wait_start_selected,
+                                            pos.y,
+                                            grab_offset,
+                                        )
+                                    {
+                                        self.set_chat_scroll_offset(target);
+                                    }
+                                    self.chat_scrollbar_drag_grab_offset = Some(grab_offset);
+                                    self.input.set_mode(input::InputMode::Insert);
+                                    return;
+                                }
+                            }
+                        }
                         if matches!(
                             widgets::chat::hit_test(
                                 chat_area,
@@ -398,7 +441,21 @@ impl TuiModel {
                 self.input.set_mode(input::InputMode::Insert);
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                if self.chat_drag_anchor.is_some()
+                if let Some(grab_offset) = self.chat_scrollbar_drag_grab_offset {
+                    if matches!(self.main_pane_view, MainPaneView::Conversation) {
+                        if let Some(target) = widgets::chat::scrollbar_scroll_offset_for_pointer(
+                            chat_area,
+                            &self.chat,
+                            &self.theme,
+                            self.tick_counter,
+                            self.retry_wait_start_selected,
+                            mouse.row,
+                            grab_offset,
+                        ) {
+                            self.set_chat_scroll_offset(target);
+                        }
+                    }
+                } else if self.chat_drag_anchor.is_some()
                     && matches!(self.main_pane_view, MainPaneView::Conversation)
                 {
                     let mut scrolled = false;
@@ -458,6 +515,9 @@ impl TuiModel {
                 }
             }
             MouseEventKind::Up(MouseButton::Left) => {
+                if self.chat_scrollbar_drag_grab_offset.take().is_some() {
+                    return;
+                }
                 if let Some(anchor) = self.chat_drag_anchor.take() {
                     let current = self.chat_drag_current.take().unwrap_or(anchor);
                     let snapshot = self.chat_selection_snapshot.take();

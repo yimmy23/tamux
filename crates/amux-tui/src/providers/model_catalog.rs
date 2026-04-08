@@ -128,11 +128,7 @@ pub(super) fn known_models_for_provider_auth(
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("kimi-for-coding", "Kimi for Coding", 128_000),
         ],
-        PROVIDER_ID_ARCEE => &[(
-            "trinity-large-thinking",
-            "Trinity Large Thinking",
-            256_000,
-        )],
+        PROVIDER_ID_ARCEE => &[("trinity-large-thinking", "Trinity Large Thinking", 256_000)],
         PROVIDER_ID_QWEN => &[
             ("qwen-max", "Qwen Max", 32_768),
             ("qwen-plus", "Qwen Plus", 131_072),

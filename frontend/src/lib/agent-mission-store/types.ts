@@ -23,6 +23,10 @@ export interface OperationalEvent {
   | "memory-consulted"
   | "memory-updated"
   | "skill-consulted"
+  | "skill-discovery-required"
+  | "skill-discovery-recommended"
+  | "skill-discovery-skipped"
+  | "skill-community-scout"
   | "history-consulted";
   command: string | null;
   message: string | null;

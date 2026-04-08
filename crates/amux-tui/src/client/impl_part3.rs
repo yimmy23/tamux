@@ -116,6 +116,11 @@ impl DaemonClient {
                         .await;
                 }
             }
+            DaemonMessage::AgentPromptInspection { prompt_json } => {
+                if let Ok(prompt) = serde_json::from_str::<AgentPromptInspectionVm>(&prompt_json) {
+                    let _ = event_tx.send(ClientEvent::PromptInspection(prompt)).await;
+                }
+            }
             DaemonMessage::AgentOperatorProfileSessionStarted { session_id, kind } => {
                 let _ = event_tx
                     .send(ClientEvent::OperatorProfileSessionStarted { session_id, kind })

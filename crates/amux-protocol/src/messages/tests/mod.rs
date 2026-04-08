@@ -1,7 +1,21 @@
 use super::*;
 use crate::codec::{AmuxCodec, DaemonCodec};
 use bytes::BytesMut;
+use serde::Serialize;
 use tokio_util::codec::{Decoder, Encoder};
+
+fn assert_bincode_variant_index<T: Serialize>(value: &T, expected_index: u32) {
+    let bytes = bincode::serialize(value).unwrap();
+    assert!(
+        bytes.len() >= 4,
+        "bincode payload must include a variant index"
+    );
+    assert_eq!(
+        &bytes[..4],
+        &expected_index.to_le_bytes(),
+        "variant index changed in the wire format"
+    );
+}
 
 #[test]
 fn agent_provider_validation_bincode_roundtrip() {
@@ -673,6 +687,79 @@ fn sample_community_skill_entry() -> CommunitySkillEntry {
     }
 }
 
+fn sample_skill_discovery_candidate() -> SkillDiscoveryCandidatePublic {
+    SkillDiscoveryCandidatePublic {
+        variant_id: "local:git_rebase_workflow:v1".to_string(),
+        skill_name: "git_rebase_workflow".to_string(),
+        variant_name: "v1".to_string(),
+        relative_path: "drafts/git_rebase_workflow/SKILL.md".to_string(),
+        status: "active".to_string(),
+        score: 0.94,
+        confidence_tier: "strong".to_string(),
+        reasons: vec!["matches git rebase workflow".to_string()],
+        context_tags: vec!["git".to_string(), "rebase".to_string()],
+        use_count: 12,
+        success_count: 10,
+        failure_count: 2,
+    }
+}
+
+fn sample_skill_discovery_result() -> SkillDiscoveryResultPublic {
+    SkillDiscoveryResultPublic {
+        query: "git rebase workflow".to_string(),
+        required: true,
+        confidence_tier: "strong".to_string(),
+        recommended_action: "surface_relevant_skill".to_string(),
+        explicit_rationale_required: true,
+        workspace_tags: vec!["git".to_string(), "rebase".to_string()],
+        candidates: vec![sample_skill_discovery_candidate()],
+    }
+}
+
+#[test]
+fn minimal_skill_discovery_result_deserializes_with_defaults() {
+    let result_json = serde_json::json!({
+        "query": "debug panic",
+        "confidence_tier": "strong",
+        "recommended_action": "read_skill",
+        "candidates": [{
+            "skill_name": "systematic-debugging",
+            "score": 93.0,
+            "reasons": ["matched debug", "workspace rust", "active variant"]
+        }]
+    })
+    .to_string();
+
+    let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
+    assert_eq!(result.query, "debug panic");
+    assert!(!result.required);
+    assert_eq!(result.confidence_tier, "strong");
+    assert_eq!(result.recommended_action, "read_skill");
+    assert!(!result.explicit_rationale_required);
+    assert!(result.workspace_tags.is_empty());
+    assert_eq!(result.candidates.len(), 1);
+    let candidate = &result.candidates[0];
+    assert_eq!(candidate.variant_id, "");
+    assert_eq!(candidate.skill_name, "systematic-debugging");
+    assert_eq!(candidate.variant_name, "");
+    assert_eq!(candidate.relative_path, "");
+    assert_eq!(candidate.status, "");
+    assert!((candidate.score - 93.0).abs() < f64::EPSILON);
+    assert_eq!(candidate.confidence_tier, "");
+    assert_eq!(
+        candidate.reasons,
+        vec![
+            "matched debug".to_string(),
+            "workspace rust".to_string(),
+            "active variant".to_string()
+        ]
+    );
+    assert!(candidate.context_tags.is_empty());
+    assert_eq!(candidate.use_count, 0);
+    assert_eq!(candidate.success_count, 0);
+    assert_eq!(candidate.failure_count, 0);
+}
+
 #[test]
 fn gateway_register_round_trip() {
     let msg = ClientMessage::GatewayRegister {
@@ -793,6 +880,89 @@ fn skill_search_result_round_trip() {
             assert_eq!(entries.len(), 1);
             assert_eq!(entries[0].name, "git-rebase-workflow");
             assert!(entries[0].publisher_verified);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn client_message_agent_logout_openai_codex_preserves_pre_change_wire_discriminant() {
+    let msg = ClientMessage::AgentLogoutOpenAICodex;
+    assert_bincode_variant_index(&msg, 162);
+}
+
+#[test]
+fn daemon_message_agent_openai_codex_auth_logout_result_preserves_pre_change_wire_discriminant() {
+    let msg = DaemonMessage::AgentOpenAICodexAuthLogoutResult {
+        ok: true,
+        error: None,
+    };
+    assert_bincode_variant_index(&msg, 134);
+}
+
+#[test]
+fn skill_discover_round_trip() {
+    let expected_session_id = SessionId::new_v4();
+    let msg = ClientMessage::SkillDiscover {
+        query: "git rebase workflow".to_string(),
+        session_id: Some(expected_session_id),
+        limit: 5,
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::SkillDiscover {
+            query,
+            session_id,
+            limit,
+        } => {
+            assert_eq!(query, "git rebase workflow");
+            assert_eq!(session_id, Some(expected_session_id));
+            assert_eq!(limit, 5);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn skill_discover_result_round_trip() {
+    let payload = sample_skill_discovery_result();
+    let msg = DaemonMessage::SkillDiscoverResult {
+        result_json: serde_json::to_string(&payload).unwrap(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SkillDiscoverResult { result_json } => {
+            let result: SkillDiscoveryResultPublic = serde_json::from_str(&result_json).unwrap();
+            assert_eq!(result.query, "git rebase workflow");
+            assert!(result.required);
+            assert_eq!(result.confidence_tier, "strong");
+            assert_eq!(result.recommended_action, "surface_relevant_skill");
+            assert!(result.explicit_rationale_required);
+            assert_eq!(result.workspace_tags, vec!["git", "rebase"]);
+            assert_eq!(result.candidates.len(), 1);
+            assert_eq!(
+                result.candidates[0].variant_id,
+                "local:git_rebase_workflow:v1"
+            );
+            assert_eq!(result.candidates[0].skill_name, "git_rebase_workflow");
+            assert_eq!(result.candidates[0].variant_name, "v1");
+            assert_eq!(
+                result.candidates[0].relative_path,
+                "drafts/git_rebase_workflow/SKILL.md"
+            );
+            assert_eq!(result.candidates[0].status, "active");
+            assert!((result.candidates[0].score - 0.94).abs() < f64::EPSILON);
+            assert_eq!(result.candidates[0].confidence_tier, "strong");
+            assert_eq!(
+                result.candidates[0].reasons,
+                vec!["matches git rebase workflow".to_string()]
+            );
+            assert_eq!(result.candidates[0].context_tags, vec!["git", "rebase"]);
+            assert_eq!(result.candidates[0].use_count, 12);
+            assert_eq!(result.candidates[0].success_count, 10);
+            assert_eq!(result.candidates[0].failure_count, 2);
         }
         other => panic!("unexpected variant: {:?}", other),
     }

@@ -4,6 +4,7 @@
 pub enum ModalKind {
     CommandPalette,
     Status,
+    PromptViewer,
     ThreadPicker,
     GoalPicker,
     ProviderPicker,
@@ -333,6 +334,7 @@ impl ModalState {
         } else {
             // Strip leading '/' for matching
             let q = query.strip_prefix('/').unwrap_or(&query);
+            let q = q.split_whitespace().next().unwrap_or(q);
             self.filtered_indices = self
                 .command_items
                 .iter()
@@ -420,7 +422,7 @@ fn default_command_items() -> Vec<CommandItem> {
         },
         CommandItem {
             command: "prompt".into(),
-            description: "Edit system prompt".into(),
+            description: "Inspect assembled system prompt".into(),
         },
         CommandItem {
             command: "attach".into(),

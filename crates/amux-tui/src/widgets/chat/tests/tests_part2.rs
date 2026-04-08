@@ -270,6 +270,41 @@
     }
 
     #[test]
+    fn chat_scrollbar_geometry_reserves_right_gutter_when_transcript_overflows() {
+        let chat = chat_with_messages(
+            (0..12)
+                .map(|idx| AgentMessage {
+                    role: MessageRole::Assistant,
+                    content: format!("message {idx}"),
+                    ..Default::default()
+                })
+                .collect(),
+        );
+
+        let layout = scrollbar_layout(Rect::new(0, 0, 40, 6), &chat, &ThemeTokens::default(), 0, false)
+            .expect("overflowing transcript should allocate a scrollbar");
+
+        assert_eq!(layout.content.width, 39);
+        assert_eq!(layout.scrollbar.x, 39);
+        assert_eq!(layout.scrollbar.width, 1);
+        assert!(layout.thumb.height >= 1);
+    }
+
+    #[test]
+    fn chat_scrollbar_geometry_omits_gutter_when_content_fits() {
+        let chat = chat_with_messages(vec![AgentMessage {
+            role: MessageRole::Assistant,
+            content: "short".into(),
+            ..Default::default()
+        }]);
+
+        assert!(
+            scrollbar_layout(Rect::new(0, 0, 40, 6), &chat, &ThemeTokens::default(), 0, false).is_none(),
+            "short transcripts should not render a scrollbar gutter"
+        );
+    }
+
+    #[test]
     fn assistant_messages_ignore_non_system_handoff_markers() {
         let mut chat = ChatState::new();
         chat.reduce(ChatAction::ThreadCreated {

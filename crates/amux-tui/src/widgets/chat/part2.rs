@@ -317,6 +317,16 @@ pub fn cached_snapshot_matches_area(snapshot: &CachedSelectionSnapshot, area: Re
     snapshot.0.inner == content_inner(area)
 }
 
+pub fn cached_snapshot_matches_render(
+    snapshot: &CachedSelectionSnapshot,
+    area: Rect,
+    chat: &ChatState,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+) -> bool {
+    snapshot.0.key == render_cache_key(area, chat, current_tick, retry_wait_start_selected)
+}
+
 pub fn selection_point_from_cached_snapshot(
     snapshot: &CachedSelectionSnapshot,
     mouse: Position,
@@ -402,19 +412,32 @@ fn apply_selected_message_highlight(
 
 fn build_visible_window_from_snapshot(
     snapshot: &SelectionSnapshot,
+    chat: &ChatState,
     all_lines: &[RenderedChatLine],
-) -> Vec<RenderedChatLine> {
+) -> (Vec<RenderedChatLine>, usize, usize, usize) {
+    let scroll = resolved_scroll(
+        chat,
+        all_lines.len(),
+        snapshot.inner.height as usize,
+        &snapshot.message_line_ranges,
+    );
+    let (padding, start_idx, end_idx) =
+        visible_window_bounds(all_lines.len(), snapshot.inner.height as usize, scroll);
+
     let mut visible = Vec::with_capacity(snapshot.inner.height as usize);
-    for _ in 0..snapshot.padding {
+    for _ in 0..padding {
         visible.push(RenderedChatLine::padding());
     }
-    visible.extend_from_slice(&all_lines[snapshot.start_idx..snapshot.end_idx]);
-    visible
+    visible.extend_from_slice(&all_lines[start_idx..end_idx]);
+    (visible, padding, start_idx, end_idx)
 }
 
 fn apply_mouse_selection_highlight(
-    snapshot: &SelectionSnapshot,
+    _snapshot: &SelectionSnapshot,
     visible_lines: &mut [RenderedChatLine],
+    padding: usize,
+    start_idx: usize,
+    end_idx: usize,
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
     let Some((start, end)) = mouse_selection else {
@@ -427,8 +450,8 @@ fn apply_mouse_selection_highlight(
             (end, start)
         };
     let highlight = Style::default().bg(Color::Indexed(31));
-    let visible_last = snapshot.end_idx.saturating_sub(1);
-    let range_start = start_point.row.max(snapshot.start_idx);
+    let visible_last = end_idx.saturating_sub(1);
+    let range_start = start_point.row.max(start_idx);
     let range_end = end_point.row.min(visible_last);
 
     if range_start > range_end {
@@ -436,7 +459,7 @@ fn apply_mouse_selection_highlight(
     }
 
     for absolute_row in range_start..=range_end {
-        let visible_row = snapshot.padding + absolute_row.saturating_sub(snapshot.start_idx);
+        let visible_row = padding + absolute_row.saturating_sub(start_idx);
         if let Some(line) = visible_lines.get_mut(visible_row) {
             let rendered = RenderedChatLine {
                 line: line.line.clone(),
@@ -466,28 +489,59 @@ fn render_snapshot(
     frame: &mut Frame,
     snapshot: &SelectionSnapshot,
     chat: &ChatState,
+    theme: &ThemeTokens,
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
     let mut all_lines = snapshot.all_lines.clone();
     apply_selected_message_highlight(&mut all_lines, chat.selected_message());
-    let mut visible_lines = build_visible_window_from_snapshot(snapshot, &all_lines);
-    apply_mouse_selection_highlight(snapshot, &mut visible_lines, mouse_selection);
+    let (mut visible_lines, padding, start_idx, end_idx) =
+        build_visible_window_from_snapshot(snapshot, chat, &all_lines);
+    apply_mouse_selection_highlight(
+        snapshot,
+        &mut visible_lines,
+        padding,
+        start_idx,
+        end_idx,
+        mouse_selection,
+    );
 
     let visible_lines = visible_lines
         .into_iter()
         .map(|line| line.line)
         .collect::<Vec<_>>();
-    frame.render_widget(Paragraph::new(visible_lines), snapshot.inner);
+    let scroll = snapshot.all_lines.len().saturating_sub(end_idx);
+    if let Some(layout) = scrollbar_layout_from_metrics(snapshot.inner, snapshot.all_lines.len(), scroll)
+    {
+        frame.render_widget(Paragraph::new(visible_lines), layout.content);
+
+        let scrollbar_lines = (0..layout.scrollbar.height)
+            .map(|offset| {
+                let y = layout.scrollbar.y.saturating_add(offset);
+                let (glyph, style) = if y >= layout.thumb.y
+                    && y < layout.thumb.y.saturating_add(layout.thumb.height)
+                {
+                    ("█", theme.accent_primary)
+                } else {
+                    ("│", theme.fg_dim)
+                };
+                Line::from(Span::styled(glyph, style))
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(scrollbar_lines), layout.scrollbar);
+    } else {
+        frame.render_widget(Paragraph::new(visible_lines), snapshot.inner);
+    }
 }
 
 pub fn render_cached(
     frame: &mut Frame,
     _area: Rect,
     chat: &ChatState,
+    theme: &ThemeTokens,
     snapshot: &CachedSelectionSnapshot,
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
-    render_snapshot(frame, &snapshot.0, chat, mouse_selection);
+    render_snapshot(frame, &snapshot.0, chat, theme, mouse_selection);
 }
 
 #[cfg(test)]

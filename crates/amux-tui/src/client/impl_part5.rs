@@ -3,6 +3,10 @@ impl DaemonClient {
         self.send(ClientMessage::AgentStatusQuery)
     }
 
+    pub fn request_prompt_inspection(&self, agent_id: Option<String>) -> Result<()> {
+        self.send(ClientMessage::AgentInspectPrompt { agent_id })
+    }
+
     pub fn request_file_preview(
         &self,
         path: impl Into<String>,

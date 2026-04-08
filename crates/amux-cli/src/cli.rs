@@ -108,6 +108,25 @@ pub(crate) enum Commands {
     /// Show current agent status.
     Status,
 
+    /// Show the assembled system prompt for an agent.
+    Prompt {
+        /// Inspect a specific agent id or name.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Inspect the WELES prompt.
+        #[arg(long, conflicts_with_all = ["agent", "concierge", "rarog"])]
+        weles: bool,
+        /// Inspect the Rarog concierge prompt.
+        #[arg(long, conflicts_with_all = ["agent", "weles", "rarog"])]
+        concierge: bool,
+        /// Inspect the Rarog concierge prompt.
+        #[arg(long, conflicts_with_all = ["agent", "weles", "concierge"])]
+        rarog: bool,
+        /// Emit the raw daemon payload as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// View and modify daemon configuration.
     Settings {
         #[command(subcommand)]
@@ -249,6 +268,17 @@ pub(crate) enum SkillAction {
         #[arg(long, default_value = "50")]
         limit: usize,
     },
+    /// Rank installed skills for a task and suggest the next action.
+    Discover {
+        /// Task or problem description to match against installed skills.
+        query: String,
+        /// Optional terminal session UUID for workspace-aware ranking.
+        #[arg(long)]
+        session: Option<String>,
+        /// Maximum number of ranked candidates to show.
+        #[arg(long, default_value = "3")]
+        limit: usize,
+    },
     /// Show details of a specific skill.
     Inspect {
         /// Skill name or variant ID.
@@ -315,4 +345,63 @@ pub(crate) enum SettingsAction {
         /// Value to set (JSON or plain string).
         value: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Commands, SkillAction};
+    use clap::Parser;
+
+    #[test]
+    fn skill_discover_subcommand_parses_query() {
+        let cli = Cli::try_parse_from(["tamux", "skill", "discover", "debug panic"])
+            .expect("skill discover subcommand should parse");
+        match cli.command {
+            Some(Commands::Skill {
+                action:
+                    SkillAction::Discover {
+                        query,
+                        session,
+                        limit,
+                    },
+            }) => {
+                assert_eq!(query, "debug panic");
+                assert_eq!(session, None);
+                assert_eq!(limit, 3);
+            }
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skill_discover_subcommand_accepts_explicit_session() {
+        let cli = Cli::try_parse_from([
+            "tamux",
+            "skill",
+            "discover",
+            "--session",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "debug panic",
+        ])
+        .expect("skill discover subcommand should parse explicit session");
+
+        match cli.command {
+            Some(Commands::Skill {
+                action:
+                    SkillAction::Discover {
+                        query,
+                        session,
+                        limit,
+                    },
+            }) => {
+                assert_eq!(query, "debug panic");
+                assert_eq!(
+                    session.as_deref(),
+                    Some("550e8400-e29b-41d4-a716-446655440000")
+                );
+                assert_eq!(limit, 3);
+            }
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
 }

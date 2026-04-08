@@ -23,6 +23,22 @@ pub struct AgentThread {
     pub total_output_tokens: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LatestSkillDiscoveryState {
+    pub query: String,
+    pub confidence_tier: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_skill: Option<String>,
+    pub recommended_action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_skill_identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_rationale: Option<String>,
+    #[serde(default)]
+    pub compliant: bool,
+    pub updated_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMessage {
     /// Stable unique ID for persistence and deletion. Generated on creation.

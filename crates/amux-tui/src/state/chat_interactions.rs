@@ -11,6 +11,7 @@ impl ChatState {
         } else {
             self.expanded_reasoning.insert(msg_index);
         }
+        self.bump_render_revision();
     }
 
     pub fn selected_message(&self) -> Option<usize> {
@@ -23,6 +24,7 @@ impl ChatState {
 
     pub fn select_message_action(&mut self, index: usize) {
         self.selected_message_action = index;
+        self.bump_render_revision();
     }
 
     pub fn navigate_selected_message_action(&mut self, delta: i32, action_count: usize) {
@@ -36,11 +38,13 @@ impl ChatState {
                 .selected_message_action
                 .saturating_sub((-delta) as usize);
         }
+        self.bump_render_revision();
     }
 
     pub fn select_message(&mut self, index: Option<usize>) {
         self.selected_message = index;
         self.selected_message_action = 0;
+        self.bump_render_revision();
     }
 
     pub fn toggle_message_selection(&mut self, index: usize) {
@@ -51,6 +55,7 @@ impl ChatState {
             self.selected_message = Some(index);
             self.selected_message_action = 0;
         }
+        self.bump_render_revision();
     }
 
     pub fn select_next_message(&mut self) {
@@ -75,6 +80,7 @@ impl ChatState {
                 }
             }
         }
+        self.bump_render_revision();
     }
 
     pub fn select_prev_message(&mut self) {
@@ -95,6 +101,7 @@ impl ChatState {
                 self.selected_message_action = 0;
             }
         }
+        self.bump_render_revision();
     }
 
     pub fn expanded_tools(&self) -> &std::collections::HashSet<usize> {
@@ -107,6 +114,7 @@ impl ChatState {
         } else {
             self.expanded_tools.insert(msg_index);
         }
+        self.bump_render_revision();
     }
 
     pub fn toggle_last_reasoning(&mut self) {
@@ -118,6 +126,7 @@ impl ChatState {
                     } else {
                         self.expanded_reasoning.insert(index);
                     }
+                    self.bump_render_revision();
                     return;
                 }
             }
@@ -133,6 +142,7 @@ impl ChatState {
             message_index,
             expires_at_tick,
         });
+        self.bump_render_revision();
     }
 
     pub fn clear_expired_copy_feedback(&mut self, current_tick: u64) {
@@ -142,6 +152,7 @@ impl ChatState {
             .is_some_and(|feedback| current_tick >= feedback.expires_at_tick)
         {
             self.copied_message_feedback = None;
+            self.bump_render_revision();
         }
     }
 

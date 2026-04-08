@@ -67,6 +67,7 @@ impl AgentEngine {
     async fn persist_thread_snapshot(&self, thread: &AgentThread) {
         let client_surface = self.get_thread_client_surface(&thread.id).await;
         let handoff_state = self.thread_handoff_state(&thread.id).await;
+        let latest_skill_discovery_state = self.get_thread_skill_discovery_state(&thread.id).await;
         let thread_row = amux_protocol::AgentDbThread {
             id: thread.id.clone(),
             workspace_id: None,
@@ -90,21 +91,16 @@ impl AgentEngine {
                 thread,
                 client_surface,
                 handoff_state.as_ref(),
+                latest_skill_discovery_state.as_ref(),
             ),
         };
 
-        if let Err(e) = self.history.delete_thread(&thread.id).await {
-            tracing::warn!(thread_id = %thread.id, "failed to reset sqlite thread state: {e}");
-            return;
-        }
-        if let Err(e) = self.history.create_thread(&thread_row).await {
-            tracing::warn!(thread_id = %thread.id, "failed to persist sqlite thread row: {e}");
-            return;
-        }
-
-        for (index, message) in thread.messages.iter().enumerate() {
-            let metadata_json = build_message_metadata_json(message);
-            let row = amux_protocol::AgentDbMessage {
+        let message_rows = thread
+            .messages
+            .iter()
+            .map(|message| {
+                let metadata_json = build_message_metadata_json(message);
+                amux_protocol::AgentDbMessage {
                 id: message.id.clone(),
                 thread_id: thread.id.clone(),
                 created_at: message.timestamp as i64,
@@ -127,10 +123,20 @@ impl AgentEngine {
                     .as_ref()
                     .and_then(|calls| serde_json::to_string(calls).ok()),
                 metadata_json,
-            };
-            if let Err(e) = self.history.add_message(&row).await {
-                tracing::warn!(thread_id = %thread.id, message_index = index, "failed to persist sqlite message row: {e}");
-            }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if let Err(e) = self
+            .history
+            .replace_thread_snapshot(&thread_row, &message_rows)
+            .await
+        {
+            tracing::warn!(
+                thread_id = %thread.id,
+                message_count = message_rows.len(),
+                "failed to persist sqlite thread snapshot: {e}"
+            );
         }
     }
 

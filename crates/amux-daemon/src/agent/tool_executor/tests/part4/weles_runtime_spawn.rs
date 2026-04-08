@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::SubAgentDefinition;
 
 pub(crate) async fn spawn_recording_assistant_server_for_tool_executor(
     recorded_bodies: Arc<Mutex<std::collections::VecDeque<String>>>,
@@ -154,7 +155,7 @@ async fn spawn_subagent_rejects_hidden_weles_internal_fields_from_normal_callers
 }
 
 #[tokio::test]
-async fn spawn_subagent_does_not_match_builtin_weles_from_normal_title_or_role_lookup() {
+async fn spawn_subagent_rejects_protected_weles_from_normal_title_or_role_lookup() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
@@ -162,7 +163,7 @@ async fn spawn_subagent_does_not_match_builtin_weles_from_normal_title_or_role_l
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
     let (event_tx, _) = broadcast::channel(8);
 
-    let result = super::execute_spawn_subagent(
+    let error = super::execute_spawn_subagent(
         &serde_json::json!({
             "title": "WELES",
             "description": "Review a suspicious tool call"
@@ -175,22 +176,63 @@ async fn spawn_subagent_does_not_match_builtin_weles_from_normal_title_or_role_l
         &event_tx,
     )
     .await
-    .expect("ordinary spawn_subagent call should still succeed");
+    .expect_err("protected subagents should not be spawnable from normal callers");
 
-    let tasks = engine.list_tasks().await;
-    let task = tasks
-        .into_iter()
-        .find(|task| result.contains(&task.id))
-        .expect("spawned subagent should be present");
+    let message = error.to_string();
+    assert!(message.contains("protected sub-agent"), "unexpected error: {message}");
+    assert!(message.contains("WELES"), "unexpected error: {message}");
+}
 
-    assert_ne!(task.sub_agent_def_id.as_deref(), Some("weles_builtin"));
-    let override_prompt = task.override_system_prompt.as_deref().unwrap_or("");
-    assert!(!override_prompt.contains("## WELES Governance Core"));
-    assert!(
-        crate::agent::weles_governance::parse_weles_internal_override_payload(override_prompt)
-            .is_none(),
-        "normal caller path must not attach daemon-owned WELES governance payloads"
-    );
+#[tokio::test]
+async fn spawn_subagent_rejects_other_protected_subagents_from_normal_lookup() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    engine
+        .set_sub_agent(SubAgentDefinition {
+            id: "sentinel_builtin".to_string(),
+            name: "Sentinel".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("guard".to_string()),
+            system_prompt: Some("Reserved daemon-owned review specialist.".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: true,
+            immutable_identity: true,
+            disable_allowed: false,
+            delete_allowed: false,
+            protected_reason: Some("Daemon-owned internal specialist".to_string()),
+            reasoning_effort: None,
+            created_at: 1,
+        })
+        .await
+        .expect("protected subagent definition should persist for test");
+
+    let error = super::execute_spawn_subagent(
+        &serde_json::json!({
+            "title": "guard",
+            "description": "Ask the protected daemon specialist to review this."
+        }),
+        &engine,
+        "thread-parent",
+        None,
+        &manager,
+        None,
+        &event_tx,
+    )
+    .await
+    .expect_err("protected subagents should not be spawnable by role lookup either");
+
+    let message = error.to_string();
+    assert!(message.contains("protected sub-agent"), "unexpected error: {message}");
+    assert!(message.contains("Sentinel"), "unexpected error: {message}");
 }
 
 #[tokio::test]

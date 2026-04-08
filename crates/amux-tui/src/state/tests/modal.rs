@@ -63,6 +63,18 @@ fn slash_prefix_stripped_for_matching() {
 }
 
 #[test]
+fn command_palette_matches_command_head_when_query_has_arguments() {
+    let mut state = ModalState::new();
+    state.reduce(ModalAction::SetQuery("/prompt weles".into()));
+    let filtered_commands: Vec<&str> = state
+        .filtered_items()
+        .iter()
+        .map(|&idx| state.command_items()[idx].command.as_str())
+        .collect();
+    assert!(filtered_commands.contains(&"prompt"));
+}
+
+#[test]
 fn install_queries_match_predefined_helper_commands() {
     let mut state = ModalState::new();
     state.reduce(ModalAction::SetQuery("install".into()));

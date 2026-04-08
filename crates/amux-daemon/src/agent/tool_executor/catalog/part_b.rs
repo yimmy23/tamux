@@ -189,4 +189,16 @@ fn add_available_tools_part_b(
         }),
     ));
 
+    tools.push(tool_def(
+        "justify_skill_skip",
+        "Record an explicit rationale for proceeding without a local skill recommendation when discovery confidence is weak or none.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "rationale": { "type": "string", "description": "Why no installed local skill is suitable for the current request" }
+            },
+            "required": ["rationale"]
+        }),
+    ));
+
 }

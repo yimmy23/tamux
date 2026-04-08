@@ -206,6 +206,7 @@ impl Default for AgentConfig {
             ema_activity_threshold: default_ema_activity_threshold(),
             consolidation: ConsolidationConfig::default(),
             skill_discovery: SkillDiscoveryConfig::default(),
+            skill_recommendation: SkillRecommendationConfig::default(),
             skill_promotion: SkillPromotionConfig::default(),
             tier: TierConfig::default(),
             episodic: super::episodic::EpisodicConfig::default(),
@@ -329,6 +330,20 @@ pub struct SubAgentDefinition {
     pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub created_at: u64,
+}
+
+impl SubAgentDefinition {
+    pub fn is_spawnable(&self) -> bool {
+        self.enabled && self.protected_reason.is_none()
+    }
+
+    pub fn matches_spawn_request(&self, requested_title: &str) -> bool {
+        self.name.eq_ignore_ascii_case(requested_title)
+            || self
+                .role
+                .as_deref()
+                .is_some_and(|role| role.eq_ignore_ascii_case(requested_title))
+    }
 }
 
 /// Snapshot of a provider's authentication status for UI display.

@@ -49,9 +49,9 @@ impl<'a> SendMessageRunner<'a> {
                 .push_str("Use this as historical context from prior sessions when relevant:\n");
             self.system_prompt.push_str(recall);
         }
-        if let Some(skill_preflight) = self.skill_preflight.as_deref() {
+        if let Some(skill_preflight) = self.skill_preflight.as_ref() {
             self.system_prompt.push_str("\n\n## Preloaded Skills\n");
-            self.system_prompt.push_str(skill_preflight);
+            self.system_prompt.push_str(&skill_preflight.prompt_context);
         }
         Ok(())
     }

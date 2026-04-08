@@ -375,6 +375,11 @@ where
         AgentBridgeCommand::GetStatus => {
             framed.send(ClientMessage::AgentStatusQuery).await?;
         }
+        AgentBridgeCommand::InspectPrompt { agent_id } => {
+            framed
+                .send(ClientMessage::AgentInspectPrompt { agent_id })
+                .await?;
+        }
         AgentBridgeCommand::SetTierOverride { tier } => {
             framed
                 .send(ClientMessage::AgentSetTierOverride { tier })

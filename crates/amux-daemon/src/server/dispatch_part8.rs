@@ -248,7 +248,11 @@ if matches!(
                         .to_string();
                     drop(config);
 
-                    let client = RegistryClient::new(registry_url, agent.history.data_dir());
+                    let registry_root = agent
+                        .data_dir
+                        .parent()
+                        .unwrap_or(agent.data_dir.as_path());
+                    let client = RegistryClient::new(registry_url, registry_root);
                     let entries: Vec<amux_protocol::CommunitySkillEntry> =
                         match client.search(&query).await {
                             Ok(entries) => entries
@@ -316,6 +320,11 @@ if matches!(
                     let result_operation_id = operation_id.clone();
                     let history = agent.history.clone();
                     let skills_root = agent.history.data_dir().to_path_buf();
+                    let registry_root = agent
+                        .data_dir
+                        .parent()
+                        .unwrap_or(agent.data_dir.as_path())
+                        .to_path_buf();
                     let background_daemon_tx =
                         background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
                     spawn_background_operation(
@@ -324,7 +333,7 @@ if matches!(
                         background_daemon_tx,
                         &mut background_daemon_pending,
                         async move {
-                            let client = RegistryClient::new(registry_url, &skills_root);
+                            let client = RegistryClient::new(registry_url, &registry_root);
                             let import_result: Result<(String, String), anyhow::Error> = async {
                             if source.starts_with("http://") || source.starts_with("https://") {
                                 let archive_name = source

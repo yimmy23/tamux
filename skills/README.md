@@ -40,6 +40,7 @@ tamux is a daemon-first terminal multiplexer purpose-built for long-running AI w
 
 - [operating/terminals.md](operating/terminals.md) -- Execute commands, read terminal output, interactive input
 - [operating/browser.md](operating/browser.md) -- Canvas browser panels, DOM reading, clicking, typing, JS eval
+- [operating/synthlabs.md](operating/synthlabs.md) -- Choose the right SynthLabs workflow skill for setup, generation, curation, and UI-led tasks
 - [operating/tasks.md](operating/tasks.md) -- Background task queue with dependencies and scheduling
 - [operating/goals.md](operating/goals.md) -- Durable goal runners for multi-step autonomous objectives
 - [operating/memory.md](operating/memory.md) -- Persistent agent memory (SOUL.md, MEMORY.md, USER.md)
@@ -61,6 +62,7 @@ tamux is a daemon-first terminal multiplexer purpose-built for long-running AI w
 | Import a community skill                  | [setup/install-skills.md](setup/install-skills.md)             |
 | Run shell commands                        | [operating/terminals.md](operating/terminals.md)               |
 | Browse the web or scrape pages            | [operating/browser.md](operating/browser.md)                   |
+| Choose a SynthLabs workflow for your task | [operating/synthlabs.md](operating/synthlabs.md)               |
 | Queue background work                     | [operating/tasks.md](operating/tasks.md)                       |
 | Run a multi-step autonomous objective     | [operating/goals.md](operating/goals.md)                       |
 | Persist knowledge across sessions         | [operating/memory.md](operating/memory.md)                     |

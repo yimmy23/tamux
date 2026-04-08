@@ -2,6 +2,87 @@ use super::participants::apply_vote_to_disagreement;
 use super::*;
 
 impl AgentEngine {
+    async fn ensure_task_collaboration_session(
+        &self,
+        task: &AgentTask,
+    ) -> Result<CollaborationSession> {
+        let mut collaboration = self.collaboration.write().await;
+        let session = collaboration
+            .entry(task.id.clone())
+            .or_insert_with(|| CollaborationSession {
+                id: format!("collab_{}", uuid::Uuid::new_v4()),
+                parent_task_id: task.id.clone(),
+                thread_id: task.thread_id.clone().or(task.parent_thread_id.clone()),
+                goal_run_id: task.goal_run_id.clone(),
+                mission: task.description.clone(),
+                agents: Vec::new(),
+                contributions: Vec::new(),
+                disagreements: Vec::new(),
+                consensus: None,
+                updated_at: now_millis(),
+            });
+
+        if !session.agents.iter().any(|agent| agent.task_id == task.id) {
+            session.agents.push(CollaborativeAgent {
+                task_id: task.id.clone(),
+                title: task.title.clone(),
+                role: infer_collaboration_role(task),
+                confidence: 0.5,
+                status: format!("{:?}", task.status).to_lowercase(),
+            });
+        }
+        session.thread_id = session
+            .thread_id
+            .clone()
+            .or(task.thread_id.clone())
+            .or(task.parent_thread_id.clone());
+        session.goal_run_id = session.goal_run_id.clone().or(task.goal_run_id.clone());
+        if session.mission.trim().is_empty() {
+            session.mission = task.description.clone();
+        }
+        session.updated_at = now_millis();
+
+        let snapshot = session.clone();
+        drop(collaboration);
+        self.persist_collaboration_session(&snapshot).await?;
+        Ok(snapshot)
+    }
+
+    async fn persisted_collaboration_session(
+        &self,
+        parent_task_id: &str,
+    ) -> Result<Option<CollaborationSession>> {
+        let row = self
+            .history
+            .list_collaboration_sessions()
+            .await?
+            .into_iter()
+            .find(|row| row.parent_task_id == parent_task_id);
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        serde_json::from_str(&row.session_json)
+            .map(Some)
+            .map_err(|error| anyhow::anyhow!(error))
+    }
+
+    async fn merged_persisted_collaboration_sessions(&self) -> Result<Vec<CollaborationSession>> {
+        let persisted = self.history.list_collaboration_sessions().await?;
+        let mut sessions = std::collections::BTreeMap::new();
+        for row in persisted {
+            let session: CollaborationSession = serde_json::from_str(&row.session_json)
+                .map_err(|error| anyhow::anyhow!(error))?;
+            sessions.insert(session.parent_task_id.clone(), session);
+        }
+
+        let collaboration = self.collaboration.read().await;
+        for session in collaboration.values() {
+            sessions.insert(session.parent_task_id.clone(), session.clone());
+        }
+
+        Ok(sessions.into_values().collect())
+    }
+
     async fn persist_collaboration_session(&self, session: &CollaborationSession) -> Result<()> {
         let session_json = serde_json::to_string(session)?;
         self.history
@@ -219,20 +300,19 @@ impl AgentEngine {
         if !self.config.read().await.collaboration.enabled {
             anyhow::bail!("collaboration capability is disabled in agent config");
         }
-        let collaboration = self.collaboration.read().await;
         if let Some(parent_task_id) = parent_task_id {
+            let collaboration = self.collaboration.read().await;
             if let Some(session) = collaboration.get(parent_task_id) {
+                return Ok(serde_json::to_value(session).unwrap_or_else(|_| serde_json::json!({})));
+            }
+            drop(collaboration);
+            if let Some(session) = self.persisted_collaboration_session(parent_task_id).await? {
                 return Ok(serde_json::to_value(session).unwrap_or_else(|_| serde_json::json!({})));
             }
             return Ok(serde_json::json!([]));
         }
-        Ok(serde_json::to_value(
-            collaboration
-                .values()
-                .cloned()
-                .collect::<Vec<CollaborationSession>>(),
-        )
-        .unwrap_or_else(|_| serde_json::json!([])))
+        Ok(serde_json::to_value(self.merged_persisted_collaboration_sessions().await?)
+            .unwrap_or_else(|_| serde_json::json!([])))
     }
 
     pub(in crate::agent) async fn record_collaboration_outcome(
@@ -269,9 +349,16 @@ impl AgentEngine {
             "cancelled" => "cancelled",
             _ => "reported",
         };
+        if let Err(error) = self.ensure_task_collaboration_session(task).await {
+            tracing::warn!(
+                task_id = %task.id,
+                "failed to initialize solo collaboration session: {error}"
+            );
+            return;
+        }
         if let Err(error) = self
             .record_collaboration_contribution(
-                parent_task_id,
+                &task.id,
                 &task.id,
                 &task.title,
                 position,
@@ -282,9 +369,26 @@ impl AgentEngine {
         {
             tracing::warn!(
                 task_id = %task.id,
-                parent_task_id = %parent_task_id,
+                parent_task_id = %task.id,
                 "failed to record collaboration outcome: {error}"
             );
+        }
+
+        let parent_session_exists = {
+            let collaboration = self.collaboration.read().await;
+            collaboration.contains_key(parent_task_id)
+        };
+        if parent_session_exists {
+            let _ = self
+                .record_collaboration_contribution(
+                    parent_task_id,
+                    &task.id,
+                    &task.title,
+                    position,
+                    vec![crate::agent::summarize_text(summary, 220)],
+                    if outcome == "success" { 0.8 } else { 0.6 },
+                )
+                .await;
         }
     }
 }

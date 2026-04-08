@@ -6,8 +6,10 @@ use super::types::*;
 
 const LOCAL_SKILL_WORKFLOW_PROMPT: &str =
     "## Local Skills Workflow\n\
-     - Before non-trivial work, call `list_skills` to inspect reusable local skills.\n\
-     - If a relevant skill exists, call `read_skill` before executing commands or spawning tasks.\n\
+     - Tamux runs local skill discovery before non-trivial work and surfaces the ranked result in the runtime prompt and workflow notices.\n\
+     - Treat that discovery result as the source of truth instead of relying on raw `list_skills` output.\n\
+     - If the top match is strong, call `read_skill` for the recommended skill before other substantial tools.\n\
+    - If discovery confidence is weak or none, `justify_skill_skip` is recommended when you intentionally proceed without a local skill, but it is not a hard prerequisite for other substantial tools.\n\
      - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
      - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n";
 
@@ -99,8 +101,10 @@ pub(super) fn build_system_prompt(
              - Skills root: {}\n\
              - Generated skills: {}\n\
              - Built-in skills: {}/builtin/ (tamux reference docs for terminals, browser, tasks, goals, memory, safety, etc.)\n\
-             - Before non-trivial work, consult MEMORY.md and USER.md, then call `list_skills` to inspect reusable local skills.\n\
-             - If a relevant skill exists, call `read_skill` before executing commands or spawning tasks.\n\
+             - Before non-trivial work, consult MEMORY.md and USER.md, then follow the daemon-provided skill discovery result for this turn.\n\
+             - Strong matches require `read_skill` before other substantial tools.\n\
+             - Weak or no matches may use `justify_skill_skip` to record why no local skill fits, but it is guidance rather than a hard blocker.\n\
+             - `list_skills` remains the raw catalog view, not the decision authority for the task.\n\
              - The `builtin/cheatsheet` skill provides a quick reference for all available MCP tools.\n\
              - Prefer reusing an existing skill over inventing a brand-new workflow.\n",
             skills_root.display(),
@@ -238,6 +242,7 @@ pub(super) fn build_system_prompt(
     prompt.push_str(
         "\n\n## Subagent Supervision\n\
          - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
+            - If a child should use a specific provider or model, call `fetch_authenticated_providers` first and `fetch_provider_models` for the chosen provider before setting `spawn_subagent.provider` or `spawn_subagent.model`.\n\
          - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
          - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
          - Spawned agents carry their own Slavic persona. Treat those identities as real collaborators with bounded scope, not as disposable copies of yourself.\n",
@@ -481,7 +486,7 @@ pub(super) fn build_external_agent_prompt(
     )
 }
 
-fn render_skill_index(skills_root: &std::path::Path) -> Option<String> {
+pub(super) fn render_skill_index(skills_root: &std::path::Path) -> Option<String> {
     let mut skills = Vec::new();
     collect_skill_stems(skills_root, skills_root, &mut skills);
     skills.sort();
@@ -542,8 +547,9 @@ mod tests {
 
         assert!(prompt.contains("## Time Context"));
         assert!(prompt.contains("Current local day:"));
-        assert!(prompt.contains("list_skills"));
         assert!(prompt.contains("read_skill"));
+        assert!(prompt.contains("justify_skill_skip"));
+        assert!(prompt.contains("source of truth"));
         assert!(prompt.contains("onecontext_search"));
     }
 
@@ -561,8 +567,9 @@ mod tests {
 
         assert!(prompt.contains("## Time Context"));
         assert!(prompt.contains("Current local day:"));
-        assert!(prompt.contains("list_skills"));
         assert!(prompt.contains("read_skill"));
+        assert!(prompt.contains("justify_skill_skip"));
+        assert!(prompt.contains("source of truth"));
         assert!(prompt.contains("onecontext_search"));
     }
 

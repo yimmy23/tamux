@@ -257,6 +257,62 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
 }
 
 #[test]
+fn native_assistant_transport_falls_back_to_compacted_message_stack_when_compaction_is_active() {
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+
+    let mut provider = sample_provider_config();
+    provider.api_transport = ApiTransport::NativeAssistant;
+    provider.assistant_id = "asst_test".to_string();
+
+    let thread = AgentThread {
+        upstream_thread_id: Some("thread_upstream_123".to_string()),
+        upstream_transport: Some(ApiTransport::NativeAssistant),
+        upstream_provider: Some(PROVIDER_ID_OPENAI.to_string()),
+        upstream_model: Some(provider.model.clone()),
+        upstream_assistant_id: Some(provider.assistant_id.clone()),
+        ..sample_thread(vec![
+            AgentMessage::user("earlier request", 1),
+            AgentMessage {
+                id: "assistant-1".to_string(),
+                role: MessageRole::Assistant,
+                content: "Earlier assistant state that should be compacted".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+                tool_arguments: None,
+                tool_status: None,
+                weles_review: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                provider: Some(PROVIDER_ID_OPENAI.to_string()),
+                model: Some(provider.model.clone()),
+                api_transport: Some(ApiTransport::NativeAssistant),
+                response_id: None,
+                upstream_message: None,
+                provider_final_result: None,
+                reasoning: None,
+                message_kind: AgentMessageKind::Normal,
+                compaction_strategy: None,
+                compaction_payload: None,
+                timestamp: 2,
+            },
+            AgentMessage::user("continue with more work", 3),
+        ])
+    };
+
+    let prepared = prepare_llm_request(&thread, &config, &provider);
+
+    assert_ne!(prepared.transport, ApiTransport::NativeAssistant);
+    assert_eq!(prepared.upstream_thread_id, None);
+    assert!(prepared.previous_response_id.is_none());
+    assert!(prepared.messages.len() >= 2);
+}
+
+#[test]
 fn github_copilot_responses_request_uses_previous_response_id_for_plain_follow_up_turns() {
     let mut config = AgentConfig::default();
     config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();

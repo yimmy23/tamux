@@ -133,6 +133,7 @@ pub enum ClientMessage {
     SkillExport { identifier: String, format: String, output_dir: String },
     SkillPublish { identifier: String },
     AgentStatusQuery,
+    AgentInspectPrompt { #[serde(default)] agent_id: Option<String> },
     AgentSetTierOverride { tier: Option<String> },
     PluginList {},
     PluginGet { name: String },
@@ -171,4 +172,5 @@ pub enum ClientMessage {
     AgentGetOpenAICodexAuthStatus,
     AgentLoginOpenAICodex,
     AgentLogoutOpenAICodex,
+    SkillDiscover { query: String, session_id: Option<SessionId>, limit: usize },
 }

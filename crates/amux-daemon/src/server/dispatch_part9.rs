@@ -2,6 +2,7 @@ if matches!(
         &msg,
         ClientMessage::SkillPublish{ .. } |
         ClientMessage::AgentStatusQuery |
+        ClientMessage::AgentInspectPrompt{ .. } |
         ClientMessage::AgentSetTierOverride{ .. } |
         ClientMessage::PluginList{ .. } |
         ClientMessage::PluginGet{ .. } |
@@ -82,6 +83,11 @@ if matches!(
                             let operation_id = Some(operation.operation_id.clone());
                             let result_operation_id = operation_id.clone();
                             let skill_root = agent.history.data_dir().to_path_buf();
+                            let registry_root = agent
+                                .data_dir
+                                .parent()
+                                .unwrap_or(agent.data_dir.as_path())
+                                .to_path_buf();
                             let machine_id = skill_root.to_string_lossy().to_string();
                             let background_daemon_tx =
                                 background_daemon_queues.sender(BackgroundSubsystem::PluginIo);
@@ -99,7 +105,7 @@ if matches!(
 
                                     match prepare_publish(&skill_dir, &v, &machine_id) {
                                         Ok((tarball, metadata)) => {
-                                            let client = RegistryClient::new(registry_url, &skill_root);
+                                            let client = RegistryClient::new(registry_url, &registry_root);
                                             match client.publish_skill(&tarball, &metadata).await {
                                                 Ok(()) => BackgroundOperationOutput::Completed(
                                                     DaemonMessage::SkillPublishResult {
@@ -142,6 +148,23 @@ if matches!(
                 ClientMessage::AgentStatusQuery => {
                     let msg = agent.get_status_snapshot().await;
                     framed.send(msg).await?;
+                }
+
+                ClientMessage::AgentInspectPrompt { agent_id } => {
+                    match agent.inspect_prompt_json(agent_id.as_deref()).await {
+                        Ok(prompt_json) => {
+                            framed
+                                .send(DaemonMessage::AgentPromptInspection { prompt_json })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
                 }
 
                 ClientMessage::AgentSetTierOverride { tier } => {

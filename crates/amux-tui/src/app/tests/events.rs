@@ -275,14 +275,14 @@ fn full_status_event_caches_snapshot_for_status_modal() {
 
     model.handle_client_event(ClientEvent::StatusSnapshot(
         crate::client::AgentStatusSnapshotVm {
-        tier: "mission_control".to_string(),
-        activity: "waiting_for_operator".to_string(),
-        active_thread_id: Some("thread-1".to_string()),
-        active_goal_run_id: Some("goal-1".to_string()),
-        active_goal_run_title: Some("Close release gap".to_string()),
-        provider_health_json: r#"{"openai":{"can_execute":true,"trip_count":0}}"#.to_string(),
-        gateway_statuses_json: r#"{"slack":{"status":"connected"}}"#.to_string(),
-        recent_actions_json: r#"[]"#.to_string(),
+            tier: "mission_control".to_string(),
+            activity: "waiting_for_operator".to_string(),
+            active_thread_id: Some("thread-1".to_string()),
+            active_goal_run_id: Some("goal-1".to_string()),
+            active_goal_run_title: Some("Close release gap".to_string()),
+            provider_health_json: r#"{"openai":{"can_execute":true,"trip_count":0}}"#.to_string(),
+            gateway_statuses_json: r#"{"slack":{"status":"connected"}}"#.to_string(),
+            recent_actions_json: r#"[]"#.to_string(),
         },
     ));
 
@@ -674,6 +674,84 @@ fn done_event_persists_final_reasoning_into_chat_message() {
 }
 
 #[test]
+fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::User,
+            content: "Retry this".to_string(),
+            ..Default::default()
+        },
+    });
+
+    model.handle_client_event(ClientEvent::RetryStatus {
+        thread_id: "thread-1".to_string(),
+        phase: "retrying".to_string(),
+        attempt: 1,
+        max_retries: 3,
+        delay_ms: 1_000,
+        failure_class: "temporary_upstream".to_string(),
+        message: "upstream timeout".to_string(),
+    });
+    assert_eq!(model.agent_activity.as_deref(), Some("retrying"));
+    assert!(model.chat.retry_status().is_some());
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-1".to_string(),
+        content: "Recovered answer".to_string(),
+    });
+
+    model.handle_client_event(ClientEvent::Done {
+        thread_id: "thread-1".to_string(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: None,
+        provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
+        model: Some("gpt-5.4".to_string()),
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: Some("result_json".to_string()),
+    });
+
+    assert!(
+        model.agent_activity.is_none(),
+        "done should clear the retrying placeholder"
+    );
+    assert!(
+        model.chat.retry_status().is_none(),
+        "done should clear visible retry status"
+    );
+
+    model.handle_client_event(ClientEvent::RetryStatus {
+        thread_id: "thread-1".to_string(),
+        phase: "retrying".to_string(),
+        attempt: 1,
+        max_retries: 3,
+        delay_ms: 1_000,
+        failure_class: "temporary_upstream".to_string(),
+        message: "late retry status".to_string(),
+    });
+
+    assert!(
+        model.agent_activity.is_none(),
+        "late retry events for a completed turn must not restore the retrying placeholder"
+    );
+    assert!(
+        model.chat.retry_status().is_none(),
+        "late retry events for a completed turn must not restore retry status UI"
+    );
+}
+
+#[test]
 fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
     let mut model = make_model();
     model.concierge.provider = Some("alibaba-coding-plan".to_string());
@@ -977,6 +1055,40 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         "visible thread completion should still clear running tools"
     );
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+}
+
+#[test]
+fn inactive_thread_events_do_not_replace_selected_thread_activity_badge() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-other".to_string(),
+        title: "Other Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::Reasoning {
+        thread_id: "thread-other".to_string(),
+        content: "background reasoning".to_string(),
+    });
+    model.handle_client_event(ClientEvent::ToolCall {
+        thread_id: "thread-other".to_string(),
+        call_id: "background-call".to_string(),
+        name: "bash_command".to_string(),
+        arguments: "{\"command\":\"pwd\"}".to_string(),
+        weles_review: None,
+    });
+
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+    assert!(model.agent_activity.is_none());
+    assert_eq!(model.chat.streaming_content(), "");
+    assert_eq!(model.chat.streaming_reasoning(), "");
+    assert!(model.chat.active_tool_calls().is_empty());
 }
 
 #[test]

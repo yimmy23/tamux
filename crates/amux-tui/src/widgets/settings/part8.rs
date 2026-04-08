@@ -181,9 +181,9 @@ fn render_features_tab<'a>(
     lines.push(Line::from(Span::styled("  Skills", theme.fg_active)));
     lines.push(Line::raw(""));
 
-    // Field 12: skill_discovery.enabled (toggle)
+    // Field 12: skill_recommendation.enabled (toggle)
     let skill_enabled = raw
-        .and_then(|r| r.get("skill_discovery"))
+        .and_then(|r| r.get("skill_recommendation"))
         .and_then(|s| s.get("enabled"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
@@ -191,28 +191,59 @@ fn render_features_tab<'a>(
         &mut lines,
         settings,
         12,
-        "Auto-Discovery",
+        "Local Skill Gate",
         skill_enabled,
         theme,
     );
 
-    // Field 13: skill_discovery.promotion_threshold
-    let promo_val = raw
-        .and_then(|r| r.get("skill_discovery"))
-        .and_then(|s| s.get("promotion_threshold"))
+    // Field 13: skill_recommendation.background_community_search (toggle)
+    let community_enabled = raw
+        .and_then(|r| r.get("skill_recommendation"))
+        .and_then(|s| s.get("background_community_search"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    render_feature_toggle_line(
+        &mut lines,
+        settings,
+        13,
+        "Community Scout",
+        community_enabled,
+        theme,
+    );
+
+    // Field 14: skill_recommendation.community_preapprove_timeout_secs
+    let timeout_val = raw
+        .and_then(|r| r.get("skill_recommendation"))
+        .and_then(|s| s.get("community_preapprove_timeout_secs"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "30".to_string());
+    render_feature_field_line(
+        &mut lines,
+        settings,
+        14,
+        "Scout Timeout",
+        &timeout_val,
+        "  [Enter: edit]",
+        theme,
+    );
+
+    // Field 15: skill_recommendation.suggest_global_enable_after_approvals
+    let approvals_val = raw
+        .and_then(|r| r.get("skill_recommendation"))
+        .and_then(|s| s.get("suggest_global_enable_after_approvals"))
         .and_then(|v| v.as_u64())
         .map(|v| v.to_string())
         .unwrap_or_else(|| "3".to_string());
     render_feature_field_line(
         &mut lines,
         settings,
-        13,
-        "Promotion Thresh",
-        &promo_val,
+        15,
+        "Suggest After",
+        &approvals_val,
         "  [Enter: edit]",
         theme,
     );
 
     lines
 }
-

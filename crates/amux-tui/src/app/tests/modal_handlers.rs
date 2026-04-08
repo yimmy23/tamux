@@ -141,6 +141,132 @@ fn slash_status_opens_loading_modal_and_requests_status_without_sending_chat() {
 }
 
 #[test]
+fn slash_prompt_opens_loading_modal_and_requests_main_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.input.set_text("/prompt");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::PromptViewer));
+    assert!(model.prompt_modal_loading);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestPromptInspection { agent_id }) => {
+            assert!(agent_id.is_none());
+        }
+        other => panic!("expected prompt inspection request, got {:?}", other),
+    }
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
+fn slash_prompt_weles_requests_explicit_agent_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.input.set_text("/prompt weles");
+
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestPromptInspection { agent_id }) => {
+            assert_eq!(agent_id.as_deref(), Some("weles"));
+        }
+        other => panic!(
+            "expected explicit prompt inspection request, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
+fn prompt_viewer_down_scrolls_prompt_body() {
+    let (mut model, _daemon_rx) = make_model();
+    model.prompt_modal_snapshot = Some(crate::client::AgentPromptInspectionVm {
+        agent_id: "swarog".to_string(),
+        agent_name: "Svarog".to_string(),
+        provider_id: "openai".to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        sections: vec![crate::client::AgentPromptInspectionSectionVm {
+            id: "base_prompt".to_string(),
+            title: "Base Prompt".to_string(),
+            content: (0..220)
+                .map(|idx| format!("token-{idx}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+        }],
+        final_prompt: (0..320)
+            .map(|idx| format!("final-token-{idx}"))
+            .collect::<Vec<_>>()
+            .join(" "),
+    });
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::PromptViewer));
+    model.width = 120;
+    model.height = 40;
+
+    let quit = model.handle_key_modal(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+        modal::ModalKind::PromptViewer,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.prompt_modal_scroll, 1);
+}
+
+#[test]
+fn command_palette_prompt_query_with_args_requests_target_agent() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model.focus = FocusArea::Chat;
+
+    let quit = model.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+    assert!(!quit);
+    for ch in "prompt weles".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestPromptInspection { agent_id }) => {
+            assert_eq!(agent_id.as_deref(), Some("weles"));
+        }
+        other => panic!("expected prompt inspection request from command palette query, got {:?}", other),
+    }
+}
+
+#[test]
+fn slash_command_can_restart_from_prompt_viewer_modal() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.connected = true;
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::PromptViewer));
+
+    for ch in "/prompt weles".chars() {
+        let quit = model.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        assert!(!quit);
+    }
+    let quit = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    assert!(!quit);
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestPromptInspection { agent_id }) => {
+            assert_eq!(agent_id.as_deref(), Some("weles"));
+        }
+        other => panic!(
+            "expected prompt inspection request after restarting slash command, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
 fn ctrl_e_in_error_modal_clears_error() {
     let (mut model, _daemon_rx) = make_model();
     model.last_error = Some("boom".to_string());

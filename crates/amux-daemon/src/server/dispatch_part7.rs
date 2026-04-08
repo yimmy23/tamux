@@ -11,7 +11,8 @@ if matches!(
         ClientMessage::AuditQuery{ .. } |
         ClientMessage::AuditDismiss{ .. } |
         ClientMessage::EscalationCancel{ .. } |
-        ClientMessage::SkillList{ .. }
+        ClientMessage::SkillList{ .. } |
+        ClientMessage::SkillDiscover{ .. }
     ) {
         match msg {
                 ClientMessage::AgentValidateProvider {
@@ -575,6 +576,42 @@ if matches!(
                             framed
                                 .send(DaemonMessage::Error {
                                     message: format!("skill list failed: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::SkillDiscover {
+                    query,
+                    session_id,
+                    limit,
+                } => {
+                    let limit = limit.clamp(1, 20);
+                    match agent
+                        .discover_skill_recommendations_public(&query, session_id, limit)
+                        .await
+                    {
+                        Ok(result) => match serde_json::to_string(&result) {
+                            Ok(result_json) => {
+                                framed
+                                    .send(DaemonMessage::SkillDiscoverResult { result_json })
+                                    .await?;
+                            }
+                            Err(error) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "skill discovery serialization failed: {error}"
+                                        ),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("skill discovery failed: {error}"),
                                 })
                                 .await?;
                         }

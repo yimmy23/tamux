@@ -203,11 +203,9 @@ impl DiscordProvider {
 
         let mut newest_cursor = None::<String>;
         for message in messages.iter().rev() {
-            if let Some(normalized) = parse_discord_message(
-                channel_id,
-                message,
-                self.self_user_id.as_deref(),
-            ) {
+            if let Some(normalized) =
+                parse_discord_message(channel_id, message, self.self_user_id.as_deref())
+            {
                 newest_cursor = message
                     .get("id")
                     .and_then(Value::as_str)
@@ -262,10 +260,7 @@ impl GatewayProvider for DiscordProvider {
         Box::pin(async move {
             let url = format!("{}/users/@me", self.api_base);
             let body = self.get_messages(&url).await?;
-            self.self_user_id = body
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::to_string);
+            self.self_user_id = body.get("id").and_then(Value::as_str).map(str::to_string);
             self.connected = true;
             Ok(())
         })
@@ -412,8 +407,8 @@ fn parse_discord_message(
     let is_self_authored = self_user_id
         .filter(|value| !value.is_empty())
         .is_some_and(|self_user_id| self_user_id == author_id);
-    let is_application_message = message.get("webhook_id").is_some()
-        || message.get("application_id").is_some();
+    let is_application_message =
+        message.get("webhook_id").is_some() || message.get("application_id").is_some();
     if id.is_empty() || content.is_empty() || is_bot || is_self_authored || is_application_message {
         return None;
     }
@@ -421,7 +416,11 @@ fn parse_discord_message(
     normalize_message(RawGatewayMessage {
         platform: "discord",
         channel_id,
-        user_id: if author_id.is_empty() { "unknown" } else { author_id },
+        user_id: if author_id.is_empty() {
+            "unknown"
+        } else {
+            author_id
+        },
         sender_display: author
             .and_then(|value| value.get("username"))
             .and_then(Value::as_str)

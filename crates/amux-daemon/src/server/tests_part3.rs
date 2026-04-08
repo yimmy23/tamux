@@ -279,6 +279,108 @@
     }
 
     #[tokio::test]
+    async fn skill_discover_returns_ranked_candidates() {
+        let mut conn = spawn_test_connection().await;
+
+        let skill_dir = conn
+            .agent
+            .history
+            .data_dir()
+            .join("skills")
+            .join("generated")
+            .join("systematic-debugging");
+        std::fs::create_dir_all(&skill_dir).expect("create skill dir");
+        let skill_path = skill_dir.join("SKILL.md");
+        std::fs::write(
+            &skill_path,
+            r#"---
+name: systematic-debugging
+description: Debug panic failures in Rust workspaces.
+keywords: [debug, panic, rust]
+triggers: [panic, crash]
+---
+
+# Systematic Debugging
+
+Use this when debugging a panic in a Rust workspace.
+"#,
+        )
+        .expect("write skill document");
+
+        let record = conn
+            .agent
+            .history
+            .register_skill_document(&skill_path)
+            .await
+            .expect("register skill document");
+        for _ in 0..14 {
+            conn.agent
+                .history
+                .record_skill_variant_use(&record.variant_id, Some(true))
+                .await
+                .expect("record successful skill use");
+        }
+        for _ in 0..2 {
+            conn.agent
+                .history
+                .record_skill_variant_use(&record.variant_id, Some(false))
+                .await
+                .expect("record failed skill use");
+        }
+
+        conn.framed
+            .send(ClientMessage::SkillDiscover {
+                query: "debug panic".to_string(),
+                session_id: None,
+                limit: 3,
+            })
+            .await
+            .expect("send skill discover request");
+
+        let result = loop {
+            match conn.recv_with_timeout(Duration::from_secs(2)).await {
+                DaemonMessage::SkillDiscoverResult { result_json } => {
+                    break serde_json::from_str::<amux_protocol::SkillDiscoveryResultPublic>(
+                        &result_json,
+                    )
+                    .expect("parse discovery result")
+                }
+                DaemonMessage::CwdChanged { .. } => continue,
+                DaemonMessage::Output { .. }
+                | DaemonMessage::CommandStarted { .. }
+                | DaemonMessage::CommandFinished { .. } => continue,
+                other => panic!("expected SkillDiscoverResult, got {other:?}"),
+            }
+        };
+
+        assert_eq!(result.query, "debug panic");
+        assert_eq!(result.confidence_tier, "strong");
+        assert_eq!(result.recommended_action, "read_skill systematic-debugging");
+        assert!(
+            result.workspace_tags.iter().any(|tag| tag == "rust"),
+            "expected workspace tags to include rust: {:?}",
+            result.workspace_tags
+        );
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].skill_name, "systematic-debugging");
+        assert_eq!(result.candidates[0].status, "active");
+        assert_eq!(result.candidates[0].confidence_tier, "strong");
+        assert_eq!(result.candidates[0].use_count, 16);
+        assert_eq!(result.candidates[0].success_count, 14);
+        assert_eq!(result.candidates[0].failure_count, 2);
+        assert!(
+            result.candidates[0]
+                .reasons
+                .iter()
+                .any(|reason| reason.contains("successful uses")),
+            "expected usage rationale in discovery reasons: {:?}",
+            result.candidates[0].reasons
+        );
+
+        conn.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn whatsapp_link_subscriber_is_cleaned_up_on_disconnect_without_unsubscribe() {
         let mut conn = spawn_test_connection().await;
         conn.framed
@@ -420,6 +522,54 @@
 
     fn parse_json(raw: &str) -> serde_json::Value {
         serde_json::from_str(raw).expect("json payload should decode")
+    }
+
+    #[tokio::test]
+    async fn inspect_prompt_returns_sectioned_main_agent_prompt() {
+        let mut config = AgentConfig::default();
+        config.system_prompt = "Custom operator prompt".to_string();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        let mut conn = spawn_test_connection_with_config(config).await;
+
+        conn.framed
+            .send(ClientMessage::AgentInspectPrompt { agent_id: None })
+            .await
+            .expect("send inspect prompt request");
+
+        let payload = match conn.recv().await {
+            DaemonMessage::AgentPromptInspection { prompt_json } => parse_json(&prompt_json),
+            other => panic!("expected AgentPromptInspection, got {other:?}"),
+        };
+
+        assert_eq!(payload.get("agent_id").and_then(|value| value.as_str()), Some("swarog"));
+        assert_eq!(
+            payload.get("agent_name").and_then(|value| value.as_str()),
+            Some("Svarog")
+        );
+
+        let sections = payload
+            .get("sections")
+            .and_then(|value| value.as_array())
+            .expect("sections should be an array");
+        assert!(
+            sections.iter().any(|section| {
+                section.get("id").and_then(|value| value.as_str()) == Some("base_prompt")
+                    && section.get("content").and_then(|value| value.as_str())
+                        == Some("Custom operator prompt")
+            }),
+            "base prompt section should reflect the configured operator prompt"
+        );
+
+        let final_prompt = payload
+            .get("final_prompt")
+            .and_then(|value| value.as_str())
+            .expect("final prompt should be present");
+        assert!(final_prompt.contains("Custom operator prompt"));
+        assert!(final_prompt.contains("## Local Skills"));
+        assert!(final_prompt.contains("## Runtime Identity"));
+
+        conn.shutdown().await;
     }
 
     fn extract_state_from_auth_url(auth_url: &str) -> String {

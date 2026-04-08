@@ -27,6 +27,99 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn replace_thread_snapshot(
+        &self,
+        thread: &AgentDbThread,
+        messages: &[AgentDbMessage],
+    ) -> Result<()> {
+        let thread = thread.clone();
+        let messages = messages.to_vec();
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+
+                transaction.execute(
+                    "INSERT INTO agent_threads \
+                     (id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+                     ON CONFLICT(id) DO UPDATE SET \
+                        workspace_id = excluded.workspace_id, \
+                        surface_id = excluded.surface_id, \
+                        pane_id = excluded.pane_id, \
+                        agent_name = excluded.agent_name, \
+                        title = excluded.title, \
+                        created_at = excluded.created_at, \
+                        updated_at = excluded.updated_at, \
+                        message_count = excluded.message_count, \
+                        total_tokens = excluded.total_tokens, \
+                        last_preview = excluded.last_preview, \
+                        metadata_json = excluded.metadata_json",
+                    params![
+                        thread.id,
+                        thread.workspace_id,
+                        thread.surface_id,
+                        thread.pane_id,
+                        thread.agent_name,
+                        thread.title,
+                        thread.created_at,
+                        thread.updated_at,
+                        thread.message_count,
+                        thread.total_tokens,
+                        thread.last_preview,
+                        thread.metadata_json,
+                    ],
+                )?;
+
+                transaction.execute(
+                    "DELETE FROM agent_messages WHERE thread_id = ?1",
+                    params![&thread.id],
+                )?;
+
+                for message in &messages {
+                    transaction.execute(
+                        "INSERT OR REPLACE INTO agent_messages \
+                         (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, reasoning, tool_calls_json, metadata_json) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                        params![
+                            message.id,
+                            message.thread_id,
+                            message.created_at,
+                            message.role,
+                            message.content,
+                            message.provider,
+                            message.model,
+                            message.input_tokens,
+                            message.output_tokens,
+                            message.total_tokens,
+                            message.reasoning,
+                            message.tool_calls_json,
+                            message.metadata_json,
+                        ],
+                    )?;
+                }
+
+                if messages.is_empty() {
+                    transaction.execute(
+                        "UPDATE agent_threads SET message_count = ?2, total_tokens = ?3, last_preview = ?4, updated_at = ?5 WHERE id = ?1",
+                        params![
+                            &thread.id,
+                            thread.message_count,
+                            thread.total_tokens,
+                            thread.last_preview,
+                            thread.updated_at,
+                        ],
+                    )?;
+                } else {
+                    refresh_thread_stats(&transaction, &thread.id)?;
+                }
+
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn delete_thread(&self, id: &str) -> Result<()> {
         let id = id.to_string();
         self.conn

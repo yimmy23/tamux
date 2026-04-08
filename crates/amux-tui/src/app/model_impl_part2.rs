@@ -39,6 +39,7 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.pending_new_thread_target_agent = None;
+        self.agent_activity = None;
         self.chat
             .reduce(chat::ChatAction::SelectThread(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
@@ -55,6 +56,7 @@ impl TuiModel {
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
         self.pending_new_thread_target_agent = target_agent_id.map(str::to_string);
+        self.agent_activity = None;
         self.chat.reduce(chat::ChatAction::NewThread);
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Input;

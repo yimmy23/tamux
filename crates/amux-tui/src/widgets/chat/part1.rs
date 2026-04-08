@@ -123,11 +123,45 @@ struct RenderedChatLine {
 }
 
 struct SelectionSnapshot {
+    key: RenderCacheKey,
     inner: Rect,
     all_lines: Vec<RenderedChatLine>,
+    message_line_ranges: Vec<(usize, usize)>,
     start_idx: usize,
     end_idx: usize,
     padding: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ChatScrollbarLayout {
+    pub(crate) content: Rect,
+    pub(crate) scrollbar: Rect,
+    pub(crate) thumb: Rect,
+    pub(crate) scroll: usize,
+    pub(crate) max_scroll: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RenderCacheKey {
+    inner: Rect,
+    render_revision: u64,
+    render_epoch: u64,
+    retry_wait_start_selected: bool,
+}
+
+fn render_cache_key(
+    area: Rect,
+    chat: &ChatState,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+) -> RenderCacheKey {
+    let inner = content_inner(area);
+    RenderCacheKey {
+        inner,
+        render_revision: chat.render_revision(),
+        render_epoch: chat.render_cache_epoch(current_tick),
+        retry_wait_start_selected,
+    }
 }
 
 impl RenderedChatLine {

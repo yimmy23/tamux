@@ -41,6 +41,13 @@ export interface AgentCompactionSettings {
   custom_model: AgentCompactionCustomModelSettings;
 }
 
+export interface AgentSkillRecommendationSettings {
+  enabled: boolean;
+  background_community_search: boolean;
+  community_preapprove_timeout_secs: number;
+  suggest_global_enable_after_approvals: number;
+}
+
 export interface AgentSettings {
   enabled: boolean;
   agent_name: string;
@@ -134,6 +141,7 @@ export interface AgentSettings {
   keep_recent_on_compact: number;
   weles_max_concurrent_reviews: number;
   compaction: AgentCompactionSettings;
+  skill_recommendation: AgentSkillRecommendationSettings;
   agent_backend: AgentBackend;
 }
 
@@ -248,6 +256,12 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
       reasoning_effort: "high",
     },
   },
+  skill_recommendation: {
+    enabled: true,
+    background_community_search: true,
+    community_preapprove_timeout_secs: 30,
+    suggest_global_enable_after_approvals: 3,
+  },
   agent_backend: "daemon",
 };
 
@@ -298,6 +312,7 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
     weles?: Partial<AgentCompactionWelesSettings>;
     custom_model?: Partial<AgentCompactionCustomModelSettings>;
   };
+  skill_recommendation?: Partial<AgentSkillRecommendationSettings>;
   agent_backend?: AgentBackend | string;
   enable_honcho_memory?: boolean;
   honcho_api_key?: string;
@@ -469,6 +484,20 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
         reasoning_effort: (source.compaction?.custom_model?.reasoning_effort
           ?? DEFAULT_AGENT_SETTINGS.compaction.custom_model.reasoning_effort) as AgentSettings["reasoning_effort"],
       },
+    },
+    skill_recommendation: {
+      enabled:
+        source.skill_recommendation?.enabled
+        ?? DEFAULT_AGENT_SETTINGS.skill_recommendation.enabled,
+      background_community_search:
+        source.skill_recommendation?.background_community_search
+        ?? DEFAULT_AGENT_SETTINGS.skill_recommendation.background_community_search,
+      community_preapprove_timeout_secs:
+        source.skill_recommendation?.community_preapprove_timeout_secs
+        ?? DEFAULT_AGENT_SETTINGS.skill_recommendation.community_preapprove_timeout_secs,
+      suggest_global_enable_after_approvals:
+        source.skill_recommendation?.suggest_global_enable_after_approvals
+        ?? DEFAULT_AGENT_SETTINGS.skill_recommendation.suggest_global_enable_after_approvals,
     },
     enable_honcho_memory: source.enable_honcho_memory ?? DEFAULT_AGENT_SETTINGS.enable_honcho_memory,
     honcho_api_key: source.honcho_api_key ?? DEFAULT_AGENT_SETTINGS.honcho_api_key,

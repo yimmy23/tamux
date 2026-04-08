@@ -133,6 +133,9 @@ fn arcee_provider_uses_expected_defaults() {
     assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
     assert_eq!(provider.default_transport, "chat_completions");
     assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
-    assert_eq!(known_context_window_for(PROVIDER_ID_ARCEE, "trinity-large-thinking"), Some(256_000));
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_ARCEE, "trinity-large-thinking"),
+        Some(256_000)
+    );
     assert!(supports_model_fetch_for(PROVIDER_ID_ARCEE));
 }

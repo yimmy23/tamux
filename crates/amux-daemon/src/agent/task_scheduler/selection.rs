@@ -360,11 +360,17 @@ pub(in crate::agent) fn task_lane_key(task: &AgentTask) -> String {
     if is_weles_review_task(task) {
         return "weles".to_string();
     }
-    task.session_id
+    if let Some(session_id) = task
+        .session_id
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .map(|value| format!("session:{value}"))
-        .unwrap_or_else(|| "daemon-main".to_string())
+    {
+        return format!("session:{session_id}");
+    }
+    if subagent_parent_key(task).is_some() {
+        return format!("daemon-subagent:{}", task.id);
+    }
+    "daemon-main".to_string()
 }
 
 pub(in crate::agent) fn current_task_lane_key(task: &AgentTask) -> String {

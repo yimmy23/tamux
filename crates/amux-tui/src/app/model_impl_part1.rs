@@ -68,11 +68,16 @@ impl TuiModel {
             status_modal_snapshot: None,
             status_modal_loading: false,
             status_modal_error: None,
+            prompt_modal_snapshot: None,
+            prompt_modal_loading: false,
+            prompt_modal_error: None,
+            prompt_modal_scroll: 0,
             chat_drag_anchor: None,
             chat_drag_current: None,
             chat_drag_anchor_point: None,
             chat_drag_current_point: None,
             chat_selection_snapshot: None,
+            chat_scrollbar_drag_grab_offset: None,
             work_context_drag_anchor: None,
             work_context_drag_current: None,
             work_context_drag_anchor_point: None,
@@ -94,6 +99,17 @@ impl TuiModel {
         }
     }
 
+    pub(crate) fn open_prompt_modal_loading(&mut self) {
+        self.prompt_modal_loading = true;
+        self.prompt_modal_snapshot = None;
+        self.prompt_modal_error = None;
+        self.prompt_modal_scroll = 0;
+        if self.modal.top() != Some(modal::ModalKind::PromptViewer) {
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::PromptViewer));
+        }
+    }
+
     pub(crate) fn status_modal_body(&self) -> String {
         if self.status_modal_loading {
             return "Loading tamux status...".to_string();
@@ -105,6 +121,64 @@ impl TuiModel {
             return render_helpers::format_status_modal_text(snapshot);
         }
         "No status available.".to_string()
+    }
+
+    pub(crate) fn prompt_modal_body(&self) -> String {
+        if self.prompt_modal_loading {
+            return "Loading agent prompt...".to_string();
+        }
+        if let Some(error) = &self.prompt_modal_error {
+            return format!("Prompt request failed\n=====================\n{error}");
+        }
+        if let Some(prompt) = &self.prompt_modal_snapshot {
+            return render_helpers::format_prompt_modal_text(prompt);
+        }
+        "No prompt available.".to_string()
+    }
+
+    pub(crate) fn prompt_modal_max_scroll(&self) -> usize {
+        let body = self.prompt_modal_body();
+        let (viewport_lines, inner_width) = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::PromptViewer)
+            .map(|(_, area)| {
+                (
+                    area.height.saturating_sub(3) as usize,
+                    area.width.saturating_sub(2) as usize,
+                )
+            })
+            .unwrap_or((1, 1));
+        let total_lines = crate::widgets::message::wrap_text(&body, inner_width.max(1))
+            .len()
+            .max(1);
+        let viewport_lines = viewport_lines.max(1);
+        total_lines.saturating_sub(viewport_lines)
+    }
+
+    pub(crate) fn set_prompt_modal_scroll(&mut self, scroll: usize) {
+        self.prompt_modal_scroll = scroll.min(self.prompt_modal_max_scroll());
+    }
+
+    pub(crate) fn step_prompt_modal_scroll(&mut self, delta: i32) {
+        let current = self.prompt_modal_scroll as i32;
+        let next = (current + delta).max(0) as usize;
+        self.set_prompt_modal_scroll(next);
+    }
+
+    pub(crate) fn page_prompt_modal_scroll(&mut self, direction: i32) {
+        let page = self
+            .current_modal_area()
+            .filter(|(kind, _)| *kind == modal::ModalKind::PromptViewer)
+            .map(|(_, area)| area.height.saturating_sub(4) as i32)
+            .unwrap_or(10)
+            .max(1);
+        self.step_prompt_modal_scroll(page * direction);
+    }
+
+    pub(crate) fn request_prompt_inspection(&mut self, agent_id: Option<String>) {
+        self.open_prompt_modal_loading();
+        self.send_daemon_command(DaemonCommand::RequestPromptInspection { agent_id });
+        self.status_line = "Requesting assembled agent prompt...".to_string();
     }
 
     fn show_input_notice(

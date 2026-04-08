@@ -886,3 +886,84 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
     assert_eq!(persisted.len(), 2);
     assert!(persisted.iter().all(|message| message.role != "tool"));
 }
+
+#[tokio::test]
+async fn thread_metadata_round_trips_latest_skill_discovery_state() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let seed_engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_skill_discovery_metadata";
+
+    seed_engine
+        .history
+        .create_thread(&amux_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Discovery metadata".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 1,
+            total_tokens: 0,
+            last_preview: "debug panic".to_string(),
+            metadata_json: Some(
+                serde_json::json!({
+                    "client_surface": "tui",
+                    "latest_skill_discovery_state": {
+                        "query": "debug panic",
+                        "confidence_tier": "strong",
+                        "recommended_skill": "systematic-debugging",
+                        "recommended_action": "read_skill systematic-debugging",
+                        "read_skill_identifier": "systematic-debugging",
+                        "skip_rationale": null,
+                        "compliant": false,
+                        "updated_at": 123
+                    }
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("seed thread row");
+    seed_engine
+        .history
+        .add_message(&amux_protocol::AgentDbMessage {
+            id: "seed-message-1".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1,
+            role: "user".to_string(),
+            content: "debug panic".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread message");
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    engine.hydrate().await.expect("hydrate");
+    engine.persist_thread_by_id(thread_id).await;
+
+    let persisted = engine
+        .history
+        .get_thread(thread_id)
+        .await
+        .expect("read thread")
+        .expect("thread should persist");
+    let metadata = persisted.metadata_json.expect("thread metadata");
+    assert!(
+        metadata.contains("\"latest_skill_discovery_state\""),
+        "expected latest skill discovery state to survive hydrate + persist: {metadata}"
+    );
+    assert!(metadata.contains("\"query\":\"debug panic\""));
+    assert!(metadata.contains("\"recommended_skill\":\"systematic-debugging\""));
+    assert!(metadata.contains("\"compliant\":false"));
+}

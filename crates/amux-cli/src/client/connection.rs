@@ -40,6 +40,21 @@ pub(super) async fn roundtrip(msg: ClientMessage) -> Result<DaemonMessage> {
     Ok(resp)
 }
 
+pub(super) async fn roundtrip_until<T, F>(msg: ClientMessage, mut f: F) -> Result<T>
+where
+    F: FnMut(DaemonMessage) -> Option<Result<T>>,
+{
+    let mut framed = connect().await?;
+    framed.send(msg).await?;
+
+    loop {
+        let resp = framed.next().await.ok_or_else(closed_connection_error)??;
+        if let Some(result) = f(resp) {
+            return result;
+        }
+    }
+}
+
 pub(super) async fn roundtrip_async_until<T, F>(msg: ClientMessage, mut f: F) -> Result<T>
 where
     F: FnMut(DaemonMessage) -> Option<Result<T>>,

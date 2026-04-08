@@ -24,7 +24,7 @@ impl TuiModel {
             .agent_config_raw
             .clone()
             .unwrap_or_else(|| serde_json::json!({}));
-        let after = self.build_config_patch_value();
+        let mut after = self.build_config_patch_value();
 
         let mut before_items = Vec::new();
         flatten_config_value(&before, "", &mut before_items);
@@ -48,6 +48,40 @@ impl TuiModel {
                 changed += 1;
             }
         }
+
+        if let (Some(before_providers), Some(after_providers)) = (
+            before.get("providers").and_then(|value| value.as_object()),
+            after.get_mut("providers").and_then(|value| value.as_object_mut()),
+        ) {
+            for (provider_id, before_provider) in before_providers {
+                if let Some(api_key) = before_provider.get("api_key").cloned() {
+                    if let Some(after_provider) = after_providers
+                        .get_mut(provider_id)
+                        .and_then(|value| value.as_object_mut())
+                    {
+                        after_provider.insert("api_key".to_string(), api_key);
+                    }
+                }
+            }
+        }
+
+        for provider in providers::PROVIDERS {
+            if let Some(api_key) = before
+                .get(provider.id)
+                .and_then(|value| value.get("api_key"))
+                .cloned()
+            {
+                if let Some(after_provider) = after
+                    .get_mut(provider.id)
+                    .and_then(|value| value.as_object_mut())
+                {
+                    after_provider.insert("api_key".to_string(), api_key);
+                }
+            }
+        }
+
+        self.config.agent_config_raw = Some(after);
+
         if changed == 0 {
             self.status_line = "No config changes to save".to_string();
         }

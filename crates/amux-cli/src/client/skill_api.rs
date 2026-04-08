@@ -1,7 +1,7 @@
-use amux_protocol::{ClientMessage, DaemonMessage};
-use anyhow::Result;
+use amux_protocol::{ClientMessage, DaemonMessage, SessionId, SkillDiscoveryResultPublic};
+use anyhow::{Context, Result};
 
-use super::connection::{roundtrip, roundtrip_async_until};
+use super::connection::{roundtrip, roundtrip_async_until, roundtrip_until};
 
 pub async fn send_skill_list(
     status: Option<String>,
@@ -25,6 +25,41 @@ pub async fn send_skill_inspect(
         DaemonMessage::SkillInspectResult { variant, content } => Ok((variant, content)),
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_skill_discover(
+    query: &str,
+    session_id: Option<SessionId>,
+    limit: usize,
+) -> Result<SkillDiscoveryResultPublic> {
+    roundtrip_until(
+        ClientMessage::SkillDiscover {
+            query: query.to_string(),
+            session_id,
+            limit,
+        },
+        parse_skill_discover_terminal_response,
+    )
+    .await
+}
+
+pub(super) fn parse_skill_discover_terminal_response(
+    msg: DaemonMessage,
+) -> Option<Result<SkillDiscoveryResultPublic>> {
+    match msg {
+        DaemonMessage::CwdChanged { .. }
+        | DaemonMessage::Output { .. }
+        | DaemonMessage::CommandStarted { .. }
+        | DaemonMessage::CommandFinished { .. } => None,
+        DaemonMessage::SkillDiscoverResult { result_json } => Some(
+            serde_json::from_str(&result_json)
+                .context("invalid skill discovery payload from daemon"),
+        ),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            Some(Err(anyhow::anyhow!("daemon error: {message}")))
+        }
+        other => Some(Err(anyhow::anyhow!("unexpected response: {other:?}"))),
     }
 }
 

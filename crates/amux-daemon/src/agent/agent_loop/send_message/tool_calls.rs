@@ -8,6 +8,13 @@ pub(super) fn inter_tool_call_delay(
         .then(|| std::time::Duration::from_millis(configured_delay_ms))
 }
 
+fn skill_gate_exempt_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "discover_skills" | "list_skills" | "read_skill" | "justify_skill_skip"
+    )
+}
+
 impl<'a> SendMessageRunner<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn handle_tool_calls_chunk(
@@ -124,6 +131,9 @@ impl<'a> SendMessageRunner<'a> {
             });
 
             if self.handle_tool_filter_denial(tc).await {
+                continue;
+            }
+            if self.handle_skill_gate_denial(tc).await {
                 continue;
             }
 
@@ -270,20 +280,12 @@ impl<'a> SendMessageRunner<'a> {
         }
     }
 
-    async fn handle_tool_filter_denial(&mut self, tc: &ToolCall) -> bool {
-        let Some(filter) = self.task_tool_filter.as_ref() else {
-            return false;
-        };
-        let Some(reason) = filter.deny_reason(&tc.function.name) else {
-            return false;
-        };
-
-        let denied_content = format!("Tool call denied: {reason}");
+    async fn persist_denied_tool_result(&mut self, tc: &ToolCall, content: String) {
         let _ = self.engine.event_tx.send(AgentEvent::ToolResult {
             thread_id: self.tid.clone(),
             call_id: tc.id.clone(),
             name: tc.function.name.clone(),
-            content: denied_content.clone(),
+            content: content.clone(),
             is_error: true,
             weles_review: tc.weles_review.clone(),
         });
@@ -293,7 +295,7 @@ impl<'a> SendMessageRunner<'a> {
             thread.messages.push(AgentMessage {
                 id: generate_message_id(),
                 role: MessageRole::Tool,
-                content: denied_content,
+                content,
                 tool_calls: None,
                 tool_call_id: Some(tc.id.clone()),
                 tool_name: Some(tc.function.name.clone()),
@@ -315,7 +317,64 @@ impl<'a> SendMessageRunner<'a> {
                 timestamp: now_millis(),
             });
         }
+    }
+
+    async fn handle_tool_filter_denial(&mut self, tc: &ToolCall) -> bool {
+        let Some(filter) = self.task_tool_filter.as_ref() else {
+            return false;
+        };
+        let Some(reason) = filter.deny_reason(&tc.function.name) else {
+            return false;
+        };
+
+        let denied_content = format!("Tool call denied: {reason}");
+        self.persist_denied_tool_result(tc, denied_content).await;
         true
+    }
+
+    async fn handle_skill_gate_denial(&mut self, tc: &ToolCall) -> bool {
+        if skill_gate_exempt_tool(&tc.function.name) {
+            return false;
+        }
+        let Some(state) = self
+            .engine
+            .get_thread_skill_discovery_state(&self.tid)
+            .await
+        else {
+            return false;
+        };
+        if state.compliant {
+            return false;
+        }
+
+        if state.confidence_tier.eq_ignore_ascii_case("strong") {
+            let denied_content = format!(
+                "Tool call blocked by skill discovery gate. Before `{}` you must `{}`.",
+                tc.function.name, state.recommended_action
+            );
+            self.engine.emit_workflow_notice(
+                &self.tid,
+                "skill-gate",
+                format!(
+                    "Skill discovery gate blocked `{}`. Required next step: {}.",
+                    tc.function.name, state.recommended_action
+                ),
+                serde_json::to_string(&state).ok(),
+            );
+            self.persist_denied_tool_result(tc, denied_content).await;
+            return true;
+        }
+
+        self.engine.emit_workflow_notice(
+            &self.tid,
+            "skill-gate",
+            format!(
+                "Weak skill discovery recommends `{}` before `{}`; allowing the tool call to proceed.",
+                state.recommended_action, tc.function.name
+            ),
+            serde_json::to_string(&state).ok(),
+        );
+        false
     }
 
     async fn execute_tool_call(&mut self, tc: &ToolCall) -> ToolResult {

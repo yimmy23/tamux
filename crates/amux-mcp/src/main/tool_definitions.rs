@@ -223,6 +223,28 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
+            "name": "discover_skills",
+            "description": "Rank installed tamux skills for a task and return the recommended next action.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Task or problem description to rank skills against"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of ranked skill candidates to return"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional terminal session UUID for workspace-aware ranking"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
             "name": "read_skill",
             "description": "Read a local tamux skill document by name, stem, or relative path under the skills directory.",
             "inputSchema": {
@@ -517,6 +539,18 @@ mod tests {
         assert!(
             tools.iter().any(|tool| tool["name"] == "semantic_query"),
             "semantic_query tool definition should be present"
+        );
+    }
+
+    #[test]
+    fn tool_definitions_include_discover_skills() {
+        let defs = tool_definitions();
+        let tools = defs
+            .as_array()
+            .expect("tool definitions should be an array");
+        assert!(
+            tools.iter().any(|tool| tool["name"] == "discover_skills"),
+            "discover_skills tool definition should be present"
         );
     }
 }

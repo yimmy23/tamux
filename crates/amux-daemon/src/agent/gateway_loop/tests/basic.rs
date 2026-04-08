@@ -114,7 +114,8 @@ fn gateway_prompt_tells_active_responder_not_to_handoff_to_itself() {
     );
 
     assert!(prompt.contains("Current active responder for this thread: Svarog."));
-    assert!(prompt.contains("Do not use `handoff_thread_agent` or `message_agent` to reach Svarog itself."));
+    assert!(prompt
+        .contains("Do not use `handoff_thread_agent` or `message_agent` to reach Svarog itself."));
     assert!(prompt.contains("If the operator asks to talk to Svarog, answer directly as Svarog."));
 }
 

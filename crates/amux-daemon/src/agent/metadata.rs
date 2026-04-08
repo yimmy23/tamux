@@ -25,6 +25,7 @@ pub(super) struct ParsedThreadMetadata {
     pub upstream_model: Option<String>,
     pub upstream_assistant_id: Option<String>,
     pub handoff_state: Option<ThreadHandoffState>,
+    pub latest_skill_discovery_state: Option<LatestSkillDiscoveryState>,
 }
 
 pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessageMetadata {
@@ -119,6 +120,12 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
         upstream_provider: get_str("upstream_provider"),
         upstream_model: get_str("upstream_model"),
         upstream_assistant_id: get_str("upstream_assistant_id"),
+        latest_skill_discovery_state: metadata
+            .as_ref()
+            .and_then(|value| value.get("latest_skill_discovery_state"))
+            .and_then(|value| {
+                serde_json::from_value::<LatestSkillDiscoveryState>(value.clone()).ok()
+            }),
         handoff_state: metadata.as_ref().and_then(|value| {
             let origin_agent_id = value
                 .get("origin_agent_id")
@@ -173,6 +180,7 @@ pub(super) fn build_thread_metadata_json(
     thread: &AgentThread,
     client_surface: Option<amux_protocol::ClientSurface>,
     handoff_state: Option<&ThreadHandoffState>,
+    latest_skill_discovery_state: Option<&LatestSkillDiscoveryState>,
 ) -> Option<String> {
     serde_json::to_string(&serde_json::json!({
         "client_surface": client_surface,
@@ -192,6 +200,7 @@ pub(super) fn build_thread_metadata_json(
         "handoff_stack": handoff_state.map(|state| state.responder_stack.clone()),
         "handoff_events": handoff_state.map(|state| state.events.clone()),
         "pending_handoff_approval_id": handoff_state.and_then(|state| state.pending_approval_id.clone()),
+        "latest_skill_discovery_state": latest_skill_discovery_state,
     }))
     .ok()
 }

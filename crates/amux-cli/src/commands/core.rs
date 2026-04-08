@@ -21,6 +21,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Git { .. }
             | Commands::Audit { .. }
             | Commands::Status
+            | Commands::Prompt { .. }
             | Commands::Stats
             | Commands::Settings { .. }
             | Commands::Dm { .. }
@@ -82,11 +83,17 @@ fn format_direct_message_output(
     Ok(rendered)
 }
 
-fn format_status_output(status: &client::AgentStatusSnapshot, current_version: &str) -> Result<String> {
+fn format_status_output(
+    status: &client::AgentStatusSnapshot,
+    current_version: &str,
+) -> Result<String> {
     let mut rendered = String::from("Agent Status\n============\n");
     rendered.push_str(&format!("Version:  {current_version}\n"));
     rendered.push_str(&format!("Tier:     {}\n", status.tier.replace('_', " ")));
-    rendered.push_str(&format!("Activity: {}\n", status.activity.replace('_', " ")));
+    rendered.push_str(&format!(
+        "Activity: {}\n",
+        status.activity.replace('_', " ")
+    ));
 
     if let Some(title) = &status.active_goal_run_title {
         rendered.push_str(&format!("Goal:     {title}\n"));
@@ -134,7 +141,8 @@ fn format_status_output(status: &client::AgentStatusSnapshot, current_version: &
         }
     }
 
-    if let Ok(actions) = serde_json::from_str::<Vec<serde_json::Value>>(&status.recent_actions_json) {
+    if let Ok(actions) = serde_json::from_str::<Vec<serde_json::Value>>(&status.recent_actions_json)
+    {
         if !actions.is_empty() {
             rendered.push_str("\nRecent Actions:\n");
             for action in actions.iter().take(5) {
@@ -159,6 +167,56 @@ fn format_status_output(status: &client::AgentStatusSnapshot, current_version: &
             }
         }
     }
+
+    while rendered.ends_with('\n') {
+        rendered.pop();
+    }
+
+    Ok(rendered)
+}
+
+fn resolve_prompt_target(
+    agent: Option<String>,
+    weles: bool,
+    concierge: bool,
+    rarog: bool,
+) -> Option<String> {
+    if let Some(agent) = agent.map(|value| value.trim().to_string()) {
+        if !agent.is_empty() {
+            return Some(agent);
+        }
+    }
+    if weles {
+        return Some("weles".to_string());
+    }
+    if concierge || rarog {
+        return Some("rarog".to_string());
+    }
+    None
+}
+
+fn format_prompt_output(prompt: &client::AgentPromptInspection, json: bool) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(prompt).map_err(Into::into);
+    }
+
+    let mut rendered = String::from("Agent Prompt\n============\n");
+    rendered.push_str(&format!(
+        "Agent:    {} ({})\n",
+        prompt.agent_name, prompt.agent_id
+    ));
+    rendered.push_str(&format!("Provider: {}\n", prompt.provider_id));
+    rendered.push_str(&format!("Model:    {}\n", prompt.model));
+
+    for section in &prompt.sections {
+        rendered.push_str("\n");
+        rendered.push_str(&format!("[{}]\n", section.title));
+        rendered.push_str(section.content.trim());
+        rendered.push('\n');
+    }
+
+    rendered.push_str("\nFinal Prompt\n------------\n");
+    rendered.push_str(prompt.final_prompt.trim());
 
     while rendered.ends_with('\n') {
         rendered.pop();
@@ -211,10 +269,13 @@ pub(crate) async fn run_default() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_startup_action, format_direct_message_output, format_status_output,
-        DefaultStartupAction,
+        default_startup_action, format_direct_message_output, format_prompt_output,
+        format_status_output, DefaultStartupAction,
     };
-    use crate::client::{AgentStatusSnapshot, DirectMessageResponse};
+    use crate::client::{
+        AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
+        DirectMessageResponse,
+    };
     use crate::setup_wizard::SetupProbe;
 
     fn sample_status() -> AgentStatusSnapshot {
@@ -224,11 +285,34 @@ mod tests {
             active_thread_id: Some("thread-1".to_string()),
             active_goal_run_id: None,
             active_goal_run_title: Some("Close release gap".to_string()),
-            provider_health_json: r#"{"openai":{"can_execute":true,"trip_count":0}}"#
-                .to_string(),
+            provider_health_json: r#"{"openai":{"can_execute":true,"trip_count":0}}"#.to_string(),
             gateway_statuses_json: r#"{"slack":{"status":"connected"}}"#.to_string(),
             recent_actions_json:
                 r#"[{"action_type":"tool_call","summary":"Ran status","timestamp":1712345678}]"#
+                    .to_string(),
+        }
+    }
+
+    fn sample_prompt_inspection() -> AgentPromptInspection {
+        AgentPromptInspection {
+            agent_id: "swarog".to_string(),
+            agent_name: "Svarog".to_string(),
+            provider_id: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            sections: vec![
+                AgentPromptInspectionSection {
+                    id: "base_prompt".to_string(),
+                    title: "Base Prompt".to_string(),
+                    content: "Custom operator prompt".to_string(),
+                },
+                AgentPromptInspectionSection {
+                    id: "runtime_identity".to_string(),
+                    title: "Runtime Identity".to_string(),
+                    content: "## Runtime Identity\n- You are Svarog in tamux.".to_string(),
+                },
+            ],
+            final_prompt:
+                "Custom operator prompt\n\n## Runtime Identity\n- You are Svarog in tamux."
                     .to_string(),
         }
     }
@@ -326,6 +410,19 @@ mod tests {
         let rendered = format_status_output(&sample_status(), "1.2.3").expect("render status");
 
         assert!(rendered.contains("Version:  1.2.3"));
+    }
+
+    #[test]
+    fn prompt_output_prints_sections_and_final_prompt() {
+        let rendered =
+            format_prompt_output(&sample_prompt_inspection(), false).expect("render prompt output");
+
+        assert!(rendered.contains("Agent Prompt"));
+        assert!(rendered.contains("Agent:    Svarog (swarog)"));
+        assert!(rendered.contains("Provider: openai"));
+        assert!(rendered.contains("[Base Prompt]"));
+        assert!(rendered.contains("Custom operator prompt"));
+        assert!(rendered.contains("Final Prompt"));
     }
 }
 
@@ -437,7 +534,22 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         }
         Commands::Status | Commands::Stats => {
             let status = client::send_status_query().await?;
-            println!("{}", format_status_output(&status, env!("CARGO_PKG_VERSION"))?);
+            println!(
+                "{}",
+                format_status_output(&status, env!("CARGO_PKG_VERSION"))?
+            );
+        }
+        Commands::Prompt {
+            agent,
+            weles,
+            concierge,
+            rarog,
+            json,
+        } => {
+            let inspection =
+                client::send_prompt_query(resolve_prompt_target(agent, weles, concierge, rarog))
+                    .await?;
+            println!("{}", format_prompt_output(&inspection, json)?);
         }
         Commands::Settings { action } => match action {
             SettingsAction::List => {

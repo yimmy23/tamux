@@ -122,7 +122,8 @@ pub(super) fn prepare_llm_request(
     let compaction_active =
         compacted.len() != messages.len() || compacted.iter().any(message_is_compaction_summary);
 
-    if selected_transport == ApiTransport::NativeAssistant
+    if !compaction_active
+        && selected_transport == ApiTransport::NativeAssistant
         && !provider_config.assistant_id.trim().is_empty()
     {
         let latest_user_message = messages

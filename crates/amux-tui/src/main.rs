@@ -33,17 +33,40 @@ use crate::app::TuiModel;
 use crate::client::DaemonClient;
 use crate::state::DaemonCommand;
 
+fn build_log_filter(
+    tui_log: Option<&str>,
+    tamux_log: Option<&str>,
+    amux_log: Option<&str>,
+) -> EnvFilter {
+    tui_log
+        .and_then(parse_log_filter)
+        .or_else(|| tamux_log.and_then(parse_log_filter))
+        .or_else(|| amux_log.and_then(parse_log_filter))
+        .unwrap_or_else(|| EnvFilter::new("error"))
+}
+
+fn parse_log_filter(value: &str) -> Option<EnvFilter> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    EnvFilter::try_new(trimmed).ok()
+}
+
 fn main() -> Result<()> {
     let log_writer = amux_protocol::DailyLogWriter::new("tamux-tui.log")?;
     let log_path = log_writer.current_path()?;
     let (log_writer, _log_guard) = tracing_appender::non_blocking(log_writer);
+    let tui_log = std::env::var("TAMUX_TUI_LOG").ok();
+    let tamux_log = std::env::var("TAMUX_LOG").ok();
+    let amux_log = std::env::var("AMUX_LOG").ok();
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_env("TAMUX_TUI_LOG")
-                .or_else(|_| EnvFilter::try_from_env("TAMUX_LOG"))
-                .or_else(|_| EnvFilter::try_from_env("AMUX_LOG"))
-                .unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+        .with_env_filter(build_log_filter(
+            tui_log.as_deref(),
+            tamux_log.as_deref(),
+            amux_log.as_deref(),
+        ))
         .with_writer(log_writer)
         .with_ansi(false)
         .init();
@@ -248,6 +271,9 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::RequestAgentStatus => {
                                 let _ = client.request_agent_status();
+                            }
+                            DaemonCommand::RequestPromptInspection { agent_id } => {
+                                let _ = client.request_prompt_inspection(agent_id);
                             }
                             DaemonCommand::SendMessage {
                                 thread_id,
@@ -552,5 +578,12 @@ mod tests {
         );
 
         server.join().expect("join test http server");
+    }
+
+    #[test]
+    fn tui_log_filter_defaults_to_error_only() {
+        let filter = build_log_filter(None, None, None);
+
+        assert_eq!(filter.to_string(), "error");
     }
 }

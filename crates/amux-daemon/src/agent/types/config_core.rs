@@ -185,6 +185,9 @@ pub struct AgentConfig {
     /// Skill discovery thresholds (Phase 6).
     #[serde(default)]
     pub skill_discovery: SkillDiscoveryConfig,
+    /// Runtime skill recommender controls.
+    #[serde(default)]
+    pub skill_recommendation: SkillRecommendationConfig,
     /// Skill promotion thresholds (Phase 6).
     #[serde(default)]
     pub skill_promotion: SkillPromotionConfig,

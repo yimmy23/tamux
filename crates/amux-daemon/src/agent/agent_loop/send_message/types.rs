@@ -11,7 +11,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) provider_config: ProviderConfig,
     pub(super) preferred_session_id: Option<amux_protocol::SessionId>,
     pub(super) onecontext_bootstrap: Option<String>,
-    pub(super) skill_preflight: Option<String>,
+    pub(super) skill_preflight: Option<crate::agent::skill_preflight::SkillPreflightContext>,
     pub(super) agent_scope_id: String,
     pub(super) runtime_agent_name: String,
     pub(super) active_provider_id: String,

@@ -125,7 +125,10 @@ fn activating_context_length_for_custom_model_starts_inline_edit() {
 
     model.activate_settings_field();
 
-    assert_eq!(model.settings.editing_field(), Some("context_window_tokens"));
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("context_window_tokens")
+    );
     assert_eq!(model.settings.edit_buffer(), "333000");
 }
 
@@ -329,9 +332,7 @@ fn openai_chatgpt_second_action_requests_login_when_auth_not_available() {
     model.run_auth_tab_action();
 
     assert!(matches!(
-        daemon_rx
-            .try_recv()
-            .expect("expected daemon login command"),
+        daemon_rx.try_recv().expect("expected daemon login command"),
         DaemonCommand::LoginOpenAICodex
     ));
     assert!(daemon_rx.try_recv().is_err());
@@ -594,11 +595,21 @@ fn feature_toggle_fields_emit_expected_config_updates() {
             Some((vec!["consolidation", "enabled"], false)),
         ),
         (
-            "feat_skill_discovery_enabled",
-            "/skill_discovery/enabled",
+            "feat_skill_recommendation_enabled",
+            "/skill_recommendation/enabled",
             "false",
             None,
-            Some((vec!["skill_discovery", "enabled"], false)),
+            Some((vec!["skill_recommendation", "enabled"], false)),
+        ),
+        (
+            "feat_skill_background_community_search",
+            "/skill_recommendation/background_community_search",
+            "false",
+            None,
+            Some((
+                vec!["skill_recommendation", "background_community_search"],
+                false,
+            )),
         ),
     ];
 
@@ -684,11 +695,18 @@ fn feature_edit_fields_start_with_saved_values_and_submit_expected_updates() {
             "9",
         ),
         (
-            "feat_skill_promotion_threshold",
-            serde_json::json!({"skill_discovery": {"promotion_threshold": 4}}),
-            "4",
-            "/skill_discovery/promotion_threshold",
-            "4",
+            "feat_skill_community_preapprove_timeout_secs",
+            serde_json::json!({"skill_recommendation": {"community_preapprove_timeout_secs": 45}}),
+            "45",
+            "/skill_recommendation/community_preapprove_timeout_secs",
+            "45",
+        ),
+        (
+            "feat_skill_suggest_global_enable_after_approvals",
+            serde_json::json!({"skill_recommendation": {"suggest_global_enable_after_approvals": 6}}),
+            "6",
+            "/skill_recommendation/suggest_global_enable_after_approvals",
+            "6",
         ),
     ];
 
@@ -705,7 +723,10 @@ fn feature_edit_fields_start_with_saved_values_and_submit_expected_updates() {
             KeyModifiers::NONE,
             modal::ModalKind::Settings,
         );
-        assert!(!quit, "settings modal should stay open while starting edit for {field}");
+        assert!(
+            !quit,
+            "settings modal should stay open while starting edit for {field}"
+        );
         assert_eq!(model.settings.editing_field(), Some(field));
         assert_eq!(model.settings.edit_buffer(), expected_buffer);
 
@@ -714,7 +735,131 @@ fn feature_edit_fields_start_with_saved_values_and_submit_expected_updates() {
             KeyModifiers::NONE,
             modal::ModalKind::Settings,
         );
-        assert!(!quit, "settings modal should stay open while committing edit for {field}");
+        assert!(
+            !quit,
+            "settings modal should stay open while committing edit for {field}"
+        );
+        assert_eq!(model.settings.editing_field(), None);
+
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::SetConfigItem {
+                key_path,
+                value_json,
+            }) => {
+                assert_eq!(key_path, expected_key_path, "wrong key path for {field}");
+                assert_eq!(
+                    value_json, expected_value_json,
+                    "wrong serialized value for {field}"
+                );
+            }
+            other => panic!("expected SetConfigItem for {field}, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn feat_skill_recommendation_toggles_write_new_daemon_paths() {
+    let cases = [
+        (
+            "feat_skill_recommendation_enabled",
+            "/skill_recommendation/enabled",
+            "false",
+            vec!["skill_recommendation", "enabled"],
+        ),
+        (
+            "feat_skill_background_community_search",
+            "/skill_recommendation/background_community_search",
+            "false",
+            vec!["skill_recommendation", "background_community_search"],
+        ),
+    ];
+
+    for (field, expected_key_path, expected_value_json, raw_path) in cases {
+        let (mut model, mut daemon_rx) = make_model();
+        model.config.agent_config_raw = Some(serde_json::json!({}));
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        focus_settings_field(&mut model, SettingsTab::Features, field);
+
+        let quit = model.handle_key_modal(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(!quit, "settings modal should remain open for {field}");
+
+        match daemon_rx.try_recv() {
+            Ok(DaemonCommand::SetConfigItem {
+                key_path,
+                value_json,
+            }) => {
+                assert_eq!(key_path, expected_key_path, "wrong key path for {field}");
+                assert_eq!(
+                    value_json, expected_value_json,
+                    "wrong serialized value for {field}"
+                );
+            }
+            other => panic!("expected SetConfigItem for {field}, got {other:?}"),
+        }
+
+        let raw = model
+            .config
+            .agent_config_raw
+            .as_ref()
+            .expect("feature toggles should keep raw config");
+        assert_eq!(raw_json_bool(raw, &raw_path), Some(false));
+    }
+}
+
+#[test]
+fn feat_skill_recommendation_numeric_fields_write_new_daemon_paths() {
+    let cases = [
+        (
+            "feat_skill_community_preapprove_timeout_secs",
+            serde_json::json!({"skill_recommendation": {"community_preapprove_timeout_secs": 45}}),
+            "45",
+            "/skill_recommendation/community_preapprove_timeout_secs",
+            "45",
+        ),
+        (
+            "feat_skill_suggest_global_enable_after_approvals",
+            serde_json::json!({"skill_recommendation": {"suggest_global_enable_after_approvals": 6}}),
+            "6",
+            "/skill_recommendation/suggest_global_enable_after_approvals",
+            "6",
+        ),
+    ];
+
+    for (field, raw, expected_buffer, expected_key_path, expected_value_json) in cases {
+        let (mut model, mut daemon_rx) = make_model();
+        model.config.agent_config_raw = Some(raw);
+        model
+            .modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+        focus_settings_field(&mut model, SettingsTab::Features, field);
+
+        let quit = model.handle_key_modal(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(
+            !quit,
+            "settings modal should stay open while starting edit for {field}"
+        );
+        assert_eq!(model.settings.editing_field(), Some(field));
+        assert_eq!(model.settings.edit_buffer(), expected_buffer);
+
+        let quit = model.handle_key_modal(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+        assert!(
+            !quit,
+            "settings modal should stay open while committing edit for {field}"
+        );
         assert_eq!(model.settings.editing_field(), None);
 
         match daemon_rx.try_recv() {
@@ -815,7 +960,11 @@ fn concierge_settings_fields_dispatch_expected_actions() {
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
     model.close_top_modal();
 
-    focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_reasoning_effort");
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Concierge,
+        "concierge_reasoning_effort",
+    );
     let quit = model.handle_key_modal(
         KeyCode::Enter,
         KeyModifiers::NONE,

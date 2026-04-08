@@ -15,6 +15,7 @@ pub mod types;
 
 mod agent_identity;
 mod agent_loop;
+mod aline_startup;
 mod anticipatory;
 mod anticipatory_support;
 mod authorship;
@@ -52,6 +53,7 @@ mod operational_context;
 mod operator_model;
 mod orchestrator_policy;
 mod persistence;
+mod prompt_inspection;
 mod provenance;
 mod provider_auth_store;
 mod provider_resolution;
@@ -63,6 +65,7 @@ pub(crate) mod skill_community;
 mod skill_discovery;
 mod skill_evolution;
 mod skill_preflight;
+mod skill_recommendation;
 pub(crate) mod skill_registry;
 mod skill_security;
 mod stalled_turns;
@@ -96,6 +99,14 @@ pub mod uncertainty;
 // Re-exports from extracted modules — keeps everything accessible across
 // sibling submodules via `use super::*;`.
 use agent_identity::*;
+use aline_startup::{
+    parse_session_list_json, parse_watcher_status, repo_root_basename,
+    repo_root_matches_project_name, select_import_candidates, AlineDiscoveredSession,
+    AlineStartupShortCircuitReason, AlineStartupSummary, SessionListJson, StartupCommandOutput,
+    StartupCommandRunner, StartupCommandSpec, StartupSelectionPolicy, TokioStartupCommandRunner,
+    WatcherState, WatcherStatus, IMPORT_TIMEOUT, RECONCILIATION_BUDGET, TRACKED_POLL_INTERVAL,
+    TRACKED_POLL_MAX_ATTEMPTS, WATCHER_COMMAND_TIMEOUT,
+};
 use anticipatory::*;
 use anticipatory_support::*;
 use behavioral_events::*;

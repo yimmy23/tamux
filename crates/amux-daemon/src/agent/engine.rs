@@ -103,6 +103,7 @@ pub struct AgentEngine {
     pub threads: RwLock<HashMap<String, AgentThread>>,
     pub thread_handoff_states: RwLock<HashMap<String, ThreadHandoffState>>,
     pub thread_client_surfaces: RwLock<HashMap<String, amux_protocol::ClientSurface>>,
+    pub thread_skill_discovery_states: RwLock<HashMap<String, LatestSkillDiscoveryState>>,
     pub thread_todos: RwLock<HashMap<String, Vec<TodoItem>>>,
     pub thread_work_contexts: RwLock<HashMap<String, ThreadWorkContext>>,
     pub tasks: Mutex<VecDeque<AgentTask>>,
@@ -158,6 +159,18 @@ pub struct AgentEngine {
     pub repo_watchers: Mutex<HashMap<String, ThreadRepoWatcher>>,
     pub watcher_refresh_tx: mpsc::UnboundedSender<String>,
     pub watcher_refresh_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+    pub(super) aline_startup_reconcile_started: std::sync::atomic::AtomicBool,
+    pub(super) aline_startup_test_completion: std::sync::OnceLock<tokio::sync::watch::Sender<bool>>,
+    #[cfg(test)]
+    pub(super) aline_startup_test_runner:
+        std::sync::OnceLock<Arc<dyn super::aline_startup::StartupCommandRunner>>,
+    #[cfg(test)]
+    pub(super) aline_startup_test_availability: std::sync::OnceLock<bool>,
+    #[cfg(test)]
+    pub(super) aline_startup_test_repo_roots: Mutex<Vec<PathBuf>>,
+    #[cfg(test)]
+    pub(super) aline_startup_test_last_summary:
+        Mutex<Option<super::aline_startup::AlineStartupSummary>>,
     /// Per-provider circuit breakers for LLM call path gating.
     pub circuit_breakers: Arc<CircuitBreakerRegistry>,
     /// Notifies the run_loop when config changes so heartbeat schedule can be recomputed.
@@ -270,6 +283,7 @@ impl AgentEngine {
             threads: RwLock::new(HashMap::new()),
             thread_handoff_states: RwLock::new(HashMap::new()),
             thread_client_surfaces: RwLock::new(HashMap::new()),
+            thread_skill_discovery_states: RwLock::new(HashMap::new()),
             thread_todos: RwLock::new(HashMap::new()),
             thread_work_contexts: RwLock::new(HashMap::new()),
             tasks: Mutex::new(VecDeque::new()),
@@ -317,6 +331,16 @@ impl AgentEngine {
             repo_watchers: Mutex::new(HashMap::new()),
             watcher_refresh_tx,
             watcher_refresh_rx: Mutex::new(Some(watcher_refresh_rx)),
+            aline_startup_reconcile_started: std::sync::atomic::AtomicBool::new(false),
+            aline_startup_test_completion: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            aline_startup_test_runner: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            aline_startup_test_availability: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            aline_startup_test_repo_roots: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            aline_startup_test_last_summary: Mutex::new(None),
             circuit_breakers,
             config_notify: tokio::sync::Notify::new(),
             config_runtime_projection: Mutex::new(initial_config_runtime_projection),
@@ -478,6 +502,217 @@ impl AgentEngine {
     /// Get a reference to the event sender (for server.rs integration).
     pub fn event_sender(&self) -> broadcast::Sender<AgentEvent> {
         self.event_tx.clone()
+    }
+
+    pub(super) async fn run_aline_startup_reconciliation(
+        &self,
+        repo_root: PathBuf,
+    ) -> Result<super::aline_startup::AlineStartupSummary> {
+        #[cfg(test)]
+        {
+            self.aline_startup_test_repo_roots
+                .lock()
+                .await
+                .push(repo_root.clone());
+        }
+
+        if !self.aline_startup_is_available() {
+            let summary = super::aline_startup::AlineStartupSummary::unavailable();
+            #[cfg(test)]
+            self.record_aline_startup_summary_for_tests(summary.clone())
+                .await;
+            log_aline_startup_summary(&repo_root, &summary);
+            return Ok(summary);
+        }
+
+        let runner = self.aline_startup_command_runner();
+        let mut persisted_state =
+            super::aline_startup::load_persisted_aline_startup_state(&self.data_dir).await;
+        let summary = super::aline_startup::reconcile_startup_sessions(
+            runner.as_ref(),
+            &repo_root,
+            chrono::Utc::now(),
+            super::aline_startup::StartupSelectionPolicy::default(),
+            &persisted_state.recent_session_ids(
+                chrono::Utc::now(),
+                super::aline_startup::StartupSelectionPolicy::default().recency_window,
+            ),
+        )
+        .await?;
+
+        if summary.failure_stage.is_none() {
+            persisted_state.record_recently_imported(
+                &summary.recently_imported_session_ids,
+                chrono::Utc::now(),
+            );
+            if let Err(error) =
+                super::aline_startup::persist_aline_startup_state(&self.data_dir, &persisted_state)
+                    .await
+            {
+                tracing::warn!(
+                    path = %super::aline_startup::aline_startup_state_path(&self.data_dir).display(),
+                    %error,
+                    "failed to persist Aline startup dedupe state"
+                );
+            }
+        }
+
+        #[cfg(test)]
+        self.record_aline_startup_summary_for_tests(summary.clone())
+            .await;
+        log_aline_startup_summary(&repo_root, &summary);
+        Ok(summary)
+    }
+
+    pub(super) fn aline_startup_is_available(&self) -> bool {
+        #[cfg(test)]
+        if let Some(available) = self.aline_startup_test_availability.get() {
+            return *available;
+        }
+
+        aline_available()
+    }
+
+    fn aline_startup_command_runner(&self) -> Arc<dyn super::aline_startup::StartupCommandRunner> {
+        #[cfg(test)]
+        if let Some(runner) = self.aline_startup_test_runner.get() {
+            return Arc::clone(runner);
+        }
+
+        Arc::new(super::aline_startup::TokioStartupCommandRunner)
+    }
+
+    pub(super) fn notify_aline_startup_reconciliation_finished_for_tests(&self) {
+        if let Some(tx) = self.aline_startup_test_completion.get() {
+            let _ = tx.send(true);
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::agent) fn set_aline_startup_test_runner(
+        &self,
+        runner: Arc<dyn super::aline_startup::StartupCommandRunner>,
+    ) {
+        let _ = self.aline_startup_test_runner.set(runner);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_aline_startup_test_availability(&self, available: bool) {
+        let _ = self.aline_startup_test_availability.set(available);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_aline_startup_test_completion(
+        &self,
+    ) -> tokio::sync::watch::Receiver<bool> {
+        self.aline_startup_test_completion
+            .get_or_init(|| {
+                let (tx, _rx) = tokio::sync::watch::channel(false);
+                tx
+            })
+            .subscribe()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn aline_startup_reconciliation_started_for_tests(&self) -> bool {
+        self.aline_startup_reconcile_started.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn aline_startup_repo_roots_for_tests(&self) -> Vec<PathBuf> {
+        self.aline_startup_test_repo_roots.lock().await.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn aline_startup_last_summary_for_tests(
+        &self,
+    ) -> Option<super::aline_startup::AlineStartupSummary> {
+        self.aline_startup_test_last_summary.lock().await.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn record_aline_startup_summary_for_tests(
+        &self,
+        summary: super::aline_startup::AlineStartupSummary,
+    ) {
+        *self.aline_startup_test_last_summary.lock().await = Some(summary);
+    }
+}
+
+pub(super) fn log_aline_startup_summary(
+    repo_root: &std::path::Path,
+    summary: &super::aline_startup::AlineStartupSummary,
+) {
+    let fields = || {
+        (
+            repo_root.display().to_string(),
+            summary.aline_available,
+            summary.watcher_initial_state.clone(),
+            summary.watcher_started,
+            summary.discovered_count,
+            summary.selected_count,
+            summary.imported_count,
+            summary.generated_count,
+            summary.skipped_recently_imported_count,
+            summary.budget_exhausted,
+            summary.failure_stage.clone(),
+            summary.failure_message.clone(),
+            summary
+                .short_circuit_reason
+                .map(super::aline_startup::AlineStartupShortCircuitReason::as_str),
+        )
+    };
+
+    let (
+        repo_root_display,
+        aline_available,
+        watcher_initial_state,
+        watcher_started,
+        discovered_count,
+        selected_count,
+        imported_count,
+        generated_count,
+        skipped_recently_imported_count,
+        budget_exhausted,
+        failure_stage,
+        failure_message,
+        short_circuit_reason,
+    ) = fields();
+
+    if failure_stage.is_some() {
+        tracing::warn!(
+            repo_root = %repo_root_display,
+            aline_available,
+            watcher_initial_state = ?watcher_initial_state,
+            watcher_started,
+            discovered_count,
+            selected_count,
+            imported_count,
+            generated_count,
+            skipped_recently_imported_count,
+            budget_exhausted,
+            failure_stage = failure_stage.as_deref(),
+            failure_message = failure_message.as_deref(),
+            short_circuit_reason,
+            "Aline startup reconciliation summary"
+        );
+    } else {
+        tracing::info!(
+            repo_root = %repo_root_display,
+            aline_available,
+            watcher_initial_state = ?watcher_initial_state,
+            watcher_started,
+            discovered_count,
+            selected_count,
+            imported_count,
+            generated_count,
+            skipped_recently_imported_count,
+            budget_exhausted,
+            failure_stage = failure_stage.as_deref(),
+            failure_message = failure_message.as_deref(),
+            short_circuit_reason,
+            "Aline startup reconciliation summary"
+        );
     }
 }
 

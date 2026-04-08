@@ -278,6 +278,13 @@ where
             });
             emit_agent_event(&msg.to_string())?;
         }
+        Some(Ok(DaemonMessage::AgentPromptInspection { prompt_json })) => {
+            let msg = serde_json::json!({
+                "type": "prompt-inspection",
+                "data": serde_json::from_str::<serde_json::Value>(&prompt_json).unwrap_or_default(),
+            });
+            emit_agent_event(&msg.to_string())?;
+        }
         Some(Ok(DaemonMessage::AgentExplanation {
             operation_id: _,
             explanation_json,

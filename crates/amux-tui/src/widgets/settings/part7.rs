@@ -180,7 +180,8 @@ fn render_feature_field_line<'a>(
         4 => "feat_heartbeat_quiet_end",
         10 => "feat_decay_half_life_hours",
         11 => "feat_heuristic_promotion_threshold",
-        13 => "feat_skill_promotion_threshold",
+        14 => "feat_skill_community_preapprove_timeout_secs",
+        15 => "feat_skill_suggest_global_enable_after_approvals",
         _ => "",
     };
     let is_editing = is_selected
@@ -254,4 +255,3 @@ fn render_feature_toggle_line<'a>(
     }
     lines.push(Line::from(spans));
 }
-

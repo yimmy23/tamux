@@ -23,7 +23,11 @@ where
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
-            return Err(anyhow::anyhow!("onecontext search failed"));
+            return Err(anyhow::anyhow!(
+                "onecontext search failed in {} scope with exit status {}",
+                request.scope,
+                output.status
+            ));
         }
         return Err(anyhow::anyhow!("onecontext search failed: {stderr}"));
     }

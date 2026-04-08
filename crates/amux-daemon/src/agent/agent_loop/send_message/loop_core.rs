@@ -16,6 +16,23 @@ fn provider_uses_anthropic_api(config: &AgentConfig, provider_config: &ProviderC
     ) == ApiType::Anthropic
 }
 
+const MAX_OUTER_AUTO_RETRY_WAITS_BEFORE_FRESH_RUNNER: u32 = 2;
+const MAX_WAITING_TIMEOUTS_BEFORE_FRESH_RUNNER: u32 = 2;
+
+fn stream_timeout_retry_delay_ms(stream_timeout_count: u32) -> u64 {
+    if cfg!(test) {
+        if stream_timeout_count >= 3 {
+            50
+        } else {
+            20
+        }
+    } else if stream_timeout_count >= 3 {
+        30_000
+    } else {
+        2_000
+    }
+}
+
 impl<'a> SendMessageRunner<'a> {
     async fn prepare_request(&mut self) -> Result<PreparedLlmRequest> {
         let compaction_inserted = self
@@ -28,6 +45,7 @@ impl<'a> SendMessageRunner<'a> {
             )
             .await?;
         if compaction_inserted {
+            self.engine.clear_thread_continuation_state(&self.tid).await;
             self.recorded_compaction_provenance = true;
         }
         let threads = self.engine.threads.read().await;
@@ -506,6 +524,9 @@ impl<'a> SendMessageRunner<'a> {
                                 };
                                 let attempt = self.scheduled_retry_cycles.saturating_add(1);
                                 let max_retries = 0;
+                                let promote_to_fresh_runner =
+                                    !provider_is_anthropic
+                                        && attempt >= MAX_OUTER_AUTO_RETRY_WAITS_BEFORE_FRESH_RUNNER;
                                 tracing::warn!(
                                     thread_id = %self.tid,
                                     provider = %self.config.provider,
@@ -555,6 +576,24 @@ impl<'a> SendMessageRunner<'a> {
                                                 .into(),
                                             );
                                         }
+                                        if promote_to_fresh_runner {
+                                            let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
+                                                thread_id: self.tid.clone(),
+                                                phase: "cleared".to_string(),
+                                                attempt: 0,
+                                                max_retries: 0,
+                                                delay_ms: 0,
+                                                failure_class: String::new(),
+                                                message: String::new(),
+                                            });
+                                            self.retry_status_visible = false;
+                                            return Err(
+                                                FreshRunnerRetrySignal {
+                                                    scheduled_retry_cycles: 0,
+                                                }
+                                                .into(),
+                                            );
+                                        }
                                         return Ok(StreamIteration {
                                             prepared_request,
                                             llm_started_at,
@@ -579,6 +618,24 @@ impl<'a> SendMessageRunner<'a> {
                                             return Err(
                                                 FreshRunnerRetrySignal {
                                                     scheduled_retry_cycles: attempt,
+                                                }
+                                                .into(),
+                                            );
+                                        }
+                                        if promote_to_fresh_runner {
+                                            let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
+                                                thread_id: self.tid.clone(),
+                                                phase: "cleared".to_string(),
+                                                attempt: 0,
+                                                max_retries: 0,
+                                                delay_ms: 0,
+                                                failure_class: String::new(),
+                                                message: String::new(),
+                                            });
+                                            self.retry_status_visible = false;
+                                            return Err(
+                                                FreshRunnerRetrySignal {
+                                                    scheduled_retry_cycles: 0,
                                                 }
                                                 .into(),
                                             );
@@ -677,16 +734,17 @@ impl<'a> SendMessageRunner<'a> {
                 .await;
             return Err(anyhow::anyhow!("{msg}"));
         }
-        let delay_ms = if self.stream_timeout_count >= MAX_STREAM_TIMEOUTS {
-            30_000u64
-        } else {
-            2_000u64
-        };
+        let delay_ms = stream_timeout_retry_delay_ms(self.stream_timeout_count);
         let phase = if self.stream_timeout_count >= MAX_STREAM_TIMEOUTS {
             "waiting"
         } else {
             "retrying"
         };
+        let waiting_timeout_count = self
+            .stream_timeout_count
+            .saturating_sub(MAX_STREAM_TIMEOUTS.saturating_sub(1));
+        let promote_to_fresh_runner = self.stream_timeout_count >= MAX_STREAM_TIMEOUTS
+            && waiting_timeout_count >= MAX_WAITING_TIMEOUTS_BEFORE_FRESH_RUNNER;
         let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
             thread_id: self.tid.clone(),
             phase: phase.to_string(),
@@ -702,7 +760,25 @@ impl<'a> SendMessageRunner<'a> {
                 self.was_cancelled = true;
                 Ok(false)
             }
-            _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => Ok(true),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {
+                if promote_to_fresh_runner {
+                    let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
+                        thread_id: self.tid.clone(),
+                        phase: "cleared".to_string(),
+                        attempt: 0,
+                        max_retries: 0,
+                        delay_ms: 0,
+                        failure_class: String::new(),
+                        message: String::new(),
+                    });
+                    self.retry_status_visible = false;
+                    return Err(FreshRunnerRetrySignal {
+                        scheduled_retry_cycles: 0,
+                    }
+                    .into());
+                }
+                Ok(true)
+            },
         }
     }
 }

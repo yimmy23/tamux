@@ -8,6 +8,7 @@ import { useAgentStore } from "../../lib/agentStore";
 import { deriveOpenAICodexAuthUi } from "./openaiSubscriptionAuth";
 import { GeneratedToolsPanel } from "../generated-tools/GeneratedToolsPanel";
 import { OperatorModelControls } from "./OperatorModelControls";
+import { PromptPreviewSection } from "./PromptPreviewSection";
 import { addBtnStyle, ModelSelector, NumberInput, PasswordInput, Section, SelectInput, SettingRow, TextInput, Toggle, inputStyle, smallBtnStyle } from "./shared";
 
 export function normalizeLlmStreamTimeoutInput(value: string): number | null {
@@ -293,6 +294,17 @@ export function AgentTab({
                         style={{ ...inputStyle, width: "100%", resize: "vertical", fontFamily: "inherit" }} />
                 </SettingRow>
             </Section>
+
+            <PromptPreviewSection
+                backend={settings.agent_backend}
+                refreshKey={[
+                    settings.agent_backend,
+                    settings.system_prompt,
+                    settings.active_provider,
+                    providerConfig.model,
+                    providerConfig.custom_model_name,
+                ].join("|")}
+            />
 
             {settings.agent_backend !== "openclaw" && settings.agent_backend !== "hermes" ? (
                 <Section title={`${PRIMARY_AGENT_NAME} Provider`}>
@@ -711,6 +723,57 @@ export function AgentTab({
                         <GeneratedToolsPanel enabled={settings.tool_synthesis_enabled} />
                     </>
                 ) : null}
+            </Section>
+
+            <Section title="Skill Discovery">
+                <SettingRow label="Local Skill Gate">
+                    <Toggle
+                        value={settings.skill_recommendation.enabled}
+                        onChange={(value) =>
+                            updateSetting("skill_recommendation", {
+                                ...settings.skill_recommendation,
+                                enabled: value,
+                            })}
+                    />
+                </SettingRow>
+                <SettingRow label="Background Community Scout">
+                    <Toggle
+                        value={settings.skill_recommendation.background_community_search}
+                        onChange={(value) =>
+                            updateSetting("skill_recommendation", {
+                                ...settings.skill_recommendation,
+                                background_community_search: value,
+                            })}
+                    />
+                </SettingRow>
+                <SettingRow label="Scout Prompt Timeout (s)">
+                    <NumberInput
+                        value={settings.skill_recommendation.community_preapprove_timeout_secs}
+                        min={5}
+                        max={300}
+                        step={5}
+                        onChange={(value) =>
+                            updateSetting("skill_recommendation", {
+                                ...settings.skill_recommendation,
+                                community_preapprove_timeout_secs: value,
+                            })}
+                    />
+                </SettingRow>
+                <SettingRow label="Suggest Global Enable After">
+                    <NumberInput
+                        value={settings.skill_recommendation.suggest_global_enable_after_approvals}
+                        min={1}
+                        max={12}
+                        onChange={(value) =>
+                            updateSetting("skill_recommendation", {
+                                ...settings.skill_recommendation,
+                                suggest_global_enable_after_approvals: value,
+                            })}
+                    />
+                </SettingRow>
+                <div style={{ marginTop: 4, marginBottom: 8, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                    Local installed skills remain authoritative. Community discovery is advisory, non-blocking, and only used to surface install candidates with a short operator approval window.
+                </div>
             </Section>
 
             <Section title="Context Compaction">

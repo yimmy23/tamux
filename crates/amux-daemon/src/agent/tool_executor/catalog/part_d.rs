@@ -8,6 +8,7 @@ fn add_available_tools_part_d(
         tools.push(tool_def("broadcast_contribution", "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
             "type": "object",
             "properties": {
+                "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope for parent/operator-originated contributions" },
                 "topic": { "type": "string", "description": "Short topic under discussion" },
                 "position": { "type": "string", "description": "Your current stance or recommendation" },
                 "evidence": { "type": "array", "items": { "type": "string" }, "description": "Supporting evidence bullets" },
@@ -37,6 +38,31 @@ fn add_available_tools_part_d(
             }
         })));
     }
+    tools.push(tool_def("list_threads", "List existing agent threads as lightweight summaries with optional deterministic filters.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "created_after": { "type": "integer", "minimum": 0, "description": "Include threads created at or after this Unix timestamp in milliseconds" },
+            "created_before": { "type": "integer", "minimum": 0, "description": "Include threads created at or before this Unix timestamp in milliseconds" },
+            "updated_after": { "type": "integer", "minimum": 0, "description": "Include threads updated at or after this Unix timestamp in milliseconds" },
+            "updated_before": { "type": "integer", "minimum": 0, "description": "Include threads updated at or before this Unix timestamp in milliseconds" },
+            "agent_name": { "type": "string", "description": "Optional canonical or alias agent filter (case-insensitive)" },
+            "title_query": { "type": "string", "description": "Optional case-insensitive substring match against the thread title" },
+            "pinned": { "type": "boolean", "description": "Optional pinned-state filter" },
+            "include_internal": { "type": "boolean", "description": "Include otherwise hidden WELES and handoff threads when true" },
+            "limit": { "type": "integer", "minimum": 0, "description": "Optional maximum number of matching thread summaries to return" },
+            "offset": { "type": "integer", "minimum": 0, "description": "Optional number of matching thread summaries to skip before returning results" }
+        }
+    })));
+    tools.push(tool_def("get_thread", "Fetch one agent thread and a paged slice of its messages by thread ID, with optional internal-thread access.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "thread_id": { "type": "string", "description": "Thread ID to fetch" },
+            "limit": { "type": "integer", "minimum": 0, "description": "Optional maximum number of messages to return from the most recent end of the thread. Defaults to 5." },
+            "offset": { "type": "integer", "minimum": 0, "description": "Optional number of newest messages to skip before applying the limit. Defaults to 0." },
+            "include_internal": { "type": "boolean", "description": "Allow access to otherwise hidden WELES and handoff threads when true" }
+        },
+        "required": ["thread_id"]
+    })));
     tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
         "type": "object",
         "properties": {

@@ -4,7 +4,8 @@ use super::agent_bridge::initial_bridge_messages;
 use super::agent_protocol::AgentBridgeCommand;
 use super::connection::closed_connection_error;
 use super::skill_api::{
-    parse_skill_import_terminal_response, parse_skill_publish_terminal_response,
+    parse_skill_discover_terminal_response, parse_skill_import_terminal_response,
+    parse_skill_publish_terminal_response,
 };
 use amux_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
 use futures::SinkExt;
@@ -26,6 +27,62 @@ fn closed_connection_error_mentions_version_mismatch_and_restart() {
         message.contains("restart"),
         "message should tell the operator what to do next: {message}"
     );
+}
+
+#[test]
+fn skill_discover_terminal_response_ignores_unsolicited_session_frames() {
+    let session_id =
+        uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").expect("valid test uuid");
+
+    assert!(
+        parse_skill_discover_terminal_response(DaemonMessage::CwdChanged {
+            id: session_id,
+            cwd: "/workspace/repo".to_string(),
+        })
+        .is_none()
+    );
+    assert!(
+        parse_skill_discover_terminal_response(DaemonMessage::Output {
+            id: session_id,
+            data: b"log".to_vec(),
+        })
+        .is_none()
+    );
+    assert!(
+        parse_skill_discover_terminal_response(DaemonMessage::CommandStarted {
+            id: session_id,
+            command: "cargo test".to_string(),
+        })
+        .is_none()
+    );
+    assert!(
+        parse_skill_discover_terminal_response(DaemonMessage::CommandFinished {
+            id: session_id,
+            exit_code: Some(0),
+        })
+        .is_none()
+    );
+}
+
+#[test]
+fn skill_discover_terminal_response_parses_result_payload() {
+    let parsed = parse_skill_discover_terminal_response(DaemonMessage::SkillDiscoverResult {
+        result_json: serde_json::json!({
+            "query": "debug panic",
+            "required": true,
+            "confidence_tier": "strong",
+            "recommended_action": "read_skill systematic-debugging",
+            "explicit_rationale_required": false,
+            "workspace_tags": ["rust"],
+            "candidates": []
+        })
+        .to_string(),
+    })
+    .expect("result frame should terminate")
+    .expect("payload should parse");
+
+    assert_eq!(parsed.query, "debug panic");
+    assert_eq!(parsed.confidence_tier, "strong");
 }
 
 #[test]

@@ -200,5 +200,5 @@ pub fn render(
     else {
         return;
     };
-    render_snapshot(frame, &snapshot, chat, mouse_selection);
+    render_snapshot(frame, &snapshot, chat, theme, mouse_selection);
 }

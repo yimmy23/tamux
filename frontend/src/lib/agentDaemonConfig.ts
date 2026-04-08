@@ -169,6 +169,14 @@ export function buildDaemonAgentConfig(
         context_window_tokens: agentSettings.compaction.custom_model.context_window_tokens,
       },
     },
+    skill_recommendation: {
+      enabled: agentSettings.skill_recommendation.enabled,
+      background_community_search: agentSettings.skill_recommendation.background_community_search,
+      community_preapprove_timeout_secs:
+        agentSettings.skill_recommendation.community_preapprove_timeout_secs,
+      suggest_global_enable_after_approvals:
+        agentSettings.skill_recommendation.suggest_global_enable_after_approvals,
+    },
     enable_honcho_memory: agentSettings.enable_honcho_memory,
     honcho_api_key: agentSettings.honcho_api_key,
     honcho_base_url: agentSettings.honcho_base_url,

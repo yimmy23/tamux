@@ -264,10 +264,24 @@ impl<'a> SendMessageRunner<'a> {
             if self.was_cancelled {
                 break;
             }
-            if self.handle_stream_timeout(&iteration).await? {
+            let retry_timed_out = match self.handle_stream_timeout(&iteration).await {
+                Ok(retry_timed_out) => retry_timed_out,
+                Err(error) => {
+                    if let Some(signal) = error.downcast_ref::<types::FreshRunnerRetrySignal>() {
+                        self.fresh_runner_retry = Some(FreshRunnerRetryRequest {
+                            scheduled_retry_cycles: signal.scheduled_retry_cycles,
+                        });
+                        break;
+                    }
+                    return Err(error);
+                }
+            };
+            if retry_timed_out {
                 continue;
             }
             if iteration.final_chunk.is_some() {
+                self.stream_timeout_count = 0;
+                self.scheduled_retry_cycles = 0;
                 self.engine
                     .record_llm_outcome(&self.config.provider, true)
                     .await;

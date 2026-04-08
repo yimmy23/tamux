@@ -13,17 +13,23 @@ pub use chat_types::*;
 
 use amux_protocol::AGENT_NAME_RAROG;
 
+#[derive(Default)]
+struct ThreadActivityState {
+    streaming_content: String,
+    streaming_reasoning: String,
+    active_tool_calls: Vec<ToolCallVm>,
+    retry_status: Option<RetryStatusVm>,
+}
+
 // ── ChatState ─────────────────────────────────────────────────────────────────
 
 pub struct ChatState {
     threads: Vec<AgentThread>,
     active_thread_id: Option<String>,
-    streaming_content: String,
-    streaming_reasoning: String,
-    active_tool_calls: Vec<ToolCallVm>,
+    thread_activity: std::collections::HashMap<String, ThreadActivityState>,
+    render_revision: u64,
     scroll_offset: usize,
     scroll_locked: bool,
-    retry_status: Option<RetryStatusVm>,
     transcript_mode: TranscriptMode,
     expanded_reasoning: std::collections::HashSet<usize>,
     selected_message: Option<usize>,
@@ -38,13 +44,11 @@ impl ChatState {
         Self {
             threads: Vec::new(),
             active_thread_id: None,
-            streaming_content: String::new(),
-            streaming_reasoning: String::new(),
-            active_tool_calls: Vec::new(),
+            thread_activity: std::collections::HashMap::new(),
+            render_revision: 0,
             scroll_offset: 0,
             expanded_reasoning: std::collections::HashSet::new(),
             scroll_locked: false,
-            retry_status: None,
             transcript_mode: TranscriptMode::Compact,
             selected_message: None,
             selected_message_action: 0,
@@ -102,20 +106,71 @@ impl ChatState {
             .unwrap_or(&[])
     }
 
+    fn active_activity(&self) -> Option<&ThreadActivityState> {
+        let thread_id = self.active_thread_id.as_deref()?;
+        self.thread_activity.get(thread_id)
+    }
+
+    fn activity_for_thread_mut(&mut self, thread_id: &str) -> &mut ThreadActivityState {
+        self.thread_activity.entry(thread_id.to_string()).or_default()
+    }
+
+    fn cleanup_thread_activity(&mut self, thread_id: &str) {
+        let should_remove = self
+            .thread_activity
+            .get(thread_id)
+            .map(|activity| {
+                activity.streaming_content.is_empty()
+                    && activity.streaming_reasoning.is_empty()
+                    && activity.active_tool_calls.is_empty()
+                    && activity.retry_status.is_none()
+            })
+            .unwrap_or(false);
+        if should_remove {
+            self.thread_activity.remove(thread_id);
+        }
+    }
+
     pub fn streaming_content(&self) -> &str {
-        &self.streaming_content
+        self.active_activity()
+            .map(|activity| activity.streaming_content.as_str())
+            .unwrap_or("")
     }
 
     pub fn streaming_reasoning(&self) -> &str {
-        &self.streaming_reasoning
+        self.active_activity()
+            .map(|activity| activity.streaming_reasoning.as_str())
+            .unwrap_or("")
     }
 
     pub fn active_tool_calls(&self) -> &[ToolCallVm] {
-        &self.active_tool_calls
+        self.active_activity()
+            .map(|activity| activity.active_tool_calls.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn render_revision(&self) -> u64 {
+        self.render_revision
+    }
+
+    pub fn render_cache_epoch(&self, current_tick: u64) -> u64 {
+        if self.copied_message_feedback.is_some() {
+            return current_tick;
+        }
+
+        if self
+            .retry_status()
+            .is_some_and(|status| status.phase == RetryPhase::Waiting)
+        {
+            let ticks_per_second = (1_000 / crate::app::TUI_TICK_RATE_MS).max(1);
+            return current_tick / ticks_per_second;
+        }
+
+        0
     }
 
     pub fn has_running_tool_calls(&self) -> bool {
-        self.active_tool_calls
+        self.active_tool_calls()
             .iter()
             .any(|tc| tc.status == ToolCallStatus::Running)
     }
@@ -133,7 +188,8 @@ impl ChatState {
     }
 
     pub fn retry_status(&self) -> Option<&RetryStatusVm> {
-        self.retry_status.as_ref()
+        self.active_activity()
+            .and_then(|activity| activity.retry_status.as_ref())
     }
 
     pub fn pinned_message_top(&self) -> Option<usize> {
@@ -141,9 +197,13 @@ impl ChatState {
     }
 
     pub fn is_streaming(&self) -> bool {
-        !self.streaming_content.is_empty()
-            || !self.streaming_reasoning.is_empty()
+        !self.streaming_content().is_empty()
+            || !self.streaming_reasoning().is_empty()
             || self.has_running_tool_calls()
+    }
+
+    fn bump_render_revision(&mut self) {
+        self.render_revision = self.render_revision.wrapping_add(1);
     }
 
     fn move_thread_to_front(&mut self, thread_id: &str) {
@@ -162,31 +222,34 @@ impl ChatState {
     }
 
     pub fn reduce(&mut self, action: ChatAction) {
+        let mut should_bump_render_revision = true;
         match action {
             ChatAction::Delta { thread_id, content } => {
                 self.pinned_message_top = None;
-                self.retry_status = None;
                 // Set active thread if not set, or if it matches the incoming thread
                 if self.active_thread_id.is_none()
-                    || self.active_thread_id.as_deref() == Some(&thread_id)
+                    || self.active_thread_id.as_deref() == Some(thread_id.as_str())
                 {
-                    self.active_thread_id = Some(thread_id);
+                    self.active_thread_id = Some(thread_id.clone());
                 }
-                if self.scroll_locked {
+                if self.scroll_locked && self.active_thread_id.as_deref() == Some(thread_id.as_str()) {
                     self.scroll_offset = self
                         .scroll_offset
                         .saturating_add(content.matches('\n').count());
                 }
-                self.streaming_content.push_str(&content);
+                self.activity_for_thread_mut(&thread_id)
+                    .streaming_content
+                    .push_str(&content);
             }
 
             ChatAction::Reasoning {
-                thread_id: _,
+                thread_id,
                 content,
             } => {
                 self.pinned_message_top = None;
-                self.retry_status = None;
-                self.streaming_reasoning.push_str(&content);
+                self.activity_for_thread_mut(&thread_id)
+                    .streaming_reasoning
+                    .push_str(&content);
             }
 
             ChatAction::ToolCall {
@@ -197,16 +260,19 @@ impl ChatState {
                 weles_review,
             } => {
                 self.pinned_message_top = None;
-                self.retry_status = None;
-                // Flush any accumulated streaming content as an ASST message first
-                // (the assistant said something before calling the tool)
-                if !self.streaming_content.is_empty() {
-                    let content = std::mem::take(&mut self.streaming_content);
-                    let reasoning = if self.streaming_reasoning.is_empty() {
+                let (content, reasoning) = {
+                    let activity = self.activity_for_thread_mut(&thread_id);
+                    let content = std::mem::take(&mut activity.streaming_content);
+                    let reasoning = if activity.streaming_reasoning.is_empty() {
                         None
                     } else {
-                        Some(std::mem::take(&mut self.streaming_reasoning))
+                        Some(std::mem::take(&mut activity.streaming_reasoning))
                     };
+                    (content, reasoning)
+                };
+                // Flush any accumulated streaming content as an ASST message first
+                // (the assistant said something before calling the tool)
+                if !content.is_empty() || reasoning.is_some() {
                     if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                         thread.messages.push(AgentMessage {
                             role: MessageRole::Assistant,
@@ -231,7 +297,9 @@ impl ChatState {
                 }
 
                 // Still track in active_tool_calls for status updates
-                self.active_tool_calls.push(ToolCallVm {
+                self.activity_for_thread_mut(&thread_id)
+                    .active_tool_calls
+                    .push(ToolCallVm {
                     call_id,
                     name,
                     arguments: String::new(),
@@ -252,21 +320,22 @@ impl ChatState {
                 weles_review,
             } => {
                 self.pinned_message_top = None;
-                self.retry_status = None;
                 // Update the active tracker
-                if let Some(tc) = self
-                    .active_tool_calls
-                    .iter_mut()
-                    .find(|tc| tc.call_id == call_id)
-                {
-                    tc.status = if is_error {
-                        ToolCallStatus::Error
-                    } else {
-                        ToolCallStatus::Done
-                    };
-                    tc.result = Some(content.clone());
-                    tc.is_error = is_error;
-                    tc.weles_review = weles_review.clone();
+                if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
+                    if let Some(tc) = activity
+                        .active_tool_calls
+                        .iter_mut()
+                        .find(|tc| tc.call_id == call_id)
+                    {
+                        tc.status = if is_error {
+                            ToolCallStatus::Error
+                        } else {
+                            ToolCallStatus::Done
+                        };
+                        tc.result = Some(content.clone());
+                        tc.is_error = is_error;
+                        tc.weles_review = weles_review.clone();
+                    }
                 }
 
                 // Update the TOOL message in the thread
@@ -283,6 +352,7 @@ impl ChatState {
                         msg.content = content;
                     }
                 }
+                self.cleanup_thread_activity(&thread_id);
             }
 
             ChatAction::TurnDone {
@@ -298,58 +368,57 @@ impl ChatState {
                 provider_final_result_json,
             } => {
                 self.pinned_message_top = None;
-                self.retry_status = None;
-                // Only finalize if this is for the active thread
-                if self.active_thread_id.as_deref() == Some(&thread_id) {
-                    // Tool calls are already pushed to thread messages inline
-                    // (on ToolCall/ToolResult events). Just clear the tracker.
-                    self.active_tool_calls.clear();
+                let (content, mut final_reasoning) = {
+                    let activity = self.activity_for_thread_mut(&thread_id);
+                    activity.active_tool_calls.clear();
+                    activity.retry_status = None;
+                    let content = std::mem::take(&mut activity.streaming_content);
+                    let reasoning = std::mem::take(&mut activity.streaming_reasoning);
+                    (content, reasoning)
+                };
+                if final_reasoning.trim().is_empty() {
+                    final_reasoning = reasoning.unwrap_or_default();
+                }
 
-                    let content = std::mem::take(&mut self.streaming_content);
-                    let mut final_reasoning = std::mem::take(&mut self.streaming_reasoning);
-                    if final_reasoning.trim().is_empty() {
-                        final_reasoning = reasoning.unwrap_or_default();
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    if provider.is_some() {
+                        thread.runtime_provider = provider.clone();
                     }
-
-                    if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
-                        if provider.is_some() {
-                            thread.runtime_provider = provider.clone();
-                        }
-                        if model.is_some() {
-                            thread.runtime_model = model.clone();
-                        }
-                        if let Some(reasoning_effort) =
-                            extract_reasoning_effort(provider_final_result_json.as_deref())
-                        {
-                            thread.runtime_reasoning_effort = Some(reasoning_effort);
-                        }
+                    if model.is_some() {
+                        thread.runtime_model = model.clone();
                     }
-
-                    if !content.is_empty() || !final_reasoning.is_empty() {
-                        let msg = AgentMessage {
-                            role: MessageRole::Assistant,
-                            content,
-                            reasoning: if final_reasoning.is_empty() {
-                                None
-                            } else {
-                                Some(final_reasoning)
-                            },
-                            provider_final_result_json,
-                            input_tokens,
-                            output_tokens,
-                            tps,
-                            generation_ms,
-                            cost,
-                            ..Default::default()
-                        };
-
-                        if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
-                            thread.messages.push(msg);
-                            thread.total_input_tokens += input_tokens;
-                            thread.total_output_tokens += output_tokens;
-                        }
+                    if let Some(reasoning_effort) =
+                        extract_reasoning_effort(provider_final_result_json.as_deref())
+                    {
+                        thread.runtime_reasoning_effort = Some(reasoning_effort);
                     }
                 }
+
+                if !content.is_empty() || !final_reasoning.is_empty() {
+                    let msg = AgentMessage {
+                        role: MessageRole::Assistant,
+                        content,
+                        reasoning: if final_reasoning.is_empty() {
+                            None
+                        } else {
+                            Some(final_reasoning)
+                        },
+                        provider_final_result_json,
+                        input_tokens,
+                        output_tokens,
+                        tps,
+                        generation_ms,
+                        cost,
+                        ..Default::default()
+                    };
+
+                    if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                        thread.messages.push(msg);
+                        thread.total_input_tokens += input_tokens;
+                        thread.total_output_tokens += output_tokens;
+                    }
+                }
+                self.cleanup_thread_activity(&thread_id);
             }
 
             ChatAction::SetRetryStatus {
@@ -362,26 +431,25 @@ impl ChatState {
                 message,
                 received_at_tick,
             } => {
-                if self.active_thread_id.is_none()
-                    || self.active_thread_id.as_deref() == Some(thread_id.as_str())
-                {
-                    self.active_thread_id = Some(thread_id);
-                    self.retry_status = Some(RetryStatusVm {
-                        phase,
-                        attempt,
-                        max_retries,
-                        delay_ms,
-                        failure_class,
-                        message,
-                        received_at_tick,
-                    });
+                if self.active_thread_id.is_none() {
+                    self.active_thread_id = Some(thread_id.clone());
                 }
+                self.activity_for_thread_mut(&thread_id).retry_status = Some(RetryStatusVm {
+                    phase,
+                    attempt,
+                    max_retries,
+                    delay_ms,
+                    failure_class,
+                    message,
+                    received_at_tick,
+                });
             }
 
             ChatAction::ClearRetryStatus { thread_id } => {
-                if self.active_thread_id.as_deref() == Some(thread_id.as_str()) {
-                    self.retry_status = None;
+                if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
+                    activity.retry_status = None;
                 }
+                self.cleanup_thread_activity(&thread_id);
             }
 
             ChatAction::ThreadListReceived(new_threads) => {
@@ -509,6 +577,7 @@ impl ChatState {
                 if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                     thread.messages.clear();
                 }
+                self.thread_activity.remove(&thread_id);
             }
 
             ChatAction::DismissConciergeWelcome => {
@@ -549,6 +618,7 @@ impl ChatState {
             }
 
             ChatAction::ScrollChat(delta) => {
+                should_bump_render_revision = false;
                 self.pinned_message_top = None;
                 if delta > 0 {
                     self.scroll_offset = self.scroll_offset.saturating_add(delta as usize);
@@ -563,6 +633,7 @@ impl ChatState {
             }
 
             ChatAction::PinMessageTop(index) => {
+                should_bump_render_revision = false;
                 self.pinned_message_top = Some(index);
                 self.scroll_locked = false;
             }
@@ -570,7 +641,6 @@ impl ChatState {
             ChatAction::NewThread => {
                 self.pinned_message_top = None;
                 self.active_thread_id = None;
-                self.retry_status = None;
                 self.copied_message_feedback = None;
             }
 
@@ -579,23 +649,32 @@ impl ChatState {
             }
 
             ChatAction::ResetStreaming => {
-                self.streaming_content.clear();
-                self.streaming_reasoning.clear();
-                self.active_tool_calls.clear();
-                self.retry_status = None;
+                if let Some(thread_id) = self.active_thread_id.clone() {
+                    self.thread_activity.remove(&thread_id);
+                }
             }
 
             ChatAction::ForceStopStreaming => {
                 // Finalize current streaming as incomplete message with [stopped] marker
-                if !self.streaming_content.is_empty() || !self.streaming_reasoning.is_empty() {
-                    let content = std::mem::take(&mut self.streaming_content);
-                    let reasoning = std::mem::take(&mut self.streaming_reasoning);
+                let Some(thread_id) = self.active_thread_id.clone() else {
+                    self.bump_render_revision();
+                    return;
+                };
+                let (content, reasoning) = if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
+                    (
+                        std::mem::take(&mut activity.streaming_content),
+                        std::mem::take(&mut activity.streaming_reasoning),
+                    )
+                } else {
+                    (String::new(), String::new())
+                };
+                if !content.is_empty() || !reasoning.is_empty() {
                     let stopped_content = if content.is_empty() {
                         "[stopped]".to_string()
                     } else {
                         format!("{} [stopped]", content)
                     };
-                    if let Some(thread) = self.active_thread_mut() {
+                    if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                         thread.messages.push(AgentMessage {
                             role: MessageRole::Assistant,
                             content: stopped_content,
@@ -608,11 +687,12 @@ impl ChatState {
                         });
                     }
                 }
-                self.streaming_content.clear();
-                self.streaming_reasoning.clear();
-                self.active_tool_calls.clear();
-                self.retry_status = None;
+                self.thread_activity.remove(&thread_id);
             }
+        }
+
+        if should_bump_render_revision {
+            self.bump_render_revision();
         }
     }
 }

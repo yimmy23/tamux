@@ -33,6 +33,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 .modal
                 .selected_command()
                 .map(|cmd| cmd.command.clone());
+            let query = model.modal.command_query().trim().to_string();
             tracing::info!(
                 "selected_command: {:?}, cursor: {}, filtered: {:?}",
                 cmd_name,
@@ -41,7 +42,22 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             );
             model.close_top_modal();
             model.input.reduce(input::InputAction::Clear);
-            if let Some(command) = cmd_name {
+            let query_head = query
+                .trim_start_matches('/')
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
+            if !query.is_empty()
+                && !query_head.is_empty()
+                && (cmd_name.as_deref() == Some(query_head) || model.is_builtin_command(query_head))
+            {
+                let command_line = if query.starts_with('/') {
+                    query
+                } else {
+                    format!("/{query}")
+                };
+                model.execute_slash_command_line(&command_line);
+            } else if let Some(command) = cmd_name {
                 model.execute_command(&command);
             }
         }
