@@ -176,3 +176,31 @@ async fn policy_memory_does_not_leak_across_goal_runs_in_same_thread() {
             .await
     );
 }
+
+#[tokio::test]
+async fn hydrate_async_syncs_seeded_builtin_skills_into_catalog() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine.hydrate().await.expect("hydrate should succeed");
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let variants = engine
+                .history
+                .list_skill_variants(Some("brainstorming"), 10)
+                .await
+                .expect("list skill variants");
+            if variants.iter().any(|variant| {
+                variant.relative_path.ends_with("/brainstorming/SKILL.md")
+                    || variant.relative_path == "development/superpowers/brainstorming/SKILL.md"
+            }) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("built-in skill sync should complete in the background");
+}

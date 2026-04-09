@@ -133,6 +133,15 @@ pub(crate) enum Commands {
         json: bool,
     },
 
+    /// Query the status of an asynchronous daemon operation.
+    Operation {
+        /// Operation ID returned by the daemon.
+        id: String,
+        /// Emit the raw daemon payload as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// View and modify daemon configuration.
     Settings {
         #[command(subcommand)]

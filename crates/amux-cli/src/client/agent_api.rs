@@ -1,4 +1,4 @@
-use amux_protocol::{ClientMessage, DaemonMessage};
+use amux_protocol::{ClientMessage, DaemonMessage, OperationStatusSnapshot};
 use anyhow::Result;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -198,6 +198,12 @@ pub async fn send_prompt_query(agent_id: Option<String>) -> Result<AgentPromptIn
     }
 }
 
+pub async fn send_operation_status_query(operation_id: String) -> Result<OperationStatusSnapshot> {
+    parse_operation_status_response(
+        roundtrip(ClientMessage::AgentGetOperationStatus { operation_id }).await?,
+    )
+}
+
 pub async fn send_config_get() -> Result<serde_json::Value> {
     match roundtrip(ClientMessage::AgentGetConfig).await? {
         DaemonMessage::AgentConfigResponse { config_json } => {
@@ -224,6 +230,18 @@ pub(crate) fn parse_config_set_response(msg: DaemonMessage) -> Result<()> {
         DaemonMessage::OperationAccepted { .. } | DaemonMessage::AgentConfigResponse { .. } => {
             Ok(())
         }
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub(crate) fn parse_operation_status_response(
+    msg: DaemonMessage,
+) -> Result<OperationStatusSnapshot> {
+    match msg {
+        DaemonMessage::OperationStatus { snapshot } => Ok(snapshot),
         DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
             anyhow::bail!("daemon error: {message}")
         }

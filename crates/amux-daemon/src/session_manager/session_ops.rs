@@ -249,7 +249,10 @@ impl SessionManager {
             .collect();
 
         for (session_id, session) in sessions {
-            let live_status = session.lock().await.managed_command_status(background_task_id);
+            let live_status = session
+                .lock()
+                .await
+                .managed_command_status(background_task_id);
             if let Some(live_status) = live_status {
                 let state = match live_status.state {
                     crate::pty_session::ManagedCommandLiveState::Queued => {

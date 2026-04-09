@@ -257,7 +257,10 @@ impl PtySession {
                     state: ManagedCommandLiveState::Running,
                     position: 0,
                     command: active.request.command.clone(),
-                    snapshot_path: active.snapshot.as_ref().map(|snapshot| snapshot.path.clone()),
+                    snapshot_path: active
+                        .snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.path.clone()),
                 });
             }
         }
@@ -268,7 +271,10 @@ impl PtySession {
                     state: ManagedCommandLiveState::Queued,
                     position: index + 1,
                     command: queued.request.command.clone(),
-                    snapshot_path: queued.snapshot.as_ref().map(|snapshot| snapshot.path.clone()),
+                    snapshot_path: queued
+                        .snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.path.clone()),
                 });
             }
         }

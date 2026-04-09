@@ -553,6 +553,7 @@ impl AgentEngine {
 
         // Seed built-in skill documents into ~/.tamux/skills/
         seed_builtin_skills(&self.data_dir);
+        self.schedule_builtin_skill_catalog_sync();
 
         // Restore HeuristicStore from persistence (D-10)
         let heuristic_path = self.data_dir.join("heuristics.json");
@@ -866,6 +867,22 @@ impl AgentEngine {
                 (updated_at == latest_updated_at).then_some(repo_root)
             })
             .collect()
+    }
+
+    fn schedule_builtin_skill_catalog_sync(self: &Arc<Self>) {
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            let skills_root = super::skills_dir(&engine.data_dir);
+            if let Err(error) =
+                super::skill_recommendation::sync_skill_catalog(&engine.history, &skills_root).await
+            {
+                tracing::warn!(
+                    skills_root = %skills_root.display(),
+                    %error,
+                    "background built-in skill catalog sync failed after hydrate"
+                );
+            }
+        });
     }
 
     fn schedule_aline_startup_reconciliation(self: &Arc<Self>, repo_root: String) {

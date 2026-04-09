@@ -50,7 +50,7 @@ pub(super) fn derive_skill_metadata(relative_path: &str, content: &str) -> Deriv
 
     let skill_name = normalize_skill_lookup(&skill_name);
     let mut tags = BTreeSet::new();
-    infer_skill_tags(&normalized_path, &content.to_ascii_lowercase(), &mut tags);
+    infer_skill_tags(&normalized_path, content, &mut tags);
 
     DerivedSkillMetadata {
         skill_name: if skill_name.is_empty() {
@@ -60,46 +60,6 @@ pub(super) fn derive_skill_metadata(relative_path: &str, content: &str) -> Deriv
         },
         variant_name,
         context_tags: tags.into_iter().collect(),
-    }
-}
-
-pub(super) fn infer_skill_tags(path: &str, content: &str, out: &mut BTreeSet<String>) {
-    let haystack = format!("{path}\n{}", excerpt_on_char_boundary(content, 4000));
-    for (needle, tag) in [
-        ("rust", "rust"),
-        ("cargo", "rust"),
-        ("crate", "rust"),
-        ("tokio", "async"),
-        ("async-std", "async"),
-        ("async ", "async"),
-        ("wasm", "wasm32"),
-        ("wasm32", "wasm32"),
-        ("typescript", "typescript"),
-        ("javascript", "javascript"),
-        ("node", "node"),
-        ("npm", "node"),
-        ("react", "frontend"),
-        ("frontend", "frontend"),
-        ("electron", "desktop"),
-        ("tauri", "desktop"),
-        ("terminal", "terminal"),
-        ("tui", "terminal"),
-        ("docker", "docker"),
-        ("kubernetes", "kubernetes"),
-        ("k8s", "kubernetes"),
-        ("terraform", "terraform"),
-        ("postgres", "database"),
-        ("sqlx", "database"),
-        ("diesel", "database"),
-        ("database", "database"),
-        ("slack", "messaging"),
-        ("discord", "messaging"),
-        ("telegram", "messaging"),
-        ("python", "python"),
-    ] {
-        if haystack.contains(needle) {
-            out.insert(tag.to_string());
-        }
     }
 }
 

@@ -218,6 +218,37 @@
     }
 
     #[test]
+    fn get_operation_status_tool_is_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let status_tool = tools
+            .iter()
+            .find(|tool| tool.function.name == "get_operation_status")
+            .expect("get_operation_status tool should be available");
+
+        let properties = status_tool
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("get_operation_status schema should expose properties");
+
+        assert!(
+            properties.get("operation_id").is_some(),
+            "schema should include operation_id"
+        );
+        let required = status_tool
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("get_operation_status should define required fields");
+        assert_eq!(required, vec!["operation_id"]);
+    }
+
+    #[test]
     fn ask_questions_tool_is_exposed_with_compact_option_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();

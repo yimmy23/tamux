@@ -444,6 +444,56 @@
     }
 
     #[tokio::test]
+    async fn get_operation_status_returns_server_operation_snapshot() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        let record = crate::server::operation_registry()
+            .accept_operation("skill_publish", Some("tool-test:skill-publish".to_string()));
+        crate::server::operation_registry().mark_started(&record.operation_id);
+        crate::server::operation_registry().mark_completed(&record.operation_id);
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-operation-status".to_string(),
+            ToolFunction {
+                name: "get_operation_status".to_string(),
+                arguments: serde_json::json!({
+                    "operation_id": record.operation_id,
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-operation-status",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "get_operation_status should return server operation snapshots: {}",
+            result.content
+        );
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&result.content).expect("status payload should be valid JSON");
+        assert_eq!(payload["operation_id"], record.operation_id);
+        assert_eq!(payload["kind"], "skill_publish");
+        assert_eq!(payload["state"], "completed");
+    }
+
+    #[tokio::test]
     async fn send_telegram_message_emits_gateway_ipc_request() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;

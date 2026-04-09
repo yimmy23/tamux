@@ -128,7 +128,7 @@ fn add_available_tools_part_c(
             "include_dom": { "type": "boolean", "description": "For browser panels: include page DOM text content. Ignored for terminal panes." }
         }
     })));
-    tools.push(tool_def("run_terminal_command", "Execute a shell command through a tamux-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess).", serde_json::json!({
+    tools.push(tool_def("run_terminal_command", "Execute a shell command through a tamux-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess). For long-running work, prefer non-blocking execution and poll the returned `operation_id` with `get_operation_status`.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to execute in a managed terminal session" },
@@ -140,11 +140,11 @@ fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600)" }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds and returns an `operation_id` for polling via `get_operation_status`." }
         },
         "required": ["command"]
     })));
-    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session.", serde_json::json!({
+    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session. For non-blocking execution, poll the returned `operation_id` with `get_operation_status`.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to run in the managed terminal session" },
@@ -156,11 +156,18 @@ fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600)" }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds and returns an `operation_id` for polling via `get_operation_status`." }
         },
         "required": ["command", "rationale"]
     })));
-    tools.push(tool_def("get_background_task_status", "Look up the current status of a previously queued non-blocking managed terminal command by its background_task_id. Use the background_task_id returned by auto-backgrounded bash_command/run_terminal_command/execute_managed_command calls.", serde_json::json!({
+    tools.push(tool_def("get_operation_status", "Look up the current lifecycle state of a previously accepted asynchronous operation by its operation_id. For background terminal commands, pass the returned operation_id here; `background_task_id` is the same value for compatibility.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "operation_id": { "type": "string", "description": "Asynchronous operation handle returned by a non-blocking tool or daemon operation" }
+        },
+        "required": ["operation_id"]
+    })));
+    tools.push(tool_def("get_background_task_status", "Compatibility alias for background managed-terminal commands. Prefer `get_operation_status`; this tool accepts the same ID under the older `background_task_id` name.", serde_json::json!({
         "type": "object",
         "properties": {
             "background_task_id": { "type": "string", "description": "Execution handle returned as background_task_id by a non-blocking managed terminal command" }

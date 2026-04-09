@@ -340,6 +340,7 @@ pub fn execute_tool<'a>(
                 Err(error) => Err(error),
             }
         }
+        "get_operation_status" => execute_get_operation_status(&args, session_manager).await,
         "get_background_task_status" => {
             execute_get_background_task_status(&args, session_manager).await
         }

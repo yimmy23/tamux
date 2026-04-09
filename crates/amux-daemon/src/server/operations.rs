@@ -20,12 +20,12 @@ pub(super) const OPERATION_KIND_SET_SUB_AGENT: &str = "set_sub_agent";
 pub(super) const OPERATION_KIND_REMOVE_SUB_AGENT: &str = "remove_sub_agent";
 
 #[derive(Debug, Clone)]
-pub(super) struct OperationRecord {
-    pub(super) operation_id: String,
-    pub(super) kind: String,
-    pub(super) dedup: Option<String>,
-    pub(super) state: OperationLifecycleState,
-    pub(super) revision: u64,
+pub(crate) struct OperationRecord {
+    pub(crate) operation_id: String,
+    pub(crate) kind: String,
+    pub(crate) dedup: Option<String>,
+    pub(crate) state: OperationLifecycleState,
+    pub(crate) revision: u64,
 }
 
 impl OperationRecord {
@@ -204,7 +204,7 @@ pub(super) fn remove_sub_agent_dedup_key(
     )
 }
 
-pub(super) fn operation_registry() -> &'static OperationRegistry {
+pub(crate) fn operation_registry() -> &'static OperationRegistry {
     static REGISTRY: OnceLock<OperationRegistry> = OnceLock::new();
     REGISTRY.get_or_init(OperationRegistry::default)
 }

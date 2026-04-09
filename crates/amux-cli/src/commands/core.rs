@@ -22,6 +22,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Audit { .. }
             | Commands::Status
             | Commands::Prompt { .. }
+            | Commands::Operation { .. }
             | Commands::Stats
             | Commands::Settings { .. }
             | Commands::Thread { .. }
@@ -295,6 +296,33 @@ fn format_prompt_output(prompt: &client::AgentPromptInspection, json: bool) -> R
     Ok(rendered)
 }
 
+fn format_operation_status_output(
+    snapshot: &amux_protocol::OperationStatusSnapshot,
+    json: bool,
+) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(snapshot).map_err(Into::into);
+    }
+
+    let mut rendered = String::from("Operation Status\n================\n");
+    rendered.push_str(&format!("ID:       {}\n", snapshot.operation_id));
+    rendered.push_str(&format!("Kind:     {}\n", snapshot.kind));
+    rendered.push_str(&format!(
+        "State:    {}\n",
+        serde_json::to_string(&snapshot.state)?.trim_matches('"')
+    ));
+    rendered.push_str(&format!("Revision: {}\n", snapshot.revision));
+    if let Some(dedup) = snapshot.dedup.as_deref() {
+        rendered.push_str(&format!("Dedup:    {dedup}\n"));
+    }
+
+    while rendered.ends_with('\n') {
+        rendered.pop();
+    }
+
+    Ok(rendered)
+}
+
 pub(crate) async fn run_default() -> Result<()> {
     update::print_upgrade_notice_if_available(env!("CARGO_PKG_VERSION")).await;
 
@@ -339,9 +367,9 @@ pub(crate) async fn run_default() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_startup_action, format_direct_message_output, format_prompt_output,
-        format_status_output, format_thread_delete_output, format_thread_detail_output,
-        format_thread_list_output, DefaultStartupAction,
+        default_startup_action, format_direct_message_output, format_operation_status_output,
+        format_prompt_output, format_status_output, format_thread_delete_output,
+        format_thread_detail_output, format_thread_list_output, DefaultStartupAction,
     };
     use crate::client::{
         AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
@@ -582,6 +610,28 @@ mod tests {
         assert!(rendered.contains("Custom operator prompt"));
         assert!(rendered.contains("Final Prompt"));
     }
+
+    #[test]
+    fn operation_status_output_prints_fields() {
+        let rendered = format_operation_status_output(
+            &amux_protocol::OperationStatusSnapshot {
+                operation_id: "op-cli-1".to_string(),
+                kind: "managed_command".to_string(),
+                dedup: Some("managed:exec-1".to_string()),
+                state: amux_protocol::OperationLifecycleState::Completed,
+                revision: 3,
+            },
+            false,
+        )
+        .expect("render operation status");
+
+        assert!(rendered.contains("Operation Status"));
+        assert!(rendered.contains("ID:       op-cli-1"));
+        assert!(rendered.contains("Kind:     managed_command"));
+        assert!(rendered.contains("State:    completed"));
+        assert!(rendered.contains("Revision: 3"));
+        assert!(rendered.contains("Dedup:    managed:exec-1"));
+    }
 }
 
 pub(crate) async fn run(command: Commands) -> Result<()> {
@@ -708,6 +758,10 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
                 client::send_prompt_query(resolve_prompt_target(agent, weles, concierge, rarog))
                     .await?;
             println!("{}", format_prompt_output(&inspection, json)?);
+        }
+        Commands::Operation { id, json } => {
+            let snapshot = client::send_operation_status_query(id).await?;
+            println!("{}", format_operation_status_output(&snapshot, json)?);
         }
         Commands::Settings { action } => match action {
             SettingsAction::List => {

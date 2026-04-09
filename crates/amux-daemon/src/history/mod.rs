@@ -480,6 +480,7 @@ mod schema_sql_extra;
 mod skill_generation;
 pub(crate) use skill_generation::page_skill_variants;
 mod skill_metadata;
+mod skill_tagging;
 mod skill_variants;
 mod task_enums;
 mod tasks;
@@ -489,6 +490,7 @@ use integrity_helpers::*;
 use row_mapping::*;
 use schema_helpers::*;
 use skill_metadata::*;
+use skill_tagging::*;
 use task_enums::*;
 
 pub(crate) fn now_ts() -> u64 {
