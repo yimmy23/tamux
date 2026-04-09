@@ -91,10 +91,8 @@ pub(crate) fn render_tool_structured_json(
             .chars()
             .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0).max(1))
             .sum::<usize>();
-        let wrapped_values = wrap_preserving_whitespace(
-            &value,
-            width.saturating_sub(prefix_width).max(1),
-        );
+        let wrapped_values =
+            wrap_preserving_whitespace(&value, width.saturating_sub(prefix_width).max(1));
 
         if let Some(first_line) = wrapped_values.first() {
             rendered.push(Line::from(vec![
@@ -123,7 +121,10 @@ fn build_apply_patch_sections(args: &Value) -> Option<Vec<ToolDiffSection>> {
 
 fn build_apply_file_patch_sections(args: &Value) -> Option<Vec<ToolDiffSection>> {
     let path = get_path_arg(args)?;
-    let edits = args.get("edits").or_else(|| args.get("patches"))?.as_array()?;
+    let edits = args
+        .get("edits")
+        .or_else(|| args.get("patches"))?
+        .as_array()?;
     if edits.is_empty() {
         return None;
     }
@@ -180,10 +181,7 @@ fn build_replace_in_file_sections(args: &Value) -> Option<Vec<ToolDiffSection>> 
 
 fn build_write_like_sections(args: &Value, action: &str) -> Option<Vec<ToolDiffSection>> {
     let path = get_path_arg(args)?;
-    let content = get_string_arg(
-        args,
-        &["content", "contents", "text", "data", "body"],
-    )?;
+    let content = get_string_arg(args, &["content", "contents", "text", "data", "body"])?;
     let mut lines = vec![ToolDiffLine {
         kind: ToolDiffLineKind::File,
         text: format!("+++ {path}"),
@@ -286,7 +284,10 @@ fn parse_harness_patch(input: &str) -> Option<Vec<ToolDiffSection>> {
     }
 }
 
-fn push_current_section(sections: &mut Vec<ToolDiffSection>, current: &mut Option<ToolDiffSection>) {
+fn push_current_section(
+    sections: &mut Vec<ToolDiffSection>,
+    current: &mut Option<ToolDiffSection>,
+) {
     if let Some(section) = current.take() {
         if !section.lines.is_empty() {
             sections.push(section);
@@ -386,10 +387,17 @@ fn summarize_string_value(
     let field_name = key_path.rsplit('.').next().unwrap_or(key_path);
     let is_create_file_content = tool_name == "create_file"
         && matches!(source, ToolStructuredValueSource::Arguments)
-        && matches!(field_name, "content" | "contents" | "text" | "data" | "body");
+        && matches!(
+            field_name,
+            "content" | "contents" | "text" | "data" | "body"
+        );
 
     if is_create_file_content {
-        let line_count = if value.is_empty() { 0 } else { value.lines().count() };
+        let line_count = if value.is_empty() {
+            0
+        } else {
+            value.lines().count()
+        };
         return format!("{} chars, {} lines", value.len(), line_count);
     }
 
@@ -397,7 +405,10 @@ fn summarize_string_value(
         let lines: Vec<&str> = value.lines().collect();
         let preview = lines.iter().take(3).copied().collect::<Vec<_>>().join(" ");
         return if lines.len() > 3 {
-            format!("{preview} ... (+{} more lines)", lines.len().saturating_sub(3))
+            format!(
+                "{preview} ... (+{} more lines)",
+                lines.len().saturating_sub(3)
+            )
         } else {
             preview
         };
@@ -415,7 +426,10 @@ fn summarize_array_value(items: &[Value]) -> String {
         return "[]".to_string();
     }
 
-    if items.iter().all(|item| item.is_null() || item.is_boolean() || item.is_number() || item.is_string()) {
+    if items
+        .iter()
+        .all(|item| item.is_null() || item.is_boolean() || item.is_number() || item.is_string())
+    {
         let preview = items
             .iter()
             .take(5)

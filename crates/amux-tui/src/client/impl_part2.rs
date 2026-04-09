@@ -2,6 +2,7 @@ impl DaemonClient {
     async fn handle_daemon_message_part1(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
+        thread_detail_chunks: &mut Option<ThreadDetailChunkBuffer>,
     ) {
         match message {
             DaemonMessage::AgentEvent { event_json } => {
@@ -24,6 +25,33 @@ impl DaemonClient {
                         let _ = event_tx.send(ClientEvent::ThreadDetail(thread)).await;
                     }
                     Err(err) => warn!("Failed to parse thread detail: {}", err),
+                }
+            }
+            DaemonMessage::AgentThreadDetailChunk {
+                thread_id,
+                thread_json_chunk,
+                done,
+            } => {
+                let chunk_buffer =
+                    thread_detail_chunks.get_or_insert_with(ThreadDetailChunkBuffer::default);
+                if chunk_buffer.thread_id.as_deref() != Some(thread_id.as_str()) {
+                    chunk_buffer.thread_id = Some(thread_id);
+                    chunk_buffer.bytes.clear();
+                }
+                chunk_buffer.bytes.extend(thread_json_chunk);
+                if done {
+                    let bytes = std::mem::take(&mut chunk_buffer.bytes);
+                    chunk_buffer.thread_id = None;
+                    *thread_detail_chunks = None;
+                    match String::from_utf8(bytes) {
+                        Ok(thread_json) => match serde_json::from_str::<Option<AgentThread>>(&thread_json) {
+                            Ok(thread) => {
+                                let _ = event_tx.send(ClientEvent::ThreadDetail(thread)).await;
+                            }
+                            Err(err) => warn!("Failed to parse streamed thread detail: {}", err),
+                        },
+                        Err(err) => warn!("Failed to decode streamed thread detail: {}", err),
+                    }
                 }
             }
             DaemonMessage::AgentTaskList { tasks_json } => {

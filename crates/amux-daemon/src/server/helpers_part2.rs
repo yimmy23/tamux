@@ -331,6 +331,76 @@ where
     (value.into_iter().skip(low).collect(), true)
 }
 
+fn chunk_agent_thread_detail_for_ipc(thread_id: &str, thread_json: String) -> Vec<DaemonMessage> {
+    if amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadDetail {
+        thread_json: thread_json.clone(),
+    }) {
+        return vec![DaemonMessage::AgentThreadDetail { thread_json }];
+    }
+
+    let mut remaining = thread_json.into_bytes();
+    let mut chunks = Vec::new();
+    while !remaining.is_empty() {
+        if amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadDetailChunk {
+            thread_id: thread_id.to_string(),
+            thread_json_chunk: remaining.clone(),
+            done: true,
+        }) {
+            chunks.push(DaemonMessage::AgentThreadDetailChunk {
+                thread_id: thread_id.to_string(),
+                thread_json_chunk: remaining,
+                done: true,
+            });
+            break;
+        }
+
+        let take = max_agent_thread_detail_chunk_prefix_len(thread_id, &remaining)
+            .expect("thread detail chunk transport should fit at least one byte");
+        let tail = remaining.split_off(take);
+        chunks.push(DaemonMessage::AgentThreadDetailChunk {
+            thread_id: thread_id.to_string(),
+            thread_json_chunk: remaining,
+            done: false,
+        });
+        remaining = tail;
+    }
+
+    chunks
+}
+
+fn max_agent_thread_detail_chunk_prefix_len(thread_id: &str, remaining: &[u8]) -> Option<usize> {
+    const MAX_THREAD_DETAIL_CHUNK_BYTES: usize = 64 * 1024;
+
+    if remaining.is_empty() {
+        return Some(0);
+    }
+
+    let fits = |candidate: &[u8]| {
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadDetailChunk {
+            thread_id: thread_id.to_string(),
+            thread_json_chunk: candidate.to_vec(),
+            done: false,
+        })
+    };
+
+    if !fits(&remaining[..1]) {
+        return None;
+    }
+
+    let mut low = 1usize;
+    let mut high = remaining.len().min(MAX_THREAD_DETAIL_CHUNK_BYTES);
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if fits(&remaining[..mid]) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    Some(low)
+}
+
 fn cap_agent_thread_list_for_ipc(
     threads: Vec<crate::agent::types::AgentThread>,
 ) -> (Vec<crate::agent::types::AgentThread>, bool) {

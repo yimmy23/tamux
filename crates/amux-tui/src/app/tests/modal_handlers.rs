@@ -1,6 +1,6 @@
 use super::*;
 use amux_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_QWEN,
 };
 use ratatui::layout::Rect;
 use tokio::sync::mpsc::unbounded_channel;
@@ -794,6 +794,226 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
             panic!("static providers should not trigger remote model fetches");
         }
     }
+}
+
+#[test]
+fn selecting_compaction_weles_provider_updates_provider_and_opens_model_picker() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
+            provider_name: "Alibaba Coding Plan".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "qwen3.5-plus".to_string(),
+        },
+    ];
+
+    let target_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_ALIBABA_CODING_PLAN)
+        .expect("provider to exist");
+
+    model.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesProvider);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
+    if target_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(target_index as i32));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ProviderPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model.config.compaction_weles_provider,
+        PROVIDER_ID_ALIBABA_CODING_PLAN
+    );
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::FetchModels { .. } = command {
+            panic!("static providers should not trigger remote model fetches");
+        }
+    }
+}
+
+#[test]
+fn selecting_compaction_weles_model_updates_compaction_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.compaction_weles_provider = PROVIDER_ID_OPENAI.to_string();
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4".to_string(),
+                name: Some("GPT-5.4".to_string()),
+                context_window: Some(128_000),
+            },
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.compaction_weles_model, "gpt-5.4-mini");
+}
+
+#[test]
+fn selecting_compaction_custom_provider_updates_provider_and_opens_model_picker() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.auth.entries = vec![
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        },
+        crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_ALIBABA_CODING_PLAN.to_string(),
+            provider_name: "Alibaba Coding Plan".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "qwen3.5-plus".to_string(),
+        },
+    ];
+
+    let target_index = widgets::provider_picker::available_provider_defs(&model.auth)
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_ALIBABA_CODING_PLAN)
+        .expect("provider to exist");
+
+    model.settings_picker_target = Some(SettingsPickerTarget::CompactionCustomProvider);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
+    if target_index > 0 {
+        model
+            .modal
+            .reduce(modal::ModalAction::Navigate(target_index as i32));
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ProviderPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model.config.compaction_custom_provider,
+        PROVIDER_ID_ALIBABA_CODING_PLAN
+    );
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::FetchModels { .. } = command {
+            panic!("static providers should not trigger remote model fetches");
+        }
+    }
+}
+
+#[test]
+fn selecting_compaction_custom_provider_copies_current_provider_transport() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_QWEN.to_string(),
+        provider_name: "Qwen".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "qwen-max".to_string(),
+    }];
+    model.config.provider = PROVIDER_ID_QWEN.to_string();
+    model.config.auth_source = "api_key".to_string();
+    model.config.api_transport = "chat_completions".to_string();
+
+    model.settings_picker_target = Some(SettingsPickerTarget::CompactionCustomProvider);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+    model.modal.set_picker_item_count(
+        widgets::provider_picker::available_provider_defs(&model.auth).len(),
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ProviderPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.compaction_custom_provider, PROVIDER_ID_QWEN);
+    assert_eq!(
+        model.config.compaction_custom_api_transport,
+        "chat_completions"
+    );
+}
+
+#[test]
+fn selecting_compaction_custom_model_updates_compaction_model() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.compaction_custom_provider = PROVIDER_ID_OPENAI.to_string();
+    model
+        .config
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4".to_string(),
+                name: Some("GPT-5.4".to_string()),
+                context_window: Some(128_000),
+            },
+            crate::state::config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+            },
+        ]));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::CompactionCustomModel);
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+    model.modal.reduce(modal::ModalAction::Navigate(1));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ModelPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.config.compaction_custom_model, "gpt-5.4-mini");
 }
 
 #[test]

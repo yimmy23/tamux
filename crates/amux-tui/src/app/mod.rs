@@ -84,6 +84,10 @@ enum MainPaneView {
 enum SettingsPickerTarget {
     Provider,
     Model,
+    CompactionWelesProvider,
+    CompactionWelesModel,
+    CompactionCustomProvider,
+    CompactionCustomModel,
     SubAgentProvider,
     SubAgentModel,
     SubAgentReasoningEffort,

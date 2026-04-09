@@ -1,5 +1,6 @@
 use amux_protocol::{ClientMessage, DaemonMessage};
 use anyhow::Result;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use super::connection::{connect, roundtrip};
@@ -136,10 +137,35 @@ pub async fn send_thread_list_query() -> Result<Vec<AgentThreadRecord>> {
 }
 
 pub async fn send_thread_get_query(thread_id: String) -> Result<Option<AgentThreadRecord>> {
-    match roundtrip(ClientMessage::AgentGetThread { thread_id }).await? {
-        DaemonMessage::AgentThreadDetail { thread_json } => Ok(serde_json::from_str(&thread_json)?),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
-        other => anyhow::bail!("unexpected response: {other:?}"),
+    let mut framed = connect().await?;
+    framed
+        .send(ClientMessage::AgentGetThread { thread_id })
+        .await?;
+
+    let mut thread_detail_bytes = Vec::new();
+    loop {
+        let response = framed
+            .next()
+            .await
+            .ok_or_else(super::connection::closed_connection_error)??;
+        match response {
+            DaemonMessage::AgentThreadDetail { thread_json } => {
+                return Ok(serde_json::from_str(&thread_json)?);
+            }
+            DaemonMessage::AgentThreadDetailChunk {
+                thread_id: _,
+                thread_json_chunk,
+                done,
+            } => {
+                thread_detail_bytes.extend(thread_json_chunk);
+                if done {
+                    let thread_json = String::from_utf8(thread_detail_bytes)?;
+                    return Ok(serde_json::from_str(&thread_json)?);
+                }
+            }
+            DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+            other => anyhow::bail!("unexpected response: {other:?}"),
+        }
     }
 }
 

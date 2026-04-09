@@ -50,6 +50,75 @@ async fn get_work_context_truncates_oversized_payload_for_ipc() {
     conn.shutdown().await;
 }
 
+#[tokio::test]
+async fn get_thread_streams_oversized_thread_detail_without_truncation() {
+    let mut conn = spawn_test_connection().await;
+    let thread_id = "thread-detail-huge";
+    let huge_message = "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024);
+    let expected_huge_message = huge_message.clone();
+
+    conn.agent.threads.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::types::AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some("main".to_string()),
+            title: "Huge thread".to_string(),
+            messages: vec![
+                crate::agent::types::AgentMessage::user(huge_message, 1),
+                crate::agent::types::AgentMessage::user("recent tail", 2),
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 1,
+            updated_at: 2,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+
+    conn.framed
+        .send(ClientMessage::AgentGetThread {
+            thread_id: thread_id.to_string(),
+        })
+        .await
+        .expect("request thread detail");
+
+    let mut chunks = Vec::new();
+    loop {
+        match conn.recv().await {
+            DaemonMessage::AgentThreadDetailChunk {
+                thread_id: returned_thread_id,
+                thread_json_chunk,
+                done,
+            } => {
+                assert_eq!(returned_thread_id, thread_id);
+                chunks.extend(thread_json_chunk);
+                if done {
+                    break;
+                }
+            }
+            other => panic!("expected thread detail chunk, got {other:?}"),
+        }
+    }
+
+    let thread_json = String::from_utf8(chunks).expect("thread detail chunks should be utf-8");
+    let thread: Option<crate::agent::types::AgentThread> =
+        serde_json::from_str(&thread_json).expect("decode streamed thread detail");
+    let thread = thread.expect("thread detail should exist");
+    let contents = thread
+        .messages
+        .iter()
+        .map(|message| message.content.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec![expected_huge_message, "recent tail".to_string()]);
+
+    conn.shutdown().await;
+}
+
 #[test]
 fn cap_scrollback_for_ipc_keeps_recent_tail() {
     let tail = b"recent tail".to_vec();

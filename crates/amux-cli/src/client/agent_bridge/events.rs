@@ -5,6 +5,39 @@ use tokio_util::codec::Framed;
 
 use super::emit_agent_event;
 
+#[derive(Debug, Default)]
+pub(super) struct ThreadDetailChunkBuffer {
+    thread_id: Option<String>,
+    bytes: Vec<u8>,
+}
+
+fn extend_thread_detail_chunk(
+    buffer: &mut Option<ThreadDetailChunkBuffer>,
+    thread_id: String,
+    thread_json_chunk: Vec<u8>,
+    done: bool,
+) -> Result<Option<serde_json::Value>> {
+    let chunk_buffer = buffer.get_or_insert_with(ThreadDetailChunkBuffer::default);
+    if chunk_buffer.thread_id.as_deref() != Some(thread_id.as_str()) {
+        chunk_buffer.thread_id = Some(thread_id);
+        chunk_buffer.bytes.clear();
+    }
+    chunk_buffer.bytes.extend(thread_json_chunk);
+    if !done {
+        return Ok(None);
+    }
+
+    let bytes = std::mem::take(&mut chunk_buffer.bytes);
+    chunk_buffer.thread_id = None;
+    *buffer = None;
+
+    let thread_json = String::from_utf8(bytes)?;
+    Ok(Some(serde_json::json!({
+        "type": "thread-detail",
+        "data": serde_json::from_str::<serde_json::Value>(&thread_json).unwrap_or_default(),
+    })))
+}
+
 fn bridge_event_from_daemon_message(message: &DaemonMessage) -> Option<serde_json::Value> {
     match message {
         DaemonMessage::AgentOperatorModel { model_json } => Some(serde_json::json!({
@@ -92,7 +125,10 @@ fn bridge_event_from_daemon_message(message: &DaemonMessage) -> Option<serde_jso
     }
 }
 
-pub(super) async fn handle_message<T>(framed: &mut Framed<T, AmuxCodec>) -> Result<bool>
+pub(super) async fn handle_message<T>(
+    framed: &mut Framed<T, AmuxCodec>,
+    thread_detail_chunks: &mut Option<ThreadDetailChunkBuffer>,
+) -> Result<bool>
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
@@ -112,6 +148,20 @@ where
         Some(Ok(DaemonMessage::AgentThreadDetail { thread_json })) => {
             let msg = serde_json::json!({"type":"thread-detail","data":serde_json::from_str::<serde_json::Value>(&thread_json).unwrap_or_default()});
             emit_agent_event(&msg.to_string())?;
+        }
+        Some(Ok(DaemonMessage::AgentThreadDetailChunk {
+            thread_id,
+            thread_json_chunk,
+            done,
+        })) => {
+            if let Some(msg) = extend_thread_detail_chunk(
+                thread_detail_chunks,
+                thread_id,
+                thread_json_chunk,
+                done,
+            )? {
+                emit_agent_event(&msg.to_string())?;
+            }
         }
         Some(Ok(DaemonMessage::AgentTaskList { tasks_json })) => {
             let msg = serde_json::json!({"type":"task-list","data":serde_json::from_str::<serde_json::Value>(&tasks_json).unwrap_or_default()});
@@ -543,7 +593,9 @@ where
 mod tests {
     use amux_protocol::DaemonMessage;
 
-    use super::bridge_event_from_daemon_message;
+    use super::{
+        bridge_event_from_daemon_message, extend_thread_detail_chunk, ThreadDetailChunkBuffer,
+    };
 
     #[test]
     fn translates_openai_codex_auth_status_event() {
@@ -842,5 +894,45 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn reassembles_thread_detail_chunks_before_emitting_event() {
+        let thread = serde_json::json!({
+            "id": "thread-1",
+            "messages": [
+                { "id": "m1", "role": "user", "content": "hello", "timestamp": 1 }
+            ]
+        });
+        let thread_json = thread.to_string();
+        let midpoint = thread_json.len() / 2;
+
+        let mut buffer = Some(ThreadDetailChunkBuffer::default());
+        let first = extend_thread_detail_chunk(
+            &mut buffer,
+            "thread-1".to_string(),
+            thread_json.as_bytes()[..midpoint].to_vec(),
+            false,
+        )
+        .expect("first chunk should buffer cleanly");
+        assert!(first.is_none());
+
+        let second = extend_thread_detail_chunk(
+            &mut buffer,
+            "thread-1".to_string(),
+            thread_json.as_bytes()[midpoint..].to_vec(),
+            true,
+        )
+        .expect("second chunk should decode cleanly")
+        .expect("final chunk should emit an event");
+
+        assert_eq!(
+            second,
+            serde_json::json!({
+                "type": "thread-detail",
+                "data": thread,
+            })
+        );
+        assert!(buffer.is_none());
     }
 }

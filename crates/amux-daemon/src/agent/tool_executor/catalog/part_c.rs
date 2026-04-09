@@ -168,25 +168,51 @@ fn add_available_tools_part_c(
             "cwd": { "type": "string", "description": "Optional working directory hint to show in the workspace metadata" }
         }
     })));
-    tools.push(tool_def("fetch_authenticated_providers", "List the currently authenticated providers that are ready for agent execution, including auth source, configured/default model, and base URL. Use this before setting `spawn_subagent.provider`.", serde_json::json!({
+    tools.push(tool_def("fetch_authenticated_providers", "List the currently authenticated providers that are ready for agent execution, including auth source, configured/default model, and base URL. Legacy alias for `list_providers`.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("fetch_provider_models", "Fetch the remotely available models for one authenticated provider using its configured credentials and base URL. Use this before setting `spawn_subagent.model`.", serde_json::json!({
+    tools.push(tool_def("list_providers", "List configured providers with authentication state, auth source, configured/default model, and base URL. Use this before selecting a provider for subagents or model switching.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    tools.push(tool_def("fetch_provider_models", "Fetch the remotely available models for one authenticated provider using its configured credentials and base URL. Legacy alias for `list_models`.", serde_json::json!({
         "type": "object",
         "properties": {
             "provider": { "type": "string", "description": "Authenticated provider ID to inspect, such as `openai` or `github_copilot`." }
         },
         "required": ["provider"]
     })));
-    tools.push(tool_def("spawn_subagent", "Spawn a bounded child task under the current task or thread. Use this to split a large task into parallel subagents with dedicated runtime/session metadata. Keep each child narrowly scoped and monitor it with list_subagents. If you want a specific provider/model, call `fetch_authenticated_providers` first and `fetch_provider_models` for the chosen provider before setting the optional override fields.", serde_json::json!({
+    tools.push(tool_def("list_models", "List the remotely available models for one authenticated provider using its configured credentials and base URL. Use this before setting a model override or calling `switch_model`.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "provider": { "type": "string", "description": "Authenticated provider ID to inspect, such as `openai` or `github_copilot`." }
+        },
+        "required": ["provider"]
+    })));
+    tools.push(tool_def("list_agents", "List agent runtime targets and the provider/model each one currently uses as its LLM access point.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    if current_agent_scope_id() == MAIN_AGENT_ID {
+        tools.push(tool_def("switch_model", "Update which provider and model a target agent uses as its LLM access point. This writes the same persisted settings the Settings UI edits. Only svarog can call this tool.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "agent": { "type": "string", "description": "Target agent id or name, such as `svarog`, `rarog`, `weles`, or a user subagent id from `list_agents`." },
+                "provider": { "type": "string", "description": "Provider id to assign to the target agent." },
+                "model": { "type": "string", "description": "Model id to assign to the target agent." }
+            },
+            "required": ["agent", "provider", "model"]
+        })));
+    }
+    tools.push(tool_def("spawn_subagent", "Spawn a bounded child task under the current task or thread. Use this to split a large task into parallel subagents with dedicated runtime/session metadata. Keep each child narrowly scoped and monitor it with list_subagents. If you want a specific provider/model, call `list_providers` first and `list_models` for the chosen provider before setting the optional override fields.", serde_json::json!({
         "type": "object",
         "properties": {
             "title": { "type": "string", "description": "Short subagent title" },
             "description": { "type": "string", "description": "Detailed instructions for the child task" },
             "runtime": { "type": "string", "enum": ["daemon", "hermes", "openclaw"], "description": "Preferred runtime for the child agent (default: daemon)" },
-            "provider": { "type": "string", "description": "Optional authenticated provider override. Use `fetch_authenticated_providers` first." },
-            "model": { "type": "string", "description": "Optional model override for the chosen provider. Requires `provider`; use `fetch_provider_models` first." },
+            "provider": { "type": "string", "description": "Optional authenticated provider override. Use `list_providers` first." },
+            "model": { "type": "string", "description": "Optional model override for the chosen provider. Requires `provider`; use `list_models` first." },
             "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Child task priority" },
             "command": { "type": "string", "description": "Optional preferred entrypoint or command" },
             "session": { "type": "string", "description": "Optional explicit session ID or unique substring. If omitted, tamux allocates a fresh lane in the same workspace when possible." },

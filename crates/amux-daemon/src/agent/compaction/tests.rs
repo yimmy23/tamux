@@ -2,7 +2,8 @@ use super::*;
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
 use amux_shared::providers::{
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER,
 };
 use tempfile::tempdir;
 
@@ -62,6 +63,40 @@ fn compaction_candidate_is_none_when_request_is_within_budget() {
     let messages = vec![sample_message("short message")];
 
     assert_eq!(compaction_candidate(&messages, &config, &provider), None);
+}
+
+#[test]
+fn compaction_request_input_budget_uses_model_catalog_window() {
+    let mut provider = sample_provider_config();
+    provider.model = "glm-5".to_string();
+    provider.context_window_tokens = 512_000;
+
+    let budget = llm_compaction_input_budget(PROVIDER_ID_ALIBABA_CODING_PLAN, &provider);
+
+    assert!(budget < 512_000);
+    assert!(budget <= 202_752);
+}
+
+#[test]
+fn build_llm_compaction_messages_trims_to_fit_model_budget() {
+    let messages = (0..40)
+        .map(|idx| AgentMessage::user(format!("message-{idx} {}", "x".repeat(1_200)), idx + 1))
+        .collect::<Vec<_>>();
+
+    let api_messages = build_llm_compaction_messages(&messages, 50_000, 2_048);
+
+    assert!(
+        estimate_api_messages_tokens(&api_messages) <= 2_048,
+        "api messages exceeded budget"
+    );
+    let Some(ApiMessage {
+        content: ApiContent::Text(instruction),
+        ..
+    }) = api_messages.last()
+    else {
+        panic!("expected final instruction message");
+    };
+    assert!(instruction.contains("Follow the mandatory thread-compaction protocol"));
 }
 
 #[test]
@@ -249,7 +284,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         timestamp: 33,
     });
 
-    let api_messages = build_llm_compaction_messages(&messages, 512);
+    let api_messages = build_llm_compaction_messages(&messages, 512, 8_192);
     let flattened = api_messages
         .iter()
         .filter_map(|message| match &message.content {

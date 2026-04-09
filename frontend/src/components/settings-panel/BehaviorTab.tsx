@@ -193,8 +193,8 @@ export function BehaviorTab({
                         onChange={(value) => updateSetting("snapshotBackend", value as "tar" | "zfs" | "btrfs")} />
                 </SettingRow>
                 <SettingRow label="Snapshot Max Count">
-                    <NumberInput value={settings.snapshotMaxCount} min={1} max={1000}
-                        onChange={(value) => updateSetting("snapshotMaxCount", Math.max(1, Math.floor(value)))} />
+                    <NumberInput value={settings.snapshotMaxCount} min={0} max={1000}
+                        onChange={(value) => updateSetting("snapshotMaxCount", Math.max(0, Math.floor(value)))} />
                 </SettingRow>
                 <SettingRow label="Snapshot Max Size (MB)">
                     <NumberInput value={settings.snapshotMaxSizeMb} min={1024} max={500000} step={1024}

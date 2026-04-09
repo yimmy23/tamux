@@ -255,39 +255,34 @@ impl TuiModel {
         providers_json
     }
 
-    pub(in super::super) fn refresh_snapshot_stats(&mut self) {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_default();
-        if home.is_empty() {
-            return;
+    pub(super) fn snapshot_stats_from_history_db(db_path: &std::path::Path) -> Option<(usize, u64)> {
+        let conn = rusqlite::Connection::open(db_path).ok()?;
+        let mut stmt = conn.prepare("SELECT path FROM snapshot_index").ok()?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .ok()?;
+
+        let mut count = 0usize;
+        let mut total_size_bytes = 0u64;
+        for path in rows.flatten() {
+            count += 1;
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                total_size_bytes = total_size_bytes.saturating_add(metadata.len());
+            }
         }
 
-        let snapshot_dir = std::path::Path::new(&home).join(".tamux").join("snapshots");
-        let Ok(entries) = std::fs::read_dir(snapshot_dir) else {
+        Some((count, total_size_bytes))
+    }
+
+    pub(in super::super) fn refresh_snapshot_stats(&mut self) {
+        let history_db = amux_protocol::amux_data_dir()
+            .join("history")
+            .join("command-history.db");
+        let Some((count, total_size_bytes)) = Self::snapshot_stats_from_history_db(&history_db) else {
             self.config.snapshot_count = 0;
             self.config.snapshot_total_size_bytes = 0;
             return;
         };
-
-        let mut count = 0usize;
-        let mut total_size_bytes = 0u64;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-                continue;
-            };
-            if !name.starts_with("snap_") {
-                continue;
-            }
-            if let Ok(metadata) = entry.metadata() {
-                count += 1;
-                total_size_bytes = total_size_bytes.saturating_add(metadata.len());
-            }
-        }
 
         self.config.snapshot_count = count;
         self.config.snapshot_total_size_bytes = total_size_bytes;

@@ -482,7 +482,10 @@ async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
         .iter()
         .find(|task| task.id == "task-huge")
         .expect("huge task should remain present after IPC capping");
-    assert!(huge.logs.is_empty(), "oversized task logs should be dropped to fit IPC");
+    assert!(
+        huge.logs.is_empty(),
+        "oversized task logs should be dropped to fit IPC"
+    );
 
     let tasks_json = serde_json::to_string(&tasks).expect("serialize capped task list json");
     let mut frame = BytesMut::new();

@@ -109,9 +109,7 @@ async fn hydrate_restores_full_persisted_thread_history() {
             agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
             title: "Hydrated Thread".to_string(),
             messages: (0..message_count)
-                .map(|index| {
-                    AgentMessage::user(format!("message-{index}"), 1_000 + index)
-                })
+                .map(|index| AgentMessage::user(format!("message-{index}"), 1_000 + index))
                 .collect(),
             pinned: false,
             upstream_thread_id: None,
@@ -141,7 +139,10 @@ async fn hydrate_restores_full_persisted_thread_history() {
         .expect("thread should be restored after hydrate");
     assert_eq!(thread.messages.len(), message_count as usize);
     assert_eq!(
-        thread.messages.last().map(|message| message.content.as_str()),
+        thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
         Some("message-549")
     );
 }

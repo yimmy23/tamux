@@ -3,8 +3,7 @@ impl TuiModel {
         let field = self.current_settings_field_name().to_string();
         match field.as_str() {
             "provider" => {
-                self.settings_picker_target = Some(SettingsPickerTarget::Provider);
-                self.execute_command("provider");
+                self.open_provider_picker(SettingsPickerTarget::Provider);
             }
             "model" => {
                 if self.config.provider == PROVIDER_ID_CUSTOM {
@@ -329,29 +328,15 @@ impl TuiModel {
             ),
             "compaction_strategy" => self.cycle_compaction_strategy(),
             "compaction_weles_provider" => {
-                self.config.compaction_weles_provider =
-                    Self::cycle_provider_id(&self.config.compaction_weles_provider);
-                if self.config.compaction_weles_model.trim().is_empty() {
-                    self.config.compaction_weles_model =
-                        providers::default_model_for_provider_auth(
-                            &self.config.compaction_weles_provider,
-                            "api_key",
-                        );
-                }
-                self.sync_config_to_daemon();
+                self.open_provider_picker(SettingsPickerTarget::CompactionWelesProvider);
             }
-            "compaction_weles_model" => self.settings.start_editing(
-                "compaction_weles_model",
-                &self.config.compaction_weles_model.clone(),
-            ),
+            "compaction_weles_model" => self.open_compaction_weles_model_picker(),
             "compaction_weles_reasoning_effort" => {
                 self.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesReasoningEffort);
                 self.execute_command("effort");
             }
             "compaction_custom_provider" => {
-                let next = Self::cycle_provider_id(&self.config.compaction_custom_provider);
-                self.apply_compaction_custom_provider(&next);
-                self.sync_config_to_daemon();
+                self.open_provider_picker(SettingsPickerTarget::CompactionCustomProvider);
             }
             "compaction_custom_base_url" => self.settings.start_editing(
                 "compaction_custom_base_url",
@@ -370,12 +355,10 @@ impl TuiModel {
                     .copied()
                     .unwrap_or("api_key")
                     .to_string();
+                self.normalize_compaction_custom_transport();
                 self.sync_config_to_daemon();
             }
-            "compaction_custom_model" => self.settings.start_editing(
-                "compaction_custom_model",
-                &self.config.compaction_custom_model.clone(),
-            ),
+            "compaction_custom_model" => self.open_compaction_custom_model_picker(),
             "compaction_custom_api_transport" => {
                 let supported =
                     providers::supported_transports_for(&self.config.compaction_custom_provider);
@@ -389,6 +372,7 @@ impl TuiModel {
                     .copied()
                     .unwrap_or("chat_completions")
                     .to_string();
+                self.normalize_compaction_custom_transport();
                 self.sync_config_to_daemon();
             }
             "compaction_custom_api_key" => self.settings.start_editing(

@@ -226,9 +226,8 @@ pub struct AmuxConfig {
 
     /// Maximum snapshot archive size in megabytes.
     ///
-    /// Retention also uses this as the total budget when auto-cleanup is enabled,
-    /// so setting `snapshot_max_count = 1` gives a "replace previous snapshot"
-    /// policy with this archive-size cap.
+    /// Retention also uses this as the total budget when auto-cleanup is enabled.
+    /// Setting `snapshot_max_count = 0` disables snapshots entirely.
     pub snapshot_max_total_size_mb: u64,
 
     /// Whether snapshot retention is enforced automatically after create().
@@ -257,9 +256,9 @@ impl Default for AmuxConfig {
             auto_start_daemon: true,
             sandbox_enabled: true,
             snapshot_backend: None,
-            snapshot_max_count: 1,
+            snapshot_max_count: 0,
             snapshot_max_total_size_mb: 10_240,
-            snapshot_auto_cleanup: true,
+            snapshot_auto_cleanup: false,
             cerbos_endpoint: None,
         }
     }

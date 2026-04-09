@@ -53,7 +53,7 @@ async fn execute_spawn_subagent(
         .map(ToOwned::to_owned);
     if model_override.is_some() && provider_override.is_none() {
         anyhow::bail!(
-            "'model' requires an explicit 'provider'. Use `fetch_authenticated_providers` first, then `fetch_provider_models` for the chosen provider."
+            "'model' requires an explicit 'provider'. Use `list_providers` first, then `list_models` for the chosen provider."
         );
     }
     let runtime = normalize_task_runtime(args.get("runtime").and_then(|value| value.as_str()))?;
@@ -270,6 +270,12 @@ async fn execute_fetch_authenticated_providers(agent: &AgentEngine) -> Result<St
         .map_err(|error| anyhow::anyhow!("failed to serialize authenticated providers: {error}"))
 }
 
+async fn execute_list_providers(agent: &AgentEngine) -> Result<String> {
+    let providers = agent.get_provider_auth_states().await;
+    serde_json::to_string_pretty(&providers)
+        .map_err(|error| anyhow::anyhow!("failed to serialize providers: {error}"))
+}
+
 async fn execute_fetch_provider_models(
     args: &serde_json::Value,
     agent: &AgentEngine,
@@ -291,7 +297,7 @@ async fn execute_fetch_provider_models(
     .await
     .map_err(|error| {
         anyhow::anyhow!(
-            "failed to fetch models for provider '{}': {}. Check `fetch_authenticated_providers` and try `fetch_provider_models` again after fixing auth/base URL.",
+            "failed to fetch models for provider '{}': {}. Check `list_providers` and try `list_models` again after fixing auth/base URL.",
             provider_id,
             error
         )
@@ -299,6 +305,97 @@ async fn execute_fetch_provider_models(
 
     serde_json::to_string_pretty(&models)
         .map_err(|error| anyhow::anyhow!("failed to serialize provider models: {error}"))
+}
+
+async fn execute_list_models(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    execute_fetch_provider_models(args, agent).await
+}
+
+async fn execute_list_agents(agent: &AgentEngine) -> Result<String> {
+    let config = agent.get_config().await;
+    let mut rows = vec![
+        serde_json::json!({
+            "agent": amux_protocol::AGENT_HANDLE_SVAROG,
+            "name": MAIN_AGENT_NAME,
+            "kind": "main",
+            "provider": config.provider,
+            "model": config.model,
+            "switchable": true
+        }),
+        serde_json::json!({
+            "agent": CONCIERGE_AGENT_ID,
+            "name": CONCIERGE_AGENT_NAME,
+            "kind": "concierge",
+            "provider": config.concierge.provider.clone().unwrap_or_else(|| config.provider.clone()),
+            "model": config.concierge.model.clone().unwrap_or_else(|| config.model.clone()),
+            "switchable": true
+        }),
+        serde_json::json!({
+            "agent": crate::agent::agent_identity::WELES_AGENT_ID,
+            "name": crate::agent::agent_identity::WELES_AGENT_NAME,
+            "kind": "builtin",
+            "provider": config.builtin_sub_agents.weles.provider.clone().unwrap_or_else(|| config.provider.clone()),
+            "model": config.builtin_sub_agents.weles.model.clone().unwrap_or_else(|| config.model.clone()),
+            "switchable": true
+        }),
+    ];
+
+    for sub_agent in agent.list_sub_agents().await {
+        if sub_agent.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID {
+            continue;
+        }
+        rows.push(serde_json::json!({
+            "agent": sub_agent.id,
+            "name": sub_agent.name,
+            "kind": if sub_agent.builtin { "builtin" } else { "subagent" },
+            "provider": sub_agent.provider,
+            "model": sub_agent.model,
+            "switchable": sub_agent.enabled
+        }));
+    }
+
+    serde_json::to_string_pretty(&rows)
+        .map_err(|error| anyhow::anyhow!("failed to serialize agent targets: {error}"))
+}
+
+async fn execute_switch_model(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    if current_agent_scope_id() != MAIN_AGENT_ID {
+        anyhow::bail!("`switch_model` is only available to svarog");
+    }
+
+    let target_agent = args
+        .get("agent")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'agent' argument"))?;
+    let provider_id = args
+        .get("provider")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'provider' argument"))?;
+    let model = args
+        .get("model")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'model' argument"))?;
+
+    agent
+        .switch_agent_provider_model_json(target_agent, provider_id, model)
+        .await?;
+
+    Ok(format!(
+        "Updated agent '{}' to use provider '{}' with model '{}'.",
+        target_agent, provider_id, model
+    ))
 }
 
 async fn validate_spawn_provider_override(
@@ -320,7 +417,7 @@ async fn validate_spawn_provider_override(
     .await
     .map_err(|error| {
         anyhow::anyhow!(
-            "failed to validate model '{}' for provider '{}': {}. Use `fetch_provider_models` to inspect the provider's available models first.",
+            "failed to validate model '{}' for provider '{}': {}. Use `list_models` to inspect the provider's available models first.",
             model_override,
             provider_id,
             error
@@ -329,7 +426,7 @@ async fn validate_spawn_provider_override(
 
     if !models.is_empty() && !models.iter().any(|model| model.id == model_override) {
         anyhow::bail!(
-            "model '{}' is not available for authenticated provider '{}'. Use `fetch_provider_models` to choose one of the returned models.",
+            "model '{}' is not available for authenticated provider '{}'. Use `list_models` to choose one of the returned models.",
             model_override,
             provider_id
         );
@@ -349,13 +446,13 @@ async fn resolve_authenticated_provider_config(
         .find(|state| state.provider_id == provider_id)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "unknown provider '{}'. Use `fetch_authenticated_providers` to inspect available authenticated providers.",
+                "unknown provider '{}'. Use `list_providers` to inspect available authenticated providers.",
                 provider_id
             )
         })?;
     if !auth_state.authenticated {
         anyhow::bail!(
-            "provider '{}' is not authenticated. Use `fetch_authenticated_providers` to inspect which providers are ready before spawning a subagent.",
+            "provider '{}' is not authenticated. Use `list_providers` to inspect which providers are ready before spawning a subagent.",
             provider_id
         );
     }
@@ -365,7 +462,7 @@ async fn resolve_authenticated_provider_config(
         .resolve_sub_agent_provider_config(&config, provider_id)
         .map_err(|error| {
             anyhow::anyhow!(
-                "failed to resolve provider '{}': {}. Use `fetch_authenticated_providers` to verify the provider configuration.",
+                "failed to resolve provider '{}': {}. Use `list_providers` to verify the provider configuration.",
                 provider_id,
                 error
             )

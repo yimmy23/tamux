@@ -302,6 +302,114 @@
     }
 
     #[test]
+    fn provider_and_agent_listing_tools_are_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+
+        let list_providers = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_providers")
+            .expect("list_providers tool should be available");
+        let list_providers_properties = list_providers
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("list_providers schema should expose properties object");
+        assert!(
+            list_providers_properties.is_empty(),
+            "list_providers should not require arguments"
+        );
+
+        let list_models = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_models")
+            .expect("list_models tool should be available");
+        let list_models_properties = list_models
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("list_models schema should expose properties object");
+        assert!(
+            list_models_properties.contains_key("provider"),
+            "list_models should require a provider"
+        );
+        let list_models_required = list_models
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("list_models should define required fields");
+        assert_eq!(list_models_required, vec!["provider"]);
+
+        let list_agents = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_agents")
+            .expect("list_agents tool should be available");
+        let list_agents_properties = list_agents
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("list_agents schema should expose properties object");
+        assert!(
+            list_agents_properties.is_empty(),
+            "list_agents should not require arguments"
+        );
+    }
+
+    #[tokio::test]
+    async fn switch_model_tool_is_only_exposed_to_svarog_scope() {
+        let config = AgentConfig::default();
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+
+        let svarog_tools = crate::agent::agent_identity::run_with_agent_scope(
+            crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            async { get_available_tools(&config, temp_dir.path(), false) },
+        )
+        .await;
+        let switch_model = svarog_tools
+            .iter()
+            .find(|tool| tool.function.name == "switch_model")
+            .expect("switch_model should be available to svarog");
+        let switch_model_properties = switch_model
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("switch_model schema should expose properties object");
+        for field in ["agent", "provider", "model"] {
+            assert!(
+                switch_model_properties.contains_key(field),
+                "switch_model schema should include {field}"
+            );
+        }
+        let switch_model_required = switch_model
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("switch_model should define required fields");
+        assert_eq!(switch_model_required, vec!["agent", "provider", "model"]);
+
+        let rarog_tools = crate::agent::agent_identity::run_with_agent_scope(
+            crate::agent::agent_identity::CONCIERGE_AGENT_ID.to_string(),
+            async { get_available_tools(&config, temp_dir.path(), false) },
+        )
+        .await;
+        assert!(
+            rarog_tools
+                .iter()
+                .all(|tool| tool.function.name != "switch_model"),
+            "switch_model should be hidden outside svarog scope"
+        );
+    }
+
+    #[test]
     fn apply_patch_tool_uses_top_level_object_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();

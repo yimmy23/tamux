@@ -103,10 +103,10 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
       if (!ok) return;
       const latestAgentSettings = useAgentStore.getState().agentSettings;
       lastDaemonConfigJsonRef.current = JSON.stringify(
-        buildDaemonAgentConfig(latestAgentSettings),
+        buildDaemonAgentConfig(latestAgentSettings, settings),
       );
     });
-  }, [open, refreshAgentSettingsFromDaemon]);
+  }, [open, refreshAgentSettingsFromDaemon, settings]);
 
   useEffect(() => {
     if (!open) return;
@@ -114,7 +114,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     if (!shouldUseDaemonRuntime(agentSettings.agent_backend)) return;
     const bridge = getAgentBridge();
     if (!bridge?.agentSetConfigItem) return;
-    const nextConfig = buildDaemonAgentConfig(agentSettings);
+    const nextConfig = buildDaemonAgentConfig(agentSettings, settings);
     const nextConfigJson = JSON.stringify(nextConfig);
     if (lastDaemonConfigJsonRef.current === null) return;
     if (lastDaemonConfigJsonRef.current === nextConfigJson) return;
