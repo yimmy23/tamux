@@ -348,6 +348,102 @@
     }
 
     #[tokio::test]
+    async fn auto_backgrounded_bash_command_returns_handle_and_status() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let (session_id, _rx) = manager
+            .spawn(Some("/bin/bash".to_string()), None, None, None, 80, 24)
+            .await
+            .expect("spawn session");
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-bash-auto-background".to_string(),
+            ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "session": session_id.to_string(),
+                    "command": "sleep 0.2 && printf done",
+                    "timeout_seconds": 1200,
+                    "sandbox_enabled": true,
+                    "allow_network": false,
+                    "security_level": "moderate"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-bash-auto-background",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "auto-backgrounded bash command should queue cleanly: {}",
+            result.content
+        );
+
+        let background_task_id = result
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("background_task_id: "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .expect("auto-background response should expose a background_task_id handle");
+
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+
+        let status_call = ToolCall::with_default_weles_review(
+            "tool-background-status".to_string(),
+            ToolFunction {
+                name: "get_background_task_status".to_string(),
+                arguments: serde_json::json!({
+                    "background_task_id": background_task_id,
+                })
+                .to_string(),
+            },
+        );
+
+        let status = execute_tool(
+            &status_call,
+            &engine,
+            "thread-bash-auto-background",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !status.is_error,
+            "background task status lookup should succeed: {}",
+            status.content
+        );
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&status.content).expect("status payload should be valid JSON");
+        assert_eq!(payload["background_task_id"], background_task_id);
+        assert_eq!(payload["state"], "completed");
+        assert_eq!(payload["exit_code"], 0);
+        assert_eq!(payload["command"], "sleep 0.2 && printf done");
+    }
+
+    #[tokio::test]
     async fn send_telegram_message_emits_gateway_ipc_request() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
@@ -2053,4 +2149,108 @@
                 }),
             "approval activation should append a structured handoff system event"
         );
+    }
+
+    #[tokio::test]
+    async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-get-todos";
+        let task = engine
+            .enqueue_task(
+                "Track thread todos".to_string(),
+                "Keep a live thread todo list available to the runtime.".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "agent",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        let update_call = ToolCall::with_default_weles_review(
+            "tool-update-todos-runtime".to_string(),
+            ToolFunction {
+                name: "update_todo".to_string(),
+                arguments: serde_json::json!({
+                    "items": [
+                        { "content": "Inspect current thread todos", "status": "in_progress" },
+                        { "content": "Return todo snapshot", "status": "pending" }
+                    ]
+                })
+                .to_string(),
+            },
+        );
+
+        let update_result = execute_tool(
+            &update_call,
+            &engine,
+            thread_id,
+            Some(task.id.as_str()),
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !update_result.is_error,
+            "update_todo should succeed before get_todos is called: {}",
+            update_result.content
+        );
+
+        let get_call = ToolCall::with_default_weles_review(
+            "tool-get-todos-runtime".to_string(),
+            ToolFunction {
+                name: "get_todos".to_string(),
+                arguments: serde_json::json!({
+                    "thread_id": thread_id,
+                    "task_id": task.id,
+                })
+                .to_string(),
+            },
+        );
+
+        let get_result = execute_tool(
+            &get_call,
+            &engine,
+            thread_id,
+            Some(task.id.as_str()),
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !get_result.is_error,
+            "get_todos should return thread-scoped items: {}",
+            get_result.content
+        );
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&get_result.content).expect("get_todos should return JSON");
+        assert_eq!(payload["thread_id"], thread_id);
+        let items = payload["items"]
+            .as_array()
+            .expect("items should be serialized as an array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["content"], "Inspect current thread todos");
+        assert_eq!(items[0]["status"], "in_progress");
+        assert_eq!(items[1]["content"], "Return todo snapshot");
+        assert_eq!(items[1]["status"], "pending");
     }

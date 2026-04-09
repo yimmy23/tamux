@@ -160,6 +160,13 @@ fn add_available_tools_part_c(
         },
         "required": ["command", "rationale"]
     })));
+    tools.push(tool_def("get_background_task_status", "Look up the current status of a previously queued non-blocking managed terminal command by its background_task_id. Use the background_task_id returned by auto-backgrounded bash_command/run_terminal_command/execute_managed_command calls.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "background_task_id": { "type": "string", "description": "Execution handle returned as background_task_id by a non-blocking managed terminal command" }
+        },
+        "required": ["background_task_id"]
+    })));
     tools.push(tool_def("allocate_terminal", "Allocate another daemon-managed terminal lane in the same workspace as the current session. Use this when your chosen session is occupied by a blocking or long-running command and you need another terminal to continue working.", serde_json::json!({
         "type": "object",
         "properties": {

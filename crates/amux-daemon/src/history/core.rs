@@ -310,6 +310,36 @@ impl HistoryStore {
         Ok(())
     }
 
+    pub async fn get_managed_finish(
+        &self,
+        execution_id: &str,
+    ) -> Result<Option<ManagedCommandFinishedRecord>> {
+        let execution_id = execution_id.to_string();
+        self.conn
+            .call(move |conn| {
+                Ok(conn
+                    .query_row(
+                    "SELECT title, excerpt, path FROM history_entries WHERE id = ?1 AND kind = 'managed-command'",
+                    params![execution_id],
+                    |row| {
+                        let command: String = row.get(0)?;
+                        let excerpt: String = row.get(1)?;
+                        let snapshot_path: Option<String> = row.get(2)?;
+                        let (exit_code, duration_ms) = parse_managed_history_excerpt(&excerpt);
+                        Ok(ManagedCommandFinishedRecord {
+                            command,
+                            exit_code,
+                            duration_ms,
+                            snapshot_path,
+                        })
+                    },
+                )
+                .optional()?)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn search(
         &self,
         query: &str,
@@ -385,4 +415,34 @@ impl HistoryStore {
         self.register_skill_document(&path).await?;
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
     }
+}
+
+fn parse_managed_history_excerpt(excerpt: &str) -> (Option<i32>, Option<u64>) {
+    let Some(rest) = excerpt.strip_prefix("exit=") else {
+        return (None, None);
+    };
+    let Some((exit_raw, remaining)) = rest.split_once(" duration_ms=") else {
+        return (None, None);
+    };
+    let duration_raw = remaining
+        .split_once(" snapshot=")
+        .map(|(value, _)| value)
+        .unwrap_or(remaining);
+
+    (
+        parse_debug_option_i32(exit_raw),
+        parse_debug_option_u64(duration_raw),
+    )
+}
+
+fn parse_debug_option_i32(raw: &str) -> Option<i32> {
+    raw.strip_prefix("Some(")
+        .and_then(|value| value.strip_suffix(')'))
+        .and_then(|value| value.parse::<i32>().ok())
+}
+
+fn parse_debug_option_u64(raw: &str) -> Option<u64> {
+    raw.strip_prefix("Some(")
+        .and_then(|value| value.strip_suffix(')'))
+        .and_then(|value| value.parse::<u64>().ok())
 }

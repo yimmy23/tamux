@@ -269,7 +269,21 @@ pub(crate) fn message_action_targets(
     } else {
         "[Copy]".to_string()
     };
-    let mut actions = vec![(copy_label, ChatHitTarget::CopyMessage(msg_index))];
+    let mut actions = Vec::new();
+
+    if msg.role == MessageRole::Tool
+        && msg.tool_name.is_some()
+        && matches!(chat.transcript_mode(), TranscriptMode::Compact)
+    {
+        let toggle_label = if chat.expanded_tools().contains(&msg_index) {
+            "[Collapse]"
+        } else {
+            "[Expand]"
+        };
+        actions.push((toggle_label.to_string(), ChatHitTarget::ToolToggle(msg_index)));
+    }
+
+    actions.push((copy_label, ChatHitTarget::CopyMessage(msg_index)));
     match msg.role {
         MessageRole::User => {
             actions.push((

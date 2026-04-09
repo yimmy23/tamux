@@ -115,6 +115,19 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
+        "get_todos",
+        "Fetch the current planner todos for a thread. Lookup is thread-scoped; optional task_id is only used for task or goal-run context validation.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "thread_id": { "type": "string", "description": "Agent thread ID whose todos should be returned" },
+                "task_id": { "type": "string", "description": "Optional current task ID for validation and goal-run context" }
+            },
+            "required": ["thread_id"]
+        }),
+    ));
+
+    tools.push(tool_def(
         "update_memory",
         "Update curated persistent memory. Use this only for durable operator preferences or stable project facts, not temporary task state.",
         serde_json::json!({

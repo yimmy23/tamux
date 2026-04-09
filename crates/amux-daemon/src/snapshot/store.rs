@@ -440,7 +440,10 @@ mod tests {
             .await
             .expect("snapshot creation should return without error");
 
-        assert!(created.is_none(), "disabled snapshotting should skip creation");
+        assert!(
+            created.is_none(),
+            "disabled snapshotting should skip creation"
+        );
         assert!(
             history
                 .list_snapshot_index(None)

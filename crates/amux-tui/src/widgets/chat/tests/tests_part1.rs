@@ -621,6 +621,34 @@ fn hit_test_returns_tool_file_path_target() {
     }
 
     #[test]
+    fn selected_expanded_tool_message_action_bar_shows_collapse() {
+        let mut chat = chat_with_messages(vec![AgentMessage {
+            role: MessageRole::Tool,
+            tool_name: Some("read_file".into()),
+            tool_status: Some("done".into()),
+            content: "file contents".into(),
+            ..Default::default()
+        }]);
+        chat.select_message(Some(0));
+        chat.toggle_tool_expansion(0);
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let action_line = lines
+            .iter()
+            .find(|line| {
+                line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ActionBar)
+            })
+            .expect("selected tool message should render an action bar");
+        let text = rendered_line_plain_text(action_line);
+
+        assert!(
+            text.contains("[Collapse]"),
+            "expanded tool action bar should expose a collapse control: {text}"
+        );
+        assert!(text.contains("[Copy]"), "tool action bar should keep copy: {text}");
+    }
+
+    #[test]
     fn render_draws_highlight_for_mouse_selection() {
         let chat = chat_with_messages(vec![AgentMessage {
             role: MessageRole::User,

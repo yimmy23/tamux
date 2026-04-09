@@ -8,6 +8,7 @@ use amux_protocol::{AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 use crate::state::chat::{AgentThread, ChatState};
 use crate::state::modal::{ModalState, ThreadPickerTab};
 use crate::theme::ThemeTokens;
+use crate::widgets::token_format::format_token_count;
 
 const TAB_GAP: u16 = 1;
 const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
@@ -402,13 +403,7 @@ fn format_tokens(tokens: u64) -> String {
     if tokens == 0 {
         return String::new();
     }
-    if tokens >= 1_000_000 {
-        format!("{:.1}M tok", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1000 {
-        format!("{:.1}k tok", tokens as f64 / 1000.0)
-    } else {
-        format!("{} tok", tokens)
-    }
+    format_token_count(tokens)
 }
 
 fn now_millis() -> u64 {
@@ -439,6 +434,11 @@ mod tests {
     fn format_tokens_thousands() {
         let s = format_tokens(1500);
         assert!(s.contains("k tok"));
+    }
+
+    #[test]
+    fn format_tokens_billions() {
+        assert_eq!(format_tokens(1_500_000_000), "1.5B tok");
     }
 
     #[test]

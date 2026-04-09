@@ -224,12 +224,14 @@ impl AgentEngine {
                         })
                         .collect::<Vec<_>>();
                     let (total_input_tokens, total_output_tokens) =
-                        messages.iter().fold((0u64, 0u64), |(input_acc, output_acc), message| {
-                            (
-                                input_acc.saturating_add(message.input_tokens),
-                                output_acc.saturating_add(message.output_tokens),
-                            )
-                        });
+                        messages
+                            .iter()
+                            .fold((0u64, 0u64), |(input_acc, output_acc), message| {
+                                (
+                                    input_acc.saturating_add(message.input_tokens),
+                                    output_acc.saturating_add(message.output_tokens),
+                                )
+                            });
 
                     threads.insert(
                         thread_id.clone(),

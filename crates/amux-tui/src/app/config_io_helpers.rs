@@ -255,12 +255,12 @@ impl TuiModel {
         providers_json
     }
 
-    pub(super) fn snapshot_stats_from_history_db(db_path: &std::path::Path) -> Option<(usize, u64)> {
+    pub(super) fn snapshot_stats_from_history_db(
+        db_path: &std::path::Path,
+    ) -> Option<(usize, u64)> {
         let conn = rusqlite::Connection::open(db_path).ok()?;
         let mut stmt = conn.prepare("SELECT path FROM snapshot_index").ok()?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .ok()?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0)).ok()?;
 
         let mut count = 0usize;
         let mut total_size_bytes = 0u64;
@@ -278,7 +278,8 @@ impl TuiModel {
         let history_db = amux_protocol::amux_data_dir()
             .join("history")
             .join("command-history.db");
-        let Some((count, total_size_bytes)) = Self::snapshot_stats_from_history_db(&history_db) else {
+        let Some((count, total_size_bytes)) = Self::snapshot_stats_from_history_db(&history_db)
+        else {
             self.config.snapshot_count = 0;
             self.config.snapshot_total_size_bytes = 0;
             return;

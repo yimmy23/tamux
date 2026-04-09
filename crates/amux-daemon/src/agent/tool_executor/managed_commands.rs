@@ -344,16 +344,16 @@ async fn execute_managed_command(
                     });
                     return Ok((
                         format!(
-                            "{queued_summary}\nCommand auto-backgrounded (requested timeout {}s > max 600s). \
-                             A background monitor will notify this thread when the command completes.",
-                            requested_timeout
+                            "{queued_summary}\nbackground_task_id: {execution_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). \
+                             A background monitor will notify this thread when the command completes. Use get_background_task_status with this background_task_id for explicit polling.",
+                            requested_timeout,
                         ),
                         None,
                     ));
                 }
                 return Ok((
                     format!(
-                        "{queued_summary}\nNot waiting for completion because wait_for_completion=false."
+                        "{queued_summary}\nbackground_task_id: {execution_id}\nNot waiting for completion because wait_for_completion=false. Use get_background_task_status with this background_task_id for explicit polling."
                     ),
                     None,
                 ));
@@ -433,4 +433,23 @@ async fn execute_managed_command(
             serde_json::to_string(&other).unwrap_or_else(|_| "<unserializable>".to_string())
         )),
     }
+}
+
+async fn execute_get_background_task_status(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+) -> Result<String> {
+    let background_task_id = args
+        .get("background_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'background_task_id' argument"))?;
+
+    let status = session_manager
+        .get_background_task_status(background_task_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("background task not found: {background_task_id}"))?;
+
+    serde_json::to_string(&status).map_err(|error| anyhow::anyhow!(error))
 }

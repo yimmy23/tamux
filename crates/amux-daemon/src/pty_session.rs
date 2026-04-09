@@ -58,6 +58,20 @@ struct ActiveManagedCommand {
     enqueued_at: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagedCommandLiveState {
+    Queued,
+    Running,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedCommandLiveStatus {
+    pub state: ManagedCommandLiveState,
+    pub position: usize,
+    pub command: String,
+    pub snapshot_path: Option<String>,
+}
+
 #[derive(Default)]
 struct ManagedLaneState {
     active: Option<ActiveManagedCommand>,
@@ -229,6 +243,37 @@ impl PtySession {
             });
             Ok(lane.queue.len())
         }
+    }
+
+    pub(crate) fn managed_command_status(
+        &self,
+        execution_id: &str,
+    ) -> Option<ManagedCommandLiveStatus> {
+        let lane = self.managed_lane.lock().unwrap();
+
+        if let Some(active) = lane.active.as_ref() {
+            if active.execution_id == execution_id {
+                return Some(ManagedCommandLiveStatus {
+                    state: ManagedCommandLiveState::Running,
+                    position: 0,
+                    command: active.request.command.clone(),
+                    snapshot_path: active.snapshot.as_ref().map(|snapshot| snapshot.path.clone()),
+                });
+            }
+        }
+
+        for (index, queued) in lane.queue.iter().enumerate() {
+            if queued.execution_id == execution_id {
+                return Some(ManagedCommandLiveStatus {
+                    state: ManagedCommandLiveState::Queued,
+                    position: index + 1,
+                    command: queued.request.command.clone(),
+                    snapshot_path: queued.snapshot.as_ref().map(|snapshot| snapshot.path.clone()),
+                });
+            }
+        }
+
+        None
     }
 
     /// Resize the PTY.

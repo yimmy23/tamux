@@ -236,6 +236,65 @@ impl SessionManager {
         Ok(String::from_utf8_lossy(&stripped).into_owned())
     }
 
+    pub async fn get_background_task_status(
+        &self,
+        background_task_id: &str,
+    ) -> Result<Option<BackgroundTaskStatus>> {
+        let sessions: Vec<(SessionId, Arc<Mutex<PtySession>>)> = self
+            .sessions
+            .read()
+            .await
+            .iter()
+            .map(|(id, session)| (*id, session.clone()))
+            .collect();
+
+        for (session_id, session) in sessions {
+            let live_status = session.lock().await.managed_command_status(background_task_id);
+            if let Some(live_status) = live_status {
+                let state = match live_status.state {
+                    crate::pty_session::ManagedCommandLiveState::Queued => {
+                        BackgroundTaskState::Queued
+                    }
+                    crate::pty_session::ManagedCommandLiveState::Running => {
+                        BackgroundTaskState::Running
+                    }
+                };
+                return Ok(Some(BackgroundTaskStatus {
+                    background_task_id: background_task_id.to_string(),
+                    kind: "managed_command".to_string(),
+                    state,
+                    session_id: Some(session_id.to_string()),
+                    position: Some(live_status.position),
+                    command: Some(live_status.command),
+                    exit_code: None,
+                    duration_ms: None,
+                    snapshot_path: live_status.snapshot_path,
+                }));
+            }
+        }
+
+        if let Some(finished) = self.history.get_managed_finish(background_task_id).await? {
+            let state = if finished.exit_code == Some(0) {
+                BackgroundTaskState::Completed
+            } else {
+                BackgroundTaskState::Failed
+            };
+            return Ok(Some(BackgroundTaskStatus {
+                background_task_id: background_task_id.to_string(),
+                kind: "managed_command".to_string(),
+                state,
+                session_id: None,
+                position: None,
+                command: Some(finished.command),
+                exit_code: finished.exit_code,
+                duration_ms: finished.duration_ms,
+                snapshot_path: finished.snapshot_path,
+            }));
+        }
+
+        Ok(None)
+    }
+
     pub async fn reap_dead(&self) {
         let mut sessions = self.sessions.write().await;
         let mut dead: Vec<SessionId> = Vec::new();

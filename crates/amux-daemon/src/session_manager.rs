@@ -4,6 +4,7 @@ use amux_protocol::{
     SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, TranscriptIndexEntry, WorkspaceTopology,
 };
 use anyhow::Result;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -34,6 +35,34 @@ struct PendingApproval {
     workspace_id: Option<String>,
     execution_id: String,
     request: ManagedCommandRequest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundTaskState {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BackgroundTaskStatus {
+    pub background_task_id: String,
+    pub kind: String,
+    pub state: BackgroundTaskState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_path: Option<String>,
 }
 
 impl SessionManager {

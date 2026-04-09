@@ -61,6 +61,14 @@ pub struct ManagedHistoryRecord {
     pub snapshot_path: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ManagedCommandFinishedRecord {
+    pub command: String,
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<u64>,
+    pub snapshot_path: Option<String>,
+}
+
 pub struct MemoryProvenanceRecord<'a> {
     pub id: &'a str,
     pub target: &'a str,

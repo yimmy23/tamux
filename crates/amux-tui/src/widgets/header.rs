@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::state::chat::ChatState;
 use crate::theme::ThemeTokens;
+use crate::widgets::token_format::format_token_count;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeaderHitTarget {
@@ -65,11 +66,7 @@ pub fn render(
         (0, 0)
     };
     let total_tok = in_tok + out_tok;
-    let usage = if total_tok > 0 {
-        format!("{:.1}k tok", total_tok as f64 / 1000.0)
-    } else {
-        "0k tok".to_string()
-    };
+    let usage = format_token_count(total_tok);
 
     let mut spans = vec![
         Span::styled(
