@@ -233,8 +233,42 @@ fn collaboration_sessions_event_surfaces_escalation_notice() {
             .collaboration
             .selected_session()
             .and_then(|session| session.escalation.as_ref())
-            .is_some(),
+        .is_some(),
         "session should carry escalation summary for workspace rendering"
+    );
+}
+
+#[test]
+fn operator_question_event_appends_inline_message_and_actions() {
+    let mut model = make_model();
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.handle_client_event(ClientEvent::OperatorQuestion {
+        question_id: "oq-1".to_string(),
+        content: "Approve this slice?\nA - proceed\nB - revise".to_string(),
+        options: vec!["A".to_string(), "B".to_string()],
+        session_id: None,
+        thread_id: Some("thread-1".to_string()),
+    });
+
+    let thread = model.chat.active_thread().expect("thread should exist");
+    assert_eq!(
+        thread.messages.len(),
+        1,
+        "operator question should append an inline transcript message"
+    );
+    let message = thread.messages.last().expect("question message should exist");
+    assert_eq!(message.content, "Approve this slice?\nA - proceed\nB - revise");
+    assert_eq!(message.actions.len(), 2);
+    assert_ne!(
+        model.modal.top(),
+        Some(modal::ModalKind::OperatorQuestionOverlay)
     );
 }
 

@@ -170,6 +170,94 @@ fn defer_operator_profile_question_clears_stale_question_immediately() {
 }
 
 #[test]
+fn clicking_bottom_action_bar_submits_operator_question_answer() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-1".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "Approve this slice?\nA - proceed\nB - revise".to_string(),
+            actions: vec![
+                chat::MessageAction {
+                    label: "A".to_string(),
+                    action_type: "answer_operator_question".to_string(),
+                    thread_id: None,
+                },
+                chat::MessageAction {
+                    label: "B".to_string(),
+                    action_type: "answer_operator_question".to_string(),
+                    thread_id: None,
+                },
+            ],
+            ..Default::default()
+        },
+    });
+    model.chat.select_message(Some(0));
+
+    let input_start_row = model.height.saturating_sub(model.input_height() + 1);
+    let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
+    let action_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find_map(|row| {
+            (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
+                let pos = Position::new(column, row);
+                if widgets::chat::hit_test(
+                    chat_area,
+                    &model.chat,
+                    &model.theme,
+                    model.tick_counter,
+                    pos,
+                ) == Some(chat::ChatHitTarget::MessageAction {
+                    message_index: 0,
+                    action_index: 0,
+                }) {
+                    Some(pos)
+                } else {
+                    None
+                }
+            })
+        })
+        .expect("operator question should expose a clickable bottom action bar");
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: action_pos.x,
+        row: action_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: action_pos.x,
+        row: action_pos.y,
+        modifiers: KeyModifiers::NONE,
+    });
+
+    let sent = cmd_rx
+        .try_recv()
+        .expect("clicking the action bar should answer the operator question");
+    match sent {
+        DaemonCommand::AnswerOperatorQuestion {
+            question_id,
+            answer,
+        } => {
+            assert_eq!(question_id, "oq-1");
+            assert_eq!(answer, "A");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn tab_completes_active_file_reference_instead_of_changing_focus() {
     let mut model = build_model();
     let cwd = make_temp_dir();
