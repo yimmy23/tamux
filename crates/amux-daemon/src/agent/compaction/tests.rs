@@ -157,6 +157,127 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
 }
 
 #[test]
+fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies() {
+    let mut messages = Vec::new();
+    for index in 0..25 {
+        messages.push(AgentMessage::user(
+            format!("Earlier context message {index}"),
+            index as u64 + 1,
+        ));
+    }
+
+    messages.push(AgentMessage {
+        id: "assistant-question".to_string(),
+        role: MessageRole::Assistant,
+        content: "Pick the implementation approach: 1. Preserve recent dialogue context 2. Keep current summary format"
+            .to_string(),
+        tool_calls: None,
+        tool_call_id: None,
+        tool_name: None,
+        tool_arguments: None,
+        tool_status: None,
+        weles_review: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        provider: None,
+        model: None,
+        api_transport: None,
+        response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
+        reasoning: None,
+        message_kind: AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
+        timestamp: 30,
+    });
+    messages.push(AgentMessage::user("1", 31));
+    messages.push(AgentMessage {
+        id: "assistant-tool-call".to_string(),
+        role: MessageRole::Assistant,
+        content: String::new(),
+        tool_calls: Some(vec![ToolCall {
+            id: "call_read".to_string(),
+            function: ToolFunction {
+                name: "read_file".to_string(),
+                arguments: "{\"path\":\"/tmp/spec.md\"}".to_string(),
+            },
+            weles_review: None,
+        }]),
+        tool_call_id: None,
+        tool_name: None,
+        tool_arguments: None,
+        tool_status: None,
+        weles_review: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        provider: None,
+        model: None,
+        api_transport: None,
+        response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
+        reasoning: None,
+        message_kind: AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
+        timestamp: 32,
+    });
+    messages.push(AgentMessage {
+        id: "tool-read".to_string(),
+        role: MessageRole::Tool,
+        content: "Full file contents that should not be passed verbatim to the compactor"
+            .to_string(),
+        tool_calls: None,
+        tool_call_id: Some("call_read".to_string()),
+        tool_name: Some("read_file".to_string()),
+        tool_arguments: Some("{\"path\":\"/tmp/spec.md\"}".to_string()),
+        tool_status: Some("done".to_string()),
+        weles_review: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        provider: None,
+        model: None,
+        api_transport: None,
+        response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
+        reasoning: None,
+        message_kind: AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
+        timestamp: 33,
+    });
+
+    let api_messages = build_llm_compaction_messages(&messages, 512);
+    let flattened = api_messages
+        .iter()
+        .filter_map(|message| match &message.content {
+            super::super::llm_client::ApiContent::Text(text) => Some(text.as_str()),
+            super::super::llm_client::ApiContent::Blocks(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n---\n");
+
+    assert!(
+        flattened.contains("Pick the implementation approach"),
+        "recent assistant question should remain visible to the compactor: {flattened}"
+    );
+    assert!(
+        flattened.contains("\n1\n") || flattened.ends_with("\n1") || flattened.contains("USER: 1"),
+        "recent terse user reply should remain visible to the compactor: {flattened}"
+    );
+    assert!(
+        flattened.contains("read_file"),
+        "recent tool usage should preserve tool names for context: {flattened}"
+    );
+    assert!(
+        !flattened.contains("/tmp/spec.md\"}"),
+        "tool arguments should not be forwarded verbatim in fallback context: {flattened}"
+    );
+}
+
+#[test]
 fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
     let mut config = AgentConfig::default();
     config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();

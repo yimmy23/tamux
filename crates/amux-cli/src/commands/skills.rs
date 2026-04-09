@@ -8,8 +8,26 @@ use crate::output::truncate_for_display;
 
 pub(crate) async fn run(action: SkillAction) -> Result<()> {
     match action {
-        SkillAction::List { status, limit } => {
-            let variants = client::send_skill_list(status, limit).await?;
+        SkillAction::List {
+            status,
+            limit,
+            cursor,
+            all,
+        } => {
+            let mut next_cursor = cursor;
+            let mut variants = Vec::new();
+
+            loop {
+                let (page_variants, page_cursor) =
+                    client::send_skill_list(status.clone(), limit, next_cursor.clone()).await?;
+                let done = page_cursor.is_none() || !all;
+                variants.extend(page_variants);
+                next_cursor = page_cursor;
+                if done {
+                    break;
+                }
+            }
+
             if variants.is_empty() {
                 println!("No skills found.");
             } else {
@@ -26,15 +44,19 @@ pub(crate) async fn run(action: SkillAction) -> Result<()> {
                     );
                 }
                 println!("\n{} skill(s) shown.", variants.len());
+                if let Some(next_cursor) = next_cursor {
+                    println!("Next cursor: {next_cursor}");
+                }
             }
         }
         SkillAction::Discover {
             query,
             session,
             limit,
+            cursor,
         } => {
             let session_id = resolve_skill_discovery_session(session.as_deref()).await?;
-            let result = client::send_skill_discover(&query, session_id, limit).await?;
+            let result = client::send_skill_discover(&query, session_id, limit, cursor).await?;
             println!("{}", render_skill_discovery(&result));
         }
         SkillAction::Inspect { name } => {
@@ -185,6 +207,10 @@ fn render_skill_discovery(result: &amux_protocol::SkillDiscoveryResultPublic) ->
         lines.push(format!("   reasons: {reasons}"));
     }
 
+    if let Some(next_cursor) = result.next_cursor.as_deref() {
+        lines.push(format!("Next cursor: {next_cursor}"));
+    }
+
     lines.join("\n")
 }
 
@@ -255,6 +281,7 @@ mod tests {
             recommended_action: "read_skill systematic-debugging".to_string(),
             explicit_rationale_required: false,
             workspace_tags: vec!["rust".to_string()],
+            next_cursor: Some("cursor:skill-2".to_string()),
             candidates: vec![amux_protocol::SkillDiscoveryCandidatePublic {
                 variant_id: "local:systematic-debugging:v1".to_string(),
                 skill_name: "systematic-debugging".to_string(),
@@ -279,6 +306,7 @@ mod tests {
         assert!(rendered.contains("Next action: read_skill systematic-debugging"));
         assert!(rendered.contains("1. systematic-debugging [active] score=93"));
         assert!(rendered.contains("reasons: matched debug, workspace rust, 14/16 successful uses"));
+        assert!(rendered.contains("Next cursor: cursor:skill-2"));
     }
 
     #[test]

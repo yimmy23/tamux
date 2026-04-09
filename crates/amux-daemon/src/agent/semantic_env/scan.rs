@@ -114,10 +114,12 @@ pub(super) fn scan_workspace_semantics(root: &Path) -> Result<SemanticGraph> {
 
 fn should_visit_semantic_entry(entry: &DirEntry) -> bool {
     let name = entry.file_name().to_string_lossy();
+    if name.starts_with('.') {
+        return false;
+    }
     !matches!(
         name.as_ref(),
-        ".git"
-            | "node_modules"
+        "node_modules"
             | "target"
             | "dist"
             | "dist-release"

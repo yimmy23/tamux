@@ -391,6 +391,21 @@ impl TuiModel {
                     optional,
                 );
             }
+            ClientEvent::OperatorQuestion {
+                question_id,
+                content,
+                options,
+                session_id: _,
+                thread_id: _,
+            } => {
+                self.handle_operator_question_event(question_id, content, options);
+            }
+            ClientEvent::OperatorQuestionResolved {
+                question_id,
+                answer,
+            } => {
+                self.handle_operator_question_resolved_event(question_id, answer);
+            }
             ClientEvent::OperatorProfileProgress {
                 session_id,
                 answered,

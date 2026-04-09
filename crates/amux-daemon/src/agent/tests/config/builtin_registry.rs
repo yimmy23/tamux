@@ -105,29 +105,19 @@ async fn list_sub_agents_always_includes_weles_builtin_with_main_defaults() {
     assert_eq!(weles.model, "gpt-5.4-mini");
     assert_eq!(weles.system_prompt.as_deref(), Some("Main agent prompt"));
     assert_eq!(weles.reasoning_effort.as_deref(), Some("medium"));
+    assert_eq!(weles.tool_whitelist, None);
     assert_eq!(
-        weles.tool_whitelist.as_deref(),
+        weles.tool_blacklist.as_deref(),
         Some(
             &[
-                "get_current_datetime".to_string(),
-                "list_files".to_string(),
-                "read_file".to_string(),
-                "search_files".to_string(),
-                "session_search".to_string(),
-                "onecontext_search".to_string(),
-                "update_todo".to_string(),
-                "list_skills".to_string(),
-                "semantic_query".to_string(),
-                "read_skill".to_string(),
-                "list_tasks".to_string(),
-                "list_subagents".to_string(),
+                "list_terminals".to_string(),
                 "read_active_terminal_content".to_string(),
-                "message_agent".to_string(),
-                "handoff_thread_agent".to_string(),
+                "run_terminal_command".to_string(),
+                "allocate_terminal".to_string(),
+                "type_in_terminal".to_string(),
             ][..]
         )
     );
-    assert_eq!(weles.tool_blacklist, None);
     assert!(weles.enabled);
     assert!(weles.builtin);
     assert!(weles.immutable_identity);

@@ -154,6 +154,7 @@ pub struct AgentEngine {
         Mutex<HashMap<String, crate::agent::stalled_turns::StalledTurnCandidate>>,
     pub(super) active_operator_sessions: RwLock<HashMap<String, u64>>,
     pub(super) pending_operator_approvals: RwLock<HashMap<String, PendingApprovalObservation>>,
+    pub(super) pending_operator_questions: Mutex<HashMap<String, PendingOperatorQuestionState>>,
     pub(super) operator_profile_sessions: RwLock<HashMap<String, OperatorProfileSessionState>>,
     pub(super) honcho_sync: Mutex<HonchoSyncState>,
     pub repo_watchers: Mutex<HashMap<String, ThreadRepoWatcher>>,
@@ -168,8 +169,7 @@ pub struct AgentEngine {
     pub(super) aline_startup_test_availability: std::sync::OnceLock<bool>,
     #[cfg(test)]
     pub(super) aline_startup_test_repo_roots: Mutex<Vec<PathBuf>>,
-    pub(super) aline_startup_last_summary:
-        Mutex<Option<super::aline_startup::AlineStartupSummary>>,
+    pub(super) aline_startup_last_summary: Mutex<Option<super::aline_startup::AlineStartupSummary>>,
     /// Per-provider circuit breakers for LLM call path gating.
     pub circuit_breakers: Arc<CircuitBreakerRegistry>,
     /// Notifies the run_loop when config changes so heartbeat schedule can be recomputed.
@@ -325,6 +325,7 @@ impl AgentEngine {
             stalled_turn_candidates: Mutex::new(HashMap::new()),
             active_operator_sessions: RwLock::new(HashMap::new()),
             pending_operator_approvals: RwLock::new(HashMap::new()),
+            pending_operator_questions: Mutex::new(HashMap::new()),
             operator_profile_sessions: RwLock::new(HashMap::new()),
             honcho_sync: Mutex::new(HonchoSyncState::default()),
             repo_watchers: Mutex::new(HashMap::new()),
@@ -584,10 +585,7 @@ impl AgentEngine {
         }
     }
 
-    pub(super) async fn maybe_run_aline_startup_reconciliation_for_repo(
-        &self,
-        repo_root: &str,
-    ) {
+    pub(super) async fn maybe_run_aline_startup_reconciliation_for_repo(&self, repo_root: &str) {
         if !self.aline_startup_is_available() {
             return;
         }

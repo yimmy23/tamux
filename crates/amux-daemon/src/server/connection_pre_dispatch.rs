@@ -12,7 +12,13 @@
                                 }
                                 last_concierge_welcome_fingerprint = Some(fingerprint);
                             }
-                            if let Ok(json) = serde_json::to_string(&event) {
+                            if let Some((json, truncated)) = cap_agent_event_for_ipc(&event) {
+                                if truncated {
+                                    tracing::warn!(
+                                        thread_id = agent_event_thread_id(&event).unwrap_or(""),
+                                        "truncated agent event to fit IPC frame limit"
+                                    );
+                                }
                                 framed
                                     .send(DaemonMessage::AgentEvent { event_json: json })
                                     .await?;

@@ -65,6 +65,121 @@ async fn execute_list_skills(
     Ok(body)
 }
 
+async fn execute_discover_skills(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    current_session_id: Option<SessionId>,
+) -> Result<String> {
+    let query = args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?;
+
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(3)
+        .clamp(1, 20) as usize;
+    let cursor = args
+        .get("cursor")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let session_id = args
+        .get("session")
+        .or_else(|| args.get("session_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            SessionId::parse_str(value)
+                .map_err(|error| anyhow::anyhow!("invalid session `{value}`: {error}"))
+        })
+        .transpose()?
+        .or(current_session_id);
+
+    let result = agent
+        .discover_skill_recommendations_public(query, session_id, limit, cursor)
+        .await?;
+    serde_json::to_string(&result)
+        .map_err(|error| anyhow::anyhow!("failed to serialize skill discovery result: {error}"))
+}
+
+fn parse_clamped_non_negative_usize_arg(
+    args: &serde_json::Value,
+    key: &str,
+    default: usize,
+    max: usize,
+) -> Result<usize> {
+    match args.get(key) {
+        None => Ok(default),
+        Some(value) => {
+            if let Some(raw) = value.as_u64() {
+                return Ok((raw as usize).clamp(0, max));
+            }
+            if let Some(raw) = value.as_i64() {
+                if raw < 0 {
+                    anyhow::bail!("'{key}' must be a non-negative integer");
+                }
+                return Ok((raw as usize).clamp(0, max));
+            }
+            anyhow::bail!("'{key}' must be a non-negative integer");
+        }
+    }
+}
+
+async fn execute_list_tools(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    session_manager: &Arc<SessionManager>,
+    agent_data_dir: &std::path::Path,
+) -> Result<String> {
+    let limit = parse_clamped_non_negative_usize_arg(args, "limit", 20, 200)?;
+    let offset = parse_clamped_non_negative_usize_arg(args, "offset", 0, usize::MAX)?;
+    let has_workspace_topology = session_manager.read_workspace_topology().is_some();
+    let config = agent.config.read().await;
+    let result = list_available_tools_public(
+        &config,
+        agent_data_dir,
+        has_workspace_topology,
+        limit,
+        offset,
+    );
+    serde_json::to_string(&result)
+        .map_err(|error| anyhow::anyhow!("failed to serialize tool list result: {error}"))
+}
+
+async fn execute_tool_search(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    session_manager: &Arc<SessionManager>,
+    agent_data_dir: &std::path::Path,
+) -> Result<String> {
+    let query = args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'query' argument"))?;
+    let limit = parse_clamped_non_negative_usize_arg(args, "limit", 10, 200)?;
+    let offset = parse_clamped_non_negative_usize_arg(args, "offset", 0, usize::MAX)?;
+    let has_workspace_topology = session_manager.read_workspace_topology().is_some();
+    let config = agent.config.read().await;
+    let result = search_available_tools_public(
+        &config,
+        agent_data_dir,
+        has_workspace_topology,
+        query,
+        limit,
+        offset,
+    );
+    serde_json::to_string(&result)
+        .map_err(|error| anyhow::anyhow!("failed to serialize tool search result: {error}"))
+}
+
 async fn execute_read_skill(
     args: &serde_json::Value,
     agent: &AgentEngine,

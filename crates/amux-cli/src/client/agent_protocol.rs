@@ -258,6 +258,11 @@ pub(super) enum AgentBridgeCommand {
         #[serde(default)]
         defer_until_unix_ms: Option<u64>,
     },
+    #[serde(rename = "answer-question")]
+    AnswerQuestion {
+        question_id: String,
+        answer: String,
+    },
     GetOperatorProfileSummary,
     SetOperatorProfileConsent {
         consent_key: String,

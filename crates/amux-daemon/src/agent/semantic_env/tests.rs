@@ -1,6 +1,7 @@
 use super::scan::{
     parse_cargo_manifest, parse_compose_services, parse_kubernetes_resources,
     parse_package_manifest, parse_script_imports, parse_terraform_resources,
+    scan_workspace_semantics,
 };
 use super::*;
 use uuid::Uuid;
@@ -178,6 +179,51 @@ export * from "../shared/types";
     assert!(imports.iter().any(|item| item == "react"));
     assert!(imports.iter().any(|item| item == "./lib/api"));
     assert!(imports.iter().any(|item| item == "../shared/types"));
+}
+
+#[test]
+fn scan_workspace_semantics_skips_hidden_worktrees_with_invalid_yaml() -> Result<()> {
+    let root = make_temp_dir()?;
+    let manifest = root.join("Cargo.toml");
+    fs::write(
+        &manifest,
+        r#"[package]
+name = "amux-daemon"
+"#,
+    )?;
+
+    let hidden_skill = root.join(
+        ".claude/worktrees/agent-test/plugins/tamux-plugin-gmail-calendar/gmail/skills/gmail-inbox.yaml",
+    );
+    fs::create_dir_all(
+        hidden_skill
+            .parent()
+            .expect("hidden skill fixture should have a parent directory"),
+    )?;
+    fs::write(
+        &hidden_skill,
+        r#"name: gmail-inbox
+description: Test skill
+---
+# Gmail Inbox
+
+Call `plugin_api_call`:
+
+```json
+{
+  "tool": "plugin_api_call"
+}
+```
+"#,
+    )?;
+
+    let graph = scan_workspace_semantics(&root)?;
+    assert_eq!(graph.packages.len(), 1);
+    assert_eq!(graph.packages[0].name, "amux-daemon");
+    assert!(graph.infra_resources.is_empty());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
 }
 
 #[test]

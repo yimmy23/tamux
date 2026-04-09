@@ -42,6 +42,23 @@ fn parse_session_list_json_accepts_full_current_cli_payload_fields() {
 }
 
 #[test]
+fn parse_session_list_json_treats_cli_no_sessions_output_as_empty() {
+    let output = r#"
+No sessions discovered.
+Sessions are discovered from:
+  - Claude Code: ~/.claude/projects/
+  - Codex (legacy): ~/.codex/sessions/
+  - Codex (isolated): ~/.aline/codex_homes/*/sessions/
+  - Gemini: ~/.gemini/tmp/*/chats/
+  - Imported shares: Database
+"#;
+
+    let list = parse_session_list_json(output).expect("no-session output should parse");
+    assert!(list.sessions.is_empty());
+    assert_eq!(list.has_more, Some(false));
+}
+
+#[test]
 fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
     let now = ts("2026-04-07T12:00:00Z");
     let sessions = vec![

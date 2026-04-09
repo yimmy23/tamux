@@ -302,6 +302,7 @@ const bridgeApi = {
     agentDeferOperatorProfileQuestion: (sessionId, questionId, deferUntilUnixMs) => ipcRenderer.invoke('agent-defer-operator-profile-question', sessionId, questionId, deferUntilUnixMs),
     agentGetOperatorProfileSummary: () => ipcRenderer.invoke('agent-get-operator-profile-summary'),
     agentSetOperatorProfileConsent: (consentKey, granted) => ipcRenderer.invoke('agent-set-operator-profile-consent', consentKey, granted),
+    agentAnswerQuestion: (questionId, answer) => ipcRenderer.invoke('agent-answer-question', questionId, answer),
     onAgentEvent: (cb) => {
         const listener = (_event, data) => cb(data);
         ipcRenderer.on('agent-event', listener);

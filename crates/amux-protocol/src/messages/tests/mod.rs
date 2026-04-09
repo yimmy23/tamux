@@ -127,6 +127,96 @@ fn daemon_message_roundtrips_models_response_with_operation_id() {
 }
 
 #[test]
+fn daemon_message_roundtrips_agent_tool_list() {
+    let msg = DaemonMessage::AgentToolList {
+        result: ToolListResultPublic {
+            total: 1,
+            limit: 20,
+            offset: 0,
+            items: vec![ToolDescriptorPublic {
+                name: "read_file".to_string(),
+                description: "Read file contents".to_string(),
+                required: vec!["path".to_string()],
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    },
+                    "required": ["path"]
+                })
+                .to_string(),
+            }],
+        },
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentToolList { result } => {
+            assert_eq!(result.total, 1);
+            assert_eq!(result.items.len(), 1);
+            assert_eq!(result.items[0].name, "read_file");
+            let parameters: serde_json::Value =
+                serde_json::from_str(&result.items[0].parameters).unwrap();
+            assert_eq!(
+                parameters
+                    .get("required")
+                    .and_then(|value| value.as_array())
+                    .map(|items| items.len()),
+                Some(1)
+            );
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_agent_tool_search_result() {
+    let msg = DaemonMessage::AgentToolSearchResult {
+        result: ToolSearchResultPublic {
+            query: "file".to_string(),
+            total: 1,
+            limit: 20,
+            offset: 0,
+            items: vec![ToolSearchMatchPublic {
+                name: "read_file".to_string(),
+                description: "Read file contents".to_string(),
+                required: vec!["path".to_string()],
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" }
+                    }
+                })
+                .to_string(),
+                score: 91,
+                matched_fields: vec!["name".to_string()],
+            }],
+        },
+    };
+
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentToolSearchResult { result } => {
+            assert_eq!(result.query, "file");
+            assert_eq!(result.items.len(), 1);
+            assert_eq!(result.items[0].score, 91);
+            let parameters: serde_json::Value =
+                serde_json::from_str(&result.items[0].parameters).unwrap();
+            assert_eq!(
+                parameters
+                    .get("properties")
+                    .and_then(|value| value.as_object())
+                    .map(|properties| properties.contains_key("path")),
+                Some(true)
+            );
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn daemon_message_roundtrips_agent_generated_tool_result_with_operation_id() {
     let msg = DaemonMessage::AgentGeneratedToolResult {
         operation_id: Some("op-tool-1".to_string()),
@@ -713,6 +803,7 @@ fn sample_skill_discovery_result() -> SkillDiscoveryResultPublic {
         explicit_rationale_required: true,
         workspace_tags: vec!["git".to_string(), "rebase".to_string()],
         candidates: vec![sample_skill_discovery_candidate()],
+        next_cursor: Some("cursor:git-rebase".to_string()),
     }
 }
 
@@ -855,14 +946,19 @@ fn gateway_bootstrap_round_trip() {
 fn skill_variant_result_round_trip() {
     let msg = DaemonMessage::SkillListResult {
         variants: vec![sample_skill_variant()],
+        next_cursor: Some("cursor:variant-2".to_string()),
     };
     let bytes = bincode::serialize(&msg).unwrap();
     let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
     match decoded {
-        DaemonMessage::SkillListResult { variants } => {
+        DaemonMessage::SkillListResult {
+            variants,
+            next_cursor,
+        } => {
             assert_eq!(variants.len(), 1);
             assert_eq!(variants[0].skill_name, "git_rebase_workflow");
             assert_eq!(variants[0].status, "active");
+            assert_eq!(next_cursor.as_deref(), Some("cursor:variant-2"));
         }
         other => panic!("unexpected variant: {:?}", other),
     }
@@ -907,6 +1003,7 @@ fn skill_discover_round_trip() {
         query: "git rebase workflow".to_string(),
         session_id: Some(expected_session_id),
         limit: 5,
+        cursor: Some("cursor:git-rebase".to_string()),
     };
     let bytes = bincode::serialize(&msg).unwrap();
     let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
@@ -915,10 +1012,12 @@ fn skill_discover_round_trip() {
             query,
             session_id,
             limit,
+            cursor,
         } => {
             assert_eq!(query, "git rebase workflow");
             assert_eq!(session_id, Some(expected_session_id));
             assert_eq!(limit, 5);
+            assert_eq!(cursor.as_deref(), Some("cursor:git-rebase"));
         }
         other => panic!("unexpected variant: {:?}", other),
     }
@@ -942,6 +1041,7 @@ fn skill_discover_result_round_trip() {
             assert!(result.explicit_rationale_required);
             assert_eq!(result.workspace_tags, vec!["git", "rebase"]);
             assert_eq!(result.candidates.len(), 1);
+            assert_eq!(result.next_cursor.as_deref(), Some("cursor:git-rebase"));
             assert_eq!(
                 result.candidates[0].variant_id,
                 "local:git_rebase_workflow:v1"
@@ -963,6 +1063,29 @@ fn skill_discover_result_round_trip() {
             assert_eq!(result.candidates[0].use_count, 12);
             assert_eq!(result.candidates[0].success_count, 10);
             assert_eq!(result.candidates[0].failure_count, 2);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
+fn skill_list_round_trip_preserves_cursor() {
+    let msg = ClientMessage::SkillList {
+        status: Some("active".to_string()),
+        limit: 25,
+        cursor: Some("cursor:active-page-2".to_string()),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::SkillList {
+            status,
+            limit,
+            cursor,
+        } => {
+            assert_eq!(status.as_deref(), Some("active"));
+            assert_eq!(limit, 25);
+            assert_eq!(cursor.as_deref(), Some("cursor:active-page-2"));
         }
         other => panic!("unexpected variant: {:?}", other),
     }

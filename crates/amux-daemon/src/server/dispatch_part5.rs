@@ -6,7 +6,9 @@ if matches!(
         ClientMessage::AgentSubmitOperatorProfileAnswer{ .. } |
         ClientMessage::AgentSkipOperatorProfileQuestion{ .. } |
         ClientMessage::AgentDeferOperatorProfileQuestion{ .. } |
-        ClientMessage::AgentGetOperatorProfileSummary
+    ClientMessage::AgentGetOperatorProfileSummary |
+    ClientMessage::AgentAskQuestion{ .. } |
+    ClientMessage::AgentAnswerQuestion{ .. }
     ) {
         match msg {
                 ClientMessage::AgentListHealthLog { limit } => {
@@ -409,6 +411,49 @@ if matches!(
                                     message: format!(
                                         "failed to build operator profile summary: {error}"
                                     ),
+                                })
+                                .await
+                                .ok();
+                        }
+                    }
+                }
+
+                ClientMessage::AgentAskQuestion {
+                    content,
+                    options,
+                    session_id,
+                } => match agent
+                    .ask_operator_question(&content, options, session_id, None)
+                    .await
+                {
+                    Ok((question_id, answer)) => {
+                        framed
+                            .send(DaemonMessage::AgentQuestionAnswered { question_id, answer })
+                            .await
+                            .ok();
+                    }
+                    Err(error) => {
+                        framed
+                            .send(DaemonMessage::AgentError {
+                                message: format!("failed to ask operator question: {error}"),
+                            })
+                            .await
+                            .ok();
+                    }
+                },
+
+                ClientMessage::AgentAnswerQuestion { question_id, answer } => {
+                    match agent.answer_operator_question(&question_id, &answer).await {
+                        Ok(()) => {
+                            framed
+                                .send(DaemonMessage::AgentQuestionAnswered { question_id, answer })
+                                .await
+                                .ok();
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: format!("failed to answer operator question: {error}"),
                                 })
                                 .await
                                 .ok();

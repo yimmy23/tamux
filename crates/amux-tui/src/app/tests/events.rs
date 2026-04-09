@@ -300,8 +300,7 @@ fn full_status_event_caches_snapshot_for_status_modal() {
         operator_profile_sync_state: "clean".to_string(),
         operator_profile_sync_dirty: false,
         operator_profile_scheduler_fallback: false,
-        diagnostics_json: r#"{"aline":{"available":true,"watcher_state":"running"}}"#
-            .to_string(),
+        diagnostics_json: r#"{"aline":{"available":true,"watcher_state":"running"}}"#.to_string(),
     });
 
     let snapshot = model
@@ -344,8 +343,7 @@ fn status_modal_latest_response_replaces_stale_content() {
         operator_profile_sync_state: "older".to_string(),
         operator_profile_sync_dirty: true,
         operator_profile_scheduler_fallback: false,
-        diagnostics_json: r#"{"aline":{"available":false,"watcher_state":"unknown"}}"#
-            .to_string(),
+        diagnostics_json: r#"{"aline":{"available":false,"watcher_state":"unknown"}}"#.to_string(),
     });
     model.handle_client_event(ClientEvent::StatusSnapshot(
         crate::client::AgentStatusSnapshotVm {
@@ -363,8 +361,7 @@ fn status_modal_latest_response_replaces_stale_content() {
         operator_profile_sync_state: "clean".to_string(),
         operator_profile_sync_dirty: false,
         operator_profile_scheduler_fallback: false,
-        diagnostics_json: r#"{"aline":{"available":true,"watcher_state":"running"}}"#
-            .to_string(),
+        diagnostics_json: r#"{"aline":{"available":true,"watcher_state":"running"}}"#.to_string(),
     });
     model.handle_client_event(ClientEvent::StatusSnapshot(
         crate::client::AgentStatusSnapshotVm {

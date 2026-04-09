@@ -1,7 +1,9 @@
 ![Tamux Slavic Mythology](docs/assets/tamux-slavic.jpg)
 # tamux
 
-**Terminal Agentic Multiplexer** -- a daemon-first terminal environment for long-running AI work.
+**Terminal Agentic Multiplexer and TUI with a super-powerful agent** - a daemon-first environment for long-running AI work.
+>Tamux is not a CLI tool. It's a full autonomous agent platform. The mental model gap is huge - most people see "terminal multiplexer with AI" but the architecture underneath is a persistent, multi-agent, self-healing, auditable, learning agent
+platform.
 
 Official website: [https://tamux.app](https://tamux.app)
 
@@ -21,7 +23,7 @@ It is still a real terminal multiplexer. It just has a daemon beneath it, durabl
 
 ## The TUI
 
-The TUI is a keyboard-first control room for the daemon.
+The TUI is a keyboard-first control room for the daemon with mouse support.
 
 - inspect sessions, threads, tasks, approvals, and goal runs without leaving the terminal
 - move between operator control and agent execution from the same live state used by Electron and the CLI

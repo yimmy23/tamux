@@ -23,6 +23,7 @@ use amux_protocol::{
     SecurityLevel,
 };
 use anyhow::{Context, Result};
+use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,7 +50,7 @@ mod transport;
 mod utils;
 
 use agent_tools::{
-    tool_activate_generated_tool, tool_control_goal_run, tool_discover_skills,
+    tool_activate_generated_tool, tool_ask_questions, tool_control_goal_run, tool_discover_skills,
     tool_generate_soc2_artifact, tool_get_causal_trace_report, tool_get_collaboration_sessions,
     tool_get_counterfactual_report, tool_get_goal_run, tool_get_memory_provenance_report,
     tool_get_operator_model, tool_get_provenance_report, tool_inspect_skill_variant,
@@ -119,6 +120,7 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         "get_todos" => tool_get_todos(args).await,
         "list_skills" => tool_list_skills(args).await,
         "discover_skills" => tool_discover_skills(args).await,
+        "ask_questions" => tool_ask_questions(args).await,
         "read_skill" => tool_read_skill(args).await,
         "list_skill_variants" => tool_list_skill_variants(args).await,
         "inspect_skill_variant" => tool_inspect_skill_variant(args).await,
@@ -305,6 +307,11 @@ async fn tool_list_skills(args: &Value) -> Result<Value> {
         .and_then(|v| v.as_u64())
         .unwrap_or(20)
         .clamp(1, 100) as usize;
+    let cursor = args
+        .get("cursor")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
 
     let skills_root = tamux_skills_dir();
     let mut files = Vec::new();
@@ -346,13 +353,59 @@ async fn tool_list_skills(args: &Value) -> Result<Value> {
             }
             None => true,
         })
-        .take(limit)
         .collect::<Vec<_>>();
+    let start_index = decode_local_skill_cursor(cursor)?
+        .as_deref()
+        .and_then(|path| {
+            skills.iter().position(|entry| {
+                entry
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|value| value == path)
+            })
+        })
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let page = skills
+        .iter()
+        .skip(start_index)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next_cursor = if start_index + page.len() < skills.len() {
+        page.last()
+            .and_then(|entry| entry.get("path"))
+            .and_then(|v| v.as_str())
+            .map(encode_local_skill_cursor)
+    } else {
+        None
+    };
 
     Ok(serde_json::json!({
         "skills_root": skills_root,
-        "skills": skills,
+        "skills": page,
+        "next_cursor": next_cursor,
     }))
+}
+
+fn encode_local_skill_cursor(path: &str) -> String {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(path.as_bytes());
+    format!("local-skill-list:{encoded}")
+}
+
+fn decode_local_skill_cursor(cursor: Option<&str>) -> Result<Option<String>> {
+    let Some(cursor) = cursor else {
+        return Ok(None);
+    };
+    let payload = cursor
+        .strip_prefix("local-skill-list:")
+        .ok_or_else(|| anyhow::anyhow!("invalid local skill cursor"))?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|error| anyhow::anyhow!("invalid local skill cursor: {error}"))?;
+    let value = String::from_utf8(bytes)
+        .map_err(|error| anyhow::anyhow!("invalid local skill cursor: {error}"))?;
+    Ok(Some(value))
 }
 
 async fn tool_read_skill(args: &Value) -> Result<Value> {

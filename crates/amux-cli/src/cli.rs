@@ -105,6 +105,12 @@ pub(crate) enum Commands {
         action: SkillAction,
     },
 
+    /// Inspect the tools currently available to the daemon agent.
+    Tool {
+        #[command(subcommand)]
+        action: ToolAction,
+    },
+
     /// Show current agent status.
     Status,
 
@@ -273,6 +279,12 @@ pub(crate) enum SkillAction {
         /// Maximum number of entries to show.
         #[arg(long, default_value = "50")]
         limit: usize,
+        /// Continue from an earlier page cursor.
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Fetch every page by following cursors until exhaustion.
+        #[arg(long)]
+        all: bool,
     },
     /// Rank installed skills for a task and suggest the next action.
     Discover {
@@ -284,6 +296,9 @@ pub(crate) enum SkillAction {
         /// Maximum number of ranked candidates to show.
         #[arg(long, default_value = "3")]
         limit: usize,
+        /// Continue from an earlier discovery page cursor.
+        #[arg(long)]
+        cursor: Option<String>,
     },
     /// Show details of a specific skill.
     Inspect {
@@ -335,6 +350,37 @@ pub(crate) enum SkillAction {
 }
 
 #[derive(Debug, Subcommand)]
+pub(crate) enum ToolAction {
+    /// List the tools currently available to the daemon agent.
+    #[command(alias = "ls")]
+    List {
+        /// Maximum number of tools to show.
+        #[arg(long, default_value = "50")]
+        limit: usize,
+        /// Zero-based pagination offset.
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Search the currently available tool catalog.
+    Search {
+        /// What capability or action to look for.
+        query: String,
+        /// Maximum number of matches to show.
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        /// Zero-based pagination offset.
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub(crate) enum SettingsAction {
     /// List all configuration settings.
     #[command(alias = "ls")]
@@ -382,7 +428,7 @@ pub(crate) enum ThreadAction {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Commands, SkillAction, ThreadAction};
+    use super::{Cli, Commands, SkillAction, ThreadAction, ToolAction};
     use clap::{CommandFactory, Parser};
 
     #[test]
@@ -396,6 +442,7 @@ mod tests {
                         query,
                         session,
                         limit,
+                        ..
                     },
             }) => {
                 assert_eq!(query, "debug panic");
@@ -417,6 +464,50 @@ mod tests {
                 assert!(json);
             }
             other => panic!("expected thread list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_list_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "tool", "list", "--limit", "25", "--offset", "5"])
+            .expect("tool list subcommand should parse");
+        match cli.command {
+            Some(Commands::Tool {
+                action:
+                    ToolAction::List {
+                        limit,
+                        offset,
+                        json,
+                    },
+            }) => {
+                assert_eq!(limit, 25);
+                assert_eq!(offset, 5);
+                assert!(!json);
+            }
+            other => panic!("expected tool list command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_search_subcommand_parses() {
+        let cli = Cli::try_parse_from(["tamux", "tool", "search", "discover skill", "--json"])
+            .expect("tool search subcommand should parse");
+        match cli.command {
+            Some(Commands::Tool {
+                action:
+                    ToolAction::Search {
+                        query,
+                        limit,
+                        offset,
+                        json,
+                    },
+            }) => {
+                assert_eq!(query, "discover skill");
+                assert_eq!(limit, 20);
+                assert_eq!(offset, 0);
+                assert!(json);
+            }
+            other => panic!("expected tool search command, got {other:?}"),
         }
     }
 
@@ -469,6 +560,7 @@ mod tests {
                         query,
                         session,
                         limit,
+                        ..
                     },
             }) => {
                 assert_eq!(query, "debug panic");

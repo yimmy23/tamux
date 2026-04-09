@@ -112,7 +112,9 @@ impl ChatState {
     }
 
     fn activity_for_thread_mut(&mut self, thread_id: &str) -> &mut ThreadActivityState {
-        self.thread_activity.entry(thread_id.to_string()).or_default()
+        self.thread_activity
+            .entry(thread_id.to_string())
+            .or_default()
     }
 
     fn cleanup_thread_activity(&mut self, thread_id: &str) {
@@ -232,7 +234,9 @@ impl ChatState {
                 {
                     self.active_thread_id = Some(thread_id.clone());
                 }
-                if self.scroll_locked && self.active_thread_id.as_deref() == Some(thread_id.as_str()) {
+                if self.scroll_locked
+                    && self.active_thread_id.as_deref() == Some(thread_id.as_str())
+                {
                     self.scroll_offset = self
                         .scroll_offset
                         .saturating_add(content.matches('\n').count());
@@ -242,10 +246,7 @@ impl ChatState {
                     .push_str(&content);
             }
 
-            ChatAction::Reasoning {
-                thread_id,
-                content,
-            } => {
+            ChatAction::Reasoning { thread_id, content } => {
                 self.pinned_message_top = None;
                 self.activity_for_thread_mut(&thread_id)
                     .streaming_reasoning
@@ -300,15 +301,15 @@ impl ChatState {
                 self.activity_for_thread_mut(&thread_id)
                     .active_tool_calls
                     .push(ToolCallVm {
-                    call_id,
-                    name,
-                    arguments: String::new(),
-                    status: ToolCallStatus::Running,
-                    result: None,
-                    is_error: false,
-                    weles_review,
-                    started_at: 0,
-                });
+                        call_id,
+                        name,
+                        arguments: String::new(),
+                        status: ToolCallStatus::Running,
+                        result: None,
+                        is_error: false,
+                        weles_review,
+                        started_at: 0,
+                    });
             }
 
             ChatAction::ToolResult {
@@ -660,14 +661,15 @@ impl ChatState {
                     self.bump_render_revision();
                     return;
                 };
-                let (content, reasoning) = if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
-                    (
-                        std::mem::take(&mut activity.streaming_content),
-                        std::mem::take(&mut activity.streaming_reasoning),
-                    )
-                } else {
-                    (String::new(), String::new())
-                };
+                let (content, reasoning) =
+                    if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
+                        (
+                            std::mem::take(&mut activity.streaming_content),
+                            std::mem::take(&mut activity.streaming_reasoning),
+                        )
+                    } else {
+                        (String::new(), String::new())
+                    };
                 if !content.is_empty() || !reasoning.is_empty() {
                     let stopped_content = if content.is_empty() {
                         "[stopped]".to_string()

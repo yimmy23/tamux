@@ -128,29 +128,19 @@ async fn set_sub_agent_clears_optional_weles_overrides_when_reverted_to_defaults
         .find(|entry| entry.id == "weles_builtin")
         .expect("missing builtin weles entry");
     assert_eq!(effective.role.as_deref(), Some("governance"));
+    assert_eq!(effective.tool_whitelist, None);
     assert_eq!(
-        effective.tool_whitelist.as_deref(),
+        effective.tool_blacklist.as_deref(),
         Some(
             &[
-                "get_current_datetime".to_string(),
-                "list_files".to_string(),
-                "read_file".to_string(),
-                "search_files".to_string(),
-                "session_search".to_string(),
-                "onecontext_search".to_string(),
-                "update_todo".to_string(),
-                "list_skills".to_string(),
-                "semantic_query".to_string(),
-                "read_skill".to_string(),
-                "list_tasks".to_string(),
-                "list_subagents".to_string(),
+                "list_terminals".to_string(),
                 "read_active_terminal_content".to_string(),
-                "message_agent".to_string(),
-                "handoff_thread_agent".to_string(),
+                "run_terminal_command".to_string(),
+                "allocate_terminal".to_string(),
+                "type_in_terminal".to_string(),
             ][..]
         )
     );
-    assert_eq!(effective.tool_blacklist, None);
     assert_eq!(effective.context_budget_tokens, None);
     assert_eq!(effective.max_duration_secs, None);
     assert!(effective.supervisor_config.is_none());

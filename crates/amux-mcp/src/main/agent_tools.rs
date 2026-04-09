@@ -2,8 +2,12 @@ use super::*;
 
 fn map_skill_variant_list_response(resp: DaemonMessage) -> Result<Value> {
     match resp {
-        DaemonMessage::SkillListResult { variants } => Ok(serde_json::json!({
+        DaemonMessage::SkillListResult {
+            variants,
+            next_cursor,
+        } => Ok(serde_json::json!({
             "variants": variants,
+            "next_cursor": next_cursor,
         })),
         DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
             anyhow::bail!("daemon error: {message}")
@@ -59,6 +63,16 @@ fn map_audit_query_response(resp: DaemonMessage) -> Result<Value> {
     }
 }
 
+fn map_question_response(resp: DaemonMessage) -> Result<Value> {
+    match resp {
+        DaemonMessage::AgentQuestionAnswered { answer, .. } => Ok(Value::String(answer)),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected daemon response: {other:?}"),
+    }
+}
+
 pub(super) async fn tool_list_skill_variants(args: &Value) -> Result<Value> {
     let status = args
         .get("status")
@@ -71,8 +85,19 @@ pub(super) async fn tool_list_skill_variants(args: &Value) -> Result<Value> {
         .and_then(|v| v.as_u64())
         .map(|value| value.clamp(1, 200) as usize)
         .unwrap_or(25);
+    let cursor = args
+        .get("cursor")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
 
-    let resp = daemon_roundtrip(ClientMessage::SkillList { status, limit }).await?;
+    let resp = daemon_roundtrip(ClientMessage::SkillList {
+        status,
+        limit,
+        cursor,
+    })
+    .await?;
     map_skill_variant_list_response(resp)
 }
 
@@ -115,16 +140,61 @@ pub(super) async fn tool_discover_skills(args: &Value) -> Result<Value> {
                 .map_err(|error| anyhow::anyhow!("invalid session_id `{value}`: {error}"))
         })
         .transpose()?;
+    let cursor = args
+        .get("cursor")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
 
     super::daemon::daemon_roundtrip_until(
         ClientMessage::SkillDiscover {
             query,
             session_id,
             limit,
+            cursor,
         },
         parse_skill_discovery_event,
     )
     .await
+}
+
+pub(super) async fn tool_ask_questions(args: &Value) -> Result<Value> {
+    let content = args
+        .get("content")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: content"))?
+        .to_string();
+    let options = args
+        .get("options")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("missing required parameter: options"))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|option| !option.is_empty())
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| anyhow::anyhow!("options must contain only non-empty strings"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+
+    let resp = daemon_roundtrip(ClientMessage::AgentAskQuestion {
+        content,
+        options,
+        session_id,
+    })
+    .await?;
+    map_question_response(resp)
 }
 
 pub(super) async fn tool_list_goal_runs() -> Result<Value> {
@@ -566,11 +636,13 @@ mod tests {
     fn map_skill_variant_list_response_returns_variants_payload() {
         let value = map_skill_variant_list_response(DaemonMessage::SkillListResult {
             variants: vec![sample_variant()],
+            next_cursor: Some("cursor:variant-2".to_string()),
         })
         .expect("list response should map");
 
         assert_eq!(value["variants"][0]["skill_name"], "build-pipeline");
         assert_eq!(value["variants"][0]["variant_name"], "frontend");
+        assert_eq!(value["next_cursor"], "cursor:variant-2");
     }
 
     #[test]
@@ -650,7 +722,8 @@ mod tests {
                 "recommended_action": "read_skill systematic-debugging",
                 "explicit_rationale_required": false,
                 "workspace_tags": ["rust"],
-                "candidates": []
+                "candidates": [],
+                "next_cursor": "cursor:skill-2"
             })
             .to_string(),
         })
@@ -659,5 +732,6 @@ mod tests {
 
         assert_eq!(value["query"], "debug panic");
         assert_eq!(value["confidence_tier"], "strong");
+        assert_eq!(value["next_cursor"], "cursor:skill-2");
     }
 }

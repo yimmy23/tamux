@@ -285,6 +285,12 @@ pub struct SkillVariantInspection {
     pub selected_for_context: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillVariantPage {
+    pub variants: Vec<SkillVariantRecord>,
+    pub next_cursor: Option<String>,
+}
+
 impl SkillVariantRecord {
     pub fn success_rate(&self) -> f64 {
         let attempts = self.success_count + self.failure_count;
@@ -464,6 +470,7 @@ mod schema_migrations;
 mod schema_sql;
 mod schema_sql_extra;
 mod skill_generation;
+pub(crate) use skill_generation::page_skill_variants;
 mod skill_metadata;
 mod skill_variants;
 mod task_enums;

@@ -1,7 +1,9 @@
 use super::*;
 use crate::agent::episodic::{EpisodeType, LinkType};
 use crate::session_manager::SessionManager;
+use bytes::BytesMut;
 use tempfile::tempdir;
+use tokio_util::codec::Encoder;
 
 fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &str) -> GoalRun {
     GoalRun {
@@ -271,6 +273,286 @@ async fn cancelling_goal_run_settles_unresolved_goal_plan_trace() {
         }
         other => panic!("expected cancelled failure outcome, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn get_goal_run_capped_for_ipc_truncates_oversized_detail_payload() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-huge-detail";
+    let huge_details = "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024);
+
+    let mut goal_run = sample_supervised_goal_run(goal_run_id, "task-huge", "approval-huge");
+    goal_run.events.push(GoalRunEvent {
+        id: "event-huge".to_string(),
+        timestamp: now_millis(),
+        phase: "running".to_string(),
+        message: "huge event".to_string(),
+        details: Some(huge_details),
+        step_index: Some(0),
+        todo_snapshot: Vec::new(),
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let (goal_run, truncated) = engine
+        .get_goal_run_capped_for_ipc(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert!(truncated, "oversized goal detail should be truncated");
+    assert!(
+        goal_run.events.is_empty(),
+        "huge event should be dropped to fit the IPC cap"
+    );
+    let goal_run_json =
+        serde_json::to_string(&Some(goal_run)).expect("serialize goal run detail json");
+    let mut frame = BytesMut::new();
+    amux_protocol::DaemonCodec::default()
+        .encode(
+            amux_protocol::DaemonMessage::AgentGoalRunDetail { goal_run_json },
+            &mut frame,
+        )
+        .expect("serialize goal run detail frame");
+
+    assert!(
+        frame.len().saturating_sub(4) <= amux_protocol::MAX_IPC_FRAME_SIZE_BYTES,
+        "goal run detail should stay below the IPC frame cap"
+    );
+}
+
+#[tokio::test]
+async fn list_goal_runs_payload_stays_below_ipc_frame_cap() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let huge_details = "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024);
+
+    let mut goal_run = sample_supervised_goal_run("goal-huge-list", "task-huge", "approval-huge");
+    goal_run.events.push(GoalRunEvent {
+        id: "event-huge-list".to_string(),
+        timestamp: now_millis(),
+        phase: "running".to_string(),
+        message: "huge event".to_string(),
+        details: Some(huge_details),
+        step_index: Some(0),
+        todo_snapshot: Vec::new(),
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let goal_runs = engine.list_goal_runs().await;
+    let goal_runs_json = serde_json::to_string(&goal_runs).expect("serialize goal run list json");
+    let mut frame = BytesMut::new();
+    amux_protocol::DaemonCodec::default()
+        .encode(
+            amux_protocol::DaemonMessage::AgentGoalRunList { goal_runs_json },
+            &mut frame,
+        )
+        .expect("serialize goal run list frame");
+
+    assert!(
+        frame.len().saturating_sub(4) <= amux_protocol::MAX_IPC_FRAME_SIZE_BYTES,
+        "goal run list should stay below the IPC frame cap"
+    );
+}
+
+#[tokio::test]
+async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "task-small".to_string(),
+        title: "small task".to_string(),
+        description: "small".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: 1,
+        started_at: None,
+        completed_at: Some(2),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: None,
+        source: "user".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 1,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        lane_id: None,
+        last_error: None,
+        logs: vec![AgentTaskLogEntry {
+            id: "task-small-log".to_string(),
+            timestamp: 1,
+            level: TaskLogLevel::Info,
+            phase: "done".to_string(),
+            message: "small log".to_string(),
+            details: None,
+            attempt: 0,
+        }],
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: "task-huge".to_string(),
+        title: "huge task".to_string(),
+        description: "huge".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: 3,
+        started_at: None,
+        completed_at: Some(4),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: None,
+        source: "user".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 1,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        lane_id: None,
+        last_error: None,
+        logs: vec![AgentTaskLogEntry {
+            id: "task-huge-log".to_string(),
+            timestamp: 3,
+            level: TaskLogLevel::Info,
+            phase: "done".to_string(),
+            message: "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
+            details: None,
+            attempt: 0,
+        }],
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+
+    let (tasks, truncated) = engine.list_tasks_capped_for_ipc().await;
+    assert!(truncated);
+    assert!(tasks.iter().any(|task| task.id == "task-small"));
+    let huge = tasks
+        .iter()
+        .find(|task| task.id == "task-huge")
+        .expect("huge task should remain present after IPC capping");
+    assert!(huge.logs.is_empty(), "oversized task logs should be dropped to fit IPC");
+
+    let tasks_json = serde_json::to_string(&tasks).expect("serialize capped task list json");
+    let mut frame = BytesMut::new();
+    amux_protocol::DaemonCodec::default()
+        .encode(
+            amux_protocol::DaemonMessage::AgentTaskList { tasks_json },
+            &mut frame,
+        )
+        .expect("serialize task list frame");
+
+    assert!(
+        frame.len().saturating_sub(4) <= amux_protocol::MAX_IPC_FRAME_SIZE_BYTES,
+        "task list should stay below the IPC frame cap"
+    );
+}
+
+#[tokio::test]
+async fn list_todos_capped_for_ipc_truncates_oversized_payload() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    engine.thread_todos.write().await.insert(
+        "thread-small".to_string(),
+        vec![TodoItem {
+            id: "todo-small".to_string(),
+            content: "small".to_string(),
+            status: TodoStatus::Pending,
+            position: 0,
+            step_index: None,
+            created_at: 1,
+            updated_at: 2,
+        }],
+    );
+    engine.thread_todos.write().await.insert(
+        "thread-huge".to_string(),
+        vec![TodoItem {
+            id: "todo-huge".to_string(),
+            content: "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
+            status: TodoStatus::Pending,
+            position: 0,
+            step_index: None,
+            created_at: 1,
+            updated_at: 1,
+        }],
+    );
+
+    let (todos_by_thread, truncated) = engine.list_todos_capped_for_ipc().await;
+    assert!(truncated);
+    assert!(todos_by_thread.contains_key("thread-small"));
+    assert!(
+        todos_by_thread
+            .get("thread-huge")
+            .map_or(true, |todos| todos.is_empty()),
+        "oversized todo bucket should be dropped or emptied to fit IPC"
+    );
+
+    let todos_json = serde_json::to_string(&todos_by_thread).expect("serialize todo list");
+    let mut frame = BytesMut::new();
+    amux_protocol::DaemonCodec::default()
+        .encode(
+            amux_protocol::DaemonMessage::AgentTodoList { todos_json },
+            &mut frame,
+        )
+        .expect("serialize todo list frame");
+
+    assert!(
+        frame.len().saturating_sub(4) <= amux_protocol::MAX_IPC_FRAME_SIZE_BYTES,
+        "todo list should stay below the IPC frame cap"
+    );
 }
 
 #[tokio::test]

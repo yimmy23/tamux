@@ -365,6 +365,44 @@ impl TuiModel {
         );
     }
 
+    pub(in crate::app) fn handle_operator_question_event(
+        &mut self,
+        question_id: String,
+        content: String,
+        options: Vec<String>,
+    ) {
+        self.operator_question = Some(super::OperatorQuestionVm {
+            question_id,
+            content,
+            options,
+            selected_index: 0,
+        });
+        if self.modal.top() != Some(crate::state::modal::ModalKind::OperatorQuestionOverlay) {
+            self.modal.reduce(crate::state::modal::ModalAction::Push(
+                crate::state::modal::ModalKind::OperatorQuestionOverlay,
+            ));
+        }
+        self.status_line = "Operator question ready".to_string();
+    }
+
+    pub(in crate::app) fn handle_operator_question_resolved_event(
+        &mut self,
+        question_id: String,
+        answer: String,
+    ) {
+        let should_clear = self
+            .operator_question
+            .as_ref()
+            .is_some_and(|question| question.question_id == question_id);
+        if should_clear {
+            self.operator_question = None;
+            if self.modal.top() == Some(crate::state::modal::ModalKind::OperatorQuestionOverlay) {
+                self.close_top_modal();
+            }
+            self.status_line = format!("Operator question answered: {answer}");
+        }
+    }
+
     pub(in crate::app) fn handle_operator_profile_summary_event(&mut self, summary_json: String) {
         self.operator_profile.summary_json = Some(summary_json.clone());
         if self.operator_profile.progress.is_none() {

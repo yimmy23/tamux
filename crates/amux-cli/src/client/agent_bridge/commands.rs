@@ -495,6 +495,17 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::AnswerQuestion {
+            question_id,
+            answer,
+        } => {
+            framed
+                .send(ClientMessage::AgentAnswerQuestion {
+                    question_id,
+                    answer,
+                })
+                .await?;
+        }
         AgentBridgeCommand::GetOperatorProfileSummary => {
             framed
                 .send(ClientMessage::AgentGetOperatorProfileSummary)

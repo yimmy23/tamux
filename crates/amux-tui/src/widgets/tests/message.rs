@@ -269,6 +269,134 @@ fn tool_message_expanded_preserves_full_arguments_and_result() {
 }
 
 #[test]
+fn apply_patch_tool_message_expanded_renders_diff_like_sections() {
+    let patch = [
+        "*** Begin Patch",
+        "*** Update File: /tmp/example.rs",
+        "@@ fn example()",
+        "-    let before = 1;",
+        "+    let after = 2;",
+        "*** End Patch",
+    ]
+    .join("\n");
+    let msg = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("apply_patch".into()),
+        tool_status: Some("done".into()),
+        tool_arguments: Some(serde_json::json!({ "input": patch }).to_string()),
+        content: "Patch applied successfully".into(),
+        ..Default::default()
+    };
+
+    let mut exp_tools = empty_tools();
+    exp_tools.insert(0);
+    let lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &exp_tools,
+    );
+
+    let plain = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        plain.contains("/tmp/example.rs"),
+        "expected file header in rendered diff, got: {plain}"
+    );
+    assert!(
+        plain.contains("-    let before = 1;"),
+        "expected removed line in rendered diff, got: {plain}"
+    );
+    assert!(
+        plain.contains("+    let after = 2;"),
+        "expected added line in rendered diff, got: {plain}"
+    );
+    assert!(
+        !plain.contains("{\"input\":"),
+        "expected formatted diff instead of raw JSON arguments, got: {plain}"
+    );
+}
+
+#[test]
+fn tool_message_expanded_formats_json_arguments_and_result_as_key_values() {
+    let msg = AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("run_terminal_command".into()),
+        tool_status: Some("done".into()),
+        tool_arguments: Some(
+            serde_json::json!({
+                "command": "cargo test -p tamux-tui",
+                "cwd": "/tmp/workspace",
+                "options": {
+                    "timeout_ms": 120000,
+                    "background": false
+                }
+            })
+            .to_string(),
+        ),
+        content: serde_json::json!({
+            "status": "ok",
+            "exit_code": 0,
+            "stdout_lines": 24
+        })
+        .to_string(),
+        ..Default::default()
+    };
+
+    let mut exp_tools = empty_tools();
+    exp_tools.insert(0);
+    let lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &exp_tools,
+    );
+
+    let plain = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        plain.contains("command: cargo test -p tamux-tui"),
+        "expected flattened command field, got: {plain}"
+    );
+    assert!(
+        plain.contains("options.timeout_ms: 120000"),
+        "expected flattened nested field, got: {plain}"
+    );
+    assert!(
+        plain.contains("exit_code: 0"),
+        "expected structured JSON result field, got: {plain}"
+    );
+    assert!(
+        !plain.contains("{\"command\":"),
+        "expected structured view instead of raw JSON blob, got: {plain}"
+    );
+}
+
+#[test]
 fn tool_message_with_content_renders_compact() {
     let msg = AgentMessage {
         role: MessageRole::Tool,

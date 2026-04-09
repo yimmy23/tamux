@@ -17,15 +17,18 @@ impl AgentEngine {
         query: &str,
         session_id: Option<SessionId>,
         limit: usize,
+        cursor: Option<&str>,
     ) -> Result<amux_protocol::SkillDiscoveryResultPublic> {
-        let context = self.run_skill_discovery(query, session_id, limit).await?;
+        let context = self.run_skill_discovery(query, session_id, 512).await?;
 
-        Ok(translate_skill_discovery_result(
+        super::skill_recommendation::page_public_discovery_result(
             query,
             &context.context_tags,
             &context.result,
             &context.cfg,
-        ))
+            cursor,
+            limit,
+        )
     }
 
     pub(super) async fn build_skill_preflight_context(
@@ -142,54 +145,6 @@ struct SkillDiscoveryComputation {
     result: super::skill_recommendation::SkillDiscoveryResult,
 }
 
-fn translate_skill_discovery_result(
-    query: &str,
-    context_tags: &[String],
-    result: &super::skill_recommendation::SkillDiscoveryResult,
-    cfg: &SkillRecommendationConfig,
-) -> amux_protocol::SkillDiscoveryResultPublic {
-    let top_skill_name = result
-        .recommendations
-        .first()
-        .map(|recommendation| recommendation.record.skill_name.as_str());
-
-    amux_protocol::SkillDiscoveryResultPublic {
-        query: query.to_string(),
-        required: !matches!(
-            result.recommended_action,
-            super::skill_recommendation::SkillRecommendationAction::None
-        ),
-        confidence_tier: confidence_label(result.confidence).to_string(),
-        recommended_action: recommended_action_label(result.recommended_action, top_skill_name),
-        explicit_rationale_required: matches!(
-            result.recommended_action,
-            super::skill_recommendation::SkillRecommendationAction::JustifySkip
-        ),
-        workspace_tags: context_tags.to_vec(),
-        candidates: result
-            .recommendations
-            .iter()
-            .map(
-                |recommendation| amux_protocol::SkillDiscoveryCandidatePublic {
-                    variant_id: recommendation.record.variant_id.clone(),
-                    skill_name: recommendation.record.skill_name.clone(),
-                    variant_name: recommendation.record.variant_name.clone(),
-                    relative_path: recommendation.record.relative_path.clone(),
-                    status: recommendation.record.status.clone(),
-                    score: recommendation.score,
-                    confidence_tier: candidate_confidence_label(recommendation.score, cfg)
-                        .to_string(),
-                    reasons: split_reasons(&recommendation.reason),
-                    context_tags: recommendation.record.context_tags.clone(),
-                    use_count: recommendation.record.use_count,
-                    success_count: recommendation.record.success_count,
-                    failure_count: recommendation.record.failure_count,
-                },
-            )
-            .collect(),
-    }
-}
-
 async fn resolve_skill_context_tags(
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
@@ -249,10 +204,8 @@ fn build_latest_skill_discovery_state(
         .first()
         .map(|recommendation| recommendation.record.skill_name.clone());
     let confidence_tier = confidence_label(result.confidence).to_string();
-    let recommended_action = recommended_action_label(
-        result.recommended_action,
-        recommended_skill.as_deref(),
-    );
+    let recommended_action =
+        recommended_action_label(result.recommended_action, recommended_skill.as_deref());
 
     LatestSkillDiscoveryState {
         query: query.to_string(),

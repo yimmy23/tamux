@@ -10,6 +10,8 @@ const LOCAL_SKILL_WORKFLOW_PROMPT: &str =
      - Treat that discovery result as the source of truth instead of relying on raw `list_skills` output.\n\
      - If the top match is strong, call `read_skill` for the recommended skill before other substantial tools.\n\
     - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
+    - When you need clarification or the operator must choose among options, call `ask_questions`. Do not ask clarifying questions in plain text when this tool fits.\n\
+    - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n\
      - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
      - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n";
 
@@ -100,12 +102,14 @@ pub(super) fn build_system_prompt(
             "\n\n## Local Skills\n\
              - Skills root: {}\n\
              - Generated skills: {}\n\
-             - Built-in skills: {}/builtin/ (tamux reference docs for terminals, browser, tasks, goals, memory, safety, etc.)\n\
+             - Curated local skills live directly under {} (tamux reference docs for terminals, browser, tasks, goals, memory, safety, etc.).\n\
              - Before non-trivial work, consult MEMORY.md and USER.md, then follow the daemon-provided skill discovery result for this turn.\n\
              - Strong matches require `read_skill` before other substantial tools.\n\
              - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
+             - When you need clarification or the operator must choose among options, call `ask_questions`. Do not ask clarifying questions in plain text when this tool fits.\n\
+             - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n\
              - `list_skills` remains the raw catalog view, not the decision authority for the task.\n\
-             - The `builtin/cheatsheet` skill provides a quick reference for all available MCP tools.\n\
+             - The `cheatsheet` skill provides a quick reference for all available MCP tools.\n\
              - Prefer reusing an existing skill over inventing a brand-new workflow.\n",
             skills_root.display(),
             generated_skills_root.display(),
@@ -518,13 +522,9 @@ fn collect_skill_stems(root: &std::path::Path, dir: &std::path::Path, out: &mut 
         if path.extension().and_then(|value| value.to_str()) != Some("md") {
             continue;
         }
-        let Ok(relative) = path.strip_prefix(root) else {
+        let Ok(_) = path.strip_prefix(root) else {
             continue;
         };
-        let relative = relative.to_string_lossy().replace('\\', "/");
-        if relative.starts_with("builtin/") {
-            continue;
-        }
         out.push(
             path.file_stem()
                 .and_then(|value| value.to_str())
@@ -603,5 +603,36 @@ mod tests {
         assert!(prompt.contains("does not switch the active responder"));
         assert!(prompt.contains("`handoff_thread_agent`"));
         assert!(prompt.contains("If the operator wants to talk directly to another agent"));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_requires_ask_questions_for_clarifications() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine =
+            crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("`ask_questions`"));
+        assert!(prompt.contains("Do not ask clarifying questions in plain text"));
+        assert!(prompt.contains("buttons must stay compact"));
     }
 }

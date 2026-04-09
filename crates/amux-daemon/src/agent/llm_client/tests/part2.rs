@@ -604,8 +604,7 @@ use amux_shared::providers::{
         assert_eq!(body["stream"], true);
         assert_eq!(body["input"][0]["role"], "user");
         assert_eq!(body["input"][1]["role"], "assistant");
-        assert_eq!(body["input"][2]["type"], "function_call");
-        assert_eq!(body["input"].as_array().map(Vec::len), Some(3));
+        assert_eq!(body["input"].as_array().map(Vec::len), Some(2));
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], "update_memory");
         assert_eq!(body["tool_choice"], "auto");

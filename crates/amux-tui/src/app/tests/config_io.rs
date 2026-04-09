@@ -890,7 +890,10 @@ fn sync_config_to_daemon_emits_second_provider_switch_after_returning_from_custo
             } => match key_path.as_str() {
                 "/provider" => {
                     saw_provider = true;
-                    assert_eq!(value_json, format!("\"{}\"", PROVIDER_ID_MINIMAX_CODING_PLAN));
+                    assert_eq!(
+                        value_json,
+                        format!("\"{}\"", PROVIDER_ID_MINIMAX_CODING_PLAN)
+                    );
                 }
                 "/model" => {
                     saw_model = true;

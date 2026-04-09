@@ -177,6 +177,46 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
+        "list_tools",
+        "List the tools currently available to the agent in this runtime context, including descriptions and argument schemas.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "limit": { "type": "integer", "description": "Maximum number of tools to return (default: 20)" },
+                "offset": { "type": "integer", "description": "Zero-based pagination offset (default: 0)" }
+            }
+        }),
+    ));
+
+    tools.push(tool_def(
+        "tool_search",
+        "Search the currently available tools by name, description, and parameter names to find the best tool for a task.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "What capability or action you are looking for" },
+                "limit": { "type": "integer", "description": "Maximum number of matches to return (default: 10)" },
+                "offset": { "type": "integer", "description": "Zero-based pagination offset (default: 0)" }
+            },
+            "required": ["query"]
+        }),
+    ));
+
+    tools.push(tool_def(
+        "discover_skills",
+        "Rank installed local skills for the current task and return the recommended next action. Use this before non-trivial work instead of treating `list_skills` as the decision authority.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Task or problem description to rank skills against" },
+                "limit": { "type": "integer", "description": "Maximum number of ranked skill candidates to return (default: 3)" },
+                "session": { "type": "string", "description": "Optional live terminal session UUID for workspace-aware ranking" }
+            },
+            "required": ["query"]
+        }),
+    ));
+
+    tools.push(tool_def(
         "read_skill",
         "Read a local skill document before acting. Accepts a skill name, relative path, or generated skill filename.",
         serde_json::json!({
@@ -186,6 +226,24 @@ fn add_available_tools_part_b(
                 "max_lines": { "type": "integer", "description": "Max lines to read (default: 200)" }
             },
             "required": ["skill"]
+        }),
+    ));
+
+    tools.push(tool_def(
+        "ask_questions",
+        "Show a blocking multiple-choice question to the operator in tamux clients and wait for one compact token answer. Put the full prompt and answer text in `content`; keep `options` limited to short ordered tokens like A/B/C/D or 1/2/3/4.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": { "type": "string", "description": "Full question content including the detailed answer text for each option" },
+                "options": {
+                    "type": "array",
+                    "description": "Compact button tokens only, such as [\"A\", \"B\", \"C\"] or [\"1\", \"2\"]",
+                    "items": { "type": "string" }
+                },
+                "session": { "type": "string", "description": "Optional live terminal session UUID to bias the prompt toward one workspace surface" }
+            },
+            "required": ["content", "options"]
         }),
     ));
 

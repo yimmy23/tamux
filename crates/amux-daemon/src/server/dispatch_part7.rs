@@ -543,16 +543,27 @@ if matches!(
                         .await?;
                 }
 
-                ClientMessage::SkillList { status, limit } => {
+                ClientMessage::SkillList {
+                    status,
+                    limit,
+                    cursor,
+                } => {
                     let limit = limit.clamp(1, 200);
                     let result = if let Some(ref st) = status {
-                        agent.history.list_skill_variants_by_status(st, limit).await
+                        agent
+                            .history
+                            .list_skill_variants_by_status_page(st, cursor.as_deref(), limit)
+                            .await
                     } else {
-                        agent.history.list_skill_variants(None, limit).await
+                        agent
+                            .history
+                            .list_skill_variants_page(None, cursor.as_deref(), limit)
+                            .await
                     };
                     match result {
-                        Ok(records) => {
-                            let variants: Vec<amux_protocol::SkillVariantPublic> = records
+                        Ok(page) => {
+                            let variants: Vec<amux_protocol::SkillVariantPublic> = page
+                                .variants
                                 .into_iter()
                                 .map(|r| amux_protocol::SkillVariantPublic {
                                     variant_id: r.variant_id,
@@ -569,7 +580,10 @@ if matches!(
                                 })
                                 .collect();
                             framed
-                                .send(DaemonMessage::SkillListResult { variants })
+                                .send(DaemonMessage::SkillListResult {
+                                    variants,
+                                    next_cursor: page.next_cursor,
+                                })
                                 .await?;
                         }
                         Err(e) => {
@@ -586,10 +600,16 @@ if matches!(
                     query,
                     session_id,
                     limit,
+                    cursor,
                 } => {
                     let limit = limit.clamp(1, 20);
                     match agent
-                        .discover_skill_recommendations_public(&query, session_id, limit)
+                        .discover_skill_recommendations_public(
+                            &query,
+                            session_id,
+                            limit,
+                            cursor.as_deref(),
+                        )
                         .await
                     {
                         Ok(result) => match serde_json::to_string(&result) {

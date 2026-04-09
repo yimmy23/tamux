@@ -30,6 +30,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Ping
             | Commands::StartDaemon
             | Commands::Plugin { .. }
+            | Commands::Tool { .. }
             | Commands::Install { .. }
     )
 }
@@ -84,10 +85,7 @@ fn format_direct_message_output(
     Ok(rendered)
 }
 
-fn format_thread_list_output(
-    threads: &[client::AgentThreadRecord],
-    json: bool,
-) -> Result<String> {
+fn format_thread_list_output(threads: &[client::AgentThreadRecord], json: bool) -> Result<String> {
     if json {
         return serde_json::to_string_pretty(threads).map_err(Into::into);
     }
@@ -347,8 +345,7 @@ mod tests {
     };
     use crate::client::{
         AgentPromptInspection, AgentPromptInspectionSection, AgentStatusSnapshot,
-        AgentThreadMessageRecord, AgentThreadRecord,
-        DirectMessageResponse,
+        AgentThreadMessageRecord, AgentThreadRecord, DirectMessageResponse,
     };
     use crate::setup_wizard::SetupProbe;
 
@@ -884,7 +881,9 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         } => {
             client::run_bridge(session, shell, cwd, workspace, cols, rows).await?;
         }
-        Commands::Skill { .. } | Commands::Plugin { .. } => unreachable!(),
+        Commands::Skill { .. } | Commands::Plugin { .. } | Commands::Tool { .. } => {
+            unreachable!()
+        }
     }
 
     Ok(())

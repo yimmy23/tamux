@@ -32,6 +32,10 @@ const GATEWAY_TRIAGE_SAFE_TOOL_NAMES: &[&str] = &[
     "session_search",
     "agent_query_memory",
     "onecontext_search",
+    "list_skills",
+    "semantic_query",
+    "discover_skills",
+    "read_skill",
     "web_search",
 ];
 

@@ -1,6 +1,19 @@
 use super::*;
+use base64::Engine;
+
+const SKILL_LIST_CURSOR_PREFIX: &str = "skill-list:";
 
 impl HistoryStore {
+    pub async fn list_skill_variants_page(
+        &self,
+        query: Option<&str>,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<SkillVariantPage> {
+        let variants = self.load_skill_variants(query).await?;
+        page_skill_variants(variants, cursor, limit)
+    }
+
     pub async fn inspect_skill_variants(
         &self,
         skill: &str,
@@ -169,37 +182,8 @@ impl HistoryStore {
         query: Option<&str>,
         limit: usize,
     ) -> Result<Vec<SkillVariantRecord>> {
-        let normalized_query = query
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| value.to_ascii_lowercase());
-        let limit = limit.clamp(1, 200) as i64;
-
-        let query = query.map(str::to_string);
-        self.conn.call(move |conn| {
-            let mut variants = if let Some(query) = normalized_query.as_deref() {
-                let like = format!("%{query}%");
-                let mut stmt = conn.prepare(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants \
-                     WHERE lower(skill_name) LIKE ?1 OR lower(variant_name) LIKE ?1 OR lower(relative_path) LIKE ?1 OR lower(context_tags_json) LIKE ?1 \
-                     ORDER BY updated_at DESC LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![like, limit], map_skill_variant_row)?;
-                rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
-            } else {
-                let mut stmt = conn.prepare(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants \
-                     ORDER BY updated_at DESC LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
-                rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
-            };
-
-            variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
-            Ok(variants)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let page = self.list_skill_variants_page(query, None, limit).await?;
+        Ok(page.variants)
     }
 
     /// Update the maturity status of a skill variant and bump `updated_at`.
@@ -363,4 +347,93 @@ impl HistoryStore {
         .await?;
         Ok(())
     }
+}
+
+impl HistoryStore {
+    async fn load_skill_variants(&self, query: Option<&str>) -> Result<Vec<SkillVariantRecord>> {
+        let normalized_query = query
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase());
+
+        self.conn
+            .call(move |conn| {
+                let mut variants = if let Some(query) = normalized_query.as_deref() {
+                    let like = format!("%{query}%");
+                    let mut stmt = conn.prepare(
+                        "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                         FROM skill_variants \
+                         WHERE lower(skill_name) LIKE ?1 OR lower(variant_name) LIKE ?1 OR lower(relative_path) LIKE ?1 OR lower(context_tags_json) LIKE ?1",
+                    )?;
+                    let rows = stmt.query_map(params![like], map_skill_variant_row)?;
+                    rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
+                } else {
+                    let mut stmt = conn.prepare(
+                        "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
+                         FROM skill_variants",
+                    )?;
+                    let rows = stmt.query_map([], map_skill_variant_row)?;
+                    rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
+                };
+
+                variants.sort_by(|left, right| compare_skill_variants(left, right, &[]));
+                Ok(variants)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
+pub(crate) fn page_skill_variants(
+    variants: Vec<SkillVariantRecord>,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<SkillVariantPage> {
+    let limit = limit.clamp(1, 200);
+    let start_index = decode_skill_list_cursor(cursor)?
+        .as_deref()
+        .and_then(|variant_id| {
+            variants
+                .iter()
+                .position(|variant| variant.variant_id == variant_id)
+                .map(|index| index + 1)
+        })
+        .unwrap_or(0);
+    let page_variants = variants
+        .iter()
+        .skip(start_index)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next_cursor = if start_index + page_variants.len() < variants.len() {
+        page_variants
+            .last()
+            .map(|variant| encode_skill_list_cursor(&variant.variant_id))
+    } else {
+        None
+    };
+    Ok(SkillVariantPage {
+        variants: page_variants,
+        next_cursor,
+    })
+}
+
+fn encode_skill_list_cursor(variant_id: &str) -> String {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(variant_id.as_bytes());
+    format!("{SKILL_LIST_CURSOR_PREFIX}{encoded}")
+}
+
+fn decode_skill_list_cursor(cursor: Option<&str>) -> Result<Option<String>> {
+    let Some(cursor) = cursor.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let payload = cursor
+        .strip_prefix(SKILL_LIST_CURSOR_PREFIX)
+        .ok_or_else(|| anyhow::anyhow!("invalid skill list cursor"))?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|error| anyhow::anyhow!("invalid skill list cursor: {error}"))?;
+    let value = String::from_utf8(bytes)
+        .map_err(|error| anyhow::anyhow!("invalid skill list cursor: {error}"))?;
+    Ok(Some(value))
 }

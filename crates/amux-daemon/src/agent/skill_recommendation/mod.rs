@@ -6,6 +6,7 @@ use crate::agent::skill_registry::{to_community_entry, RegistryClient};
 use crate::agent::types::SkillRecommendationConfig;
 use crate::history::HistoryStore;
 use anyhow::{Context, Result};
+use base64::Engine;
 use ranking::rank_skill_candidates;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ pub(crate) use types::{
 
 const MAX_SKILL_EXCERPT_LINES: usize = 40;
 const MAX_SKILL_EXCERPT_CHARS: usize = 2400;
+const DISCOVERY_CURSOR_PREFIX: &str = "skill-discovery:";
 
 pub(crate) async fn discover_local_skills(
     history: &HistoryStore,
@@ -34,8 +36,12 @@ pub(crate) async fn discover_local_skills(
         if matches!(record.status.as_str(), "archived" | "merged" | "draft") {
             continue;
         }
+        if !should_include_skill_relative_path(&record.relative_path) {
+            continue;
+        }
 
-        let skill_path = skills_root.join(&record.relative_path);
+        let (skill_path, metadata_relative_path) =
+            resolve_skill_document_path(skills_root, &record.relative_path);
         let content = std::fs::read_to_string(&skill_path).with_context(|| {
             format!(
                 "failed to read skill recommendation file {}",
@@ -43,7 +49,7 @@ pub(crate) async fn discover_local_skills(
             )
         })?;
         candidates.push(SkillCandidateInput {
-            metadata: extract_skill_metadata(&record.relative_path, &content),
+            metadata: extract_skill_metadata(&metadata_relative_path, &content),
             excerpt: excerpt_skill(&content),
             record,
         });
@@ -65,6 +71,74 @@ pub(crate) async fn sync_skill_catalog(history: &HistoryStore, skills_root: &Pat
         history.register_skill_document(&path).await?;
     }
     Ok(())
+}
+
+pub(crate) fn resolve_skill_document_path(
+    skills_root: &Path,
+    relative_path: &str,
+) -> (PathBuf, String) {
+    let normalized = relative_path.replace('\\', "/");
+    let candidate = skills_root.join(&normalized);
+    if candidate.exists() {
+        return (candidate, normalized);
+    }
+
+    if let Some(stripped) = normalized.strip_prefix("builtin/") {
+        let migrated = skills_root.join(stripped);
+        if migrated.exists() {
+            return (migrated, stripped.to_string());
+        }
+    }
+
+    if let Some(resolved) = resolve_skill_document_by_suffix(skills_root, &normalized) {
+        return resolved;
+    }
+
+    (candidate, normalized)
+}
+
+fn resolve_skill_document_by_suffix(
+    skills_root: &Path,
+    relative_path: &str,
+) -> Option<(PathBuf, String)> {
+    let mut files = Vec::new();
+    collect_skill_documents(skills_root, &mut files).ok()?;
+
+    for suffix in relative_path_suffixes(relative_path) {
+        let matches = files
+            .iter()
+            .filter_map(|path| {
+                let relative = path
+                    .strip_prefix(skills_root)
+                    .ok()?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if relative == suffix || relative.ends_with(&format!("/{suffix}")) {
+                    Some((path.clone(), relative))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            return matches.into_iter().next();
+        }
+    }
+
+    None
+}
+
+fn relative_path_suffixes(relative_path: &str) -> Vec<String> {
+    let mut suffixes = Vec::new();
+    let mut current = relative_path.trim_matches('/').to_string();
+    while !current.is_empty() {
+        suffixes.push(current.clone());
+        let Some((_, tail)) = current.split_once('/') else {
+            break;
+        };
+        current = tail.to_string();
+    }
+    suffixes
 }
 
 pub(crate) async fn discover_community_skills(
@@ -122,16 +196,206 @@ fn collect_skill_documents(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry.path();
         if path.is_dir() {
             collect_skill_documents(&path, out)?;
-        } else if path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .map(|name| name.eq_ignore_ascii_case("skill.md"))
-            .unwrap_or(false)
-        {
+        } else if should_include_skill_document(&path) {
             out.push(path);
         }
     }
     Ok(())
+}
+
+fn should_include_skill_document(path: &Path) -> bool {
+    should_include_skill_relative_path(&path.to_string_lossy())
+}
+
+fn should_include_skill_relative_path(relative_path: &str) -> bool {
+    let path = Path::new(relative_path);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    file_name.eq_ignore_ascii_case("skill.md")
+        || (path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("md"))
+            && path
+                .components()
+                .any(|component| component.as_os_str() == "generated"))
+}
+
+pub(super) fn page_public_discovery_result(
+    query: &str,
+    context_tags: &[String],
+    result: &SkillDiscoveryResult,
+    cfg: &SkillRecommendationConfig,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<amux_protocol::SkillDiscoveryResultPublic> {
+    let limit = limit.clamp(1, 100);
+    let start_index = decode_page_cursor(cursor)?
+        .as_deref()
+        .and_then(|variant_id| {
+            result
+                .recommendations
+                .iter()
+                .position(|item| item.record.variant_id == variant_id)
+                .map(|index| index + 1)
+        })
+        .unwrap_or(0);
+    let page = result
+        .recommendations
+        .iter()
+        .skip(start_index)
+        .take(limit)
+        .collect::<Vec<_>>();
+    let next_cursor = if start_index + page.len() < result.recommendations.len() {
+        page.last()
+            .map(|recommendation| encode_page_cursor(&recommendation.record.variant_id))
+    } else {
+        None
+    };
+
+    let top_skill_name = result
+        .recommendations
+        .first()
+        .map(|recommendation| recommendation.record.skill_name.as_str());
+
+    Ok(amux_protocol::SkillDiscoveryResultPublic {
+        query: query.to_string(),
+        required: !matches!(result.recommended_action, SkillRecommendationAction::None),
+        confidence_tier: confidence_label(result.confidence).to_string(),
+        recommended_action: recommended_action_label(result.recommended_action, top_skill_name),
+        explicit_rationale_required: matches!(
+            result.recommended_action,
+            SkillRecommendationAction::JustifySkip
+        ),
+        workspace_tags: context_tags.to_vec(),
+        candidates: page
+            .into_iter()
+            .map(
+                |recommendation| amux_protocol::SkillDiscoveryCandidatePublic {
+                    variant_id: recommendation.record.variant_id.clone(),
+                    skill_name: recommendation.record.skill_name.clone(),
+                    variant_name: recommendation.record.variant_name.clone(),
+                    relative_path: recommendation.record.relative_path.clone(),
+                    status: recommendation.record.status.clone(),
+                    score: recommendation.score,
+                    confidence_tier: candidate_confidence_label(recommendation.score, cfg)
+                        .to_string(),
+                    reasons: split_reasons(&recommendation.reason),
+                    context_tags: recommendation.record.context_tags.clone(),
+                    use_count: recommendation.record.use_count,
+                    success_count: recommendation.record.success_count,
+                    failure_count: recommendation.record.failure_count,
+                },
+            )
+            .collect(),
+        next_cursor,
+    })
+}
+
+fn encode_page_cursor(variant_id: &str) -> String {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(variant_id.as_bytes());
+    format!("{DISCOVERY_CURSOR_PREFIX}{encoded}")
+}
+
+fn decode_page_cursor(cursor: Option<&str>) -> Result<Option<String>> {
+    let Some(cursor) = cursor.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let payload = cursor
+        .strip_prefix(DISCOVERY_CURSOR_PREFIX)
+        .ok_or_else(|| anyhow::anyhow!("invalid discovery cursor"))?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|error| anyhow::anyhow!("invalid discovery cursor: {error}"))?;
+    let value = String::from_utf8(bytes)
+        .map_err(|error| anyhow::anyhow!("invalid discovery cursor: {error}"))?;
+    Ok(Some(value))
+}
+
+fn confidence_label(value: SkillRecommendationConfidence) -> &'static str {
+    match value {
+        SkillRecommendationConfidence::Strong => "strong",
+        SkillRecommendationConfidence::Weak => "weak",
+        SkillRecommendationConfidence::None => "none",
+    }
+}
+
+fn action_label(value: SkillRecommendationAction) -> &'static str {
+    match value {
+        SkillRecommendationAction::ReadSkill => "read_skill",
+        SkillRecommendationAction::JustifySkip => "justify_skill_skip",
+        SkillRecommendationAction::None => "none",
+    }
+}
+
+fn recommended_action_label(
+    action: SkillRecommendationAction,
+    top_skill_name: Option<&str>,
+) -> String {
+    match (action, top_skill_name) {
+        (SkillRecommendationAction::ReadSkill, Some(skill_name)) => {
+            format!("read_skill {skill_name}")
+        }
+        _ => action_label(action).to_string(),
+    }
+}
+
+fn candidate_confidence_label(score: f64, cfg: &SkillRecommendationConfig) -> &'static str {
+    if score >= cfg.strong_match_threshold {
+        "strong"
+    } else if score >= cfg.weak_match_threshold {
+        "weak"
+    } else {
+        "none"
+    }
+}
+
+fn split_reasons(reason: &str) -> Vec<String> {
+    let parts = reason
+        .split(';')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if let Some(rest) = value.strip_prefix("matched request terms ") {
+                format!("matched {rest}")
+            } else if let Some(rest) = value.strip_prefix("matched workspace tags ") {
+                format!("workspace {rest}")
+            } else if value.starts_with("historical success ") {
+                reason_usage_summary(value)
+            } else {
+                value.to_string()
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        vec![reason.to_string()]
+    } else {
+        parts
+    }
+}
+
+fn reason_usage_summary(value: &str) -> String {
+    let words = value.split_whitespace().collect::<Vec<_>>();
+    let uses = words
+        .iter()
+        .position(|word| *word == "across")
+        .and_then(|index| words.get(index + 1))
+        .and_then(|count| count.parse::<u32>().ok());
+    let success_percent = words
+        .get(2)
+        .map(|value| value.trim_end_matches('%'))
+        .and_then(|value| value.parse::<u32>().ok());
+
+    match (uses, Some(success_percent).flatten()) {
+        (Some(uses), Some(success_percent)) => {
+            let successes = ((uses as f64) * (success_percent as f64 / 100.0)).round() as u32;
+            format!("{successes}/{uses} successful uses")
+        }
+        _ => value.to_string(),
+    }
 }
 
 fn excerpt_skill(content: &str) -> String {

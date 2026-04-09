@@ -308,6 +308,23 @@ pub enum AgentEvent {
         current_cost_usd: f64,
         threshold_usd: f64,
     },
+    /// Blocking operator-facing multiple-choice question requested by a tool or workflow.
+    OperatorQuestion {
+        question_id: String,
+        content: String,
+        options: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+    },
+    /// Operator resolved a previously broadcast multiple-choice question.
+    OperatorQuestionResolved {
+        question_id: String,
+        answer: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------

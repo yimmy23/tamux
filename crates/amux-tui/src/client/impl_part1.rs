@@ -240,6 +240,14 @@ impl DaemonClient {
             },
             ClientMessage::AgentListThreads,
         ] {
+            if let Err(err) = amux_protocol::validate_client_message_size(&request) {
+                error!("Rejected initial oversized daemon request: {}", err);
+                let _ = event_tx
+                    .send(ClientEvent::Error(format!("Protocol error: {}", err)))
+                    .await;
+                let _ = event_tx.send(ClientEvent::Disconnected).await;
+                return;
+            }
             if let Err(err) = sink.send(request).await {
                 error!("Failed initial daemon request: {}", err);
                 let _ = event_tx
@@ -294,6 +302,12 @@ impl DaemonClient {
                 outbound = request_rx.recv() => {
                     match outbound {
                         Some(request) => {
+                            if let Err(err) = amux_protocol::validate_client_message_size(&request) {
+                                let _ = event_tx
+                                    .send(ClientEvent::Error(format!("Send error: {}", err)))
+                                    .await;
+                                continue;
+                            }
                             if let Err(err) = sink.send(request).await {
                                 let _ = event_tx.send(ClientEvent::Error(format!("Send error: {}", err))).await;
                                 break;

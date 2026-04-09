@@ -394,6 +394,9 @@ fn start_daemon_bridge(
                                     defer_until_unix_ms,
                                 );
                             }
+                            DaemonCommand::AnswerOperatorQuestion { question_id, answer } => {
+                                let _ = client.answer_operator_question(question_id, answer);
+                            }
                             DaemonCommand::GetOperatorProfileSummary => {
                                 let _ = client.get_operator_profile_summary();
                             }

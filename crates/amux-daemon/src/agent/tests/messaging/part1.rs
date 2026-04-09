@@ -60,14 +60,12 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
 
 #[test]
 fn daemon_generated_message_paths_use_internal_initiator() {
-    let heartbeat = fs::read_to_string(
-        repo_root().join("crates/amux-daemon/src/agent/heartbeat.rs"),
-    )
-    .expect("read heartbeat.rs");
-    let heartbeat_legacy = fs::read_to_string(
-        repo_root().join("crates/amux-daemon/src/agent/heartbeat/legacy.rs"),
-    )
-    .expect("read heartbeat/legacy.rs");
+    let heartbeat =
+        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/heartbeat.rs"))
+            .expect("read heartbeat.rs");
+    let heartbeat_legacy =
+        fs::read_to_string(repo_root().join("crates/amux-daemon/src/agent/heartbeat/legacy.rs"))
+            .expect("read heartbeat/legacy.rs");
     let gateway_message_helpers = fs::read_to_string(
         repo_root().join("crates/amux-daemon/src/agent/gateway_loop/message_helpers.rs"),
     )

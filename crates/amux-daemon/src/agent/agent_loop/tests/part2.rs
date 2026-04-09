@@ -2146,7 +2146,7 @@ async fn strong_match_requires_read_skill_before_non_discovery_tool() {
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
     let discovery = engine
-        .discover_skill_recommendations_public("debug panic in rust service", None, 3)
+        .discover_skill_recommendations_public("debug panic in rust service", None, 3, None)
         .await
         .expect("skill discovery should succeed");
     assert_eq!(discovery.confidence_tier, "strong");

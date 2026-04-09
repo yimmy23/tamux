@@ -23,6 +23,16 @@ pub(crate) struct ThreadDetailResult {
     pub messages_truncated: bool,
 }
 
+fn thread_detail_frame_fits_ipc(thread: &Option<AgentThread>) -> bool {
+    let Ok(thread_json) = serde_json::to_string(thread) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentThreadDetail {
+        thread_json,
+    })
+}
+
 impl AgentEngine {
     pub async fn set_thread_client_surface(
         &self,
@@ -176,6 +186,41 @@ impl AgentEngine {
         Some(ThreadDetailResult {
             thread,
             messages_truncated,
+        })
+    }
+
+    pub(crate) async fn get_thread_capped_for_ipc(
+        &self,
+        thread_id: &str,
+        include_internal: bool,
+    ) -> Option<ThreadDetailResult> {
+        let detail = self
+            .get_thread_filtered(thread_id, include_internal, None, 0)
+            .await?;
+
+        if thread_detail_frame_fits_ipc(&Some(detail.thread.clone())) {
+            return Some(detail);
+        }
+
+        let mut low = 0usize;
+        let mut high = detail.thread.messages.len();
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let mut candidate = detail.thread.clone();
+            candidate.messages = candidate.messages[mid..].to_vec();
+            if thread_detail_frame_fits_ipc(&Some(candidate)) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+
+        let mut thread = detail.thread;
+        thread.messages = thread.messages[low..].to_vec();
+
+        Some(ThreadDetailResult {
+            thread,
+            messages_truncated: detail.messages_truncated || low > 0,
         })
     }
 

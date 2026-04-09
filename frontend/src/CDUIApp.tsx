@@ -20,6 +20,7 @@ import { registerAITrainingPlugin } from "./plugins/ai-training/registerPlugin";
 import { registerCodingAgentsPlugin } from "./plugins/coding-agents/registerPlugin";
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
 import { OperatorProfileOnboardingPanel } from "./components/OperatorProfileOnboardingPanel";
+import { OperatorQuestionOverlay } from "./components/OperatorQuestionOverlay";
 import { ConciergeToast } from "./components/ConciergeToast";
 import { useAgentStore } from "./lib/agentStore";
 
@@ -137,7 +138,7 @@ const CDUIApp = () => {
         useAgentStore.getState().applyOperatorProfileSessionCompleted(event.data ?? event);
       }
       if (event?.type === "operator-profile-summary") {
-        useAgentStore.getState().getOperatorProfileSummary().catch(() => {});
+        useAgentStore.getState().getOperatorProfileSummary().catch(() => { });
       }
     });
 
@@ -151,7 +152,7 @@ const CDUIApp = () => {
       if (!amux.agentRequestConciergeWelcome) {
         return;
       }
-      await amux.agentRequestConciergeWelcome().catch(() => {});
+      await amux.agentRequestConciergeWelcome().catch(() => { });
     };
 
     const timer = window.setTimeout(requestWelcome, 250);
@@ -360,6 +361,7 @@ const CDUIApp = () => {
       })}
       <ViewBuilderOverlay />
       <SetupOnboardingPanel />
+      <OperatorQuestionOverlay />
       <OperatorProfileOnboardingPanel />
       <ConciergeToast />
     </AppContext.Provider>

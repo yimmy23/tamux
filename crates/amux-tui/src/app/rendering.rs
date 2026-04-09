@@ -560,6 +560,9 @@ impl TuiModel {
             let overlay_area = match modal_kind {
                 modal::ModalKind::Settings => render_helpers::centered_rect(90, 88, area),
                 modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
+                modal::ModalKind::OperatorQuestionOverlay => {
+                    render_helpers::centered_rect(68, 34, area)
+                }
                 modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
                 modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
                 modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),
@@ -617,6 +620,18 @@ impl TuiModel {
                 }
                 modal::ModalKind::ApprovalOverlay => {
                     widgets::approval::render(frame, overlay_area, &self.approval, &self.theme);
+                }
+                modal::ModalKind::OperatorQuestionOverlay => {
+                    if let Some(question) = &self.operator_question {
+                        widgets::operator_question::render(
+                            frame,
+                            overlay_area,
+                            &question.content,
+                            &question.options,
+                            question.selected_index,
+                            &self.theme,
+                        );
+                    }
                 }
                 modal::ModalKind::ApprovalCenter => {
                     widgets::approval_center::render(
@@ -752,6 +767,9 @@ impl TuiModel {
         let rect = match kind {
             modal::ModalKind::Settings => render_helpers::centered_rect(90, 88, area),
             modal::ModalKind::ApprovalOverlay => render_helpers::centered_rect(60, 40, area),
+            modal::ModalKind::OperatorQuestionOverlay => {
+                render_helpers::centered_rect(68, 34, area)
+            }
             modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
             modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
             modal::ModalKind::CommandPalette => render_helpers::centered_rect(50, 40, area),

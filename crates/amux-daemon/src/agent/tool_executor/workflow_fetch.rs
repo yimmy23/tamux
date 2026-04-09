@@ -26,7 +26,12 @@ fn emit_workflow_notice_for_tool(
             "Agent updated persistent memory.".to_string(),
             Some(args.to_string()),
         ),
-        "list_skills" | "read_skill" => (
+        "list_tools" | "tool_search" => (
+            "tool-catalog",
+            format!("Agent inspected available tools via {tool_name}."),
+            Some(args.to_string()),
+        ),
+        "discover_skills" | "list_skills" | "read_skill" => (
             "skill-consulted",
             format!("Agent consulted local skills via {tool_name}."),
             Some(args.to_string()),
@@ -92,7 +97,10 @@ fn resolve_skill_path(
     let root_canonical = std::fs::canonicalize(skills_root).unwrap_or(skills_root.to_path_buf());
 
     if let Some(variant) = variant {
-        let candidate = skills_root.join(&variant.relative_path);
+        let (candidate, _) = crate::agent::skill_recommendation::resolve_skill_document_path(
+            skills_root,
+            &variant.relative_path,
+        );
         let canonical = std::fs::canonicalize(&candidate)
             .with_context(|| format!("skill '{}' was not found", skill))?;
         if !canonical.starts_with(&root_canonical) {
@@ -411,4 +419,3 @@ async fn fetch_with_headless_browser(
 // ---------------------------------------------------------------------------
 // Web browsing setup tool
 // ---------------------------------------------------------------------------
-

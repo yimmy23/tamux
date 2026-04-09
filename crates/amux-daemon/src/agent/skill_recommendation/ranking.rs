@@ -338,8 +338,7 @@ fn tokenize(input: &str) -> BTreeSet<String> {
             !character.is_ascii_alphanumeric() && character != '-' && character != '_'
         })
         .filter_map(|token| {
-            let trimmed =
-                token.trim_matches(|character: char| !character.is_ascii_alphanumeric());
+            let trimmed = token.trim_matches(|character: char| !character.is_ascii_alphanumeric());
             if trimmed.len() < 3
                 || STOPWORDS
                     .iter()

@@ -2,7 +2,8 @@ use super::*;
 
 impl TuiModel {
     fn replace_recent_actions_from_status_snapshot(&mut self, recent_actions_json: &str) {
-        let Ok(actions) = serde_json::from_str::<Vec<serde_json::Value>>(recent_actions_json) else {
+        let Ok(actions) = serde_json::from_str::<Vec<serde_json::Value>>(recent_actions_json)
+        else {
             return;
         };
 

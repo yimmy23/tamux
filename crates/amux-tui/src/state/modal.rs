@@ -14,6 +14,7 @@ pub enum ModalKind {
     QueuedPrompts,
     ApprovalOverlay,
     ApprovalCenter,
+    OperatorQuestionOverlay,
     ChatActionConfirm,
     Settings,
     EffortPicker,

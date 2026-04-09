@@ -233,11 +233,11 @@ fn builtin_skills_source_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills")
 }
 
-/// Seed built-in skill documents into `~/.tamux/skills/builtin/`.
+/// Seed built-in skill documents into `~/.tamux/skills/`.
 pub(super) fn seed_builtin_skills(agent_data_dir: &std::path::Path) {
     let root = skills_dir(agent_data_dir);
     let source = builtin_skills_source_dir();
-    let target = root.join("builtin");
+    let target = root;
 
     match seed_skills_tree(&source, &target) {
         Ok(count) => tracing::debug!("seeded {} built-in skills into {}", count, target.display()),
@@ -393,7 +393,7 @@ mod tests {
 
         seed_builtin_skills(&agent_data_dir);
 
-        let builtin_root = skills_dir(&agent_data_dir).join("builtin");
+        let builtin_root = skills_dir(&agent_data_dir);
         assert!(
             builtin_root.join("README.md").exists(),
             "expected built-in skills seed to copy the repo skills README"

@@ -1,4 +1,5 @@
 use bytes::{Buf, BufMut, BytesMut};
+use serde::Serialize;
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{ClientMessage, DaemonMessage};
@@ -16,7 +17,54 @@ use crate::{ClientMessage, DaemonMessage};
 pub struct AmuxCodec;
 
 // Maximum allowed frame size: 16 MiB (generous for scrollback dumps).
-const MAX_FRAME_SIZE: u32 = 16 * 1024 * 1024;
+pub const MAX_IPC_FRAME_SIZE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_FRAME_SIZE: u32 = MAX_IPC_FRAME_SIZE_BYTES as u32;
+
+fn serialize_payload<T: Serialize>(item: &T) -> std::io::Result<Vec<u8>> {
+    bincode::serialize(item)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
+}
+
+fn oversized_frame_error(kind: &str, payload_len: usize) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!(
+            "{kind} too large for IPC: {payload_len} bytes exceeds {MAX_IPC_FRAME_SIZE_BYTES} bytes"
+        ),
+    )
+}
+
+pub fn client_message_payload_len(item: &ClientMessage) -> std::io::Result<usize> {
+    Ok(serialize_payload(item)?.len())
+}
+
+pub fn daemon_message_payload_len(item: &DaemonMessage) -> std::io::Result<usize> {
+    Ok(serialize_payload(item)?.len())
+}
+
+pub fn validate_client_message_size(item: &ClientMessage) -> std::io::Result<usize> {
+    let payload_len = client_message_payload_len(item)?;
+    if payload_len > MAX_IPC_FRAME_SIZE_BYTES {
+        return Err(oversized_frame_error("client message", payload_len));
+    }
+    Ok(payload_len)
+}
+
+pub fn validate_daemon_message_size(item: &DaemonMessage) -> std::io::Result<usize> {
+    let payload_len = daemon_message_payload_len(item)?;
+    if payload_len > MAX_IPC_FRAME_SIZE_BYTES {
+        return Err(oversized_frame_error("daemon message", payload_len));
+    }
+    Ok(payload_len)
+}
+
+pub fn client_message_fits_ipc(item: &ClientMessage) -> bool {
+    validate_client_message_size(item).is_ok()
+}
+
+pub fn daemon_message_fits_ipc(item: &DaemonMessage) -> bool {
+    validate_daemon_message_size(item).is_ok()
+}
 
 // ---------------------------------------------------------------------------
 // Decoder: bytes -> DaemonMessage  (used by clients reading daemon replies)
@@ -63,8 +111,10 @@ impl Encoder<ClientMessage> for AmuxCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: ClientMessage, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let payload = bincode::serialize(&item)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+        let payload = serialize_payload(&item)?;
+        if payload.len() > MAX_IPC_FRAME_SIZE_BYTES {
+            return Err(oversized_frame_error("client message", payload.len()));
+        }
         dst.put_u32_le(payload.len() as u32);
         dst.extend_from_slice(&payload);
         Ok(())
@@ -117,10 +167,98 @@ impl Encoder<DaemonMessage> for DaemonCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: DaemonMessage, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let payload = bincode::serialize(&item)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+        let payload = serialize_payload(&item)?;
+        if payload.len() > MAX_IPC_FRAME_SIZE_BYTES {
+            let fallback = DaemonMessage::Error {
+                message: format!(
+                    "daemon response too large for IPC: {} bytes exceeds {} bytes",
+                    payload.len(),
+                    MAX_IPC_FRAME_SIZE_BYTES
+                ),
+            };
+            let fallback_payload = serialize_payload(&fallback)?;
+            if fallback_payload.len() > MAX_IPC_FRAME_SIZE_BYTES {
+                return Err(oversized_frame_error(
+                    "daemon error response",
+                    fallback_payload.len(),
+                ));
+            }
+            dst.put_u32_le(fallback_payload.len() as u32);
+            dst.extend_from_slice(&fallback_payload);
+            return Ok(());
+        }
         dst.put_u32_le(payload.len() as u32);
         dst.extend_from_slice(&payload);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_encoder_rejects_oversized_requests_before_writing() {
+        let mut codec = AmuxCodec::default();
+        let mut frame = BytesMut::new();
+        let msg = ClientMessage::AgentSendMessage {
+            thread_id: Some("thread-oversized".to_string()),
+            content: "x".repeat(MAX_IPC_FRAME_SIZE_BYTES + 1024),
+            session_id: None,
+            context_messages_json: None,
+            client_surface: None,
+            target_agent_id: None,
+        };
+
+        let err = codec
+            .encode(msg, &mut frame)
+            .expect_err("oversized client request should be rejected");
+        assert!(err.to_string().contains("client message too large for IPC"));
+        assert!(
+            frame.is_empty(),
+            "rejected request should not write a partial frame"
+        );
+    }
+
+    #[test]
+    fn daemon_encoder_downgrades_oversized_responses_to_error_frame() {
+        let mut daemon_codec = DaemonCodec::default();
+        let mut frame = BytesMut::new();
+        let msg = DaemonMessage::AnalysisResult {
+            id: uuid::Uuid::nil(),
+            result: "x".repeat(MAX_IPC_FRAME_SIZE_BYTES + 1024),
+        };
+
+        daemon_codec
+            .encode(msg, &mut frame)
+            .expect("oversized daemon reply should degrade to an error frame");
+
+        let mut client_codec = AmuxCodec::default();
+        match client_codec
+            .decode(&mut frame)
+            .expect("decode downgraded error frame")
+        {
+            Some(DaemonMessage::Error { message }) => {
+                assert!(message.contains("daemon response too large for IPC"));
+            }
+            other => panic!("expected downgraded daemon error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daemon_message_size_validation_detects_oversized_payloads_without_fallback() {
+        let msg = DaemonMessage::PluginApiCallResult {
+            operation_id: Some("op-huge".to_string()),
+            plugin_name: "plugin".to_string(),
+            endpoint_name: "endpoint".to_string(),
+            success: true,
+            result: "x".repeat(MAX_IPC_FRAME_SIZE_BYTES + 1024),
+            error_type: None,
+        };
+
+        let err = validate_daemon_message_size(&msg)
+            .expect_err("raw daemon size validation should reject oversized payloads");
+        assert!(err.to_string().contains("daemon message too large for IPC"));
+        assert!(!daemon_message_fits_ipc(&msg));
     }
 }

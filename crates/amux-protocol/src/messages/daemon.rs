@@ -5,7 +5,8 @@ use super::{
     GatewayBootstrapPayload, GatewayReloadCommand, GatewaySendRequest, GatewayShutdownCommand,
     GitInfo, HistorySearchHit, ManagedCommandSource, OperationStatusSnapshot,
     OscNotificationPayload, PluginCommandInfo, PluginInfo, SessionId, SessionInfo,
-    SkillVariantPublic, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus,
+    SkillVariantPublic, SnapshotInfo, SymbolMatch, TelemetryLedgerStatus, ToolListResultPublic,
+    ToolSearchResultPublic,
 };
 
 #[rustfmt::skip]
@@ -107,7 +108,7 @@ pub enum DaemonMessage {
     AuditList { entries_json: String },
     EscalationCancelResult { success: bool, message: String },
     AuditDismissResult { success: bool, message: String },
-    SkillListResult { variants: Vec<SkillVariantPublic> },
+    SkillListResult { variants: Vec<SkillVariantPublic>, #[serde(default)] next_cursor: Option<String> },
     SkillInspectResult { variant: Option<SkillVariantPublic>, content: Option<String> },
     SkillActionResult { success: bool, message: String },
     SkillSearchResult { entries: Vec<CommunitySkillEntry> },
@@ -148,4 +149,7 @@ pub enum DaemonMessage {
     AgentOpenAICodexAuthLoginResult { result_json: String },
     AgentOpenAICodexAuthLogoutResult { ok: bool, error: Option<String> },
     SkillDiscoverResult { result_json: String },
+    AgentQuestionAnswered { question_id: String, answer: String },
+    AgentToolList { result: ToolListResultPublic },
+    AgentToolSearchResult { result: ToolSearchResultPublic },
 }

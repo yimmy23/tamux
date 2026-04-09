@@ -1,11 +1,33 @@
 import { useState } from "react";
 import { buildToolReviewPresentation } from "../toolReviewPresentation";
 import type { ToolEventGroup } from "./types";
+import { getToolDiffPresentation, ToolDiffView } from "./toolDiffPresentation";
+import {
+  getToolFileTarget,
+  getToolStructuredFields,
+  ToolFileTargetView,
+  ToolStructuredValueView,
+} from "./toolValuePresentation";
 
 export function ToolEventRow({ group }: { group: ToolEventGroup }) {
   const [collapsed, setCollapsed] = useState(true);
   const statusLabel = group.status.toUpperCase();
   const shortId = (group.toolCallId || group.key).slice(-8);
+  const toolDiff = group.toolArguments
+    ? getToolDiffPresentation(group.toolName, group.toolArguments)
+    : null;
+  const fileTarget = group.toolArguments
+    ? getToolFileTarget(group.toolName, group.toolArguments)
+    : null;
+  const structuredArgs = group.toolArguments
+    ? getToolStructuredFields(group.toolName, group.toolArguments, "arguments")
+    : null;
+  const structuredArgDetails = fileTarget && structuredArgs
+    ? structuredArgs.filter((field) => field.key !== "path")
+    : structuredArgs;
+  const structuredResult = group.resultContent
+    ? getToolStructuredFields(group.toolName, group.resultContent, "result")
+    : null;
   const reviewPresentation = buildToolReviewPresentation(group.welesReview);
   const reviewToneStyle = reviewPresentation?.tone === "blocked"
     ? {
@@ -99,7 +121,13 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
             </div>
           )}
 
-          {group.toolArguments && (
+          {fileTarget ? (
+            <ToolFileTargetView label="file" path={fileTarget.path} summaryText={group.resultContent} />
+          ) : toolDiff ? (
+            <ToolDiffView sections={toolDiff} />
+          ) : structuredArgDetails ? (
+            <ToolStructuredValueView label="args" fields={structuredArgDetails} />
+          ) : group.toolArguments ? (
             <div>
               <div style={{ color: "var(--text-muted)", fontSize: 11 }}>args</div>
               <pre style={{ margin: 0, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-primary)", whiteSpace: "pre-wrap", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
@@ -112,16 +140,37 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
                 })()}
               </pre>
             </div>
-          )}
+          ) : null}
 
-          {group.resultContent && (
+          {!fileTarget && structuredResult ? (
+            <ToolStructuredValueView label="result" fields={structuredResult} />
+          ) : !fileTarget && group.resultContent ? (
             <div>
               <div style={{ color: "var(--text-muted)", fontSize: 11 }}>result</div>
               <div style={{ fontSize: 12, lineHeight: 1.45, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", padding: 8, borderRadius: "var(--radius-sm)" }}>
                 {group.resultContent}
               </div>
             </div>
-          )}
+          ) : null}
+
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              style={{
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.02)",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                padding: "4px 8px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              Collapse
+            </button>
+          </div>
         </div>
       )}
     </div>

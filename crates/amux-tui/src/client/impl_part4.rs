@@ -176,6 +176,36 @@ impl DaemonClient {
                     })
                     .await;
             }
+            "operator_question" => {
+                let options = event
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let _ = event_tx
+                    .send(ClientEvent::OperatorQuestion {
+                        question_id: get_string(&event, "question_id").unwrap_or_default(),
+                        content: get_string(&event, "content").unwrap_or_default(),
+                        options,
+                        session_id: get_string(&event, "session_id"),
+                        thread_id: get_string(&event, "thread_id"),
+                    })
+                    .await;
+            }
+            "operator_question_resolved" => {
+                let _ = event_tx
+                    .send(ClientEvent::OperatorQuestionResolved {
+                        question_id: get_string(&event, "question_id").unwrap_or_default(),
+                        answer: get_string(&event, "answer").unwrap_or_default(),
+                    })
+                    .await;
+            }
             "notification_inbox_upsert" => {
                 if let Some(notification) = event
                     .get("notification")
@@ -425,6 +455,7 @@ impl DaemonClient {
     }
 
     fn send(&self, request: ClientMessage) -> Result<()> {
+        amux_protocol::validate_client_message_size(&request)?;
         self.request_tx.send(request)?;
         Ok(())
     }

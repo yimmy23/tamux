@@ -5,6 +5,366 @@ use super::*;
 #[path = "task_crud/tasks.rs"]
 mod tasks;
 
+fn goal_run_detail_frame_fits_ipc(goal_run: &Option<GoalRun>) -> bool {
+    let Ok(goal_run_json) = serde_json::to_string(goal_run) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentGoalRunDetail {
+        goal_run_json,
+    })
+}
+
+fn task_detail_frame_fits_ipc(task: &AgentTask) -> bool {
+    let Ok(task_json) = serde_json::to_string(task) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentTaskEnqueued {
+        task_json,
+    })
+}
+
+fn task_list_frame_fits_ipc(tasks: &[AgentTask]) -> bool {
+    let Ok(tasks_json) = serde_json::to_string(tasks) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentTaskList {
+        tasks_json,
+    })
+}
+
+fn goal_run_list_frame_fits_ipc(goal_runs: &[GoalRun]) -> bool {
+    let Ok(goal_runs_json) = serde_json::to_string(goal_runs) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentGoalRunList {
+        goal_runs_json,
+    })
+}
+
+fn todo_detail_frame_fits_ipc(thread_id: &str, todos: &[TodoItem]) -> bool {
+    let Ok(todos_json) = serde_json::to_string(todos) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentTodoDetail {
+        thread_id: thread_id.to_string(),
+        todos_json,
+    })
+}
+
+fn todo_list_frame_fits_ipc(todos_by_thread: &HashMap<String, Vec<TodoItem>>) -> bool {
+    let Ok(todos_json) = serde_json::to_string(todos_by_thread) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentTodoList {
+        todos_json,
+    })
+}
+
+fn work_context_detail_frame_fits_ipc(thread_id: &str, context: &ThreadWorkContext) -> bool {
+    let Ok(context_json) = serde_json::to_string(context) else {
+        return false;
+    };
+
+    amux_protocol::daemon_message_fits_ipc(&amux_protocol::DaemonMessage::AgentWorkContextDetail {
+        thread_id: thread_id.to_string(),
+        context_json,
+    })
+}
+
+fn cap_todos_for_ipc(thread_id: &str, todos: Vec<TodoItem>) -> (Vec<TodoItem>, bool) {
+    if todo_detail_frame_fits_ipc(thread_id, &todos) {
+        return (todos, false);
+    }
+
+    let mut low = 0usize;
+    let mut high = todos.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if todo_detail_frame_fits_ipc(thread_id, &todos[mid..]) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    (todos.into_iter().skip(low).collect(), true)
+}
+
+fn cap_todo_list_for_ipc(
+    todos_by_thread: HashMap<String, Vec<TodoItem>>,
+) -> (HashMap<String, Vec<TodoItem>>, bool) {
+    let mut truncated = false;
+    let mut entries = Vec::with_capacity(todos_by_thread.len());
+    for (thread_id, todos) in todos_by_thread {
+        let (todos, todos_truncated) = cap_todos_for_ipc(&thread_id, todos);
+        truncated |= todos_truncated;
+        entries.push((thread_id, todos));
+    }
+
+    entries.sort_by(|(a_thread_id, a_todos), (b_thread_id, b_todos)| {
+        let a_updated = a_todos
+            .iter()
+            .map(|todo| todo.updated_at.max(todo.created_at))
+            .max()
+            .unwrap_or(0);
+        let b_updated = b_todos
+            .iter()
+            .map(|todo| todo.updated_at.max(todo.created_at))
+            .max()
+            .unwrap_or(0);
+        b_updated
+            .cmp(&a_updated)
+            .then_with(|| a_thread_id.cmp(b_thread_id))
+    });
+
+    let to_map = |slice: &[(String, Vec<TodoItem>)]| {
+        slice
+            .iter()
+            .cloned()
+            .collect::<HashMap<String, Vec<TodoItem>>>()
+    };
+
+    let candidate = to_map(&entries);
+    if todo_list_frame_fits_ipc(&candidate) {
+        return (candidate, truncated);
+    }
+
+    let mut low = 0usize;
+    let mut high = entries.len();
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        let candidate = to_map(&entries[..mid]);
+        if todo_list_frame_fits_ipc(&candidate) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    (to_map(&entries[..low]), true)
+}
+
+fn cap_work_context_for_ipc(
+    thread_id: &str,
+    context: ThreadWorkContext,
+) -> (ThreadWorkContext, bool) {
+    if work_context_detail_frame_fits_ipc(thread_id, &context) {
+        return (context, false);
+    }
+
+    let entries = context.entries;
+    let mut low = 0usize;
+    let mut high = entries.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        let candidate = ThreadWorkContext {
+            thread_id: thread_id.to_string(),
+            entries: entries[mid..].to_vec(),
+        };
+        if work_context_detail_frame_fits_ipc(thread_id, &candidate) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    (
+        ThreadWorkContext {
+            thread_id: thread_id.to_string(),
+            entries: entries.into_iter().skip(low).collect(),
+        },
+        true,
+    )
+}
+
+fn task_with_log_slice(task: &AgentTask, start_idx: usize) -> AgentTask {
+    let mut candidate = task.clone();
+    if start_idx >= candidate.logs.len() {
+        candidate.logs.clear();
+        return candidate;
+    }
+    candidate.logs = candidate.logs[start_idx..].to_vec();
+    candidate
+}
+
+fn cap_task_for_ipc(task: AgentTask) -> Option<(AgentTask, bool)> {
+    if task_detail_frame_fits_ipc(&task) {
+        return Some((task, false));
+    }
+
+    let mut low = 0usize;
+    let mut high = task.logs.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        let candidate = task_with_log_slice(&task, mid);
+        if task_detail_frame_fits_ipc(&candidate) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    let candidate = task_with_log_slice(&task, low);
+    if task_detail_frame_fits_ipc(&candidate) {
+        return Some((candidate, low > 0));
+    }
+
+    None
+}
+
+fn cap_task_list_for_ipc(tasks: Vec<AgentTask>) -> (Vec<AgentTask>, bool) {
+    if task_list_frame_fits_ipc(&tasks) {
+        return (tasks, false);
+    }
+
+    let mut truncated = false;
+    let mut capped = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        if let Some((task, task_truncated)) = cap_task_for_ipc(task) {
+            truncated |= task_truncated;
+            capped.push(task);
+        } else {
+            truncated = true;
+        }
+    }
+
+    if task_list_frame_fits_ipc(&capped) {
+        return (capped, truncated);
+    }
+
+    let mut low = 0usize;
+    let mut high = capped.len();
+    while low < high {
+        let mid = low + (high - low + 1) / 2;
+        if task_list_frame_fits_ipc(&capped[..mid]) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    (capped.into_iter().take(low).collect(), true)
+}
+
+fn goal_run_with_step_slice(goal_run: &GoalRun, start_idx: usize) -> GoalRun {
+    let mut candidate = goal_run.clone();
+    if start_idx >= candidate.steps.len() {
+        candidate.steps.clear();
+        candidate.current_step_index = 0;
+        candidate.current_step_title = None;
+        candidate.current_step_kind = None;
+        candidate.active_task_id = None;
+        return candidate;
+    }
+
+    candidate.steps = candidate.steps[start_idx..].to_vec();
+    let current_idx = goal_run
+        .current_step_index
+        .saturating_sub(start_idx)
+        .min(candidate.steps.len().saturating_sub(1));
+    candidate.current_step_index = current_idx;
+    candidate.current_step_title = candidate
+        .steps
+        .get(current_idx)
+        .map(|step| step.title.clone());
+    candidate.current_step_kind = candidate
+        .steps
+        .get(current_idx)
+        .map(|step| step.kind.clone());
+    candidate.active_task_id = candidate
+        .steps
+        .get(current_idx)
+        .and_then(|step| step.task_id.clone());
+    candidate
+}
+
+fn goal_run_stripped_summary(goal_run: &GoalRun) -> GoalRun {
+    let mut candidate = goal_run.clone();
+    candidate.events.clear();
+    candidate.steps.clear();
+    candidate.current_step_index = 0;
+    candidate.current_step_title = None;
+    candidate.current_step_kind = None;
+    candidate.active_task_id = None;
+    candidate.plan_summary = None;
+    candidate.reflection_summary = None;
+    candidate.memory_updates.clear();
+    candidate.last_error = None;
+    candidate.failure_cause = None;
+    candidate
+}
+
+fn cap_goal_run_for_ipc(goal_run: GoalRun) -> Option<(GoalRun, bool)> {
+    if goal_run_detail_frame_fits_ipc(&Some(goal_run.clone())) {
+        return Some((goal_run, false));
+    }
+
+    let mut candidate = goal_run.clone();
+    if !candidate.events.is_empty() {
+        let mut low = 0usize;
+        let mut high = candidate.events.len();
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let mut trial = candidate.clone();
+            trial.events = trial.events[mid..].to_vec();
+            if goal_run_detail_frame_fits_ipc(&Some(trial)) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        candidate.events = candidate.events[low..].to_vec();
+    }
+    if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
+        return Some((candidate, true));
+    }
+
+    if !candidate.steps.is_empty() {
+        let max_prefix_drop = goal_run
+            .current_step_index
+            .min(goal_run.steps.len().saturating_sub(1));
+        let mut low = 0usize;
+        let mut high = max_prefix_drop;
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let trial = goal_run_with_step_slice(&candidate, mid);
+            if goal_run_detail_frame_fits_ipc(&Some(trial)) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+
+        candidate = goal_run_with_step_slice(&candidate, low);
+        if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
+            return Some((candidate, true));
+        }
+
+        candidate = goal_run_with_step_slice(
+            &candidate,
+            candidate
+                .current_step_index
+                .min(candidate.steps.len().saturating_sub(1)),
+        );
+        if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
+            return Some((candidate, true));
+        }
+    }
+
+    candidate = goal_run_stripped_summary(&candidate);
+    if goal_run_detail_frame_fits_ipc(&Some(candidate.clone())) {
+        return Some((candidate, true));
+    }
+
+    None
+}
+
 impl AgentEngine {
     pub async fn restore_checkpoint(
         &self,
@@ -279,6 +639,10 @@ impl AgentEngine {
     }
 
     pub async fn list_goal_runs(&self) -> Vec<GoalRun> {
+        self.list_goal_runs_capped_for_ipc().await.0
+    }
+
+    pub(crate) async fn list_goal_runs_capped_for_ipc(&self) -> (Vec<GoalRun>, bool) {
         let goal_runs = self.goal_runs.lock().await;
         let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
         drop(goal_runs);
@@ -287,7 +651,38 @@ impl AgentEngine {
             projected.push(self.project_goal_run(goal_run).await);
         }
         projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        projected
+
+        if goal_run_list_frame_fits_ipc(&projected) {
+            return (projected, false);
+        }
+
+        let mut truncated = false;
+        let mut capped = Vec::with_capacity(projected.len());
+        for goal_run in projected {
+            if let Some((goal_run, goal_truncated)) = cap_goal_run_for_ipc(goal_run) {
+                truncated |= goal_truncated;
+                capped.push(goal_run);
+            } else {
+                truncated = true;
+            }
+        }
+
+        if goal_run_list_frame_fits_ipc(&capped) {
+            return (capped, true);
+        }
+
+        let mut low = 0usize;
+        let mut high = capped.len();
+        while low < high {
+            let mid = low + (high - low + 1) / 2;
+            if goal_run_list_frame_fits_ipc(&capped[..mid]) {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        (capped.into_iter().take(low).collect(), true)
     }
 
     pub async fn get_goal_run(&self, goal_run_id: &str) -> Option<GoalRun> {
@@ -301,8 +696,24 @@ impl AgentEngine {
         Some(self.project_goal_run(goal_run).await)
     }
 
+    pub(crate) async fn get_goal_run_capped_for_ipc(
+        &self,
+        goal_run_id: &str,
+    ) -> Option<(GoalRun, bool)> {
+        let goal_run = self.get_goal_run(goal_run_id).await?;
+        cap_goal_run_for_ipc(goal_run)
+    }
+
     pub async fn list_todos(&self) -> HashMap<String, Vec<TodoItem>> {
         self.thread_todos.read().await.clone()
+    }
+
+    pub(crate) async fn list_tasks_capped_for_ipc(&self) -> (Vec<AgentTask>, bool) {
+        cap_task_list_for_ipc(self.snapshot_tasks().await)
+    }
+
+    pub(crate) async fn list_todos_capped_for_ipc(&self) -> (HashMap<String, Vec<TodoItem>>, bool) {
+        cap_todo_list_for_ipc(self.list_todos().await)
     }
 
     pub async fn get_todos(&self, thread_id: &str) -> Vec<TodoItem> {
@@ -312,6 +723,10 @@ impl AgentEngine {
             .get(thread_id)
             .cloned()
             .unwrap_or_default()
+    }
+
+    pub(crate) async fn get_todos_capped_for_ipc(&self, thread_id: &str) -> (Vec<TodoItem>, bool) {
+        cap_todos_for_ipc(thread_id, self.get_todos(thread_id).await)
     }
 
     pub async fn get_work_context(&self, thread_id: &str) -> ThreadWorkContext {
@@ -325,6 +740,13 @@ impl AgentEngine {
                 thread_id: thread_id.to_string(),
                 entries: Vec::new(),
             })
+    }
+
+    pub(crate) async fn get_work_context_capped_for_ipc(
+        &self,
+        thread_id: &str,
+    ) -> (ThreadWorkContext, bool) {
+        cap_work_context_for_ipc(thread_id, self.get_work_context(thread_id).await)
     }
 
     pub(super) async fn project_goal_run(&self, goal_run: GoalRun) -> GoalRun {

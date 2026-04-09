@@ -21,6 +21,8 @@ fn should_forward_agent_event(
                 | crate::agent::types::AgentEvent::BudgetAlert { .. }
                 | crate::agent::types::AgentEvent::TrajectoryUpdate { .. }
                 | crate::agent::types::AgentEvent::EpisodeRecorded { .. }
+                | crate::agent::types::AgentEvent::OperatorQuestion { .. }
+                | crate::agent::types::AgentEvent::OperatorQuestionResolved { .. }
         ),
     }
 }

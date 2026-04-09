@@ -343,7 +343,10 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
             (
                 message.role,
                 message.tool_name.as_deref(),
-                message.reasoning.as_deref().unwrap_or(message.content.as_str()),
+                message
+                    .reasoning
+                    .as_deref()
+                    .unwrap_or(message.content.as_str()),
             )
         })
         .collect();
@@ -580,7 +583,10 @@ fn inactive_thread_done_finalizes_background_stream_on_origin_thread() {
         .iter()
         .find(|thread| thread.id == "t1")
         .expect("origin thread should exist");
-    let last = thread.messages.last().expect("background reply should be recorded");
+    let last = thread
+        .messages
+        .last()
+        .expect("background reply should be recorded");
     assert_eq!(last.role, MessageRole::Assistant);
     assert_eq!(last.content, "background output");
     assert_eq!(last.reasoning.as_deref(), Some("background reasoning"));

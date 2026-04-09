@@ -97,6 +97,218 @@ async fn provider_alternative_excludes_placeholder_provider_row() {
 }
 
 #[tokio::test]
+async fn hydrate_restores_full_persisted_thread_history() {
+    let (engine, temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let thread_id = "thread-hydrate-full-history";
+    let message_count = 550u64;
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Hydrated Thread".to_string(),
+            messages: (0..message_count)
+                .map(|index| {
+                    AgentMessage::user(format!("message-{index}"), 1_000 + index)
+                })
+                .collect(),
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 1_000,
+            updated_at: 1_000 + message_count,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(temp_dir.path()).await,
+        AgentConfig::default(),
+        temp_dir.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should be restored after hydrate");
+    assert_eq!(thread.messages.len(), message_count as usize);
+    assert_eq!(
+        thread.messages.last().map(|message| message.content.as_str()),
+        Some("message-549")
+    );
+}
+
+#[tokio::test]
+async fn hydrate_restores_full_persisted_task_log_history() {
+    let (engine, temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let task_id = "task-hydrate-full-history";
+    let log_count = 250u64;
+
+    engine.tasks.lock().await.push_back(AgentTask {
+        id: task_id.to_string(),
+        title: "Hydrated Task".to_string(),
+        description: "Preserve all task logs across restart".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: 2_000,
+        started_at: Some(2_000),
+        completed_at: Some(2_500),
+        error: None,
+        result: Some("done".to_string()),
+        thread_id: None,
+        source: "user".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 1,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        lane_id: None,
+        last_error: None,
+        logs: (0..log_count)
+            .map(|index| AgentTaskLogEntry {
+                id: format!("task-log-{index}"),
+                timestamp: 2_000 + index,
+                level: TaskLogLevel::Info,
+                phase: "test".to_string(),
+                message: format!("task-log-{index}"),
+                details: None,
+                attempt: 0,
+            })
+            .collect(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    });
+    engine.persist_tasks().await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(temp_dir.path()).await,
+        AgentConfig::default(),
+        temp_dir.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let task = rehydrated
+        .list_tasks()
+        .await
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .expect("task should be restored after hydrate");
+    assert_eq!(task.logs.len(), log_count as usize);
+    assert_eq!(
+        task.logs.last().map(|entry| entry.message.as_str()),
+        Some("task-log-249")
+    );
+}
+
+#[tokio::test]
+async fn hydrate_restores_full_persisted_goal_run_event_history() {
+    let (engine, temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let goal_run_id = "goal-hydrate-full-history";
+    let event_count = 250u64;
+
+    engine.goal_runs.lock().await.push_back(GoalRun {
+        id: goal_run_id.to_string(),
+        title: "Hydrated Goal Run".to_string(),
+        goal: "Preserve all goal-run events across restart".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Completed,
+        priority: TaskPriority::Normal,
+        created_at: 3_000,
+        updated_at: 3_500,
+        started_at: Some(3_000),
+        completed_at: Some(3_500),
+        thread_id: None,
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: None,
+        current_step_kind: None,
+        replan_count: 0,
+        max_replans: 0,
+        plan_summary: None,
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        active_task_id: None,
+        duration_ms: Some(500),
+        steps: Vec::new(),
+        events: (0..event_count)
+            .map(|index| GoalRunEvent {
+                id: format!("goal-event-{index}"),
+                timestamp: 3_000 + index,
+                phase: "test".to_string(),
+                message: format!("goal-event-{index}"),
+                details: None,
+                step_index: None,
+                todo_snapshot: Vec::new(),
+            })
+            .collect(),
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        autonomy_level: crate::agent::autonomy::AutonomyLevel::Supervised,
+        authorship_tag: None,
+    });
+    engine.persist_goal_runs().await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(temp_dir.path()).await,
+        AgentConfig::default(),
+        temp_dir.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let goal_run = rehydrated
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal run should be restored after hydrate");
+    assert_eq!(goal_run.events.len(), event_count as usize);
+    assert_eq!(
+        goal_run.events.last().map(|event| event.message.as_str()),
+        Some("goal-event-249")
+    );
+}
+
+#[tokio::test]
 async fn provider_alternative_excludes_failed_provider_itself() {
     let mut config = AgentConfig::default();
     config.provider = PROVIDER_ID_OPENAI.to_string();
@@ -328,5 +540,85 @@ async fn send_message_times_out_hung_provider_request() {
     assert!(
         error_text.contains("timed out"),
         "expected timeout error, got: {error}"
+    );
+}
+
+#[tokio::test]
+async fn ask_operator_question_waits_for_selected_answer_and_broadcasts_events() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let mut events = engine.event_tx.subscribe();
+
+    let engine_for_task = engine.clone();
+    let pending = tokio::spawn(async move {
+        engine_for_task
+            .ask_operator_question(
+                "Pick one:\nA. Alpha\nB. Beta",
+                vec!["A".to_string(), "B".to_string()],
+                Some("session-1".to_string()),
+                Some("thread-1".to_string()),
+            )
+            .await
+    });
+
+    let question_id = match events.recv().await.expect("question event") {
+        AgentEvent::OperatorQuestion {
+            question_id,
+            content,
+            options,
+            session_id,
+            thread_id,
+        } => {
+            assert_eq!(content, "Pick one:\nA. Alpha\nB. Beta");
+            assert_eq!(options, vec!["A".to_string(), "B".to_string()]);
+            assert_eq!(session_id.as_deref(), Some("session-1"));
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            question_id
+        }
+        other => panic!("expected operator question event, got {other:?}"),
+    };
+
+    engine
+        .answer_operator_question(&question_id, "B")
+        .await
+        .expect("answer should resolve pending question");
+
+    match events.recv().await.expect("resolved event") {
+        AgentEvent::OperatorQuestionResolved {
+            question_id: resolved_id,
+            answer,
+            thread_id,
+        } => {
+            assert_eq!(resolved_id, question_id);
+            assert_eq!(answer, "B");
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+        }
+        other => panic!("expected operator question resolved event, got {other:?}"),
+    }
+
+    let (returned_question_id, selected_answer) = pending
+        .await
+        .expect("question task should finish")
+        .expect("question should resolve successfully");
+    assert_eq!(returned_question_id, question_id);
+    assert_eq!(selected_answer, "B");
+}
+
+#[tokio::test]
+async fn ask_operator_question_rejects_non_compact_button_tokens() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+
+    let error = engine
+        .ask_operator_question(
+            "Pick one:\nA. Alpha\nB. Beta",
+            vec!["Alpha".to_string(), "B".to_string()],
+            None,
+            None,
+        )
+        .await
+        .expect_err("non-compact option labels must be rejected");
+
+    assert!(
+        error.to_string().contains("compact ordered tokens"),
+        "expected compact-token validation error, got: {error}"
     );
 }

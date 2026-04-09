@@ -1,6 +1,8 @@
 use super::*;
 use crate::session_manager::SessionManager;
+use bytes::BytesMut;
 use tempfile::tempdir;
+use tokio_util::codec::Encoder;
 
 const MAX_FRAME_SIZE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -479,6 +481,58 @@ async fn get_thread_filtered_truncates_to_last_n_messages() {
         .expect("oversized limit should still return thread");
     assert_eq!(untruncated.thread.messages.len(), 4);
     assert!(!untruncated.messages_truncated);
+}
+
+#[tokio::test]
+async fn get_thread_capped_for_ipc_truncates_oversized_thread_detail_payload() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let huge_message = "x".repeat(MAX_FRAME_SIZE_BYTES + 1024);
+
+    engine.threads.write().await.insert(
+        "thread-huge".to_string(),
+        make_thread(
+            "thread-huge",
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Huge thread",
+            false,
+            1,
+            3,
+            vec![
+                AgentMessage::user(huge_message, 1),
+                assistant_message("recent tail", 2),
+            ],
+        ),
+    );
+
+    let detail = engine
+        .get_thread_capped_for_ipc("thread-huge", false)
+        .await
+        .expect("visible thread should load");
+
+    let contents = detail
+        .thread
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec!["recent tail"]);
+    assert!(detail.messages_truncated);
+
+    let thread_json =
+        serde_json::to_string(&Some(detail.thread)).expect("serialize capped thread detail json");
+    let mut frame = BytesMut::new();
+    amux_protocol::DaemonCodec::default()
+        .encode(
+            amux_protocol::DaemonMessage::AgentThreadDetail { thread_json },
+            &mut frame,
+        )
+        .expect("serialize capped daemon message");
+    assert!(
+        frame.len().saturating_sub(4) <= MAX_FRAME_SIZE_BYTES,
+        "capped thread detail should stay below the IPC frame cap"
+    );
 }
 
 #[tokio::test]

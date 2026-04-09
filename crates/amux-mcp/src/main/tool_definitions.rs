@@ -218,7 +218,8 @@ pub(super) fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Optional skill name or path filter" },
-                    "limit": { "type": "integer", "description": "Maximum skills to return" }
+                    "limit": { "type": "integer", "description": "Maximum skills to return" },
+                    "cursor": { "type": "string", "description": "Opaque cursor returned by a previous list_skills call" }
                 }
             }
         },
@@ -236,12 +237,41 @@ pub(super) fn tool_definitions() -> Value {
                         "type": "integer",
                         "description": "Maximum number of ranked skill candidates to return"
                     },
+                    "cursor": {
+                        "type": "string",
+                        "description": "Opaque cursor returned by a previous discover_skills call for the same query"
+                    },
                     "session_id": {
                         "type": "string",
                         "description": "Optional terminal session UUID for workspace-aware ranking"
                     }
                 },
                 "required": ["query"]
+            }
+        },
+        {
+            "name": "ask_questions",
+            "description": "Show a blocking multiple-choice question in tamux clients and wait for one compact token answer. Put the full question and answer text in content; keep buttons/options limited to short ordered tokens like A/B/C/D or 1/2/3/4.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "Full question content including the detailed answer text for each option"
+                    },
+                    "options": {
+                        "type": "array",
+                        "description": "Compact button tokens only, such as [\"A\", \"B\", \"C\"] or [\"1\", \"2\"]",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Optional terminal session UUID for workspace-aware prompting"
+                    }
+                },
+                "required": ["content", "options"]
             }
         },
         {
@@ -263,7 +293,8 @@ pub(super) fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "status": { "type": "string", "description": "Optional lifecycle status filter such as active, archived, merged, or promoted-to-canonical" },
-                    "limit": { "type": "integer", "description": "Maximum number of variants to return" }
+                    "limit": { "type": "integer", "description": "Maximum number of variants to return" },
+                    "cursor": { "type": "string", "description": "Opaque cursor returned by a previous list_skill_variants call" }
                 }
             }
         },
@@ -552,5 +583,32 @@ mod tests {
             tools.iter().any(|tool| tool["name"] == "discover_skills"),
             "discover_skills tool definition should be present"
         );
+    }
+
+    #[test]
+    fn tool_definitions_include_ask_questions() {
+        let defs = tool_definitions();
+        let tools = defs
+            .as_array()
+            .expect("tool definitions should be an array");
+        let ask_questions = tools
+            .iter()
+            .find(|tool| tool["name"] == "ask_questions")
+            .expect("ask_questions tool definition should be present");
+
+        let properties = ask_questions["inputSchema"]["properties"]
+            .as_object()
+            .expect("ask_questions should expose an object schema");
+        assert!(properties.contains_key("content"));
+        assert!(properties.contains_key("options"));
+        assert!(properties.contains_key("session_id"));
+
+        let required = ask_questions["inputSchema"]["required"]
+            .as_array()
+            .expect("ask_questions required fields should be present")
+            .iter()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(required, vec!["content", "options"]);
     }
 }
