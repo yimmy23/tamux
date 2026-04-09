@@ -5,6 +5,7 @@ use amux_protocol::SessionId;
 const MAX_SKILL_PREFLIGHT_MATCHES: usize = 3;
 const SKILL_DISCOVERY_NORMALIZER_MARKER: &str = "[[skill_discovery_query_normalizer]]";
 const MAX_NORMALIZED_SKILL_QUERY_CHARS: usize = 160;
+const LOCAL_SKILL_DISCOVERY_NORMALIZER_ID: &str = "local-skill-discovery-heuristic";
 
 pub(crate) struct SkillPreflightContext {
     pub prompt_context: String,
@@ -177,6 +178,11 @@ impl AgentEngine {
         context_tags: &[String],
         session_id: Option<SessionId>,
     ) -> Option<(String, &'static str)> {
+        if let Some(normalized_query) = heuristic_skill_discovery_query_rewrite(query, context_tags)
+        {
+            return Some((normalized_query, LOCAL_SKILL_DISCOVERY_NORMALIZER_ID));
+        }
+
         let normalizer_agent_id = normalization_agent_id_for_query(query);
         let prompt = build_skill_discovery_normalization_prompt(query, context_tags);
         let preferred_session_hint = session_id.as_ref().map(ToString::to_string);
@@ -330,6 +336,81 @@ fn sanitize_normalized_skill_query(query: &str) -> Option<String> {
     (!normalized.is_empty()).then_some(normalized)
 }
 
+fn heuristic_skill_discovery_query_rewrite(query: &str, context_tags: &[String]) -> Option<String> {
+    let lower = query.to_ascii_lowercase();
+    let token_count = lower
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '-')
+        .filter(|token| token.len() >= 3)
+        .count();
+    if token_count < 10 {
+        return None;
+    }
+
+    let has_audit_intent =
+        lower.contains("audit") || lower.contains("inspect") || lower.contains("review");
+    let has_diff_scope = lower.contains("git")
+        || lower.contains("worktree")
+        || lower.contains("diff")
+        || lower.contains("patch");
+    let has_governance_scope = lower.contains("governance")
+        || lower.contains("policy")
+        || lower.contains("compliance")
+        || lower.contains("guardrail")
+        || lower.contains("safety")
+        || lower.contains("risk")
+        || lower.contains("orchestration");
+
+    if !(has_audit_intent && has_diff_scope && has_governance_scope) {
+        return None;
+    }
+
+    let mut terms = Vec::new();
+    push_rewrite_term(&mut terms, "audit");
+    if lower.contains("git") {
+        push_rewrite_term(&mut terms, "git");
+    }
+    if lower.contains("worktree") {
+        push_rewrite_term(&mut terms, "worktree");
+    }
+    if lower.contains("diff") {
+        push_rewrite_term(&mut terms, "diff");
+    }
+
+    for tag in context_tags {
+        let normalized = tag.trim().to_ascii_lowercase();
+        if normalized.is_empty() || !lower.contains(&normalized) {
+            continue;
+        }
+        push_rewrite_term(&mut terms, &normalized);
+        if terms.len() >= 5 {
+            break;
+        }
+    }
+
+    if lower.contains("orchestration") {
+        push_rewrite_term(&mut terms, "orchestration");
+    }
+    if lower.contains("safety") {
+        push_rewrite_term(&mut terms, "safety");
+    }
+    if lower.contains("governance") {
+        push_rewrite_term(&mut terms, "governance");
+    } else if lower.contains("policy") {
+        push_rewrite_term(&mut terms, "policy");
+    } else if lower.contains("compliance") {
+        push_rewrite_term(&mut terms, "compliance");
+    }
+
+    sanitize_normalized_skill_query(&terms.join(" "))
+}
+
+fn push_rewrite_term(terms: &mut Vec<String>, term: &str) {
+    if term.trim().is_empty() || terms.iter().any(|value| value == term) {
+        return;
+    }
+    terms.push(term.to_string());
+}
+
 fn fallback_result_is_better(
     current: &super::skill_recommendation::SkillDiscoveryResult,
     fallback: &super::skill_recommendation::SkillDiscoveryResult,
@@ -371,7 +452,11 @@ fn annotate_fallback_result(
     normalized_query: &str,
     normalizer_agent_id: &str,
 ) {
-    let agent_name = canonical_agent_name(normalizer_agent_id);
+    let agent_name = if normalizer_agent_id == LOCAL_SKILL_DISCOVERY_NORMALIZER_ID {
+        "local heuristic"
+    } else {
+        canonical_agent_name(normalizer_agent_id)
+    };
     let annotation = format!("normalized via {agent_name} as `{normalized_query}`");
     for recommendation in &mut result.recommendations {
         if recommendation.reason.trim().is_empty() {
@@ -740,6 +825,17 @@ mod tests {
                 "```json\n{\"query\":\"design planning architecture workflow\"}\n```"
             ),
             Some("design planning architecture workflow".to_string())
+        );
+    }
+
+    #[test]
+    fn local_skill_discovery_query_rewrite_extracts_compact_governance_terms() {
+        assert_eq!(
+            heuristic_skill_discovery_query_rewrite(
+                "Audit modified git worktree files, inspect diffs, and map changed Rust files to orchestration safety governance RFC concepts to identify related vs unrelated changes",
+                &["rust".to_string(), "async".to_string()],
+            ),
+            Some("audit git worktree diff rust orchestration safety governance".to_string())
         );
     }
 

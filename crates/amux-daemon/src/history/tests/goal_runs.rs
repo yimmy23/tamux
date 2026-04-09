@@ -398,7 +398,10 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
     assert_eq!(loaded.approval_expires_at, Some(12345));
     assert_eq!(loaded.containment_scope.as_deref(), Some("workspace"));
     assert_eq!(loaded.compensation_status.as_deref(), Some("required"));
-    assert_eq!(loaded.compensation_summary.as_deref(), Some("rollback pending"));
+    assert_eq!(
+        loaded.compensation_summary.as_deref(),
+        Some("rollback pending")
+    );
     assert_eq!(loaded.active_task_id.as_deref(), Some("task-2"));
     assert_eq!(loaded.duration_ms, Some(888));
     assert_eq!(loaded.total_prompt_tokens, 123);
@@ -420,10 +423,12 @@ async fn goal_run_extended_metadata_round_trips() -> Result<()> {
 #[tokio::test]
 async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> {
     let (store, root) = make_test_store().await?;
-    store.conn.call(|conn| {
-        conn.execute_batch("DROP TABLE IF EXISTS goal_runs")?;
-        conn.execute_batch(
-            "
+    store
+        .conn
+        .call(|conn| {
+            conn.execute_batch("DROP TABLE IF EXISTS goal_runs")?;
+            conn.execute_batch(
+                "
             CREATE TABLE goal_runs (
                 id                  TEXT PRIMARY KEY,
                 title               TEXT NOT NULL,
@@ -448,33 +453,39 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
                 child_task_ids_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
-            "
-        )?;
-        Ok(())
-    }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            ",
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     store.init_schema().await?;
 
-    let cols = store.conn.call(|conn| {
-        Ok((
-            table_has_column(conn, "goal_runs", "failure_cause")?,
-            table_has_column(conn, "goal_runs", "child_task_count")?,
-            table_has_column(conn, "goal_runs", "approval_count")?,
-            table_has_column(conn, "goal_runs", "awaiting_approval_id")?,
-            table_has_column(conn, "goal_runs", "policy_fingerprint")?,
-            table_has_column(conn, "goal_runs", "approval_expires_at")?,
-            table_has_column(conn, "goal_runs", "containment_scope")?,
-            table_has_column(conn, "goal_runs", "compensation_status")?,
-            table_has_column(conn, "goal_runs", "compensation_summary")?,
-            table_has_column(conn, "goal_runs", "active_task_id")?,
-            table_has_column(conn, "goal_runs", "duration_ms")?,
-            table_has_column(conn, "goal_runs", "total_prompt_tokens")?,
-            table_has_column(conn, "goal_runs", "total_completion_tokens")?,
-            table_has_column(conn, "goal_runs", "estimated_cost_usd")?,
-            table_has_column(conn, "goal_runs", "autonomy_level")?,
-            table_has_column(conn, "goal_runs", "authorship_tag")?,
-        ))
-    }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let cols = store
+        .conn
+        .call(|conn| {
+            Ok((
+                table_has_column(conn, "goal_runs", "failure_cause")?,
+                table_has_column(conn, "goal_runs", "child_task_count")?,
+                table_has_column(conn, "goal_runs", "approval_count")?,
+                table_has_column(conn, "goal_runs", "awaiting_approval_id")?,
+                table_has_column(conn, "goal_runs", "policy_fingerprint")?,
+                table_has_column(conn, "goal_runs", "approval_expires_at")?,
+                table_has_column(conn, "goal_runs", "containment_scope")?,
+                table_has_column(conn, "goal_runs", "compensation_status")?,
+                table_has_column(conn, "goal_runs", "compensation_summary")?,
+                table_has_column(conn, "goal_runs", "active_task_id")?,
+                table_has_column(conn, "goal_runs", "duration_ms")?,
+                table_has_column(conn, "goal_runs", "total_prompt_tokens")?,
+                table_has_column(conn, "goal_runs", "total_completion_tokens")?,
+                table_has_column(conn, "goal_runs", "estimated_cost_usd")?,
+                table_has_column(conn, "goal_runs", "autonomy_level")?,
+                table_has_column(conn, "goal_runs", "authorship_tag")?,
+            ))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     assert!(cols.0);
     assert!(cols.1);

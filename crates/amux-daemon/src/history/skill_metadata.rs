@@ -1,10 +1,10 @@
 use super::*;
 
 #[derive(Debug)]
-pub(super) struct DerivedSkillMetadata {
-    pub(super) skill_name: String,
-    pub(super) variant_name: String,
-    pub(super) context_tags: Vec<String>,
+pub(crate) struct DerivedSkillMetadata {
+    pub(crate) skill_name: String,
+    pub(crate) variant_name: String,
+    pub(crate) context_tags: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ pub(super) struct BranchCandidate {
     pub(super) success_count: u32,
 }
 
-pub(super) fn derive_skill_metadata(relative_path: &str, content: &str) -> DerivedSkillMetadata {
+pub(crate) fn derive_skill_metadata(relative_path: &str, content: &str) -> DerivedSkillMetadata {
     let normalized_path = relative_path.replace('\\', "/");
     let path = Path::new(&normalized_path);
     let file_name = path

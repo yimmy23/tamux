@@ -95,9 +95,8 @@ mod tests {
         let constraints = effective_constraints(&verdict);
 
         assert_eq!(verdict.verdict_class, VerdictClass::RequireApproval);
-        assert!(constraints.iter().any(|constraint| matches!(
-            constraint.kind,
-            ConstraintKind::SandboxRequired
-        )));
+        assert!(constraints
+            .iter()
+            .any(|constraint| matches!(constraint.kind, ConstraintKind::SandboxRequired)));
     }
 }

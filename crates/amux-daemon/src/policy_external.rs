@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::governance::{
     effective_constraints, evaluate_governance, governance_input_for_managed_command,
-    ConstraintKind, GovernanceInput, GovernanceVerdict, RiskClass, TransitionKind,
-    VerdictClass,
+    ConstraintKind, GovernanceInput, GovernanceVerdict, RiskClass, TransitionKind, VerdictClass,
 };
 
 /// Policy evaluation result.
@@ -391,7 +390,10 @@ pub fn create_policy_provider(cerbos_endpoint: Option<&str>) -> Box<dyn PolicyPr
 pub fn create_governance_provider(cerbos_endpoint: Option<&str>) -> Box<dyn GovernanceProvider> {
     match cerbos_endpoint {
         Some(endpoint) if !endpoint.is_empty() => {
-            tracing::info!(endpoint, "using composite governance provider (local + Cerbos)");
+            tracing::info!(
+                endpoint,
+                "using composite governance provider (local + Cerbos)"
+            );
             Box::new(CompositeGovernanceProvider::new(vec![
                 Box::new(LocalGovernanceProvider),
                 Box::new(CerbosGovernanceProvider::new(endpoint)),

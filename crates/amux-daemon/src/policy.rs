@@ -4,8 +4,7 @@ use std::sync::LazyLock;
 
 use crate::governance::{
     effective_constraints, evaluate_governance, governance_input_for_managed_command,
-    ConstraintKind, GovernanceInput, GovernanceVerdict, RiskClass, TransitionKind,
-    VerdictClass,
+    ConstraintKind, GovernanceInput, GovernanceVerdict, RiskClass, TransitionKind, VerdictClass,
 };
 
 static RISK_PATTERNS: LazyLock<Vec<(Regex, &'static str, &'static str, &'static str)>> =
@@ -329,7 +328,11 @@ fn approval_payload_from_governance(
         .approval_requirement
         .as_ref()
         .and_then(|requirement| requirement.expires_at)
-        .or_else(|| verdict.freshness_window_secs.map(|window| now_ts_secs() + window));
+        .or_else(|| {
+            verdict
+                .freshness_window_secs
+                .map(|window| now_ts_secs() + window)
+        });
 
     ApprovalPayload {
         approval_id: format!("apr_{}", uuid::Uuid::new_v4()),
@@ -367,12 +370,8 @@ pub fn evaluate_command(
     }
 
     let assessment = assess_command_risk(request);
-    let mut governance_input = governance_input_for_managed_command(
-        &execution_id,
-        request,
-        workspace_id.clone(),
-        None,
-    );
+    let mut governance_input =
+        governance_input_for_managed_command(&execution_id, request, workspace_id.clone(), None);
     apply_assessment_to_governance_input(&mut governance_input, &assessment);
     let verdict = evaluate_governance(&governance_input);
 
@@ -439,7 +438,10 @@ mod tests {
                     .reasons
                     .iter()
                     .any(|reason| reason.contains("destructive recursive delete")));
-                assert_eq!(payload.transition_kind.as_deref(), Some("managed_command_dispatch"));
+                assert_eq!(
+                    payload.transition_kind.as_deref(),
+                    Some("managed_command_dispatch")
+                );
                 assert!(payload
                     .policy_fingerprint
                     .as_deref()

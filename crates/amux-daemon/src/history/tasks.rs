@@ -27,9 +27,7 @@ fn serialize_supervisor_config_json(
 fn parse_supervisor_config_json(
     value: Option<String>,
 ) -> Option<crate::agent::types::SupervisorConfig> {
-    value.and_then(|json| {
-        serde_json::from_str::<crate::agent::types::SupervisorConfig>(&json).ok()
-    })
+    value.and_then(|json| serde_json::from_str::<crate::agent::types::SupervisorConfig>(&json).ok())
 }
 
 impl HistoryStore {

@@ -47,7 +47,14 @@ async fn managed_command_governance_persists_evaluation_and_approval() {
     let root = tempfile::tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let (session_id, _rx) = manager
-        .spawn(Some("/bin/sh".to_string()), None, Some("workspace-a".to_string()), None, 80, 24)
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
         .await
         .expect("spawn test session");
 
@@ -72,8 +79,14 @@ async fn managed_command_governance_persists_evaluation_and_approval() {
         DaemonMessage::ApprovalRequired { approval, .. } => {
             assert_eq!(approval.risk_level, "high");
             assert_eq!(approval.workspace_id.as_deref(), Some("workspace-a"));
-            assert_eq!(approval.transition_kind.as_deref(), Some("managed_command_dispatch"));
-            assert!(approval.policy_fingerprint.as_deref().is_some_and(|fp| fp.len() > 8));
+            assert_eq!(
+                approval.transition_kind.as_deref(),
+                Some("managed_command_dispatch")
+            );
+            assert!(approval
+                .policy_fingerprint
+                .as_deref()
+                .is_some_and(|fp| fp.len() > 8));
             assert!(approval.expires_at.is_some());
             assert!(!approval.constraints.is_empty());
             assert!(approval.scope_summary.is_some());
@@ -98,11 +111,11 @@ async fn managed_command_governance_persists_evaluation_and_approval() {
         .history
         .conn
         .call(|conn| {
-            Ok(conn.query_row(
-                "SELECT COUNT(*) FROM governance_evaluations",
-                [],
-                |row| row.get(0),
-            )?)
+            Ok(
+                conn.query_row("SELECT COUNT(*) FROM governance_evaluations", [], |row| {
+                    row.get(0)
+                })?,
+            )
         })
         .await
         .expect("evaluation count query should succeed");
@@ -115,7 +128,14 @@ async fn resolve_approval_updates_persisted_resolution() {
     let root = tempfile::tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let (session_id, _rx) = manager
-        .spawn(Some("/bin/sh".to_string()), None, Some("workspace-a".to_string()), None, 80, 24)
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
         .await
         .expect("spawn test session");
 
@@ -150,8 +170,14 @@ async fn resolve_approval_updates_persisted_resolution() {
         .await
         .expect("approval resolution should succeed");
 
-    assert!(matches!(responses.first(), Some(DaemonMessage::ApprovalResolved { .. })));
-    assert!(matches!(responses.get(1), Some(DaemonMessage::ManagedCommandRejected { .. })));
+    assert!(matches!(
+        responses.first(),
+        Some(DaemonMessage::ApprovalResolved { .. })
+    ));
+    assert!(matches!(
+        responses.get(1),
+        Some(DaemonMessage::ManagedCommandRejected { .. })
+    ));
 
     let approval = manager
         .history
@@ -169,7 +195,14 @@ async fn approve_session_reuses_matching_governance_grant() {
     let root = tempfile::tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let (session_id, _rx) = manager
-        .spawn(Some("/bin/sh".to_string()), None, Some("workspace-a".to_string()), None, 80, 24)
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
         .await
         .expect("spawn test session");
 
@@ -201,8 +234,14 @@ async fn approve_session_reuses_matching_governance_grant() {
         )
         .await
         .expect("approval resolution should succeed");
-    assert!(matches!(responses.first(), Some(DaemonMessage::ApprovalResolved { .. })));
-    assert!(matches!(responses.get(1), Some(DaemonMessage::ManagedCommandQueued { .. })));
+    assert!(matches!(
+        responses.first(),
+        Some(DaemonMessage::ApprovalResolved { .. })
+    ));
+    assert!(matches!(
+        responses.get(1),
+        Some(DaemonMessage::ManagedCommandQueued { .. })
+    ));
 
     let reused = manager
         .execute_managed_command(session_id, request)
@@ -217,7 +256,14 @@ async fn stale_approval_is_invalidated_before_resolution() {
     let root = tempfile::tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let (session_id, _rx) = manager
-        .spawn(Some("/bin/sh".to_string()), None, Some("workspace-a".to_string()), None, 80, 24)
+        .spawn(
+            Some("/bin/sh".to_string()),
+            None,
+            Some("workspace-a".to_string()),
+            None,
+            80,
+            24,
+        )
         .await
         .expect("spawn test session");
 

@@ -1,12 +1,12 @@
 use super::*;
 
-use amux_protocol::ApprovalPayload;
 use crate::governance::{
     apply_constraints_to_request, can_honor_constraints, effective_constraints,
     evaluate_governance, governance_input_for_managed_command, ConstraintKind, GovernanceInput,
     GovernanceVerdict, RiskClass, TransitionKind, VerdictClass,
 };
 use crate::history::{ApprovalRecordRow, GovernanceEvaluationRow};
+use amux_protocol::ApprovalPayload;
 use serde_json::json;
 
 fn transition_kind_str(kind: &TransitionKind) -> &'static str {
@@ -160,10 +160,11 @@ async fn queue_with_snapshot(
             )
             .await?
     };
-    let position = session
-        .lock()
-        .await
-        .queue_managed_command(execution_id, request, snapshot.clone())?;
+    let position =
+        session
+            .lock()
+            .await
+            .queue_managed_command(execution_id, request, snapshot.clone())?;
     Ok((position, snapshot))
 }
 
@@ -618,7 +619,11 @@ impl SessionManager {
                     .approval_requirement
                     .as_ref()
                     .and_then(|requirement| requirement.expires_at)
-                    .or_else(|| verdict.freshness_window_secs.map(|window| requested_at + window));
+                    .or_else(|| {
+                        verdict
+                            .freshness_window_secs
+                            .map(|window| requested_at + window)
+                    });
 
                 if self
                     .has_valid_session_grant(id, &verdict.policy_fingerprint)
@@ -702,13 +707,13 @@ impl SessionManager {
             VerdictClass::Defer
             | VerdictClass::Deny
             | VerdictClass::HaltAndIsolate
-            | VerdictClass::AllowOnlyWithCompensationPlan => Ok(
-                DaemonMessage::ManagedCommandRejected {
+            | VerdictClass::AllowOnlyWithCompensationPlan => {
+                Ok(DaemonMessage::ManagedCommandRejected {
                     id,
                     execution_id: Some(execution_id),
                     message: governance_rejection_message(&verdict),
-                },
-            ),
+                })
+            }
         }
     }
 

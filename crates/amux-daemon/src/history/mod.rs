@@ -518,6 +518,7 @@ mod schema_sql_extra;
 mod skill_generation;
 pub(crate) use skill_generation::page_skill_variants;
 mod skill_metadata;
+pub(crate) use skill_metadata::{derive_skill_metadata, DerivedSkillMetadata};
 mod skill_tagging;
 mod skill_variants;
 mod task_enums;

@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 const MAX_USE_SCORE: f64 = 8.0;
 const RECENCY_DAY_SECS: u64 = 86_400;
+const MAX_LEXICAL_QUERY_TOKENS: usize = 8;
 const PROCESS_INTENT_TOKENS: &[&str] = &[
     "architect",
     "behavior",
@@ -119,7 +120,9 @@ fn score_candidate(
         .filter(|token| search_tokens.contains(token.as_str()))
         .cloned()
         .collect::<Vec<_>>();
-    let lexical_overlap = matched_terms.len() as f64 / query_tokens.len() as f64;
+    let lexical_denominator = query_tokens.len().min(MAX_LEXICAL_QUERY_TOKENS).max(1);
+    let lexical_overlap =
+        matched_terms.len().min(lexical_denominator) as f64 / lexical_denominator as f64;
 
     let matched_workspace_tags = workspace_tags
         .iter()
@@ -355,12 +358,16 @@ fn normalize_token(token: &str) -> String {
     let lower = token.to_ascii_lowercase();
     if lower.starts_with("architect") {
         "architect".to_string()
+    } else if lower.starts_with("audit") {
+        "audit".to_string()
     } else if lower.starts_with("brainstorm") {
         "brainstorm".to_string()
     } else if lower.starts_with("debug") {
         "debug".to_string()
     } else if lower.starts_with("design") {
         "design".to_string()
+    } else if lower.starts_with("diff") {
+        "diff".to_string()
     } else if lower.starts_with("implement") {
         "implement".to_string()
     } else if lower.starts_with("investigat") {
@@ -369,6 +376,10 @@ fn normalize_token(token: &str) -> String {
         "modify".to_string()
     } else if lower.starts_with("behavio") {
         "behavior".to_string()
+    } else if lower.starts_with("govern") {
+        "governance".to_string()
+    } else if lower.starts_with("orchestrat") {
+        "orchestration".to_string()
     } else if lower.starts_with("plan") {
         "plan".to_string()
     } else if lower.starts_with("playbook") {
@@ -377,6 +388,8 @@ fn normalize_token(token: &str) -> String {
         "refactor".to_string()
     } else if lower.starts_with("review") {
         "review".to_string()
+    } else if lower.starts_with("safe") {
+        "safety".to_string()
     } else if lower.starts_with("workflow") {
         "workflow".to_string()
     } else if lower.starts_with("synthes") {

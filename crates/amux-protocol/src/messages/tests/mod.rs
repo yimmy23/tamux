@@ -1165,9 +1165,18 @@ fn approval_payload_round_trips_governance_metadata() {
 
     let encoded = serde_json::to_string(&payload).unwrap();
     let decoded: ApprovalPayload = serde_json::from_str(&encoded).unwrap();
-    assert_eq!(decoded.transition_kind.as_deref(), Some("managed_command_dispatch"));
-    assert_eq!(decoded.policy_fingerprint.as_deref(), Some("fingerprint-123"));
+    assert_eq!(
+        decoded.transition_kind.as_deref(),
+        Some("managed_command_dispatch")
+    );
+    assert_eq!(
+        decoded.policy_fingerprint.as_deref(),
+        Some("fingerprint-123")
+    );
     assert_eq!(decoded.expires_at, Some(1_717_171_717));
-    assert_eq!(decoded.constraints, vec!["serial_only_execution".to_string()]);
+    assert_eq!(
+        decoded.constraints,
+        vec!["serial_only_execution".to_string()]
+    );
     assert_eq!(decoded.scope_summary.as_deref(), Some("managed transition"));
 }

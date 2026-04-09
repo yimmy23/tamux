@@ -31,7 +31,12 @@ pub(super) fn apply_schema_migrations(connection: &Connection) -> rusqlite::Resu
     ensure_column(connection, "agent_tasks", "sub_agent_def_id", "TEXT")?;
     ensure_column(connection, "agent_tasks", "tool_whitelist_json", "TEXT")?;
     ensure_column(connection, "agent_tasks", "tool_blacklist_json", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "context_budget_tokens", "INTEGER")?;
+    ensure_column(
+        connection,
+        "agent_tasks",
+        "context_budget_tokens",
+        "INTEGER",
+    )?;
     ensure_column(connection, "agent_tasks", "context_overflow_action", "TEXT")?;
     ensure_column(connection, "agent_tasks", "termination_conditions", "TEXT")?;
     ensure_column(connection, "agent_tasks", "success_criteria", "TEXT")?;
