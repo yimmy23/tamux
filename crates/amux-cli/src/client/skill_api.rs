@@ -6,9 +6,19 @@ use super::connection::{roundtrip, roundtrip_async_until, roundtrip_until};
 pub async fn send_skill_list(
     status: Option<String>,
     limit: usize,
-) -> Result<Vec<amux_protocol::SkillVariantPublic>> {
-    match roundtrip(ClientMessage::SkillList { status, limit }).await? {
-        DaemonMessage::SkillListResult { variants } => Ok(variants),
+    cursor: Option<String>,
+) -> Result<(Vec<amux_protocol::SkillVariantPublic>, Option<String>)> {
+    match roundtrip(ClientMessage::SkillList {
+        status,
+        limit,
+        cursor,
+    })
+    .await?
+    {
+        DaemonMessage::SkillListResult {
+            variants,
+            next_cursor,
+        } => Ok((variants, next_cursor)),
         DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
         other => anyhow::bail!("unexpected response: {other:?}"),
     }
@@ -32,12 +42,14 @@ pub async fn send_skill_discover(
     query: &str,
     session_id: Option<SessionId>,
     limit: usize,
+    cursor: Option<String>,
 ) -> Result<SkillDiscoveryResultPublic> {
     roundtrip_until(
         ClientMessage::SkillDiscover {
             query: query.to_string(),
             session_id,
             limit,
+            cursor,
         },
         parse_skill_discover_terminal_response,
     )

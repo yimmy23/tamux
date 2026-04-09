@@ -272,7 +272,7 @@ fn gateway_triage_system_prompt() -> String {
          route them to the full agent.\n\n\
          SIMPLE messages (handle yourself): greetings, casual chat, status inquiries, \
          quick factual lookups, acknowledgments, scheduling questions, thank-yous.\n\
-         You may use the provided safe read-only tools for history lookup, memory lookup, and web search \
+         You may use the provided safe read-only tools for history lookup, memory lookup, local skill lookup, and web search \
          when they help you answer naturally and preserve conversation continuity.\n\
          COMPLEX messages (route to agent): code requests, file operations, debugging, \
          multi-step tasks, technical analysis, project work, or anything needing tools beyond the provided safe set.\n\n\

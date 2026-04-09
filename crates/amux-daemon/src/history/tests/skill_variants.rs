@@ -299,6 +299,37 @@ async fn stable_variant_merges_back_into_canonical() -> Result<()> {
 }
 
 #[tokio::test]
+async fn paged_skill_variant_listing_advances_with_cursor() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let first = root.join("skills/generated/build-pipeline.md");
+    let second = root.join("skills/generated/debug-rust-build.md");
+    fs::write(&first, "# Build pipeline\nRun cargo build.\n")?;
+    fs::write(&second, "# Debug rust build\nRun cargo test.\n")?;
+
+    let first_record = store.register_skill_document(&first).await?;
+    let second_record = store.register_skill_document(&second).await?;
+
+    let page_one = store.list_skill_variants_page(None, None, 1).await?;
+    assert_eq!(page_one.variants.len(), 1);
+    assert!(page_one.next_cursor.is_some());
+
+    let page_two = store
+        .list_skill_variants_page(None, page_one.next_cursor.as_deref(), 1)
+        .await?;
+    assert_eq!(page_two.variants.len(), 1);
+    assert_ne!(
+        page_one.variants[0].variant_id,
+        page_two.variants[0].variant_id
+    );
+    assert!([first_record.variant_id, second_record.variant_id]
+        .contains(&page_two.variants[0].variant_id));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn inspect_skill_variants_explains_archived_lifecycle() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

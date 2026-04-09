@@ -176,19 +176,32 @@ impl HistoryStore {
         status: &str,
         limit: usize,
     ) -> Result<Vec<SkillVariantRecord>> {
+        let page = self
+            .list_skill_variants_by_status_page(status, None, limit)
+            .await?;
+        Ok(page.variants)
+    }
+
+    pub async fn list_skill_variants_by_status_page(
+        &self,
+        status: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<SkillVariantPage> {
         let status = status.to_string();
-        let limit = limit.clamp(1, 200) as i64;
-        self.conn
+        let variants = self
+            .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants WHERE status = ?1 ORDER BY updated_at ASC LIMIT ?2",
+                     FROM skill_variants WHERE status = ?1 ORDER BY updated_at ASC",
                 )?;
-                let rows = stmt.query_map(params![status, limit], map_skill_variant_row)?;
+                let rows = stmt.query_map(params![status], map_skill_variant_row)?;
                 Ok(rows.filter_map(|r| r.ok()).collect())
             })
             .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        super::page_skill_variants(variants, cursor, limit)
     }
 
     // ── Successful trace queries (Phase 5) ───────────────────────────────

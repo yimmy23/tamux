@@ -1,5 +1,34 @@
 use serde::{Deserialize, Serialize};
 
+mod json_string_or_value {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(value: &str, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            let json = serde_json::from_str::<serde_json::Value>(value)
+                .map_err(serde::ser::Error::custom)?;
+            json.serialize(serializer)
+        } else {
+            serializer.serialize_str(value)
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let json = serde_json::Value::deserialize(deserializer)?;
+            serde_json::to_string(&json).map_err(serde::de::Error::custom)
+        } else {
+            String::deserialize(deserializer)
+        }
+    }
+}
+
 use super::{SessionId, WorkspaceId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +159,50 @@ pub struct SkillDiscoveryResultPublic {
     pub workspace_tags: Vec<String>,
     #[serde(default)]
     pub candidates: Vec<SkillDiscoveryCandidatePublic>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolDescriptorPublic {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub required: Vec<String>,
+    #[serde(with = "json_string_or_value")]
+    pub parameters: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolListResultPublic {
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+    #[serde(default)]
+    pub items: Vec<ToolDescriptorPublic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolSearchMatchPublic {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub required: Vec<String>,
+    #[serde(with = "json_string_or_value")]
+    pub parameters: String,
+    pub score: u32,
+    #[serde(default)]
+    pub matched_fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolSearchResultPublic {
+    pub query: String,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+    #[serde(default)]
+    pub items: Vec<ToolSearchMatchPublic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

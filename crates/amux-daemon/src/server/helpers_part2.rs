@@ -203,6 +203,310 @@ fn normalize_session_tag(value: &str) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
+fn utf8_prefix(input: &str, end: usize) -> &str {
+    let mut end = end.min(input.len());
+    while end > 0 && !input.is_char_boundary(end) {
+        end -= 1;
+    }
+    &input[..end]
+}
+
+fn utf8_suffix(input: &str, start: usize) -> &str {
+    let mut start = start.min(input.len());
+    while start < input.len() && !input.is_char_boundary(start) {
+        start += 1;
+    }
+    &input[start..]
+}
+
+fn cap_vec_prefix_for_ipc<T, F>(items: Vec<T>, fits: F) -> (Vec<T>, bool)
+where
+    T: Clone,
+    F: Fn(&[T]) -> bool,
+{
+    if fits(&items) {
+        return (items, false);
+    }
+
+    let mut low = 0usize;
+    let mut high = items.len();
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if fits(&items[..mid]) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    (items.into_iter().take(low).collect(), true)
+}
+
+fn cap_vec_suffix_for_ipc<T, F>(items: Vec<T>, fits: F) -> (Vec<T>, bool)
+where
+    T: Clone,
+    F: Fn(&[T]) -> bool,
+{
+    if fits(&items) {
+        return (items, false);
+    }
+
+    let mut low = 0usize;
+    let mut high = items.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if fits(&items[mid..]) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    (items.into_iter().skip(low).collect(), true)
+}
+
+fn cap_string_prefix_for_ipc<F>(value: String, fits: F) -> (String, bool)
+where
+    F: Fn(&str) -> bool,
+{
+    if fits(&value) {
+        return (value, false);
+    }
+
+    let mut low = 0usize;
+    let mut high = value.len();
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if fits(utf8_prefix(&value, mid)) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    (utf8_prefix(&value, low).to_string(), true)
+}
+
+fn cap_string_suffix_for_ipc<F>(value: String, fits: F) -> (String, bool)
+where
+    F: Fn(&str) -> bool,
+{
+    if fits(&value) {
+        return (value, false);
+    }
+
+    let mut low = 0usize;
+    let mut high = value.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if fits(utf8_suffix(&value, mid)) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    (utf8_suffix(&value, low).to_string(), true)
+}
+
+fn cap_bytes_suffix_for_ipc<F>(value: Vec<u8>, fits: F) -> (Vec<u8>, bool)
+where
+    F: Fn(&[u8]) -> bool,
+{
+    if fits(&value) {
+        return (value, false);
+    }
+
+    let mut low = 0usize;
+    let mut high = value.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if fits(&value[mid..]) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    (value.into_iter().skip(low).collect(), true)
+}
+
+fn cap_agent_thread_list_for_ipc(
+    threads: Vec<crate::agent::types::AgentThread>,
+) -> (Vec<crate::agent::types::AgentThread>, bool) {
+    cap_vec_prefix_for_ipc(threads, |candidate| {
+        let Ok(threads_json) = serde_json::to_string(candidate) else {
+            return false;
+        };
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadList { threads_json })
+    })
+}
+
+fn cap_scrollback_for_ipc(
+    id: amux_protocol::SessionId,
+    data: Vec<u8>,
+) -> (Vec<u8>, bool) {
+    cap_bytes_suffix_for_ipc(data, |candidate| {
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::Scrollback {
+            id,
+            data: candidate.to_vec(),
+        })
+    })
+}
+
+fn cap_analysis_result_for_ipc(
+    id: amux_protocol::SessionId,
+    result: String,
+) -> (String, bool) {
+    cap_string_suffix_for_ipc(result, |candidate| {
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AnalysisResult {
+            id,
+            result: candidate.to_string(),
+        })
+    })
+}
+
+fn cap_history_search_result_for_ipc(
+    query: &str,
+    summary: String,
+    hits: Vec<amux_protocol::HistorySearchHit>,
+) -> (String, Vec<amux_protocol::HistorySearchHit>, bool) {
+    let query = query.to_string();
+    let fits = |summary: &str, hits: &[amux_protocol::HistorySearchHit]| {
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::HistorySearchResult {
+            query: query.clone(),
+            summary: summary.to_string(),
+            hits: hits.to_vec(),
+        })
+    };
+
+    if fits(&summary, &hits) {
+        return (summary, hits, false);
+    }
+
+    let (hits, hits_truncated) = cap_vec_prefix_for_ipc(hits, |candidate| fits(&summary, candidate));
+    if fits(&summary, &hits) {
+        return (summary, hits, true);
+    }
+
+    let (summary, summary_truncated) =
+        cap_string_prefix_for_ipc(summary, |candidate| fits(candidate, &hits));
+    (summary, hits, hits_truncated || summary_truncated)
+}
+
+fn cap_agent_db_thread_detail_for_ipc(
+    thread: Option<amux_protocol::AgentDbThread>,
+    messages: Vec<amux_protocol::AgentDbMessage>,
+) -> ((String, String), bool) {
+    let Ok(thread_json) = serde_json::to_string(&thread) else {
+        return ((String::new(), String::new()), true);
+    };
+
+    let fits = |candidate: &[amux_protocol::AgentDbMessage]| {
+        let Ok(messages_json) = serde_json::to_string(candidate) else {
+            return false;
+        };
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentDbThreadDetail {
+            thread_json: thread_json.clone(),
+            messages_json,
+        })
+    };
+
+    let (messages, truncated) = cap_vec_suffix_for_ipc(messages, fits);
+    let messages_json = serde_json::to_string(&messages).unwrap_or_default();
+    ((thread_json, messages_json), truncated)
+}
+
+fn cap_agent_event_rows_for_ipc(
+    events: Vec<amux_protocol::AgentEventRow>,
+) -> (String, bool) {
+    let fits = |candidate: &[amux_protocol::AgentEventRow]| {
+        let Ok(events_json) = serde_json::to_string(candidate) else {
+            return false;
+        };
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentEventRows { events_json })
+    };
+
+    let (events, truncated) = cap_vec_suffix_for_ipc(events, fits);
+    (serde_json::to_string(&events).unwrap_or_default(), truncated)
+}
+
+fn cap_git_diff_for_ipc(
+    repo_path: &str,
+    file_path: Option<&str>,
+    diff: String,
+) -> (String, bool) {
+    let repo_path = repo_path.to_string();
+    let file_path = file_path.map(ToOwned::to_owned);
+    cap_string_prefix_for_ipc(diff, |candidate| {
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::GitDiff {
+            repo_path: repo_path.clone(),
+            file_path: file_path.clone(),
+            diff: candidate.to_string(),
+        })
+    })
+}
+
+fn cap_plugin_api_call_result_for_ipc(
+    operation_id: Option<&str>,
+    plugin_name: &str,
+    endpoint_name: &str,
+    success: bool,
+    result: String,
+    error_type: Option<&str>,
+) -> (String, bool) {
+    let operation_id = operation_id.map(ToOwned::to_owned);
+    let plugin_name = plugin_name.to_string();
+    let endpoint_name = endpoint_name.to_string();
+    let error_type = error_type.map(ToOwned::to_owned);
+    cap_string_prefix_for_ipc(result, |candidate| {
+        amux_protocol::daemon_message_fits_ipc(&DaemonMessage::PluginApiCallResult {
+            operation_id: operation_id.clone(),
+            plugin_name: plugin_name.clone(),
+            endpoint_name: endpoint_name.clone(),
+            success,
+            result: candidate.to_string(),
+            error_type: error_type.clone(),
+        })
+    })
+}
+
+fn agent_event_frame_fits_ipc(event_json: &str) -> bool {
+    amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentEvent {
+        event_json: event_json.to_string(),
+    })
+}
+
+fn cap_agent_event_for_ipc(event: &crate::agent::types::AgentEvent) -> Option<(String, bool)> {
+    let event_json = serde_json::to_string(event).ok()?;
+    if agent_event_frame_fits_ipc(&event_json) {
+        return Some((event_json, false));
+    }
+
+    if let Some(thread_id) = agent_event_thread_id(event) {
+        let fallback = crate::agent::types::AgentEvent::ThreadReloadRequired {
+            thread_id: thread_id.to_string(),
+        };
+        let fallback_json = serde_json::to_string(&fallback).ok()?;
+        if agent_event_frame_fits_ipc(&fallback_json) {
+            return Some((fallback_json, true));
+        }
+    }
+
+    let fallback = crate::agent::types::AgentEvent::WorkflowNotice {
+        thread_id: agent_event_thread_id(event).unwrap_or_default().to_string(),
+        kind: "oversized-agent-event".to_string(),
+        message: "Large live update was truncated to fit IPC".to_string(),
+        details: None,
+    };
+    let fallback_json = serde_json::to_string(&fallback).ok()?;
+    if agent_event_frame_fits_ipc(&fallback_json) {
+        return Some((fallback_json, true));
+    }
+
+    None
+}
+
 fn summarize_session_output(recent_output: Option<&str>) -> Option<String> {
     let line = recent_output?
         .lines()
@@ -294,6 +598,8 @@ fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str
         | AgentEvent::ModeShift { thread_id, .. }
         | AgentEvent::ConfidenceWarning { thread_id, .. }
         | AgentEvent::CounterWhoAlert { thread_id, .. } => Some(thread_id.as_str()),
+        AgentEvent::OperatorQuestion { thread_id, .. }
+        | AgentEvent::OperatorQuestionResolved { thread_id, .. } => thread_id.as_deref(),
         AgentEvent::TaskUpdate {
             task: Some(task), ..
         } => task
@@ -355,4 +661,3 @@ async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
             .await;
     }
 }
-

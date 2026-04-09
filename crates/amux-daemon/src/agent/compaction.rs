@@ -7,6 +7,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
 const COMPACTION_NOTICE_KIND: &str = "auto-compaction";
 const COMPACTION_EXACT_MESSAGE_MAX: usize = 24;
+const COMPACTION_MODEL_RECENT_CONTENT_MESSAGES: usize = 6;
 const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context into a deterministic execution checkpoint for future continuity. Follow the mandatory thread compaction protocol exactly. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, failed paths, and the immediate next step. Return exactly one markdown block matching the required schema. Do not add commentary outside the schema.";
 const COMPACTION_CHECKPOINT_SCHEMA: &str = r#"# 🤖 Agent Context: State Checkpoint
 
@@ -829,6 +830,79 @@ fn select_compaction_transport(
     }
 }
 
+fn message_has_contentful_dialogue(message: &AgentMessage) -> bool {
+    match message.role {
+        MessageRole::Tool => false,
+        MessageRole::Assistant => {
+            !compaction_runtime_content(message).trim().is_empty()
+                || message
+                    .tool_calls
+                    .as_ref()
+                    .is_some_and(|tool_calls| !tool_calls.is_empty())
+        }
+        MessageRole::User | MessageRole::System => {
+            !compaction_runtime_content(message).trim().is_empty()
+        }
+    }
+}
+
+fn sanitize_recent_compaction_message(message: &AgentMessage) -> AgentMessage {
+    let mut sanitized = materialize_compaction_message(message);
+    match sanitized.role {
+        MessageRole::Assistant => {
+            if let Some(tool_calls) = &sanitized.tool_calls {
+                let tool_names = tool_calls
+                    .iter()
+                    .map(|call| call.function.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let content = sanitized.content.trim();
+                sanitized.content = match (content.is_empty(), tool_names.is_empty()) {
+                    (_, true) => content.to_string(),
+                    (true, false) => format!("Assistant requested tools: {tool_names}"),
+                    (false, false) => format!("{content}\nTools used: {tool_names}"),
+                };
+                sanitized.tool_calls = None;
+            }
+        }
+        MessageRole::Tool => {
+            sanitized.content = sanitized
+                .tool_name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| "tool".to_string());
+            sanitized.tool_arguments = None;
+            sanitized.tool_status = None;
+        }
+        MessageRole::System | MessageRole::User => {}
+    }
+    sanitized
+}
+
+fn select_recent_llm_compaction_messages(messages: &[AgentMessage]) -> (usize, Vec<AgentMessage>) {
+    if messages.is_empty() {
+        return (0, Vec::new());
+    }
+
+    let mut contentful_seen = 0usize;
+    let mut start_index = messages.len();
+    for (index, message) in messages.iter().enumerate().rev() {
+        if message_has_contentful_dialogue(message) {
+            contentful_seen += 1;
+        }
+        start_index = index;
+        if contentful_seen >= COMPACTION_MODEL_RECENT_CONTENT_MESSAGES {
+            break;
+        }
+    }
+
+    let recent = messages[start_index..]
+        .iter()
+        .map(sanitize_recent_compaction_message)
+        .collect::<Vec<_>>();
+    (start_index, recent)
+}
+
 fn build_llm_compaction_messages(
     messages: &[AgentMessage],
     target_tokens: usize,
@@ -843,16 +917,26 @@ fn build_llm_compaction_messages(
     let mut api_messages = if use_exact_messages {
         messages_to_api_format(&source_messages)
     } else {
-        vec![ApiMessage {
-            role: "user".to_string(),
-            content: ApiContent::Text(format!(
-                "Older context to compact:\n\n{}",
-                build_compaction_summary(&source_messages, target_tokens.saturating_mul(2))
-            )),
-            tool_call_id: None,
-            name: None,
-            tool_calls: None,
-        }]
+        let (recent_start, recent_messages) =
+            select_recent_llm_compaction_messages(&source_messages);
+        let mut reduced_messages = Vec::new();
+        if recent_start > 0 {
+            reduced_messages.push(ApiMessage {
+                role: "user".to_string(),
+                content: ApiContent::Text(format!(
+                    "Older context to compact:\n\n{}",
+                    build_compaction_summary(
+                        &source_messages[..recent_start],
+                        target_tokens.saturating_mul(2),
+                    )
+                )),
+                tool_call_id: None,
+                name: None,
+                tool_calls: None,
+            });
+        }
+        reduced_messages.extend(messages_to_api_format(&recent_messages));
+        reduced_messages
     };
 
     api_messages.push(ApiMessage {

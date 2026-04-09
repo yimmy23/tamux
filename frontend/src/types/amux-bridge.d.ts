@@ -422,6 +422,7 @@ declare global {
         agentDeferOperatorProfileQuestion?: (sessionId: string, questionId: string, deferUntilUnixMs?: number | null) => Promise<{ session_id: string; answered: number; remaining: number; completion_ratio: number } | { error?: string }>;
         agentGetOperatorProfileSummary?: () => Promise<unknown>;
         agentSetOperatorProfileConsent?: (consentKey: string, granted: boolean) => Promise<{ ok?: boolean; error?: string }>;
+        agentAnswerQuestion?: (questionId: string, answer: string) => Promise<{ ok?: boolean; error?: string }>;
     };
 
     interface Window {

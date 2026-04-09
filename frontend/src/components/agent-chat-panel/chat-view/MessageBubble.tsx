@@ -2,6 +2,13 @@ import { useState } from "react";
 import type { AgentMessage } from "../../../lib/agentStore";
 import { parseHandoffSystemEvent } from "./helpers";
 import { MarkdownContent } from "./markdown";
+import { getToolDiffPresentation, ToolDiffView } from "./toolDiffPresentation";
+import {
+  getToolFileTarget,
+  getToolStructuredFields,
+  ToolFileTargetView,
+  ToolStructuredValueView,
+} from "./toolValuePresentation";
 import { buildProviderFinalResultPresentation } from "../providerFinalResultPresentation";
 
 function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
@@ -67,6 +74,21 @@ export function MessageBubble({
   const providerFinalResult = buildProviderFinalResultPresentation(
     message.providerFinalResult,
   );
+  const toolDiff = isTool && message.toolName && message.toolArguments
+    ? getToolDiffPresentation(message.toolName, message.toolArguments)
+    : null;
+  const fileTarget = isTool && message.toolName && message.toolArguments
+    ? getToolFileTarget(message.toolName, message.toolArguments)
+    : null;
+  const structuredArgs = isTool && message.toolName && message.toolArguments
+    ? getToolStructuredFields(message.toolName, message.toolArguments, "arguments")
+    : null;
+  const structuredArgDetails = fileTarget && structuredArgs
+    ? structuredArgs.filter((field) => field.key !== "path")
+    : structuredArgs;
+  const structuredResult = isTool && message.toolName && message.content
+    ? getToolStructuredFields(message.toolName, message.content, "result")
+    : null;
   const displayContent = (() => {
     if (!isUser || typeof message.content !== "string") return message.content;
     if (!message.content.startsWith("[Gateway Context]")) return message.content;
@@ -271,7 +293,13 @@ export function MessageBubble({
               </span>
             </div>
 
-            {message.toolArguments && (
+            {fileTarget ? (
+              <ToolFileTargetView label="file" path={fileTarget.path} summaryText={message.content || undefined} />
+            ) : toolDiff ? (
+              <ToolDiffView sections={toolDiff} />
+            ) : structuredArgDetails ? (
+              <ToolStructuredValueView label="args" fields={structuredArgDetails} />
+            ) : message.toolArguments ? (
               <pre style={{ margin: 0, padding: "8px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", fontSize: 11, lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-mono)" }}>
                 {(() => {
                   try {
@@ -281,13 +309,15 @@ export function MessageBubble({
                   }
                 })()}
               </pre>
-            )}
+            ) : null}
 
-            {message.content && (
+            {!fileTarget && structuredResult ? (
+              <ToolStructuredValueView label="result" fields={structuredResult} />
+            ) : !fileTarget && message.content ? (
               <div style={{ padding: "8px", background: "rgba(2, 10, 18, 0.55)", border: "1px solid rgba(120, 168, 209, 0.22)", fontSize: 12, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                 {message.content}
               </div>
-            )}
+            ) : null}
           </div>
         ) : (
           <MarkdownContent content={displayContent} />

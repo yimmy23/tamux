@@ -36,22 +36,12 @@ impl Default for ConfigRuntimeProjection {
 pub(super) const WELES_BUILTIN_ID: &str = super::agent_identity::WELES_BUILTIN_SUBAGENT_ID;
 pub(super) const WELES_BUILTIN_NAME: &str = "WELES";
 pub(super) const WELES_PROTECTED_REASON: &str = "Daemon-owned WELES registry entry";
-pub(super) const DEFAULT_WELES_TOOL_WHITELIST: &[&str] = &[
-    "get_current_datetime",
-    "list_files",
-    "read_file",
-    "search_files",
-    "session_search",
-    "onecontext_search",
-    "update_todo",
-    "list_skills",
-    "semantic_query",
-    "read_skill",
-    "list_tasks",
-    "list_subagents",
+pub(super) const DEFAULT_WELES_TOOL_BLACKLIST: &[&str] = &[
+    "list_terminals",
     "read_active_terminal_content",
-    "message_agent",
-    "handoff_thread_agent",
+    "run_terminal_command",
+    "allocate_terminal",
+    "type_in_terminal",
 ];
 
 pub(super) fn is_reserved_builtin_sub_agent_id(id: &str) -> bool {
@@ -93,8 +83,8 @@ pub(crate) fn resolve_weles_max_concurrent_reviews(overrides: &WelesBuiltinOverr
     overrides.max_concurrent_reviews.unwrap_or(2).clamp(1, 16) as usize
 }
 
-pub(super) fn default_weles_tool_whitelist() -> Vec<String> {
-    DEFAULT_WELES_TOOL_WHITELIST
+pub(super) fn default_weles_tool_blacklist() -> Vec<String> {
+    DEFAULT_WELES_TOOL_BLACKLIST
         .iter()
         .map(|tool| (*tool).to_string())
         .collect()
@@ -150,11 +140,11 @@ pub(super) fn build_effective_weles_definition(config: &AgentConfig) -> SubAgent
             .clone()
             .or_else(|| Some("governance".to_string())),
         system_prompt: Some(system_prompt),
-        tool_whitelist: overrides
-            .tool_whitelist
+        tool_whitelist: overrides.tool_whitelist.clone(),
+        tool_blacklist: overrides
+            .tool_blacklist
             .clone()
-            .or_else(|| Some(default_weles_tool_whitelist())),
-        tool_blacklist: overrides.tool_blacklist.clone(),
+            .or_else(|| Some(default_weles_tool_blacklist())),
         context_budget_tokens: overrides.context_budget_tokens,
         max_duration_secs: overrides.max_duration_secs,
         supervisor_config: overrides.supervisor_config.clone(),

@@ -88,6 +88,7 @@ impl TuiModel {
         if code == KeyCode::Char('a') && ctrl {
             match self.modal.top() {
                 Some(modal::ModalKind::ApprovalOverlay) => {}
+                Some(modal::ModalKind::OperatorQuestionOverlay) => {}
                 Some(modal::ModalKind::ApprovalCenter) => self.close_top_modal(),
                 None => self.toggle_approval_center(),
                 _ => {}

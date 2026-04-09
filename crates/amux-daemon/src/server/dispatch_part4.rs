@@ -16,6 +16,8 @@ if matches!(
         ClientMessage::AgentListTodos |
         ClientMessage::AgentGetTodos{ .. } |
         ClientMessage::AgentGetWorkContext{ .. } |
+        ClientMessage::AgentListTools{ .. } |
+        ClientMessage::AgentSearchTools{ .. } |
         ClientMessage::AgentGetConfig |
         ClientMessage::AgentGetEffectiveConfigState |
         ClientMessage::AgentSetConfigItem{ .. } |
@@ -58,7 +60,10 @@ if matches!(
                 }
 
                 ClientMessage::AgentListThreads => {
-                    let threads = agent.list_threads().await;
+                    let (threads, truncated) = cap_agent_thread_list_for_ipc(agent.list_threads().await);
+                    if truncated {
+                        tracing::warn!("truncated agent thread list to fit IPC frame limit");
+                    }
                     let json = serde_json::to_string(&threads).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentThreadList { threads_json: json })
@@ -67,7 +72,14 @@ if matches!(
 
                 ClientMessage::AgentGetThread { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let thread = agent.get_thread(&thread_id).await;
+                    let detail = agent.get_thread_capped_for_ipc(&thread_id, false).await;
+                    if detail.as_ref().is_some_and(|detail| detail.messages_truncated) {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            "truncated agent thread detail to fit IPC frame limit"
+                        );
+                    }
+                    let thread = detail.map(|detail| detail.thread);
                     let json = serde_json::to_string(&thread).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentThreadDetail { thread_json: json })
@@ -122,7 +134,10 @@ if matches!(
                 }
 
                 ClientMessage::AgentListTasks => {
-                    let tasks = agent.list_tasks().await;
+                    let (tasks, truncated) = agent.list_tasks_capped_for_ipc().await;
+                    if truncated {
+                        tracing::warn!("truncated task list to fit IPC frame limit");
+                    }
                     let json = serde_json::to_string(&tasks).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentTaskList { tasks_json: json })
@@ -179,7 +194,12 @@ if matches!(
                 }
 
                 ClientMessage::AgentListGoalRuns => {
-                    let goal_runs = agent.list_goal_runs().await;
+                    let (goal_runs, truncated) = agent.list_goal_runs_capped_for_ipc().await;
+                    if truncated {
+                        tracing::warn!(
+                            "truncated goal run list to fit IPC frame limit"
+                        );
+                    }
                     let json = serde_json::to_string(&goal_runs).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentGoalRunList {
@@ -189,7 +209,14 @@ if matches!(
                 }
 
                 ClientMessage::AgentGetGoalRun { goal_run_id } => {
-                    let goal_run = agent.get_goal_run(&goal_run_id).await;
+                    let detail = agent.get_goal_run_capped_for_ipc(&goal_run_id).await;
+                    if detail.as_ref().is_some_and(|(_, truncated)| *truncated) {
+                        tracing::warn!(
+                            goal_run_id = %goal_run_id,
+                            "truncated goal run detail to fit IPC frame limit"
+                        );
+                    }
+                    let goal_run = detail.map(|(goal_run, _)| goal_run);
                     let json = serde_json::to_string(&goal_run).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentGoalRunDetail {
@@ -212,7 +239,10 @@ if matches!(
                 }
 
                 ClientMessage::AgentListTodos => {
-                    let todos = agent.list_todos().await;
+                    let (todos, truncated) = agent.list_todos_capped_for_ipc().await;
+                    if truncated {
+                        tracing::warn!("truncated todo list to fit IPC frame limit");
+                    }
                     let json = serde_json::to_string(&todos).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentTodoList { todos_json: json })
@@ -221,7 +251,13 @@ if matches!(
 
                 ClientMessage::AgentGetTodos { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let todos = agent.get_todos(&thread_id).await;
+                    let (todos, truncated) = agent.get_todos_capped_for_ipc(&thread_id).await;
+                    if truncated {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            "truncated todo detail to fit IPC frame limit"
+                        );
+                    }
                     let json = serde_json::to_string(&todos).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentTodoDetail {
@@ -233,13 +269,57 @@ if matches!(
 
                 ClientMessage::AgentGetWorkContext { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let context = agent.get_work_context(&thread_id).await;
+                    let (context, truncated) =
+                        agent.get_work_context_capped_for_ipc(&thread_id).await;
+                    if truncated {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            "truncated work context detail to fit IPC frame limit"
+                        );
+                    }
                     let json = serde_json::to_string(&context).unwrap_or_default();
                     framed
                         .send(DaemonMessage::AgentWorkContextDetail {
                             thread_id,
                             context_json: json,
                         })
+                        .await?;
+                }
+
+                ClientMessage::AgentListTools { limit, offset } => {
+                    let config = agent.config.read().await;
+                    let has_workspace_topology =
+                        agent.session_manager.read_workspace_topology().is_some();
+                    let result = crate::agent::tool_executor::list_available_tools_public(
+                        &config,
+                        &agent.data_dir,
+                        has_workspace_topology,
+                        limit.unwrap_or(50),
+                        offset.unwrap_or(0),
+                    );
+                    framed
+                        .send(DaemonMessage::AgentToolList { result })
+                        .await?;
+                }
+
+                ClientMessage::AgentSearchTools {
+                    query,
+                    limit,
+                    offset,
+                } => {
+                    let config = agent.config.read().await;
+                    let has_workspace_topology =
+                        agent.session_manager.read_workspace_topology().is_some();
+                    let result = crate::agent::tool_executor::search_available_tools_public(
+                        &config,
+                        &agent.data_dir,
+                        has_workspace_topology,
+                        &query,
+                        limit.unwrap_or(20),
+                        offset.unwrap_or(0),
+                    );
+                    framed
+                        .send(DaemonMessage::AgentToolSearchResult { result })
                         .await?;
                 }
 

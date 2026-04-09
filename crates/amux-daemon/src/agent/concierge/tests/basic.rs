@@ -77,6 +77,10 @@ fn gateway_triage_safe_tools_include_lookup_and_agent_coordination_tools() {
             "session_search",
             "agent_query_memory",
             "onecontext_search",
+            "list_skills",
+            "semantic_query",
+            "discover_skills",
+            "read_skill",
             "web_search",
             "message_agent",
         ]

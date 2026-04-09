@@ -156,6 +156,81 @@
     }
 
     #[test]
+    fn github_copilot_full_responses_request_omits_orphaned_function_calls() {
+        let config = ProviderConfig {
+            base_url: "https://api.githubcopilot.com".to_string(),
+            model: "gpt-5.4".to_string(),
+            api_key: String::new(),
+            assistant_id: String::new(),
+            auth_source: AuthSource::GithubCopilot,
+            api_transport: ApiTransport::Responses,
+            reasoning_effort: "high".to_string(),
+            context_window_tokens: 0,
+            response_schema: None,
+            stop_sequences: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            metadata: None,
+            service_tier: None,
+            container: None,
+            inference_geo: None,
+            cache_control: None,
+            max_tokens: None,
+            anthropic_tool_choice: None,
+            output_effort: None,
+        };
+
+        let body = build_openai_responses_body(
+            amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("first question".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text("I'll inspect that".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: Some(vec![ApiToolCall {
+                        id: "call_orphaned".to_string(),
+                        call_type: "function".to_string(),
+                        function: ApiToolCallFunction {
+                            name: "read_file".to_string(),
+                            arguments: "{\"path\":\"MEMORY.md\"}".to_string(),
+                        },
+                    }]),
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("continue".to_string()),
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+            None,
+            false,
+        );
+
+        let input = body["input"].as_array().expect("input array");
+        assert_eq!(input.len(), 3);
+        assert_eq!(input[0]["role"], "user");
+        assert_eq!(input[1]["role"], "assistant");
+        assert_eq!(input[2]["role"], "user");
+        assert!(input
+            .iter()
+            .all(|item| item.get("type").and_then(|value| value.as_str()) != Some("function_call")));
+    }
+
+    #[test]
     fn github_copilot_full_responses_request_preserves_function_call_history() {
         let config = ProviderConfig {
             base_url: "https://api.githubcopilot.com".to_string(),

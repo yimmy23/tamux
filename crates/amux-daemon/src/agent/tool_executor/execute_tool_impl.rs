@@ -459,7 +459,12 @@ pub fn execute_tool<'a>(
         "update_memory" => {
             execute_update_memory(&args, agent, thread_id, task_id, agent_data_dir).await
         }
+        "list_tools" => execute_list_tools(&args, agent, session_manager, agent_data_dir).await,
+        "tool_search" => {
+            execute_tool_search(&args, agent, session_manager, agent_data_dir).await
+        }
         "list_skills" => execute_list_skills(&args, agent_data_dir, &agent.history).await,
+        "discover_skills" => execute_discover_skills(&args, agent, session_id).await,
         "semantic_query" => {
             execute_semantic_query(
                 &dispatch_args,
@@ -482,6 +487,57 @@ pub fn execute_tool<'a>(
                 task_id,
             )
             .await
+        }
+        "ask_questions" => {
+            let parsed = (|| -> Result<(
+                String,
+                Vec<String>,
+                Option<String>,
+                Option<String>,
+            )> {
+                let content = dispatch_args
+                    .get("content")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?
+                    .to_string();
+                let options = dispatch_args
+                    .get("options")
+                    .and_then(|value| value.as_array())
+                    .ok_or_else(|| anyhow::anyhow!("missing 'options' argument"))?
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .map(str::trim)
+                            .filter(|option| !option.is_empty())
+                            .map(ToOwned::to_owned)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "'options' must be an array of compact non-empty strings"
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let session = dispatch_args
+                    .get("session")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .or_else(|| session_id.map(|value| value.to_string()));
+                let thread = (!thread_id.trim().is_empty()).then(|| thread_id.to_string());
+                Ok((content, options, session, thread))
+            })();
+
+            match parsed {
+                Ok((content, options, session, thread)) => agent
+                    .ask_operator_question(&content, options, session, thread)
+                    .await
+                    .map(|(_, answer)| answer),
+                Err(error) => Err(error),
+            }
         }
         "justify_skill_skip" => execute_justify_skill_skip(&args, agent, thread_id).await,
         "synthesize_tool" => synthesize_tool(&args, agent, agent_data_dir, http_client).await,

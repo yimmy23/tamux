@@ -226,6 +226,13 @@ impl DaemonClient {
         self.send(ClientMessage::AgentGetOperatorProfileSummary)
     }
 
+    pub fn answer_operator_question(&self, question_id: String, answer: String) -> Result<()> {
+        self.send(ClientMessage::AgentAnswerQuestion {
+            question_id,
+            answer,
+        })
+    }
+
     pub fn get_operator_model(&self) -> Result<()> {
         self.send(ClientMessage::AgentGetOperatorModel)
     }

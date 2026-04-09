@@ -6,6 +6,7 @@ import { StatusBar } from "./components/StatusBar";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { AgentApprovalOverlay } from "./components/AgentApprovalOverlay";
+import { OperatorQuestionOverlay } from "./components/OperatorQuestionOverlay";
 // ConciergeToast is rendered inline below — no separate import needed.
 import { SetupOnboardingPanel } from "./components/SetupOnboardingPanel";
 import { OperatorProfileOnboardingPanel } from "./components/OperatorProfileOnboardingPanel";
@@ -144,7 +145,7 @@ export default function App() {
         useAgentStore.getState().applyOperatorProfileSessionCompleted(event.data ?? event);
       }
       if (event?.type === "operator-profile-summary") {
-        useAgentStore.getState().getOperatorProfileSummary().catch(() => {});
+        useAgentStore.getState().getOperatorProfileSummary().catch(() => { });
       }
       if (event?.type === "heartbeat_digest" && event.actionable === true) {
         const items = Array.isArray(event.items) ? event.items : [];
@@ -450,6 +451,7 @@ export default function App() {
       <SetupOnboardingPanel />
       <OperatorProfileOnboardingPanel />
       <AgentApprovalOverlay />
+      <OperatorQuestionOverlay />
       <ConciergeToast />
     </div>
   );

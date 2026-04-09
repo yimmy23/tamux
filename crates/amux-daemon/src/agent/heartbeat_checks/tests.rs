@@ -149,6 +149,7 @@ async fn make_test_engine(
         stalled_turn_candidates: Mutex::new(HashMap::new()),
         active_operator_sessions: RwLock::new(HashMap::new()),
         pending_operator_approvals: RwLock::new(HashMap::new()),
+        pending_operator_questions: Mutex::new(HashMap::new()),
         operator_profile_sessions: RwLock::new(HashMap::new()),
         honcho_sync: Mutex::new(HonchoSyncState::default()),
         repo_watchers: Mutex::new(HashMap::new()),

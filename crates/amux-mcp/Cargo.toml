@@ -19,3 +19,4 @@ tracing-subscriber = { workspace = true }
 futures = { workspace = true }
 uuid = { workspace = true }
 humantime = { workspace = true }
+base64 = "0.22"

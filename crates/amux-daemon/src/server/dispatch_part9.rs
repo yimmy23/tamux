@@ -472,16 +472,33 @@ if matches!(
                                 .api_call(&plugin_name, &endpoint_name, params_json)
                                 .await
                             {
-                                Ok(result_text) => BackgroundOperationOutput::Completed(
-                                    DaemonMessage::PluginApiCallResult {
+                                Ok(result_text) => {
+                                    let (result, truncated) = cap_plugin_api_call_result_for_ipc(
+                                        result_operation_id.as_deref(),
+                                        &plugin_name,
+                                        &endpoint_name,
+                                        true,
+                                        result_text,
+                                        None,
+                                    );
+                                    if truncated {
+                                        tracing::warn!(
+                                            plugin_name = %plugin_name,
+                                            endpoint_name = %endpoint_name,
+                                            "truncated plugin API result to fit IPC frame limit"
+                                        );
+                                    }
+                                    BackgroundOperationOutput::Completed(
+                                        DaemonMessage::PluginApiCallResult {
                                         operation_id: result_operation_id.clone(),
                                         plugin_name,
                                         endpoint_name,
                                         success: true,
-                                        result: result_text,
+                                        result,
                                         error_type: None,
-                                    },
-                                ),
+                                        },
+                                    )
+                                }
                                 Err(e) => {
                                     let error_type = match &e {
                                         crate::plugin::PluginApiError::SsrfBlocked { .. } => {
@@ -508,13 +525,28 @@ if matches!(
                                             "auth_expired"
                                         }
                                     };
+                                    let (result, truncated) = cap_plugin_api_call_result_for_ipc(
+                                        result_operation_id.as_deref(),
+                                        &plugin_name,
+                                        &endpoint_name,
+                                        false,
+                                        e.to_string(),
+                                        Some(error_type),
+                                    );
+                                    if truncated {
+                                        tracing::warn!(
+                                            plugin_name = %plugin_name,
+                                            endpoint_name = %endpoint_name,
+                                            "truncated plugin API error result to fit IPC frame limit"
+                                        );
+                                    }
                                     BackgroundOperationOutput::Failed(
                                         DaemonMessage::PluginApiCallResult {
                                             operation_id: result_operation_id.clone(),
                                             plugin_name,
                                             endpoint_name,
                                             success: false,
-                                            result: e.to_string(),
+                                            result,
                                             error_type: Some(error_type.to_string()),
                                         },
                                     )

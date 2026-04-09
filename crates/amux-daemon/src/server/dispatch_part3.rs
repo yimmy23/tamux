@@ -28,9 +28,14 @@ if matches!(
                     match manager.list_agent_messages(&thread_id, limit).await {
                         Ok(messages) => {
                             let thread = manager.get_agent_thread(&thread_id).await?;
-                            let thread_json = serde_json::to_string(&thread).unwrap_or_default();
-                            let messages_json =
-                                serde_json::to_string(&messages).unwrap_or_default();
+                            let ((thread_json, messages_json), truncated) =
+                                cap_agent_db_thread_detail_for_ipc(thread, messages);
+                            if truncated {
+                                tracing::warn!(
+                                    thread_id = %thread_id,
+                                    "truncated listed agent db thread detail to fit IPC frame limit"
+                                );
+                            }
                             framed
                                 .send(DaemonMessage::AgentDbThreadDetail {
                                     thread_json,
@@ -175,7 +180,14 @@ if matches!(
                         .await
                     {
                         Ok(events) => {
-                            let events_json = serde_json::to_string(&events).unwrap_or_default();
+                            let (events_json, truncated) = cap_agent_event_rows_for_ipc(events);
+                            if truncated {
+                                tracing::warn!(
+                                    category = category.as_deref().unwrap_or(""),
+                                    pane_id = pane_id.as_deref().unwrap_or(""),
+                                    "truncated agent event rows to fit IPC frame limit"
+                                );
+                            }
                             framed
                                 .send(DaemonMessage::AgentEventRows { events_json })
                                 .await?;
@@ -278,6 +290,15 @@ if matches!(
                     file_path,
                 } => {
                     let diff = crate::git::git_diff(&repo_path, file_path.as_deref());
+                    let (diff, truncated) =
+                        cap_git_diff_for_ipc(&repo_path, file_path.as_deref(), diff);
+                    if truncated {
+                        tracing::warn!(
+                            repo_path = %repo_path,
+                            file_path = file_path.as_deref().unwrap_or(""),
+                            "truncated git diff to fit IPC frame limit"
+                        );
+                    }
                     framed
                         .send(DaemonMessage::GitDiff {
                             repo_path,

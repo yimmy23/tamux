@@ -575,6 +575,16 @@ pub(super) fn parse_watcher_status(output: &str) -> WatcherStatus {
 }
 
 pub(super) fn parse_session_list_json(json: &str) -> Result<SessionListJson> {
+    if is_no_sessions_discovered_output(json) {
+        return Ok(SessionListJson {
+            has_more: Some(false),
+            page: None,
+            per_page: None,
+            total_pages: None,
+            sessions: Vec::new(),
+        });
+    }
+
     let parsed: SessionListJson =
         serde_json::from_str(json).context("failed to parse aline session list json")?;
 
@@ -595,6 +605,10 @@ pub(super) fn parse_session_list_json(json: &str) -> Result<SessionListJson> {
     }
 
     Ok(parsed)
+}
+
+fn is_no_sessions_discovered_output(output: &str) -> bool {
+    output.trim_start().starts_with("No sessions discovered.")
 }
 
 pub(super) fn repo_root_basename(repo_root: &Path) -> Option<&str> {

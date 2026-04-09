@@ -230,11 +230,13 @@ fn status_viewer_down_scrolls_status_body() {
         gateway_statuses_json: r#"{"slack":{"status":"connected"}}"#.to_string(),
         recent_actions_json: serde_json::to_string(
             &(0..40)
-                .map(|idx| serde_json::json!({
-                    "action_type": format!("tool_{idx}"),
-                    "summary": format!("summary {idx}"),
-                    "timestamp": 1712345678_u64 + idx,
-                }))
+                .map(|idx| {
+                    serde_json::json!({
+                        "action_type": format!("tool_{idx}"),
+                        "summary": format!("summary {idx}"),
+                        "timestamp": 1712345678_u64 + idx,
+                    })
+                })
                 .collect::<Vec<_>>(),
         )
         .unwrap(),
@@ -281,7 +283,10 @@ fn command_palette_prompt_query_with_args_requests_target_agent() {
         Ok(DaemonCommand::RequestPromptInspection { agent_id }) => {
             assert_eq!(agent_id.as_deref(), Some("weles"));
         }
-        other => panic!("expected prompt inspection request from command palette query, got {:?}", other),
+        other => panic!(
+            "expected prompt inspection request from command palette query, got {:?}",
+            other
+        ),
     }
 }
 

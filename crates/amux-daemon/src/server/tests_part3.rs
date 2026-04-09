@@ -333,6 +333,7 @@ Use this when debugging a panic in a Rust workspace.
                 query: "debug panic".to_string(),
                 session_id: None,
                 limit: 3,
+                cursor: None,
             })
             .await
             .expect("send skill discover request");

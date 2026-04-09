@@ -156,6 +156,17 @@ fn messages_to_responses_input(
     messages: &[ApiMessage],
     previous_response_id: Option<&str>,
 ) -> Vec<serde_json::Value> {
+    let emitted_tool_output_call_ids: std::collections::HashSet<&str> = messages
+        .iter()
+        .filter(|message| message.role == "tool")
+        .filter(|message| {
+            !(provider == amux_shared::providers::PROVIDER_ID_GITHUB_COPILOT
+                && previous_response_id.is_some())
+        })
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .filter(|call_id| !call_id.trim().is_empty())
+        .collect();
+
     messages
         .iter()
         .flat_map(|message| match message.role.as_str() {
@@ -185,6 +196,9 @@ fn messages_to_responses_input(
                 }
                 if let Some(tool_calls) = &message.tool_calls {
                     for tool_call in tool_calls {
+                        if !emitted_tool_output_call_ids.contains(tool_call.id.as_str()) {
+                            continue;
+                        }
                         items.push(serde_json::json!({
                             "type": "function_call",
                             "call_id": tool_call.id,

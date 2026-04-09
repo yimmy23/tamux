@@ -264,14 +264,20 @@ async fn status_snapshot_includes_aline_diagnostics() {
     };
 
     let diagnostics: serde_json::Value = serde_json::from_str(&diagnostics_json).unwrap();
-    let aline = diagnostics.get("aline").expect("aline diagnostics should exist");
-    assert_eq!(aline.get("available").and_then(|value| value.as_bool()), Some(true));
+    let aline = diagnostics
+        .get("aline")
+        .expect("aline diagnostics should exist");
+    assert_eq!(
+        aline.get("available").and_then(|value| value.as_bool()),
+        Some(true)
+    );
     assert_eq!(
         aline.get("watcher_state").and_then(|value| value.as_str()),
         Some("running")
     );
     assert_eq!(
-        aline.get("short_circuit_reason")
+        aline
+            .get("short_circuit_reason")
             .and_then(|value| value.as_str()),
         Some("budget_exhausted")
     );

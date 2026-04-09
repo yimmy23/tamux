@@ -238,7 +238,12 @@ impl TuiModel {
                         }
                     } else if matches!(self.main_pane_view, MainPaneView::Conversation) {
                         let pos = Position::new(mouse.column, mouse.row);
-                        if pos.x == chat_area.x.saturating_add(chat_area.width).saturating_sub(1) {
+                        if pos.x
+                            == chat_area
+                                .x
+                                .saturating_add(chat_area.width)
+                                .saturating_sub(1)
+                        {
                             if let Some(layout) = widgets::chat::scrollbar_layout(
                                 chat_area,
                                 &self.chat,
@@ -256,11 +261,13 @@ impl TuiModel {
                                     self.clear_chat_drag_selection();
                                     let default_grab_offset = layout.thumb.height / 2;
                                     let grab_offset = if pos.y >= layout.thumb.y
-                                        && pos.y < layout.thumb.y.saturating_add(layout.thumb.height)
+                                        && pos.y
+                                            < layout.thumb.y.saturating_add(layout.thumb.height)
                                     {
                                         pos.y.saturating_sub(layout.thumb.y)
                                     } else {
-                                        default_grab_offset.min(layout.thumb.height.saturating_sub(1))
+                                        default_grab_offset
+                                            .min(layout.thumb.height.saturating_sub(1))
                                     };
                                     if let Some(target) =
                                         widgets::chat::scrollbar_scroll_offset_for_pointer(

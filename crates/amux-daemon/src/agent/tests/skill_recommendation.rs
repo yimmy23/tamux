@@ -205,11 +205,113 @@ keywords: [react, css]
 }
 
 #[tokio::test]
+async fn nested_skill_catalogs_are_indexed_recursively() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    write_markdown(
+        &skills_root,
+        "development/rust/debug/SKILL.md",
+        r#"---
+description: Debug Rust build and cargo test failures.
+keywords: [rust, cargo, build]
+---
+
+# Debug Rust Build
+"#,
+    )?;
+
+    super::sync_skill_catalog(&store, &skills_root).await?;
+
+    let indexed = store.list_skill_variants(None, 10).await?;
+    assert!(indexed
+        .iter()
+        .any(|variant| variant.relative_path == "development/rust/debug/SKILL.md"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn matched_skill_discovery_paginates() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let generated = skills_root.join("generated");
+
+    let rust_a = write_skill(
+        &generated,
+        "debug-rust-build",
+        r#"---
+description: Debug Rust build failures.
+keywords: [rust, build, debug]
+triggers: [build failure]
+---
+
+# Debug Rust Build
+"#,
+    )?;
+    let rust_b = write_skill(
+        &generated,
+        "debug-rust-runtime",
+        r#"---
+description: Debug Rust runtime failures.
+keywords: [rust, runtime, debug]
+triggers: [runtime failure]
+---
+
+# Debug Rust Runtime
+"#,
+    )?;
+
+    store.register_skill_document(&rust_a).await?;
+    store.register_skill_document(&rust_b).await?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "debug rust failure",
+        &["rust".to_string()],
+        10,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    let page_one = super::page_public_discovery_result(
+        "debug rust failure",
+        &["rust".to_string()],
+        &result,
+        &SkillRecommendationConfig::default(),
+        None,
+        1,
+    )?;
+    assert_eq!(page_one.candidates.len(), 1);
+    assert!(page_one.next_cursor.is_some());
+
+    let page_two = super::page_public_discovery_result(
+        "debug rust failure",
+        &["rust".to_string()],
+        &result,
+        &SkillRecommendationConfig::default(),
+        page_one.next_cursor.as_deref(),
+        1,
+    )?;
+    assert_eq!(page_two.candidates.len(), 1);
+    assert_ne!(
+        page_one.candidates[0].variant_id,
+        page_two.candidates[0].variant_id
+    );
+    assert!(page_two.next_cursor.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn planning_skill_is_recommended_for_architecture_synthesis_requests() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let skills_root = root.path().join("skills");
-    let builtin = skills_root.join("builtin");
+    let builtin = skills_root.clone();
 
     write_skill(
         &builtin,
@@ -263,7 +365,7 @@ async fn never_used_skill_does_not_look_recent_after_catalog_sync() -> Result<()
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let skills_root = root.path().join("skills");
-    let builtin = skills_root.join("builtin");
+    let builtin = skills_root.clone();
 
     write_skill(
         &builtin,
@@ -301,7 +403,7 @@ async fn catalog_sync_indexes_only_skill_entrypoints() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let skills_root = root.path().join("skills");
-    let builtin = skills_root.join("builtin");
+    let builtin = skills_root.clone();
 
     write_skill(
         &builtin,
@@ -352,7 +454,7 @@ async fn discover_local_skills_errors_when_indexed_skill_file_is_missing() -> Re
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
     let skills_root = root.path().join("skills");
-    let builtin = skills_root.join("builtin");
+    let builtin = skills_root.clone();
 
     let skill_path = write_skill(
         &builtin,
@@ -382,6 +484,174 @@ keywords: [rust, cargo, build]
     assert!(error
         .to_string()
         .contains("failed to read skill recommendation file"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_skills_handles_legacy_builtin_paths_after_skill_move() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let legacy_skill_path = write_skill(
+        &skills_root.join("builtin"),
+        "cheatsheet",
+        r#"---
+description: Quick reference for available MCP tools.
+keywords: [mcp, tools]
+triggers: [tool reference]
+---
+
+# Cheatsheet
+"#,
+    )?;
+    store.register_skill_document(&legacy_skill_path).await?;
+
+    let migrated_skill_path = skills_root.join("cheatsheet").join("SKILL.md");
+    fs::create_dir_all(
+        migrated_skill_path
+            .parent()
+            .expect("migrated skill should have a parent"),
+    )?;
+    fs::rename(&legacy_skill_path, &migrated_skill_path)?;
+    fs::remove_dir_all(skills_root.join("builtin"))?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "cheatsheet",
+        &[],
+        3,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("cheatsheet")
+    );
+    assert!(!result.recommendations.is_empty());
+    assert_ne!(result.recommended_action, SkillRecommendationAction::None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_skills_handles_legacy_builtin_paths_after_taxonomy_move() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let legacy_skill_path = write_skill(
+        &skills_root.join("builtin").join("superpowers"),
+        "brainstorming",
+        r#"---
+name: brainstorming
+description: Guide feature design before implementation.
+keywords: [design, planning]
+triggers: [feature work]
+---
+
+# Brainstorming
+"#,
+    )?;
+    store.register_skill_document(&legacy_skill_path).await?;
+
+    let migrated_skill_path = skills_root
+        .join("development")
+        .join("superpowers")
+        .join("brainstorming")
+        .join("SKILL.md");
+    fs::create_dir_all(
+        migrated_skill_path
+            .parent()
+            .expect("migrated skill should have a parent"),
+    )?;
+    fs::rename(&legacy_skill_path, &migrated_skill_path)?;
+    fs::remove_dir_all(skills_root.join("builtin"))?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "brainstorming",
+        &[],
+        3,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("brainstorming")
+    );
+    assert!(!result.recommendations.is_empty());
+    assert_ne!(result.recommended_action, SkillRecommendationAction::None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_skills_ignores_stale_reference_markdown_rows() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    let stale_reference = write_markdown(
+        &skills_root,
+        "builtin/superpowers/brainstorming/visual-companion.md",
+        "# Visual Companion\nReference helper, not a skill entrypoint.\n",
+    )?;
+    store.register_skill_document(&stale_reference).await?;
+
+    write_skill(
+        &skills_root.join("development").join("superpowers"),
+        "brainstorming",
+        r#"---
+name: brainstorming
+description: Guide feature design before implementation.
+keywords: [design, planning]
+triggers: [feature work]
+---
+
+# Brainstorming
+"#,
+    )?;
+    fs::remove_dir_all(skills_root.join("builtin"))?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "brainstorming",
+        &[],
+        3,
+        &SkillRecommendationConfig {
+            weak_match_threshold: 0.0,
+            strong_match_threshold: 0.9,
+            ..SkillRecommendationConfig::default()
+        },
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("brainstorming")
+    );
 
     Ok(())
 }

@@ -109,6 +109,73 @@
     }
 
     #[test]
+    fn oversized_thread_agent_event_downgrades_to_reload_required() {
+        let event = AgentEvent::Delta {
+            thread_id: "thread-big".to_string(),
+            content: "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
+        };
+
+        let (event_json, truncated) =
+            super::cap_agent_event_for_ipc(&event).expect("event should produce fallback payload");
+        assert!(truncated);
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&event_json).expect("parse fallback event json");
+        assert_eq!(
+            parsed.get("type").and_then(|value| value.as_str()),
+            Some("thread_reload_required")
+        );
+        assert_eq!(
+            parsed.get("thread_id").and_then(|value| value.as_str()),
+            Some("thread-big")
+        );
+        assert!(amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentEvent {
+            event_json,
+        }));
+    }
+
+    #[test]
+    fn oversized_global_agent_event_downgrades_to_workflow_notice() {
+        let event = AgentEvent::GatewayIncoming {
+            platform: "Slack".to_string(),
+            sender: "bot".to_string(),
+            content: "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
+            channel: "C123".to_string(),
+        };
+
+        let (event_json, truncated) =
+            super::cap_agent_event_for_ipc(&event).expect("event should produce fallback payload");
+        assert!(truncated);
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&event_json).expect("parse fallback event json");
+        assert_eq!(
+            parsed.get("type").and_then(|value| value.as_str()),
+            Some("workflow_notice")
+        );
+        assert_eq!(
+            parsed.get("kind").and_then(|value| value.as_str()),
+            Some("oversized-agent-event")
+        );
+        assert!(amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentEvent {
+            event_json,
+        }));
+    }
+
+    #[test]
+    fn operator_question_events_forward_for_subscribed_thread() {
+        let event = AgentEvent::OperatorQuestion {
+            question_id: "oq-1".to_string(),
+            content: "Choose one".to_string(),
+            options: vec!["A".to_string(), "B".to_string()],
+            session_id: Some("session-1".to_string()),
+            thread_id: Some("thread-1".to_string()),
+        };
+        let client_threads = HashSet::from(["thread-1".to_string()]);
+        assert!(super::should_forward_agent_event(&event, &client_threads));
+    }
+
+    #[test]
     fn build_session_end_episode_payload_generates_summary_and_tags() {
         let session_id = uuid::Uuid::nil();
         let info = SessionInfo {
@@ -416,4 +483,3 @@
 
         let _ = std::fs::remove_dir_all(root);
     }
-

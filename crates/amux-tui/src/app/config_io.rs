@@ -51,7 +51,9 @@ impl TuiModel {
 
         if let (Some(before_providers), Some(after_providers)) = (
             before.get("providers").and_then(|value| value.as_object()),
-            after.get_mut("providers").and_then(|value| value.as_object_mut()),
+            after
+                .get_mut("providers")
+                .and_then(|value| value.as_object_mut()),
         ) {
             for (provider_id, before_provider) in before_providers {
                 if let Some(api_key) = before_provider.get("api_key").cloned() {

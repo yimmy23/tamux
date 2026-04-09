@@ -263,6 +263,17 @@ pub enum ClientEvent {
         input_kind: String,
         optional: bool,
     },
+    OperatorQuestion {
+        question_id: String,
+        content: String,
+        options: Vec<String>,
+        session_id: Option<String>,
+        thread_id: Option<String>,
+    },
+    OperatorQuestionResolved {
+        question_id: String,
+        answer: String,
+    },
     OperatorProfileProgress {
         session_id: String,
         answered: u32,

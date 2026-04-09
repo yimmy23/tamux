@@ -9,6 +9,9 @@ use markdown_table::{is_markdown_table_row, is_markdown_table_start, render_mark
 
 use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
 use crate::theme::ThemeTokens;
+use crate::widgets::tool_diff::{
+    render_tool_edit_diff, render_tool_structured_json, ToolStructuredValueSource,
+};
 
 fn format_weles_review_badge(
     review: &crate::state::chat::WelesReviewMetaVm,
@@ -399,18 +402,37 @@ fn render_compact(
                 // Show arguments
                 if let Some(args) = &msg.tool_arguments {
                     if !args.is_empty() {
-                        let mut rendered_arg_lines =
-                            wrap_text(args, detail_width.max(1)).into_iter();
-                        if let Some(first_line) = rendered_arg_lines.next() {
-                            lines.push(Line::from(vec![
-                                Span::styled("args: ", theme.fg_dim),
-                                Span::styled(first_line, theme.fg_active),
-                            ]));
-                            for line in rendered_arg_lines {
+                        if let Some(diff_lines) = render_tool_edit_diff(
+                            name,
+                            args,
+                            theme,
+                            detail_width.max(1),
+                        ) {
+                            lines.push(Line::from(vec![Span::styled("changes:", theme.fg_dim)]));
+                            lines.extend(diff_lines);
+                        } else if let Some(structured_args) = render_tool_structured_json(
+                            name,
+                            ToolStructuredValueSource::Arguments,
+                            args,
+                            theme,
+                            detail_width.max(1),
+                        ) {
+                            lines.push(Line::from(vec![Span::styled("args:", theme.fg_dim)]));
+                            lines.extend(structured_args);
+                        } else {
+                            let mut rendered_arg_lines =
+                                wrap_text(args, detail_width.max(1)).into_iter();
+                            if let Some(first_line) = rendered_arg_lines.next() {
                                 lines.push(Line::from(vec![
-                                    Span::styled("      ", theme.fg_dim),
-                                    Span::styled(line, theme.fg_active),
+                                    Span::styled("args: ", theme.fg_dim),
+                                    Span::styled(first_line, theme.fg_active),
                                 ]));
+                                for line in rendered_arg_lines {
+                                    lines.push(Line::from(vec![
+                                        Span::styled("      ", theme.fg_dim),
+                                        Span::styled(line, theme.fg_active),
+                                    ]));
+                                }
                             }
                         }
                     }
@@ -419,20 +441,31 @@ fn render_compact(
                 // Show full result
                 let result_text = &msg.content;
                 if !result_text.is_empty() {
-                    let mut result_line_index = 0usize;
-                    for result_line in result_text.lines() {
-                        let wrapped_result = wrap_text(result_line, detail_width.max(1));
-                        for wrapped_line in wrapped_result {
-                            let prefix = if result_line_index == 0 {
-                                "result: "
-                            } else {
-                                "        "
-                            };
-                            lines.push(Line::from(vec![
-                                Span::styled(prefix.to_string(), theme.fg_dim),
-                                Span::styled(wrapped_line, theme.fg_active),
-                            ]));
-                            result_line_index += 1;
+                    if let Some(structured_result) = render_tool_structured_json(
+                        name,
+                        ToolStructuredValueSource::Result,
+                        result_text,
+                        theme,
+                        detail_width.max(1),
+                    ) {
+                        lines.push(Line::from(vec![Span::styled("result:", theme.fg_dim)]));
+                        lines.extend(structured_result);
+                    } else {
+                        let mut result_line_index = 0usize;
+                        for result_line in result_text.lines() {
+                            let wrapped_result = wrap_text(result_line, detail_width.max(1));
+                            for wrapped_line in wrapped_result {
+                                let prefix = if result_line_index == 0 {
+                                    "result: "
+                                } else {
+                                    "        "
+                                };
+                                lines.push(Line::from(vec![
+                                    Span::styled(prefix.to_string(), theme.fg_dim),
+                                    Span::styled(wrapped_line, theme.fg_active),
+                                ]));
+                                result_line_index += 1;
+                            }
                         }
                     }
                 }

@@ -542,7 +542,7 @@ impl AgentEngine {
             Err(error) => tracing::warn!("failed to load collaboration sessions: {error}"),
         }
 
-        // Seed built-in skill documents into ~/.tamux/skills/builtin/
+        // Seed built-in skill documents into ~/.tamux/skills/
         seed_builtin_skills(&self.data_dir);
 
         // Restore HeuristicStore from persistence (D-10)

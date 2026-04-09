@@ -187,6 +187,121 @@
     }
 
     #[test]
+    fn ask_questions_tool_is_exposed_with_compact_option_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let ask_questions = tools
+            .iter()
+            .find(|tool| tool.function.name == "ask_questions")
+            .expect("ask_questions tool should be available");
+
+        let properties = ask_questions
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("ask_questions schema should expose properties object");
+
+        assert!(properties.get("content").is_some(), "schema should include content");
+        assert!(properties.get("options").is_some(), "schema should include options");
+        assert!(properties.get("session").is_some(), "schema should include session");
+
+        let required = ask_questions
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("ask_questions should define required fields");
+        assert_eq!(required, vec!["content", "options"]);
+    }
+
+    #[test]
+    fn discover_skills_tool_is_exposed_with_expected_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let discover_skills = tools
+            .iter()
+            .find(|tool| tool.function.name == "discover_skills")
+            .expect("discover_skills tool should be available");
+
+        let properties = discover_skills
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("discover_skills schema should expose properties object");
+
+        assert!(properties.get("query").is_some(), "schema should include query");
+        assert!(properties.get("limit").is_some(), "schema should include limit");
+        assert!(properties.get("session").is_some(), "schema should include session");
+
+        let required = discover_skills
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("discover_skills should define required fields");
+        assert_eq!(required, vec!["query"]);
+    }
+
+    #[test]
+    fn list_tools_tool_is_exposed_with_paging_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let list_tools = tools
+            .iter()
+            .find(|tool| tool.function.name == "list_tools")
+            .expect("list_tools tool should be available");
+
+        let properties = list_tools
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("list_tools schema should expose properties object");
+
+        assert!(properties.get("limit").is_some(), "schema should include limit");
+        assert!(properties.get("offset").is_some(), "schema should include offset");
+        assert!(list_tools.function.parameters.get("required").is_none());
+    }
+
+    #[test]
+    fn tool_search_tool_is_exposed_with_query_schema() {
+        let config = AgentConfig::default();
+        let temp_dir = std::env::temp_dir();
+        let tools = get_available_tools(&config, &temp_dir, false);
+        let tool_search = tools
+            .iter()
+            .find(|tool| tool.function.name == "tool_search")
+            .expect("tool_search tool should be available");
+
+        let properties = tool_search
+            .function
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("tool_search schema should expose properties object");
+
+        assert!(properties.get("query").is_some(), "schema should include query");
+        assert!(properties.get("limit").is_some(), "schema should include limit");
+        assert!(properties.get("offset").is_some(), "schema should include offset");
+
+        let required = tool_search
+            .function
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .expect("tool_search should define required fields");
+        assert_eq!(required, vec!["query"]);
+    }
+
+    #[test]
     fn apply_patch_tool_uses_top_level_object_schema() {
         let config = AgentConfig::default();
         let temp_dir = std::env::temp_dir();

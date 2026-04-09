@@ -144,6 +144,10 @@ pub enum DaemonCommand {
         question_id: String,
         defer_until_unix_ms: Option<u64>,
     },
+    AnswerOperatorQuestion {
+        question_id: String,
+        answer: String,
+    },
     GetOperatorProfileSummary,
     GetOperatorModel,
     ResetOperatorModel,

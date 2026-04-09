@@ -504,11 +504,14 @@ impl AgentEngine {
                 if summary.watcher_started {
                     Some("running")
                 } else {
-                    summary.watcher_initial_state.as_ref().map(|state| match state {
-                        crate::agent::WatcherState::Running => "running",
-                        crate::agent::WatcherState::Stopped => "stopped",
-                        crate::agent::WatcherState::Unknown => "unknown",
-                    })
+                    summary
+                        .watcher_initial_state
+                        .as_ref()
+                        .map(|state| match state {
+                            crate::agent::WatcherState::Running => "running",
+                            crate::agent::WatcherState::Stopped => "stopped",
+                            crate::agent::WatcherState::Unknown => "unknown",
+                        })
                 }
             })
             .unwrap_or("unknown");

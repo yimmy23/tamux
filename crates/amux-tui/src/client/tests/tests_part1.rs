@@ -69,6 +69,28 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[test]
+    fn oversized_send_message_is_rejected_before_queueing() {
+        let (event_tx, _event_rx) = mpsc::channel(8);
+        let client = DaemonClient::new(event_tx);
+        let mut rx = client.request_rx.lock().unwrap().take().unwrap();
+
+        let err = client
+            .send_message(
+                Some("thread-oversized".to_string()),
+                "x".repeat(amux_protocol::MAX_IPC_FRAME_SIZE_BYTES + 1024),
+                None,
+                None,
+            )
+            .expect_err("oversized message should be rejected locally");
+
+        assert!(err.to_string().contains("too large for IPC"));
+        assert!(
+            rx.try_recv().is_err(),
+            "oversized request should never be queued"
+        );
+    }
+
+    #[test]
     fn resolve_task_approval_uses_agent_protocol_message() {
         let (event_tx, _event_rx) = mpsc::channel(8);
         let client = DaemonClient::new(event_tx);

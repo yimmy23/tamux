@@ -32,8 +32,16 @@ pub(crate) fn extract_skill_metadata(relative_path: &str, content: &str) -> Skil
         keywords,
         triggers,
         search_text,
-        built_in: relative_path.replace('\\', "/").starts_with("builtin/"),
+        built_in: is_builtin_skill_path(relative_path),
     }
+}
+
+fn is_builtin_skill_path(relative_path: &str) -> bool {
+    let normalized = relative_path.replace('\\', "/");
+    !normalized.starts_with("generated/")
+        && !normalized.contains("/generated/")
+        && !normalized.starts_with("plugins/")
+        && !normalized.contains("/plugins/")
 }
 
 fn split_frontmatter(content: &str) -> (Option<Value>, String) {

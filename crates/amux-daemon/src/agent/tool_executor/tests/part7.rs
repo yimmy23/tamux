@@ -174,6 +174,218 @@ async fn list_threads_tool_returns_filtered_visible_summaries() {
 }
 
 #[tokio::test]
+async fn ask_questions_tool_waits_for_operator_choice() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let mut operator_events = engine.event_tx.subscribe();
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-ask-questions".to_string(),
+        ToolFunction {
+            name: "ask_questions".to_string(),
+            arguments: serde_json::json!({
+                "content": "Choose:\nA. Alpha\nB. Beta",
+                "options": ["A", "B"]
+            })
+            .to_string(),
+        },
+    );
+
+    let engine_for_task = engine.clone();
+    let manager_for_task = manager.clone();
+    let task = tokio::spawn(async move {
+        execute_tool(
+            &tool_call,
+            &engine_for_task,
+            "thread-ask-questions",
+            None,
+            &manager_for_task,
+            None,
+            &event_tx,
+            root.path(),
+            &engine_for_task.http_client,
+            None,
+        )
+        .await
+    });
+
+    let question_id = match tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        operator_events.recv(),
+    )
+    .await
+    .expect("operator question event should arrive promptly")
+    .expect("operator question event")
+    {
+        AgentEvent::OperatorQuestion { question_id, .. } => question_id,
+        other => panic!("expected operator question event, got {other:?}"),
+    };
+
+    engine
+        .answer_operator_question(&question_id, "B")
+        .await
+        .expect("operator answer should unblock tool");
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+        .await
+        .expect("tool task should finish promptly after the answer")
+        .expect("tool task should join");
+    assert!(!result.is_error, "ask_questions should succeed: {}", result.content);
+    assert_eq!(result.content, "B");
+    assert!(result.pending_approval.is_none());
+}
+
+#[tokio::test]
+async fn discover_skills_tool_returns_discovery_result() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-discover-skills".to_string(),
+        ToolFunction {
+            name: "discover_skills".to_string(),
+            arguments: serde_json::json!({
+                "query": "debug panic",
+                "limit": 3
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-discover-skills",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "discover_skills should succeed once wired: {}",
+        result.content
+    );
+    assert!(result.pending_approval.is_none());
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("discover_skills should return JSON");
+    assert_eq!(payload.get("query").and_then(|value| value.as_str()), Some("debug panic"));
+    assert!(payload.get("confidence_tier").is_some(), "discovery result should include confidence tier");
+    assert!(payload.get("recommended_action").is_some(), "discovery result should include recommended action");
+}
+
+#[tokio::test]
+async fn list_tools_tool_returns_paginated_catalog() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-list-tools".to_string(),
+        ToolFunction {
+            name: "list_tools".to_string(),
+            arguments: serde_json::json!({
+                "limit": 5,
+                "offset": 0
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-list-tools",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "list_tools should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("list_tools should return JSON");
+    assert_eq!(payload.get("limit").and_then(|value| value.as_u64()), Some(5));
+    assert_eq!(payload.get("offset").and_then(|value| value.as_u64()), Some(0));
+    let items = payload
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("list_tools should return item array");
+    assert!(!items.is_empty(), "list_tools should return at least one tool");
+    assert!(
+        items.iter().all(|item| item.get("name").is_some() && item.get("description").is_some()),
+        "each listed tool should include name and description"
+    );
+}
+
+#[tokio::test]
+async fn tool_search_returns_ranked_matches() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-tool-search".to_string(),
+        ToolFunction {
+            name: "tool_search".to_string(),
+            arguments: serde_json::json!({
+                "query": "discover_skills",
+                "limit": 5,
+                "offset": 0
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-tool-search",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(!result.is_error, "tool_search should succeed: {}", result.content);
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("tool_search should return JSON");
+    assert_eq!(
+        payload.get("query").and_then(|value| value.as_str()),
+        Some("discover_skills")
+    );
+    let items = payload
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("tool_search should return item array");
+    assert!(!items.is_empty(), "tool_search should return at least one match");
+    assert_eq!(
+        items[0].get("name").and_then(|value| value.as_str()),
+        Some("discover_skills")
+    );
+}
+
+#[tokio::test]
 async fn list_threads_tool_rejects_negative_offset() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

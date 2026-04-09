@@ -200,6 +200,10 @@ if matches!(
                 ClientMessage::GetScrollback { id, max_lines } => {
                     match manager.get_scrollback(id, max_lines).await {
                         Ok(data) => {
+                            let (data, truncated) = cap_scrollback_for_ipc(id, data);
+                            if truncated {
+                                tracing::warn!(session_id = %id, "truncated scrollback to fit IPC frame limit");
+                            }
                             framed.send(DaemonMessage::Scrollback { id, data }).await?;
                         }
                         Err(e) => {
@@ -216,8 +220,12 @@ if matches!(
                     match manager.get_analysis_text(id, max_lines).await {
                         Ok(text) => {
                             // TODO: Send to AI model. For now, return the raw text.
+                            let (result, truncated) = cap_analysis_result_for_ipc(id, text);
+                            if truncated {
+                                tracing::warn!(session_id = %id, "truncated analysis result to fit IPC frame limit");
+                            }
                             framed
-                                .send(DaemonMessage::AnalysisResult { id, result: text })
+                                .send(DaemonMessage::AnalysisResult { id, result })
                                 .await?;
                         }
                         Err(e) => {
@@ -236,6 +244,11 @@ if matches!(
                         .await
                     {
                         Ok((summary, hits)) => {
+                            let (summary, hits, truncated) =
+                                cap_history_search_result_for_ipc(&query, summary, hits);
+                            if truncated {
+                                tracing::warn!(query = %query, "truncated history search result to fit IPC frame limit");
+                            }
                             framed
                                 .send(DaemonMessage::HistorySearchResult {
                                     query,
@@ -393,9 +406,14 @@ if matches!(
                     match manager.get_agent_thread(&thread_id).await {
                         Ok(thread) => {
                             let messages = manager.list_agent_messages(&thread_id, None).await?;
-                            let thread_json = serde_json::to_string(&thread).unwrap_or_default();
-                            let messages_json =
-                                serde_json::to_string(&messages).unwrap_or_default();
+                            let ((thread_json, messages_json), truncated) =
+                                cap_agent_db_thread_detail_for_ipc(thread, messages);
+                            if truncated {
+                                tracing::warn!(
+                                    thread_id = %thread_id,
+                                    "truncated agent db thread detail to fit IPC frame limit"
+                                );
+                            }
                             framed
                                 .send(DaemonMessage::AgentDbThreadDetail {
                                     thread_json,
