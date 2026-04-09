@@ -31,6 +31,11 @@ fn sample_goal_run(goal_run_id: &str) -> GoalRun {
         child_task_count: 0,
         approval_count: 0,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         active_task_id: None,
         duration_ms: None,
         steps: vec![GoalRunStep {

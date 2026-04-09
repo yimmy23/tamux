@@ -109,9 +109,7 @@ async fn hydrate_restores_full_persisted_thread_history() {
             agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
             title: "Hydrated Thread".to_string(),
             messages: (0..message_count)
-                .map(|index| {
-                    AgentMessage::user(format!("message-{index}"), 1_000 + index)
-                })
+                .map(|index| AgentMessage::user(format!("message-{index}"), 1_000 + index))
                 .collect(),
             pinned: false,
             upstream_thread_id: None,
@@ -141,9 +139,82 @@ async fn hydrate_restores_full_persisted_thread_history() {
         .expect("thread should be restored after hydrate");
     assert_eq!(thread.messages.len(), message_count as usize);
     assert_eq!(
-        thread.messages.last().map(|message| message.content.as_str()),
+        thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
         Some("message-549")
     );
+}
+
+#[tokio::test]
+async fn hydrate_restores_thread_token_totals_from_persisted_history() {
+    let (engine, temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let thread_id = "thread-hydrate-token-totals";
+    let assistant = AgentMessage {
+        id: crate::agent::types::generate_message_id(),
+        role: MessageRole::Assistant,
+        content: "done".to_string(),
+        tool_calls: None,
+        tool_call_id: None,
+        tool_name: None,
+        tool_arguments: None,
+        tool_status: None,
+        weles_review: None,
+        input_tokens: 11,
+        output_tokens: 7,
+        provider: None,
+        model: None,
+        api_transport: None,
+        response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
+        reasoning: None,
+        message_kind: AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
+        timestamp: 1_001,
+    };
+    let mut summary = AgentMessage::user("summary", 1_002);
+    summary.input_tokens = 3;
+    summary.output_tokens = 2;
+    summary.message_kind = AgentMessageKind::CompactionArtifact;
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Hydrated Tokens".to_string(),
+            messages: vec![assistant, summary],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 1_000,
+            updated_at: 1_002,
+            total_input_tokens: 14,
+            total_output_tokens: 9,
+        },
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(temp_dir.path()).await,
+        AgentConfig::default(),
+        temp_dir.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should be restored after hydrate");
+    assert_eq!(thread.total_input_tokens, 14);
+    assert_eq!(thread.total_output_tokens, 9);
 }
 
 #[tokio::test]
@@ -184,6 +255,11 @@ async fn hydrate_restores_full_persisted_task_log_history() {
         scheduled_at: None,
         blocked_reason: None,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         lane_id: None,
         last_error: None,
         logs: (0..log_count)
@@ -267,6 +343,11 @@ async fn hydrate_restores_full_persisted_goal_run_event_history() {
         child_task_count: 0,
         approval_count: 0,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         active_task_id: None,
         duration_ms: Some(500),
         steps: Vec::new(),
@@ -284,7 +365,7 @@ async fn hydrate_restores_full_persisted_goal_run_event_history() {
         total_prompt_tokens: 0,
         total_completion_tokens: 0,
         estimated_cost_usd: None,
-        autonomy_level: crate::agent::autonomy::AutonomyLevel::Supervised,
+        autonomy_level: crate::agent::AutonomyLevel::Supervised,
         authorship_tag: None,
     });
     engine.persist_goal_runs().await;

@@ -12,6 +12,12 @@ export type DaemonOwnedAuthCapability = {
   chatgptSubscriptionAvailable: boolean;
 };
 
+type SnapshotRetentionSettings = {
+  snapshotMaxCount: number;
+  snapshotMaxSizeMb: number;
+  snapshotAutoCleanup: boolean;
+};
+
 export function getAgentBridge() {
   return getBridge();
 }
@@ -97,6 +103,7 @@ export function diffDaemonConfigEntries(
 
 export function buildDaemonAgentConfig(
   agentSettings: AgentSettings,
+  snapshotSettings?: SnapshotRetentionSettings,
 ) {
   const daemonBackend = resolveDaemonBackend(agentSettings.agent_backend);
   const providerKey = agentSettings.active_provider;
@@ -205,6 +212,13 @@ export function buildDaemonAgentConfig(
       whatsapp_allowed_contacts: agentSettings.whatsapp_allowed_contacts,
       command_prefix: agentSettings.gateway_command_prefix || "!tamux",
     },
+    snapshot_retention: snapshotSettings
+      ? {
+        max_snapshots: Math.max(0, Math.floor(snapshotSettings.snapshotMaxCount)),
+        max_total_size_mb: Math.max(1, Math.floor(snapshotSettings.snapshotMaxSizeMb)),
+        auto_cleanup: snapshotSettings.snapshotAutoCleanup,
+      }
+      : undefined,
     anticipatory: {
       enabled: agentSettings.anticipatory_enabled,
       morning_brief: agentSettings.anticipatory_morning_brief,

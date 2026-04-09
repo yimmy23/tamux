@@ -22,6 +22,49 @@ async fn register_skill_document_infers_variant_metadata() -> Result<()> {
 }
 
 #[tokio::test]
+async fn register_skill_document_prefers_explicit_frontmatter_tags() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root.join("skills/generated/react-debugger.md");
+    fs::write(
+        &skill_path,
+        "---\nname: react_debugger\ndescription: Fixes UI event issues.\ncontext_tags:\n  - frontend\n  - typescript\n---\n# React Debugger\nRun cargo test from a terminal when validating the workspace.\n",
+    )?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+
+    assert_eq!(
+        record.context_tags,
+        vec!["frontend".to_string(), "typescript".to_string()]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn register_skill_document_reads_nested_tamux_context_tags() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root.join("skills/community/slack-bridge/SKILL.md");
+    fs::create_dir_all(skill_path.parent().expect("skill directory"))?;
+    fs::write(
+        &skill_path,
+        "---\nname: slack-bridge\ndescription: Route operator alerts.\ntamux:\n  context_tags:\n    - messaging\n    - desktop\n---\n# Slack Bridge\nThis doc mentions React only as an example integration target.\n",
+    )?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+
+    assert_eq!(
+        record.context_tags,
+        vec!["desktop".to_string(), "messaging".to_string()]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn resolve_skill_variant_prefers_context_overlap_and_tracks_usage() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
@@ -422,4 +465,14 @@ fn skill_tag_excerpt_respects_utf8_boundaries() {
     let mut tags = BTreeSet::new();
     infer_skill_tags("skills/terminal-architecture.md", &content, &mut tags);
     assert!(tags.contains("terminal"));
+}
+
+#[test]
+fn infer_skill_tags_ignores_incidental_body_mentions() {
+    let content = "---\nname: debug-service\ndescription: Generic debugging workflow.\n---\n# Debug Service\nThis note references React frontend issues, a terminal transcript, cargo commands, and Slack alerts only as examples.\n";
+
+    let mut tags = BTreeSet::new();
+    infer_skill_tags("skills/generated/debug-service.md", &content, &mut tags);
+
+    assert!(tags.is_empty());
 }

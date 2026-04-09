@@ -255,9 +255,9 @@ impl ConfigState {
             compaction_custom_api_transport: "responses".to_string(),
             compaction_custom_reasoning_effort: "high".to_string(),
             compaction_custom_context_window_tokens: 128_000,
-            snapshot_max_count: 1,
+            snapshot_max_count: 0,
             snapshot_max_size_mb: 10_240,
-            snapshot_auto_cleanup: true,
+            snapshot_auto_cleanup: false,
             snapshot_count: 0,
             snapshot_total_size_bytes: 0,
         }

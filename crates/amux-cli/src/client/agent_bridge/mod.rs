@@ -32,7 +32,8 @@ pub(super) async fn handle_message_for_test<T>(
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    events::handle_message(framed).await
+    let mut thread_detail_chunks = None;
+    events::handle_message(framed, &mut thread_detail_chunks).await
 }
 
 pub async fn run_agent_bridge() -> Result<()> {
@@ -44,6 +45,7 @@ pub async fn run_agent_bridge() -> Result<()> {
     println!(r#"{{"type":"ready"}}"#);
 
     let mut stdin_lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut thread_detail_chunks = None;
 
     loop {
         let continue_running = tokio::select! {
@@ -53,7 +55,7 @@ pub async fn run_agent_bridge() -> Result<()> {
                     None => false,
                 }
             }
-            continue_running = events::handle_message(&mut framed) => continue_running?,
+            continue_running = events::handle_message(&mut framed, &mut thread_detail_chunks) => continue_running?,
         };
         if !continue_running {
             break;

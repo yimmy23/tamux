@@ -344,16 +344,16 @@ async fn execute_managed_command(
                     });
                     return Ok((
                         format!(
-                            "{queued_summary}\nCommand auto-backgrounded (requested timeout {}s > max 600s). \
-                             A background monitor will notify this thread when the command completes.",
-                            requested_timeout
+                            "{queued_summary}\nbackground_task_id: {execution_id}\noperation_id: {execution_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). \
+                             A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id for explicit polling. `get_background_task_status` remains available as a compatibility alias.",
+                            requested_timeout,
                         ),
                         None,
                     ));
                 }
                 return Ok((
                     format!(
-                        "{queued_summary}\nNot waiting for completion because wait_for_completion=false."
+                        "{queued_summary}\nbackground_task_id: {execution_id}\noperation_id: {execution_id}\nNot waiting for completion because wait_for_completion=false. Use get_operation_status with this operation_id for explicit polling. `get_background_task_status` remains available as a compatibility alias."
                     ),
                     None,
                 ));
@@ -433,4 +433,90 @@ async fn execute_managed_command(
             serde_json::to_string(&other).unwrap_or_else(|_| "<unserializable>".to_string())
         )),
     }
+}
+
+async fn execute_get_background_task_status(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+) -> Result<String> {
+    let background_task_id = args
+        .get("background_task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'background_task_id' argument"))?;
+
+    execute_operation_status_lookup(background_task_id, session_manager, true).await
+}
+
+async fn execute_get_operation_status(
+    args: &serde_json::Value,
+    session_manager: &Arc<SessionManager>,
+) -> Result<String> {
+    let operation_id = args
+        .get("operation_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'operation_id' argument"))?;
+
+    execute_operation_status_lookup(operation_id, session_manager, false).await
+}
+
+async fn execute_operation_status_lookup(
+    operation_id: &str,
+    session_manager: &Arc<SessionManager>,
+    compatibility_alias: bool,
+) -> Result<String> {
+    if let Some(snapshot) = crate::server::operation_registry().snapshot(operation_id) {
+        let mut payload = serde_json::json!({
+            "operation_id": snapshot.operation_id,
+            "kind": snapshot.kind,
+            "state": snapshot.state,
+            "revision": snapshot.revision,
+        });
+        if let Some(dedup) = snapshot.dedup {
+            payload["dedup"] = serde_json::Value::String(dedup);
+        }
+        if compatibility_alias {
+            payload["background_task_id"] = serde_json::Value::String(operation_id.to_string());
+        }
+        return Ok(payload.to_string());
+    }
+
+    let status = session_manager
+        .get_background_task_status(operation_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("unknown operation id: {operation_id}"))?;
+
+    let mut payload = serde_json::json!({
+        "operation_id": status.background_task_id,
+        "kind": status.kind,
+        "state": status.state,
+        "background_task_id": operation_id,
+    });
+
+    if let Some(session_id) = status.session_id {
+        payload["session_id"] = serde_json::Value::String(session_id);
+    }
+    if let Some(position) = status.position {
+        payload["position"] = serde_json::Value::Number(position.into());
+    }
+    if let Some(command) = status.command {
+        payload["command"] = serde_json::Value::String(command);
+    }
+    if let Some(exit_code) = status.exit_code {
+        payload["exit_code"] = serde_json::Value::Number(exit_code.into());
+    }
+    if let Some(duration_ms) = status.duration_ms {
+        payload["duration_ms"] = serde_json::Value::Number(duration_ms.into());
+    }
+    if let Some(snapshot_path) = status.snapshot_path {
+        payload["snapshot_path"] = serde_json::Value::String(snapshot_path);
+    }
+    if !compatibility_alias {
+        payload.as_object_mut().map(|obj| obj.remove("background_task_id"));
+    }
+
+    Ok(payload.to_string())
 }

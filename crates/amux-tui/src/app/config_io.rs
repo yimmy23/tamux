@@ -142,12 +142,15 @@ impl TuiModel {
                             .filter(|v| !v.is_empty())
                     })
                     .unwrap_or_else(|| providers::default_transport_for(provider_id));
-            let auth_source = json
-                .get("auth_source")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.is_empty())
-                .or_else(|| Self::provider_field_str(provider_config, "auth_source", "auth_source"))
-                .unwrap_or_else(|| providers::default_auth_source_for(provider_id));
+            let auth_source =
+                Self::provider_field_str(provider_config, "auth_source", "auth_source")
+                    .filter(|v| !v.is_empty())
+                    .or_else(|| {
+                        json.get("auth_source")
+                            .and_then(|v| v.as_str())
+                            .filter(|v| !v.is_empty())
+                    })
+                    .unwrap_or_else(|| providers::default_auth_source_for(provider_id));
             let custom_context_window_tokens = Self::provider_field_u64(
                 provider_config,
                 "context_window_tokens",
@@ -584,7 +587,7 @@ impl TuiModel {
             .get("snapshot_retention")
             .and_then(|value| value.get("max_snapshots"))
             .and_then(|value| value.as_u64())
-            .unwrap_or(1) as u32;
+            .unwrap_or(0) as u32;
         self.config.snapshot_max_size_mb = json
             .get("snapshot_retention")
             .and_then(|value| value.get("max_total_size_mb"))
@@ -594,7 +597,7 @@ impl TuiModel {
             .get("snapshot_retention")
             .and_then(|value| value.get("auto_cleanup"))
             .and_then(|value| value.as_bool())
-            .unwrap_or(true);
+            .unwrap_or(false);
 
         if let Some(gateway) = json.get("gateway") {
             self.config.gateway_enabled = gateway

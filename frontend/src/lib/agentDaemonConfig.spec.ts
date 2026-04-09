@@ -134,6 +134,25 @@ assert(
   "Daemon config should serialize the global-enable suggestion threshold",
 );
 
+const disabledSnapshotDaemonConfig = buildDaemonAgentConfig(
+  DEFAULT_AGENT_SETTINGS,
+  {
+    snapshotMaxCount: 0,
+    snapshotMaxSizeMb: 10_240,
+    snapshotAutoCleanup: false,
+  },
+);
+
+assert(
+  disabledSnapshotDaemonConfig.snapshot_retention?.max_snapshots === 0,
+  "Daemon config should serialize disabled snapshot retention when the desktop settings disable snapshots",
+);
+
+assert(
+  disabledSnapshotDaemonConfig.snapshot_retention?.auto_cleanup === false,
+  "Daemon config should keep snapshot auto cleanup disabled by default",
+);
+
 const customModelProviderConfig = {
   ...DEFAULT_AGENT_SETTINGS.openrouter,
   model: "openrouter/custom-preview",

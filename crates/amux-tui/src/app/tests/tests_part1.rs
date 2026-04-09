@@ -76,6 +76,22 @@
     }
 
     #[test]
+    fn thread_loading_placeholder_shows_for_selected_empty_thread() {
+        let mut model = build_model();
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        model.thread_loading_id = Some("thread-1".to_string());
+
+        assert!(model.should_show_thread_loading());
+        assert!(!model.should_show_local_landing());
+    }
+
+    #[test]
     fn anticipatory_banner_is_suppressed_while_concierge_welcome_is_active() {
         let mut model = build_model();
         model

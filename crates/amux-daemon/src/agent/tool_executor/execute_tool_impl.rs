@@ -340,11 +340,19 @@ pub fn execute_tool<'a>(
                 Err(error) => Err(error),
             }
         }
+        "get_operation_status" => execute_get_operation_status(&args, session_manager).await,
+        "get_background_task_status" => {
+            execute_get_background_task_status(&args, session_manager).await
+        }
         "allocate_terminal" => {
             execute_allocate_terminal(&args, session_manager, session_id, event_tx).await
         }
         "fetch_authenticated_providers" => execute_fetch_authenticated_providers(agent).await,
+        "list_providers" => execute_list_providers(agent).await,
         "fetch_provider_models" => execute_fetch_provider_models(&args, agent).await,
+        "list_models" => execute_list_models(&args, agent).await,
+        "list_agents" => execute_list_agents(agent).await,
+        "switch_model" => execute_switch_model(&args, agent).await,
         "spawn_subagent" => {
             execute_spawn_subagent(
                 &args,
@@ -387,6 +395,7 @@ pub fn execute_tool<'a>(
         "get_thread" => execute_get_thread(&args, agent).await,
         "enqueue_task" => execute_enqueue_task(&args, agent).await,
         "list_tasks" => execute_list_tasks(&args, agent).await,
+        "get_todos" => execute_get_todos(&args, agent, task_id).await,
         "cancel_task" => execute_cancel_task(&args, agent).await,
         "type_in_terminal" => execute_type_in_terminal(&args, session_manager).await,
         // Gateway messaging (execute via CLI)

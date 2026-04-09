@@ -84,6 +84,10 @@ enum MainPaneView {
 enum SettingsPickerTarget {
     Provider,
     Model,
+    CompactionWelesProvider,
+    CompactionWelesModel,
+    CompactionCustomProvider,
+    CompactionCustomModel,
     SubAgentProvider,
     SubAgentModel,
     SubAgentReasoningEffort,
@@ -303,6 +307,9 @@ pub struct TuiModel {
 
     // Selected target agent for the next brand-new thread started from the thread picker.
     pending_new_thread_target_agent: Option<String>,
+
+    // Thread currently awaiting full detail from the daemon.
+    thread_loading_id: Option<String>,
 
     // Ignore a stale concierge welcome that arrives after the user navigated away.
     ignore_pending_concierge_welcome: bool,

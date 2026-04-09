@@ -145,6 +145,46 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         return;
                     }
+                    SettingsPickerTarget::CompactionWelesProvider => {
+                        let (_, _, auth_source) = model.provider_auth_snapshot(def.id);
+                        model.config.compaction_weles_provider = def.id.to_string();
+                        if model.config.compaction_weles_model.trim().is_empty()
+                            || !providers::known_models_for_provider_auth(def.id, &auth_source)
+                                .iter()
+                                .any(|model_entry| {
+                                    model_entry.id == model.config.compaction_weles_model
+                                })
+                        {
+                            model.config.compaction_weles_model =
+                                providers::default_model_for_provider_auth(def.id, &auth_source);
+                        }
+                        model.close_top_modal();
+                        model.open_compaction_weles_model_picker();
+                        model.sync_config_to_daemon();
+                        return;
+                    }
+                    SettingsPickerTarget::CompactionCustomProvider => {
+                        let (base_url, api_key, auth_source) = model.provider_auth_snapshot(def.id);
+                        model.apply_compaction_custom_provider(def.id);
+                        model.config.compaction_custom_base_url = base_url;
+                        model.config.compaction_custom_api_key = api_key;
+                        model.config.compaction_custom_auth_source = auth_source.clone();
+                        if model.config.compaction_custom_model.trim().is_empty()
+                            || !providers::known_models_for_provider_auth(def.id, &auth_source)
+                                .iter()
+                                .any(|model_entry| {
+                                    model_entry.id == model.config.compaction_custom_model
+                                })
+                        {
+                            model.config.compaction_custom_model =
+                                providers::default_model_for_provider_auth(def.id, &auth_source);
+                        }
+                        model.normalize_compaction_custom_transport();
+                        model.close_top_modal();
+                        model.open_compaction_custom_model_picker();
+                        model.sync_config_to_daemon();
+                        return;
+                    }
                     SettingsPickerTarget::SubAgentProvider => {
                         if let Some(editor) = model.subagents.editor.as_mut() {
                             editor.provider = def.id.to_string();
@@ -171,6 +211,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Rarog provider: {}", def.name);
                     }
                     SettingsPickerTarget::Model
+                    | SettingsPickerTarget::CompactionWelesModel
+                    | SettingsPickerTarget::CompactionCustomModel
                     | SettingsPickerTarget::SubAgentModel
                     | SettingsPickerTarget::SubAgentReasoningEffort
                     | SettingsPickerTarget::ConciergeModel
@@ -188,9 +230,24 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
             let models = widgets::model_picker::available_models(&model.config);
             let cursor = model.modal.picker_cursor();
             if cursor == models.len() {
+                let picker_target = model.settings_picker_target;
                 model.settings_picker_target = None;
                 model.close_top_modal();
-                begin_custom_model_edit(model);
+                match picker_target {
+                    Some(SettingsPickerTarget::CompactionWelesModel) => {
+                        model.settings.start_editing(
+                            "compaction_weles_model",
+                            &model.config.compaction_weles_model,
+                        )
+                    }
+                    Some(SettingsPickerTarget::CompactionCustomModel) => {
+                        model.settings.start_editing(
+                            "compaction_custom_model",
+                            &model.config.compaction_custom_model,
+                        )
+                    }
+                    _ => begin_custom_model_edit(model),
+                }
                 return;
             }
             if models.is_empty() {
@@ -247,6 +304,20 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         }
                         model.save_settings();
                     }
+                    SettingsPickerTarget::CompactionWelesModel => {
+                        model.config.compaction_weles_model = model_id.clone();
+                        model.status_line = format!("Compaction WELES model: {}", model_id);
+                        model.sync_config_to_daemon();
+                    }
+                    SettingsPickerTarget::CompactionCustomModel => {
+                        model.config.compaction_custom_model = model_id.clone();
+                        if let Some(context_window) = model_context_window {
+                            model.config.compaction_custom_context_window_tokens = context_window;
+                        }
+                        model.normalize_compaction_custom_transport();
+                        model.status_line = format!("Compaction custom model: {}", model_id);
+                        model.sync_config_to_daemon();
+                    }
                     SettingsPickerTarget::SubAgentModel => {
                         if let Some(editor) = model.subagents.editor.as_mut() {
                             editor.model = model_id.clone();
@@ -259,6 +330,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = format!("Rarog model: {}", model_id);
                     }
                     SettingsPickerTarget::Provider
+                    | SettingsPickerTarget::CompactionWelesProvider
+                    | SettingsPickerTarget::CompactionCustomProvider
                     | SettingsPickerTarget::SubAgentProvider
                     | SettingsPickerTarget::SubAgentReasoningEffort
                     | SettingsPickerTarget::ConciergeProvider

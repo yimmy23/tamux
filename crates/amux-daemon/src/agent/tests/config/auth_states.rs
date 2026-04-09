@@ -30,4 +30,5 @@ async fn copilot_auth_states_include_provider_row_when_unconfigured() {
         .expect("github copilot provider row should be present");
 
     assert!(!copilot.authenticated);
+    assert_eq!(copilot.auth_source, AuthSource::GithubCopilot);
 }

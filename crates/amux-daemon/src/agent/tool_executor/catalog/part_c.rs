@@ -128,7 +128,7 @@ fn add_available_tools_part_c(
             "include_dom": { "type": "boolean", "description": "For browser panels: include page DOM text content. Ignored for terminal panes." }
         }
     })));
-    tools.push(tool_def("run_terminal_command", "Execute a shell command through a tamux-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess).", serde_json::json!({
+    tools.push(tool_def("run_terminal_command", "Execute a shell command through a tamux-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess). For long-running work, prefer non-blocking execution and poll the returned `operation_id` with `get_operation_status`.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to execute in a managed terminal session" },
@@ -140,11 +140,11 @@ fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600)" }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds and returns an `operation_id` for polling via `get_operation_status`." }
         },
         "required": ["command"]
     })));
-    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session.", serde_json::json!({
+    tools.push(tool_def("execute_managed_command", "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session. For non-blocking execution, poll the returned `operation_id` with `get_operation_status`.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to run in the managed terminal session" },
@@ -156,9 +156,23 @@ fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600)" }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds and returns an `operation_id` for polling via `get_operation_status`." }
         },
         "required": ["command", "rationale"]
+    })));
+    tools.push(tool_def("get_operation_status", "Look up the current lifecycle state of a previously accepted asynchronous operation by its operation_id. For background terminal commands, pass the returned operation_id here; `background_task_id` is the same value for compatibility.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "operation_id": { "type": "string", "description": "Asynchronous operation handle returned by a non-blocking tool or daemon operation" }
+        },
+        "required": ["operation_id"]
+    })));
+    tools.push(tool_def("get_background_task_status", "Compatibility alias for background managed-terminal commands. Prefer `get_operation_status`; this tool accepts the same ID under the older `background_task_id` name.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "background_task_id": { "type": "string", "description": "Execution handle returned as background_task_id by a non-blocking managed terminal command" }
+        },
+        "required": ["background_task_id"]
     })));
     tools.push(tool_def("allocate_terminal", "Allocate another daemon-managed terminal lane in the same workspace as the current session. Use this when your chosen session is occupied by a blocking or long-running command and you need another terminal to continue working.", serde_json::json!({
         "type": "object",
@@ -168,25 +182,51 @@ fn add_available_tools_part_c(
             "cwd": { "type": "string", "description": "Optional working directory hint to show in the workspace metadata" }
         }
     })));
-    tools.push(tool_def("fetch_authenticated_providers", "List the currently authenticated providers that are ready for agent execution, including auth source, configured/default model, and base URL. Use this before setting `spawn_subagent.provider`.", serde_json::json!({
+    tools.push(tool_def("fetch_authenticated_providers", "List the currently authenticated providers that are ready for agent execution, including auth source, configured/default model, and base URL. Legacy alias for `list_providers`.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("fetch_provider_models", "Fetch the remotely available models for one authenticated provider using its configured credentials and base URL. Use this before setting `spawn_subagent.model`.", serde_json::json!({
+    tools.push(tool_def("list_providers", "List configured providers with authentication state, auth source, configured/default model, and base URL. Use this before selecting a provider for subagents or model switching.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    tools.push(tool_def("fetch_provider_models", "Fetch the remotely available models for one authenticated provider using its configured credentials and base URL. Legacy alias for `list_models`.", serde_json::json!({
         "type": "object",
         "properties": {
             "provider": { "type": "string", "description": "Authenticated provider ID to inspect, such as `openai` or `github_copilot`." }
         },
         "required": ["provider"]
     })));
-    tools.push(tool_def("spawn_subagent", "Spawn a bounded child task under the current task or thread. Use this to split a large task into parallel subagents with dedicated runtime/session metadata. Keep each child narrowly scoped and monitor it with list_subagents. If you want a specific provider/model, call `fetch_authenticated_providers` first and `fetch_provider_models` for the chosen provider before setting the optional override fields.", serde_json::json!({
+    tools.push(tool_def("list_models", "List the remotely available models for one authenticated provider using its configured credentials and base URL. Use this before setting a model override or calling `switch_model`.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "provider": { "type": "string", "description": "Authenticated provider ID to inspect, such as `openai` or `github_copilot`." }
+        },
+        "required": ["provider"]
+    })));
+    tools.push(tool_def("list_agents", "List agent runtime targets and the provider/model each one currently uses as its LLM access point.", serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })));
+    if current_agent_scope_id() == MAIN_AGENT_ID {
+        tools.push(tool_def("switch_model", "Update which provider and model a target agent uses as its LLM access point. This writes the same persisted settings the Settings UI edits. Only svarog can call this tool.", serde_json::json!({
+            "type": "object",
+            "properties": {
+                "agent": { "type": "string", "description": "Target agent id or name, such as `svarog`, `rarog`, `weles`, or a user subagent id from `list_agents`." },
+                "provider": { "type": "string", "description": "Provider id to assign to the target agent." },
+                "model": { "type": "string", "description": "Model id to assign to the target agent." }
+            },
+            "required": ["agent", "provider", "model"]
+        })));
+    }
+    tools.push(tool_def("spawn_subagent", "Spawn a bounded child task under the current task or thread. Use this to split a large task into parallel subagents with dedicated runtime/session metadata. Keep each child narrowly scoped and monitor it with list_subagents. If you want a specific provider/model, call `list_providers` first and `list_models` for the chosen provider before setting the optional override fields.", serde_json::json!({
         "type": "object",
         "properties": {
             "title": { "type": "string", "description": "Short subagent title" },
             "description": { "type": "string", "description": "Detailed instructions for the child task" },
             "runtime": { "type": "string", "enum": ["daemon", "hermes", "openclaw"], "description": "Preferred runtime for the child agent (default: daemon)" },
-            "provider": { "type": "string", "description": "Optional authenticated provider override. Use `fetch_authenticated_providers` first." },
-            "model": { "type": "string", "description": "Optional model override for the chosen provider. Requires `provider`; use `fetch_provider_models` first." },
+            "provider": { "type": "string", "description": "Optional authenticated provider override. Use `list_providers` first." },
+            "model": { "type": "string", "description": "Optional model override for the chosen provider. Requires `provider`; use `list_models` first." },
             "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Child task priority" },
             "command": { "type": "string", "description": "Optional preferred entrypoint or command" },
             "session": { "type": "string", "description": "Optional explicit session ID or unique substring. If omitted, tamux allocates a fresh lane in the same workspace when possible." },

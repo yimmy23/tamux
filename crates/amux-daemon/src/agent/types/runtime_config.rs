@@ -147,6 +147,9 @@ fn default_generated_tool_timeout_secs() -> u64 {
 fn default_generated_tool_output_kb() -> usize {
     512
 }
+fn default_snapshot_max_total_size_mb() -> u64 {
+    10_240
+}
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -189,6 +192,7 @@ impl Default for AgentConfig {
             tools: ToolsConfig::default(),
             providers: HashMap::new(),
             gateway: GatewayConfig::default(),
+            snapshot_retention: SnapshotRetentionSettings::default(),
             agent_backend: AgentBackend::default(),
             sub_agents: Vec::new(),
             builtin_sub_agents: BuiltinSubAgentOverrides::default(),

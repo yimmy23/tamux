@@ -232,6 +232,100 @@ fn edit_tool_row_renders_clickable_path_chip() {
 }
 
 #[test]
+fn apply_patch_tool_row_uses_unique_result_paths_when_argument_path_is_blank() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("apply_patch".into()),
+        tool_arguments: Some(
+            serde_json::json!({
+                "path": "   ",
+                "input": "*** Begin Patch\n*** Update File: /tmp/ignored.rs\n@@\n-old\n+new\n*** End Patch"
+            })
+            .to_string(),
+        ),
+        tool_status: Some("done".into()),
+        content: [
+            "Updated file /tmp/demo.txt",
+            "Updated file /tmp/demo.txt",
+            "Updated file /tmp/second.txt",
+        ]
+        .join("\n"),
+        ..Default::default()
+    }]);
+
+    let chip = tool_file_chip(
+        chat.active_thread()
+            .and_then(|thread| thread.messages.first())
+            .expect("tool message should exist"),
+    )
+    .expect("apply_patch should expose a file chip");
+
+    assert_eq!(chip.path, "/tmp/demo.txt");
+    assert_eq!(chip.label, "demo.txt, second.txt");
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let tool_line = lines
+        .iter()
+        .find(|line| line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle))
+        .expect("tool row should be rendered");
+    let text = rendered_line_plain_text(tool_line);
+
+    assert!(text.contains("apply_patch"));
+    assert!(text.contains("[demo.txt, second.txt]"));
+}
+
+#[test]
+fn apply_patch_tool_row_path_chip_is_clickable() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("apply_patch".into()),
+        tool_arguments: Some(
+            serde_json::json!({
+                "path": "",
+                "input": "*** Begin Patch\n*** Update File: /tmp/ignored.rs\n@@\n-old\n+new\n*** End Patch"
+            })
+            .to_string(),
+        ),
+        tool_status: Some("done".into()),
+        content: [
+            "Updated file /tmp/demo.txt",
+            "Updated file /tmp/second.txt",
+        ]
+        .join("\n"),
+        ..Default::default()
+    }]);
+
+    let area = Rect::new(0, 0, 100, 6);
+    let (inner, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+    let tool_row = visible
+        .iter()
+        .position(|line| line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ToolToggle))
+        .expect("tool row should be visible");
+    let hit_line = &visible[tool_row];
+    let (plain, content_start, _) = rendered_line_content_bounds(hit_line);
+    let chip_col = plain
+        .find("[demo.txt, second.txt]")
+        .expect("path chip should be rendered on the tool row");
+
+    let chip_hit = hit_test(
+        area,
+        &chat,
+        &ThemeTokens::default(),
+        0,
+        Position::new(
+            inner.x + (content_start + chip_col + 1) as u16,
+            inner.y + tool_row as u16,
+        ),
+    );
+
+    assert_eq!(
+        chip_hit,
+        Some(ChatHitTarget::ToolFilePath { message_index: 0 })
+    );
+}
+
+#[test]
 fn invalid_tool_arguments_do_not_create_file_chip() {
     let chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Tool,
@@ -618,6 +712,34 @@ fn hit_test_returns_tool_file_path_target() {
         assert_eq!(copy_span.style.bg, Some(Color::Indexed(236)));
         assert_eq!(resend_span.style.fg, ThemeTokens::default().fg_dim.fg);
         assert_eq!(resend_span.style.bg, Some(Color::Indexed(236)));
+    }
+
+    #[test]
+    fn selected_expanded_tool_message_action_bar_shows_collapse() {
+        let mut chat = chat_with_messages(vec![AgentMessage {
+            role: MessageRole::Tool,
+            tool_name: Some("read_file".into()),
+            tool_status: Some("done".into()),
+            content: "file contents".into(),
+            ..Default::default()
+        }]);
+        chat.select_message(Some(0));
+        chat.toggle_tool_expansion(0);
+
+        let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+        let action_line = lines
+            .iter()
+            .find(|line| {
+                line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ActionBar)
+            })
+            .expect("selected tool message should render an action bar");
+        let text = rendered_line_plain_text(action_line);
+
+        assert!(
+            text.contains("[Collapse]"),
+            "expanded tool action bar should expose a collapse control: {text}"
+        );
+        assert!(text.contains("[Copy]"), "tool action bar should keep copy: {text}");
     }
 
     #[test]

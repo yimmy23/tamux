@@ -1,5 +1,35 @@
 use super::*;
 
+fn parse_string_vec_json(value: Option<String>) -> Option<Vec<String>> {
+    value.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+}
+
+fn serialize_string_vec_json(
+    value: &Option<Vec<String>>,
+) -> std::result::Result<Option<String>, tokio_rusqlite::Error> {
+    value
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .call_err()
+}
+
+fn serialize_supervisor_config_json(
+    value: &Option<crate::agent::types::SupervisorConfig>,
+) -> std::result::Result<Option<String>, tokio_rusqlite::Error> {
+    value
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .call_err()
+}
+
+fn parse_supervisor_config_json(
+    value: Option<String>,
+) -> Option<crate::agent::types::SupervisorConfig> {
+    value.and_then(|json| serde_json::from_str::<crate::agent::types::SupervisorConfig>(&json).ok())
+}
+
 impl HistoryStore {
     pub async fn upsert_notification(
         &self,
@@ -111,11 +141,14 @@ impl HistoryStore {
         self.conn.call(move |conn| {
         let transaction = conn.transaction()?;
         let notify_channels_json = serde_json::to_string(&task.notify_channels).call_err()?;
+        let tool_whitelist_json = serialize_string_vec_json(&task.tool_whitelist)?;
+        let tool_blacklist_json = serialize_string_vec_json(&task.tool_blacklist)?;
+        let supervisor_config_json = serialize_supervisor_config_json(&task.supervisor_config)?;
 
         transaction.execute(
             "INSERT OR REPLACE INTO agent_tasks \
-             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)",
+             (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49)",
             params![
                 &task.id,
                 &task.title,
@@ -147,12 +180,25 @@ impl HistoryStore {
                 task.scheduled_at.map(|value| value as i64),
                 &task.blocked_reason,
                 &task.awaiting_approval_id,
+                &task.policy_fingerprint,
+                task.approval_expires_at.map(|value| value as i64),
+                &task.containment_scope,
+                &task.compensation_status,
+                &task.compensation_summary,
                 &task.lane_id,
                 &task.last_error,
                 &task.override_provider,
                 &task.override_model,
                 &task.override_system_prompt,
                 &task.sub_agent_def_id,
+                tool_whitelist_json,
+                tool_blacklist_json,
+                task.context_budget_tokens.map(|value| value as i64),
+                task.context_overflow_action.map(context_overflow_action_to_str),
+                &task.termination_conditions,
+                &task.success_criteria,
+                task.max_duration_secs.map(|value| value as i64),
+                supervisor_config_json,
             ],
         )?;
 
@@ -241,7 +287,7 @@ impl HistoryStore {
         }
 
         let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id \
+            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json \
              FROM agent_tasks \
              ORDER BY CASE status \
                  WHEN 'in_progress' THEN 0 \
@@ -296,21 +342,28 @@ impl HistoryStore {
                 scheduled_at: row.get::<_, Option<i64>>(27)?.map(|value| value as u64),
                 blocked_reason: row.get(28)?,
                 awaiting_approval_id: row.get(29)?,
-                lane_id: row.get(30)?,
-                last_error: row.get(31)?,
+                policy_fingerprint: row.get(30)?,
+                approval_expires_at: row.get::<_, Option<i64>>(31)?.map(|value| value as u64),
+                containment_scope: row.get(32)?,
+                compensation_status: row.get(33)?,
+                compensation_summary: row.get(34)?,
+                lane_id: row.get(35)?,
+                last_error: row.get(36)?,
                 logs: Vec::new(),
-                tool_whitelist: None,
-                tool_blacklist: None,
-                context_budget_tokens: None,
-                context_overflow_action: None,
-                termination_conditions: None,
-                success_criteria: None,
-                max_duration_secs: None,
-                supervisor_config: None,
-                override_provider: row.get(32)?,
-                override_model: row.get(33)?,
-                override_system_prompt: row.get(34)?,
-                sub_agent_def_id: row.get(35)?,
+                override_provider: row.get(37)?,
+                override_model: row.get(38)?,
+                override_system_prompt: row.get(39)?,
+                sub_agent_def_id: row.get(40)?,
+                tool_whitelist: parse_string_vec_json(row.get(41)?),
+                tool_blacklist: parse_string_vec_json(row.get(42)?),
+                context_budget_tokens: row.get::<_, Option<i64>>(43)?.map(|value| value as u32),
+                context_overflow_action: row
+                    .get::<_, Option<String>>(44)?
+                    .map(|value| parse_context_overflow_action(&value)),
+                termination_conditions: row.get(45)?,
+                success_criteria: row.get(46)?,
+                max_duration_secs: row.get::<_, Option<i64>>(47)?.map(|value| value as u64),
+                supervisor_config: parse_supervisor_config_json(row.get(48)?),
             })
         })?;
 

@@ -1,5 +1,13 @@
 use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
+    async fn handle_daemon_message_for_test(
+        message: DaemonMessage,
+        event_tx: &mpsc::Sender<ClientEvent>,
+    ) -> bool {
+        let mut thread_detail_chunks = None;
+        DaemonClient::handle_daemon_message(message, event_tx, &mut thread_detail_chunks).await
+    }
+
     #[test]
     fn whatsapp_link_methods_send_expected_protocol_messages() {
         let (event_tx, _event_rx) = mpsc::channel(8);
@@ -179,7 +187,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn daemon_agent_error_is_forwarded_to_client_error_event() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentError {
                 message: "protected mutation: cannot change WELES name".to_string(),
             },
@@ -200,7 +208,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn daemon_operation_accepted_is_ignored_without_error() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::OperationAccepted {
                 operation_id: "op-tui-1".to_string(),
                 kind: "agent_set_sub_agent".to_string(),
@@ -222,7 +230,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn daemon_provider_validation_with_operation_id_emits_provider_validation_event() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentProviderValidation {
                 operation_id: Some("op-provider-validation-1".to_string()),
                 provider_id: PROVIDER_ID_OPENAI.to_string(),
@@ -257,7 +265,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn daemon_models_response_with_operation_id_emits_models_fetched_event() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentModelsResponse {
                 operation_id: Some("op-fetch-models-1".to_string()),
                 models_json:
@@ -284,7 +292,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn agent_status_response_emits_full_status_event_and_diagnostics() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentStatusResponse {
                 tier: "mission_control".to_string(),
                 feature_flags_json: "{}".to_string(),
@@ -341,7 +349,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn agent_prompt_inspection_emits_prompt_event() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentPromptInspection {
                 prompt_json: serde_json::json!({
                     "agent_id": "swarog",
@@ -377,7 +385,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     async fn daemon_openai_codex_auth_replies_emit_client_events() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentOpenAICodexAuthStatus {
                 status_json: serde_json::json!({
                     "available": false,
@@ -407,7 +415,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
             other => panic!("expected auth status event, got {:?}", other),
         }
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentOpenAICodexAuthLoginResult {
                 result_json: serde_json::json!({
                     "available": false,
@@ -435,7 +443,7 @@ use amux_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
             other => panic!("expected auth login event, got {:?}", other),
         }
 
-        let should_continue = DaemonClient::handle_daemon_message(
+        let should_continue = handle_daemon_message_for_test(
             DaemonMessage::AgentOpenAICodexAuthLogoutResult {
                 ok: true,
                 error: None,

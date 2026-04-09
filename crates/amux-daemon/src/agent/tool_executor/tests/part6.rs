@@ -348,6 +348,152 @@
     }
 
     #[tokio::test]
+    async fn auto_backgrounded_bash_command_returns_handle_and_status() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let (session_id, _rx) = manager
+            .spawn(Some("/bin/bash".to_string()), None, None, None, 80, 24)
+            .await
+            .expect("spawn session");
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-bash-auto-background".to_string(),
+            ToolFunction {
+                name: "bash_command".to_string(),
+                arguments: serde_json::json!({
+                    "session": session_id.to_string(),
+                    "command": "sleep 0.2 && printf done",
+                    "timeout_seconds": 1200,
+                    "sandbox_enabled": true,
+                    "allow_network": false,
+                    "security_level": "moderate"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-bash-auto-background",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "auto-backgrounded bash command should queue cleanly: {}",
+            result.content
+        );
+
+        let background_task_id = result
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("background_task_id: "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .expect("auto-background response should expose a background_task_id handle");
+
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+
+        let status_call = ToolCall::with_default_weles_review(
+            "tool-background-status".to_string(),
+            ToolFunction {
+                name: "get_background_task_status".to_string(),
+                arguments: serde_json::json!({
+                    "background_task_id": background_task_id,
+                })
+                .to_string(),
+            },
+        );
+
+        let status = execute_tool(
+            &status_call,
+            &engine,
+            "thread-bash-auto-background",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !status.is_error,
+            "background task status lookup should succeed: {}",
+            status.content
+        );
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&status.content).expect("status payload should be valid JSON");
+        assert_eq!(payload["background_task_id"], background_task_id);
+        assert_eq!(payload["state"], "completed");
+        assert_eq!(payload["exit_code"], 0);
+        assert_eq!(payload["command"], "sleep 0.2 && printf done");
+    }
+
+    #[tokio::test]
+    async fn get_operation_status_returns_server_operation_snapshot() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        let record = crate::server::operation_registry()
+            .accept_operation("skill_publish", Some("tool-test:skill-publish".to_string()));
+        crate::server::operation_registry().mark_started(&record.operation_id);
+        crate::server::operation_registry().mark_completed(&record.operation_id);
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-operation-status".to_string(),
+            ToolFunction {
+                name: "get_operation_status".to_string(),
+                arguments: serde_json::json!({
+                    "operation_id": record.operation_id,
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-operation-status",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !result.is_error,
+            "get_operation_status should return server operation snapshots: {}",
+            result.content
+        );
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&result.content).expect("status payload should be valid JSON");
+        assert_eq!(payload["operation_id"], record.operation_id);
+        assert_eq!(payload["kind"], "skill_publish");
+        assert_eq!(payload["state"], "completed");
+    }
+
+    #[tokio::test]
     async fn send_telegram_message_emits_gateway_ipc_request() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
@@ -883,6 +1029,381 @@
     }
 
     #[tokio::test]
+    async fn list_providers_returns_auth_state_rows() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.api_key = "test-key".to_string();
+        config.base_url = "https://api.openai.example/v1".to_string();
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-list-providers".to_string(),
+            ToolFunction {
+                name: "list_providers".to_string(),
+                arguments: serde_json::json!({}).to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-list-providers",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "list_providers should succeed: {}", result.content);
+        let providers: Vec<crate::agent::types::ProviderAuthState> =
+            serde_json::from_str(&result.content).expect("parse provider auth states");
+        assert!(providers.iter().any(|provider| {
+            provider.provider_id == amux_shared::providers::PROVIDER_ID_OPENAI
+                && provider.authenticated
+        }));
+    }
+
+    #[tokio::test]
+    async fn list_models_returns_remote_models_for_authenticated_provider() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.api_key = "test-key".to_string();
+        config.base_url = spawn_model_fetch_server(serde_json::json!({
+            "data": [
+                {"id": "gpt-4.1", "name": "GPT-4.1", "context_length": 1048576},
+                {"id": "gpt-5.4", "name": "GPT-5.4", "context_length": 1048576}
+            ]
+        }))
+        .await;
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-list-models".to_string(),
+            ToolFunction {
+                name: "list_models".to_string(),
+                arguments: serde_json::json!({
+                    "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                })
+                .to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-list-models",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "list_models should succeed: {}", result.content);
+        let models: Vec<crate::agent::llm_client::FetchedModel> =
+            serde_json::from_str(&result.content).expect("parse fetched models");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "gpt-4.1");
+        assert_eq!(models[1].id, "gpt-5.4");
+    }
+
+    #[tokio::test]
+    async fn list_agents_returns_effective_runtime_targets() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.api_key = "test-key".to_string();
+        config.concierge.provider = Some(amux_shared::providers::PROVIDER_ID_GROQ.to_string());
+        config.concierge.model = Some("llama-3.3-70b-versatile".to_string());
+        config.builtin_sub_agents.weles.provider =
+            Some(amux_shared::providers::PROVIDER_ID_ANTHROPIC.to_string());
+        config.builtin_sub_agents.weles.model = Some("claude-sonnet-4-20250514".to_string());
+        config.sub_agents.push(crate::agent::SubAgentDefinition {
+            id: "reviewer".to_string(),
+            name: "Reviewer".to_string(),
+            provider: amux_shared::providers::PROVIDER_ID_OPENAI.to_string(),
+            model: "gpt-5.4".to_string(),
+            role: Some("review".to_string()),
+            system_prompt: None,
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: None,
+            created_at: 0,
+        });
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-list-agents".to_string(),
+            ToolFunction {
+                name: "list_agents".to_string(),
+                arguments: serde_json::json!({}).to_string(),
+            },
+        );
+
+        let result = execute_tool(
+            &tool_call,
+            &engine,
+            "thread-list-agents",
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(!result.is_error, "list_agents should succeed: {}", result.content);
+        let agents: serde_json::Value =
+            serde_json::from_str(&result.content).expect("parse list_agents payload");
+        let rows = agents.as_array().expect("list_agents should return an array");
+        let svarog = rows
+            .iter()
+            .find(|row| row.get("agent").and_then(|value| value.as_str()) == Some("svarog"))
+            .expect("svarog row should be present");
+        assert_eq!(
+            svarog.get("provider").and_then(|value| value.as_str()),
+            Some(amux_shared::providers::PROVIDER_ID_OPENAI)
+        );
+        assert_eq!(
+            svarog.get("model").and_then(|value| value.as_str()),
+            Some("gpt-5.4-mini")
+        );
+        let rarog = rows
+            .iter()
+            .find(|row| row.get("agent").and_then(|value| value.as_str()) == Some("rarog"))
+            .expect("rarog row should be present");
+        assert_eq!(
+            rarog.get("provider").and_then(|value| value.as_str()),
+            Some(amux_shared::providers::PROVIDER_ID_GROQ)
+        );
+        let weles = rows
+            .iter()
+            .find(|row| row.get("agent").and_then(|value| value.as_str()) == Some("weles"))
+            .expect("weles row should be present");
+        assert_eq!(
+            weles.get("provider").and_then(|value| value.as_str()),
+            Some(amux_shared::providers::PROVIDER_ID_ANTHROPIC)
+        );
+        assert!(rows.iter().any(|row| {
+            row.get("agent").and_then(|value| value.as_str()) == Some("reviewer")
+                && row.get("model").and_then(|value| value.as_str()) == Some("gpt-5.4")
+        }));
+    }
+
+    #[tokio::test]
+    async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.api_key = "test-key".to_string();
+        config.concierge.provider = Some(amux_shared::providers::PROVIDER_ID_OPENAI.to_string());
+        config.concierge.model = Some("gpt-4.1-mini".to_string());
+        config.providers.insert(
+            amux_shared::providers::PROVIDER_ID_GROQ.to_string(),
+            crate::agent::types::ProviderConfig {
+                base_url: String::new(),
+                model: String::new(),
+                api_key: "groq-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: crate::agent::types::AuthSource::ApiKey,
+                api_transport: crate::agent::types::ApiTransport::default(),
+                reasoning_effort: "high".to_string(),
+                context_window_tokens: 128000,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+            },
+        );
+        config.sub_agents.push(crate::agent::SubAgentDefinition {
+            id: "reviewer".to_string(),
+            name: "Reviewer".to_string(),
+            provider: amux_shared::providers::PROVIDER_ID_OPENAI.to_string(),
+            model: "gpt-4.1".to_string(),
+            role: None,
+            system_prompt: None,
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: None,
+            created_at: 0,
+        });
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        for (agent, provider, model) in [
+            ("svarog", amux_shared::providers::PROVIDER_ID_OPENAI, "gpt-5.4"),
+            ("rarog", amux_shared::providers::PROVIDER_ID_GROQ, "llama-3.3-70b-versatile"),
+            ("weles", amux_shared::providers::PROVIDER_ID_OPENAI, "gpt-5.4-mini"),
+            ("reviewer", amux_shared::providers::PROVIDER_ID_OPENAI, "gpt-5.4-mini"),
+        ] {
+            let tool_call = ToolCall::with_default_weles_review(
+                format!("tool-switch-model-{agent}"),
+                ToolFunction {
+                    name: "switch_model".to_string(),
+                    arguments: serde_json::json!({
+                        "agent": agent,
+                        "provider": provider,
+                        "model": model,
+                    })
+                    .to_string(),
+                },
+            );
+
+            let result = crate::agent::agent_identity::run_with_agent_scope(
+                crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+                async {
+                    execute_tool(
+                        &tool_call,
+                        &engine,
+                        "thread-switch-model",
+                        None,
+                        &manager,
+                        None,
+                        &event_tx,
+                        root.path(),
+                        &engine.http_client,
+                        None,
+                    )
+                    .await
+                },
+            )
+            .await;
+
+            assert!(
+                !result.is_error,
+                "switch_model should succeed for {agent}: {}",
+                result.content
+            );
+        }
+
+        let stored = engine.get_config().await;
+        assert_eq!(stored.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+        assert_eq!(stored.model, "gpt-5.4");
+        assert_eq!(
+            stored.concierge.provider.as_deref(),
+            Some(amux_shared::providers::PROVIDER_ID_GROQ)
+        );
+        assert_eq!(
+            stored.concierge.model.as_deref(),
+            Some("llama-3.3-70b-versatile")
+        );
+        assert_eq!(
+            stored.builtin_sub_agents.weles.provider.as_deref(),
+            Some(amux_shared::providers::PROVIDER_ID_OPENAI)
+        );
+        assert_eq!(
+            stored.builtin_sub_agents.weles.model.as_deref(),
+            Some("gpt-5.4-mini")
+        );
+        let reviewer = stored
+            .sub_agents
+            .iter()
+            .find(|agent| agent.id == "reviewer")
+            .expect("reviewer subagent should exist");
+        assert_eq!(reviewer.provider, amux_shared::providers::PROVIDER_ID_OPENAI);
+        assert_eq!(reviewer.model, "gpt-5.4-mini");
+    }
+
+    #[tokio::test]
+    async fn switch_model_is_rejected_outside_svarog_scope() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = amux_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.model = "gpt-5.4-mini".to_string();
+        config.api_key = "test-key".to_string();
+        let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+
+        let tool_call = ToolCall::with_default_weles_review(
+            "tool-switch-model-rarog-scope".to_string(),
+            ToolFunction {
+                name: "switch_model".to_string(),
+                arguments: serde_json::json!({
+                    "agent": "svarog",
+                    "provider": amux_shared::providers::PROVIDER_ID_OPENAI,
+                    "model": "gpt-5.4"
+                })
+                .to_string(),
+            },
+        );
+
+        let result = crate::agent::agent_identity::run_with_agent_scope(
+            crate::agent::agent_identity::CONCIERGE_AGENT_ID.to_string(),
+            async {
+                execute_tool(
+                    &tool_call,
+                    &engine,
+                    "thread-switch-model-rarog",
+                    None,
+                    &manager,
+                    None,
+                    &event_tx,
+                    root.path(),
+                    &engine.http_client,
+                    None,
+                )
+                .await
+            },
+        )
+        .await;
+
+        assert!(result.is_error, "non-svarog switch_model call should fail");
+        assert!(
+            result.content.contains("svarog"),
+            "rejection should mention svarog-only access: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
     async fn spawn_subagent_rejects_model_without_provider_and_points_to_fetch_tools() {
         let root = tempdir().expect("tempdir should succeed");
         let manager = SessionManager::new_test(root.path()).await;
@@ -907,8 +1428,8 @@
 
         let message = error.to_string();
         assert!(message.contains("provider"));
-        assert!(message.contains("fetch_authenticated_providers"));
-        assert!(message.contains("fetch_provider_models"));
+        assert!(message.contains("list_providers"));
+        assert!(message.contains("list_models"));
     }
 
     #[tokio::test]
@@ -935,7 +1456,7 @@
         .expect_err("unauthenticated provider override should be rejected");
 
         let message = error.to_string();
-        assert!(message.contains("fetch_authenticated_providers"));
+        assert!(message.contains("list_providers"));
         assert!(message.contains(amux_shared::providers::PROVIDER_ID_OPENAI));
     }
 
@@ -1048,6 +1569,11 @@
             scheduled_at: None,
             blocked_reason: None,
             awaiting_approval_id: None,
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
             lane_id: None,
             last_error: None,
             logs: Vec::new(),
@@ -1678,4 +2204,108 @@
                 }),
             "approval activation should append a structured handoff system event"
         );
+    }
+
+    #[tokio::test]
+    async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+        let (event_tx, _) = broadcast::channel(8);
+        let thread_id = "thread-get-todos";
+        let task = engine
+            .enqueue_task(
+                "Track thread todos".to_string(),
+                "Keep a live thread todo list available to the runtime.".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "agent",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        let update_call = ToolCall::with_default_weles_review(
+            "tool-update-todos-runtime".to_string(),
+            ToolFunction {
+                name: "update_todo".to_string(),
+                arguments: serde_json::json!({
+                    "items": [
+                        { "content": "Inspect current thread todos", "status": "in_progress" },
+                        { "content": "Return todo snapshot", "status": "pending" }
+                    ]
+                })
+                .to_string(),
+            },
+        );
+
+        let update_result = execute_tool(
+            &update_call,
+            &engine,
+            thread_id,
+            Some(task.id.as_str()),
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !update_result.is_error,
+            "update_todo should succeed before get_todos is called: {}",
+            update_result.content
+        );
+
+        let get_call = ToolCall::with_default_weles_review(
+            "tool-get-todos-runtime".to_string(),
+            ToolFunction {
+                name: "get_todos".to_string(),
+                arguments: serde_json::json!({
+                    "thread_id": thread_id,
+                    "task_id": task.id,
+                })
+                .to_string(),
+            },
+        );
+
+        let get_result = execute_tool(
+            &get_call,
+            &engine,
+            thread_id,
+            Some(task.id.as_str()),
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !get_result.is_error,
+            "get_todos should return thread-scoped items: {}",
+            get_result.content
+        );
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&get_result.content).expect("get_todos should return JSON");
+        assert_eq!(payload["thread_id"], thread_id);
+        let items = payload["items"]
+            .as_array()
+            .expect("items should be serialized as an array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["content"], "Inspect current thread todos");
+        assert_eq!(items[0]["status"], "in_progress");
+        assert_eq!(items[1]["content"], "Return todo snapshot");
+        assert_eq!(items[1]["status"], "pending");
     }

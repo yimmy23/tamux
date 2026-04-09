@@ -2,7 +2,7 @@
 async fn daemon_operator_model_replies_emit_client_events() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
 
-    let should_continue = DaemonClient::handle_daemon_message(
+    let should_continue = handle_daemon_message_for_test(
         DaemonMessage::AgentOperatorModel {
             model_json: serde_json::json!({
                 "version": "1.0",
@@ -27,7 +27,7 @@ async fn daemon_operator_model_replies_emit_client_events() {
         other => panic!("expected operator model summary event, got {:?}", other),
     }
 
-    let should_continue = DaemonClient::handle_daemon_message(
+    let should_continue = handle_daemon_message_for_test(
         DaemonMessage::AgentOperatorModelReset { ok: true },
         &event_tx,
     )

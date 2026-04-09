@@ -361,6 +361,50 @@ Use this workflow for cross-document architecture synthesis and implementation p
 }
 
 #[tokio::test]
+async fn long_verbose_query_still_surfaces_relevant_audit_skill() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+
+    write_skill(
+        &skills_root,
+        "receiving-code-review",
+        r#"---
+name: receiving-code-review
+description: Review git diffs and classify related versus unrelated changes before acting.
+keywords: [audit, git, diff, review, rust, governance, safety]
+triggers: [inspect worktree changes, classify related changes, review rust diffs]
+---
+
+# Receiving Code Review
+
+Use this workflow to audit changed files and reason about diff scope safely.
+"#,
+    )?;
+
+    let result = discover_local_skills(
+        &store,
+        &skills_root,
+        "Audit modified git worktree files, inspect diffs, and map changed Rust files to orchestration safety governance RFC concepts to identify related vs unrelated changes",
+        &["rust".to_string()],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert_ne!(result.confidence, SkillRecommendationConfidence::None);
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("receiving-code-review")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn never_used_skill_does_not_look_recent_after_catalog_sync() -> Result<()> {
     let root = tempdir()?;
     let store = HistoryStore::new_test_store(root.path()).await?;
@@ -437,9 +481,6 @@ keywords: [rust, cargo, build]
     )
     .await?;
 
-    let indexed = store.list_skill_variants(None, 10).await?;
-
-    assert_eq!(indexed.len(), 1);
     assert_eq!(result.recommendations.len(), 1);
     assert_eq!(
         result.recommendations[0].record.skill_name,

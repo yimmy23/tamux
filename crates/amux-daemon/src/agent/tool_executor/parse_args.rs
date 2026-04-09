@@ -149,7 +149,13 @@ fn get_string_arg<'a>(args: &'a serde_json::Value, names: &[&str]) -> Option<&'a
 }
 
 fn get_file_path_arg<'a>(args: &'a serde_json::Value) -> Option<&'a str> {
-    get_string_arg(args, &["path", "file_path", "filepath", "filename", "file"])
+    ["path", "file_path", "filepath", "filename", "file"]
+        .into_iter()
+        .find_map(|name| {
+            args.get(name)
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.trim().is_empty())
+        })
 }
 
 fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {

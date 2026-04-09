@@ -1090,3 +1090,93 @@ fn skill_list_round_trip_preserves_cursor() {
         other => panic!("unexpected variant: {:?}", other),
     }
 }
+
+#[test]
+fn approval_payload_deserializes_legacy_shape_with_defaults() {
+    let legacy_json = serde_json::json!({
+        "approval_id": "apr_legacy",
+        "execution_id": "exec_legacy",
+        "command": "echo hello",
+        "rationale": "legacy payload",
+        "risk_level": "medium",
+        "blast_radius": "current session",
+        "reasons": ["network access requested"],
+        "workspace_id": "workspace-a",
+        "allow_network": true
+    })
+    .to_string();
+
+    let payload: ApprovalPayload = serde_json::from_str(&legacy_json).unwrap();
+    assert_eq!(payload.approval_id, "apr_legacy");
+    assert_eq!(payload.execution_id, "exec_legacy");
+    assert_eq!(payload.transition_kind, None);
+    assert_eq!(payload.policy_fingerprint, None);
+    assert_eq!(payload.expires_at, None);
+    assert!(payload.constraints.is_empty());
+    assert_eq!(payload.scope_summary, None);
+}
+
+#[test]
+fn approval_payload_omits_new_governance_fields_when_absent() {
+    let payload = ApprovalPayload {
+        approval_id: "apr_minimal".to_string(),
+        execution_id: "exec_minimal".to_string(),
+        command: "echo hello".to_string(),
+        rationale: "minimal payload".to_string(),
+        risk_level: "low".to_string(),
+        blast_radius: "current session".to_string(),
+        reasons: vec!["safe command".to_string()],
+        workspace_id: Some("workspace-a".to_string()),
+        allow_network: false,
+        transition_kind: None,
+        policy_fingerprint: None,
+        expires_at: None,
+        constraints: Vec::new(),
+        scope_summary: None,
+    };
+
+    let json = serde_json::to_value(&payload).unwrap();
+    let object = json.as_object().unwrap();
+    assert!(!object.contains_key("transition_kind"));
+    assert!(!object.contains_key("policy_fingerprint"));
+    assert!(!object.contains_key("expires_at"));
+    assert!(!object.contains_key("constraints"));
+    assert!(!object.contains_key("scope_summary"));
+}
+
+#[test]
+fn approval_payload_round_trips_governance_metadata() {
+    let payload = ApprovalPayload {
+        approval_id: "apr_governed".to_string(),
+        execution_id: "exec_governed".to_string(),
+        command: "sudo terraform destroy".to_string(),
+        rationale: "apply risky infra change".to_string(),
+        risk_level: "high".to_string(),
+        blast_radius: "network and workspace".to_string(),
+        reasons: vec!["risk score exceeded approval threshold".to_string()],
+        workspace_id: Some("workspace-a".to_string()),
+        allow_network: true,
+        transition_kind: Some("managed_command_dispatch".to_string()),
+        policy_fingerprint: Some("fingerprint-123".to_string()),
+        expires_at: Some(1_717_171_717),
+        constraints: vec!["serial_only_execution".to_string()],
+        scope_summary: Some("managed transition".to_string()),
+    };
+
+    let encoded = serde_json::to_string(&payload).unwrap();
+    let decoded: ApprovalPayload = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(
+        decoded.transition_kind.as_deref(),
+        Some("managed_command_dispatch")
+    );
+    assert_eq!(
+        decoded.policy_fingerprint.as_deref(),
+        Some("fingerprint-123")
+    );
+    assert_eq!(decoded.expires_at, Some(1_717_171_717));
+    assert_eq!(
+        decoded.constraints,
+        vec!["serial_only_execution".to_string()]
+    );
+    assert_eq!(decoded.scope_summary.as_deref(), Some("managed transition"));
+}

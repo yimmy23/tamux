@@ -1,11 +1,11 @@
 #[derive(Default)]
-pub(super) struct OperationRegistry {
+pub(crate) struct OperationRegistry {
     records: std::sync::Mutex<std::collections::HashMap<String, OperationRecord>>,
     dedup_index: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl OperationRegistry {
-    pub(super) fn accept_operation(&self, kind: &str, dedup: Option<String>) -> OperationRecord {
+    pub(crate) fn accept_operation(&self, kind: &str, dedup: Option<String>) -> OperationRecord {
         if let Some(existing) = dedup.as_ref().and_then(|dedup_key| {
             let dedup_index = self
                 .dedup_index
@@ -57,25 +57,25 @@ impl OperationRegistry {
         record
     }
 
-    pub(super) fn mark_started(&self, operation_id: &str) {
+    pub(crate) fn mark_started(&self, operation_id: &str) {
         self.update_state(
             operation_id,
             amux_protocol::OperationLifecycleState::Started,
         );
     }
 
-    pub(super) fn mark_completed(&self, operation_id: &str) {
+    pub(crate) fn mark_completed(&self, operation_id: &str) {
         self.update_state(
             operation_id,
             amux_protocol::OperationLifecycleState::Completed,
         );
     }
 
-    pub(super) fn mark_failed(&self, operation_id: &str) {
+    pub(crate) fn mark_failed(&self, operation_id: &str) {
         self.update_state(operation_id, amux_protocol::OperationLifecycleState::Failed);
     }
 
-    pub(super) fn snapshot(
+    pub(crate) fn snapshot(
         &self,
         operation_id: &str,
     ) -> Option<amux_protocol::OperationStatusSnapshot> {

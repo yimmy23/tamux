@@ -390,6 +390,45 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
     Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
 }
 
+async fn execute_get_todos(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    current_task_id: Option<&str>,
+) -> Result<String> {
+    let thread_id = args
+        .get("thread_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("missing 'thread_id' argument"))?;
+    let requested_task_id = args
+        .get("task_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let resolved_task = if let Some(task_id) = requested_task_id.or(current_task_id) {
+        Some(
+            agent
+                .list_tasks()
+                .await
+                .into_iter()
+                .find(|task| task.id == task_id)
+                .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
+        )
+    } else {
+        None
+    };
+    let items = agent.get_todos(thread_id).await;
+
+    Ok(serde_json::json!({
+        "thread_id": thread_id,
+        "task_id": resolved_task.as_ref().map(|task| task.id.as_str()),
+        "goal_run_id": resolved_task.as_ref().and_then(|task| task.goal_run_id.as_deref()),
+        "items": items,
+    })
+    .to_string())
+}
+
 async fn execute_cancel_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
     let task_id = args
         .get("task_id")
@@ -402,4 +441,3 @@ async fn execute_cancel_task(args: &serde_json::Value, agent: &AgentEngine) -> R
     })
     .to_string())
 }
-

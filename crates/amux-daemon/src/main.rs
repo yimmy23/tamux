@@ -1,6 +1,7 @@
 pub mod agent;
 mod criu;
 mod git;
+mod governance;
 mod history;
 mod lsp_client;
 mod network;

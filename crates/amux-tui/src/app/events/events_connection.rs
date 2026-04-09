@@ -34,6 +34,7 @@ impl TuiModel {
         self.last_attention_surface = None;
         self.default_session_id = None;
         self.agent_activity = None;
+        self.thread_loading_id = None;
         self.operator_profile.visible = false;
         self.operator_profile.loading = false;
         self.concierge
@@ -49,6 +50,7 @@ impl TuiModel {
         self.last_attention_surface = None;
         self.default_session_id = None;
         self.agent_activity = None;
+        self.thread_loading_id = None;
         self.operator_profile.visible = false;
         self.operator_profile.loading = false;
         self.concierge

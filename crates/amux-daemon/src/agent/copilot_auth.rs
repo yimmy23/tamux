@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 const GITHUB_COPILOT_DISABLE_GH_CLI_ENV: &str = "TAMUX_GITHUB_COPILOT_DISABLE_GH_CLI";
-const GITHUB_COPILOT_DISABLE_ENV_AUTH_ENV: &str = "TAMUX_GITHUB_COPILOT_DISABLE_ENV_AUTH";
-const GITHUB_COPILOT_ENV_KEYS: &[&str] = &["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredGithubCopilotAuth {
@@ -93,19 +91,6 @@ fn stored_from_token(token: String, source: &str) -> StoredGithubCopilotAuth {
     }
 }
 
-fn env_token() -> Option<String> {
-    if env_flag_is_enabled(GITHUB_COPILOT_DISABLE_ENV_AUTH_ENV) {
-        return None;
-    }
-
-    GITHUB_COPILOT_ENV_KEYS.iter().find_map(|key| {
-        std::env::var(key)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-    })
-}
-
 fn gh_cli_token() -> Option<String> {
     if env_flag_is_enabled(GITHUB_COPILOT_DISABLE_GH_CLI_ENV) {
         return None;
@@ -123,17 +108,6 @@ fn gh_cli_token() -> Option<String> {
     }
 }
 
-pub fn import_gh_cli_auth_if_present() -> Option<StoredGithubCopilotAuth> {
-    if let Some(existing) = read_stored_github_copilot_auth() {
-        return Some(existing);
-    }
-
-    let token = gh_cli_token()?;
-    let imported = stored_from_token(token, "gh_cli_import");
-    let _ = write_stored_github_copilot_auth(&imported);
-    read_stored_github_copilot_auth().or(Some(imported))
-}
-
 pub fn resolve_github_copilot_auth(
     api_key: &str,
     auth_source: AuthSource,
@@ -148,7 +122,7 @@ pub fn resolve_github_copilot_auth(
                 use_logged_in_user: true,
             })
         }
-        _ => {
+        AuthSource::ApiKey => {
             let explicit = api_key.trim();
             if !explicit.is_empty() {
                 return Some(ResolvedGithubCopilotAuth {
@@ -158,23 +132,9 @@ pub fn resolve_github_copilot_auth(
                     use_logged_in_user: false,
                 });
             }
-            if let Some(token) = env_token() {
-                return Some(ResolvedGithubCopilotAuth {
-                    access_token: Some(token),
-                    auth_source: AuthSource::ApiKey,
-                    source: "env".to_string(),
-                    use_logged_in_user: false,
-                });
-            }
-
-            let stored = read_stored_github_copilot_auth()?;
-            Some(ResolvedGithubCopilotAuth {
-                access_token: Some(stored.access_token),
-                auth_source: AuthSource::GithubCopilot,
-                source: stored.source,
-                use_logged_in_user: true,
-            })
+            None
         }
+        AuthSource::ChatgptSubscription => None,
     }
 }
 
@@ -208,9 +168,6 @@ pub fn begin_github_copilot_auth_flow() -> Result<GithubCopilotAuthFlowResult> {
     if read_stored_github_copilot_auth().is_some() {
         return Ok(GithubCopilotAuthFlowResult::AlreadyAvailable);
     }
-    if import_gh_cli_auth_if_present().is_some() {
-        return Ok(GithubCopilotAuthFlowResult::ImportedFromGhCli);
-    }
 
     let status = Command::new("gh")
         .args(["auth", "login", "--web", "--scopes", "read:org,models:read"])
@@ -223,4 +180,56 @@ pub fn begin_github_copilot_auth_flow() -> Result<GithubCopilotAuthFlowResult> {
     let token = gh_cli_token().context("GitHub CLI login completed but returned no token")?;
     write_stored_github_copilot_auth(&stored_from_token(token, "gh_cli"))?;
     Ok(GithubCopilotAuthFlowResult::Started)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_copilot_mode_ignores_env_tokens() {
+        let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+        let root = tempfile::tempdir().expect("temp dir");
+        std::env::set_var(
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            root.path().join("provider-auth.db"),
+        );
+        std::env::set_var("COPILOT_GITHUB_TOKEN", "env-token");
+        std::env::set_var("GH_TOKEN", "gh-token");
+        std::env::set_var("GITHUB_TOKEN", "github-token");
+
+        let resolved = resolve_github_copilot_auth("", AuthSource::GithubCopilot);
+
+        assert!(resolved.is_none());
+
+        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
+        std::env::remove_var("COPILOT_GITHUB_TOKEN");
+        std::env::remove_var("GH_TOKEN");
+        std::env::remove_var("GITHUB_TOKEN");
+    }
+
+    #[test]
+    fn api_key_mode_does_not_fallback_to_stored_browser_auth() {
+        let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
+        let root = tempfile::tempdir().expect("temp dir");
+        std::env::set_var(
+            "TAMUX_PROVIDER_AUTH_DB_PATH",
+            root.path().join("provider-auth.db"),
+        );
+
+        write_stored_github_copilot_auth(&StoredGithubCopilotAuth {
+            auth_mode: "github_copilot".to_string(),
+            access_token: "stored-browser-token".to_string(),
+            source: "test".to_string(),
+            updated_at: 1,
+            created_at: 1,
+        })
+        .expect("store browser auth");
+
+        let resolved = resolve_github_copilot_auth("", AuthSource::ApiKey);
+
+        assert!(resolved.is_none());
+
+        std::env::remove_var("TAMUX_PROVIDER_AUTH_DB_PATH");
+    }
 }

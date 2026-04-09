@@ -8,6 +8,9 @@ const HEURISTIC_COMPACTION_VISIBLE_TEXT: &str = "rule based";
 const COMPACTION_NOTICE_KIND: &str = "auto-compaction";
 const COMPACTION_EXACT_MESSAGE_MAX: usize = 24;
 const COMPACTION_MODEL_RECENT_CONTENT_MESSAGES: usize = 6;
+const COMPACTION_MODEL_REQUEST_HEADROOM_TOKENS: usize = 8_192;
+const COMPACTION_MESSAGE_TRUNCATION_NOTICE: &str =
+    "\n\n[Older compaction input truncated to fit the model budget.]";
 const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context into a deterministic execution checkpoint for future continuity. Follow the mandatory thread compaction protocol exactly. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, failed paths, and the immediate next step. Return exactly one markdown block matching the required schema. Do not add commentary outside the schema.";
 const COMPACTION_CHECKPOINT_SCHEMA: &str = r#"# 🤖 Agent Context: State Checkpoint
 
@@ -906,6 +909,7 @@ fn select_recent_llm_compaction_messages(messages: &[AgentMessage]) -> (usize, V
 fn build_llm_compaction_messages(
     messages: &[AgentMessage],
     target_tokens: usize,
+    max_input_tokens: usize,
 ) -> Vec<ApiMessage> {
     let source_messages = messages
         .iter()
@@ -951,7 +955,120 @@ fn build_llm_compaction_messages(
         name: None,
         tool_calls: None,
     });
+    trim_llm_compaction_messages_to_fit(&mut api_messages, max_input_tokens.max(1));
     api_messages
+}
+
+fn llm_compaction_input_budget(provider_id: &str, provider_config: &ProviderConfig) -> usize {
+    let model_window = model_context_window(
+        provider_id,
+        &provider_config.model,
+        provider_config.context_window_tokens,
+    ) as usize;
+    let minimum = model_window.min(MIN_CONTEXT_TARGET_TOKENS);
+    model_window
+        .saturating_sub(COMPACTION_MODEL_REQUEST_HEADROOM_TOKENS)
+        .max(minimum)
+        .max(1)
+}
+
+fn estimate_api_messages_tokens(messages: &[ApiMessage]) -> usize {
+    messages.iter().map(estimate_api_message_tokens).sum()
+}
+
+fn estimate_api_message_tokens(message: &ApiMessage) -> usize {
+    let mut chars = message.role.chars().count();
+    chars += match &message.content {
+        ApiContent::Text(text) => text.chars().count(),
+        ApiContent::Blocks(blocks) => blocks
+            .iter()
+            .map(|block| {
+                serde_json::to_string(block)
+                    .unwrap_or_default()
+                    .chars()
+                    .count()
+            })
+            .sum(),
+    };
+    chars += message
+        .tool_call_id
+        .as_deref()
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or(0);
+    chars += message
+        .name
+        .as_deref()
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or(0);
+    chars += message
+        .tool_calls
+        .as_ref()
+        .map(|tool_calls| {
+            tool_calls
+                .iter()
+                .map(|tool_call| {
+                    tool_call.id.chars().count()
+                        + tool_call.call_type.chars().count()
+                        + tool_call.function.name.chars().count()
+                        + tool_call.function.arguments.chars().count()
+                })
+                .sum::<usize>()
+        })
+        .unwrap_or(0);
+    chars
+}
+
+fn trim_llm_compaction_messages_to_fit(
+    api_messages: &mut Vec<ApiMessage>,
+    max_input_tokens: usize,
+) {
+    if api_messages.len() <= 1 {
+        return;
+    }
+
+    while estimate_api_messages_tokens(api_messages) > max_input_tokens && api_messages.len() > 2 {
+        api_messages.remove(0);
+    }
+
+    while estimate_api_messages_tokens(api_messages) > max_input_tokens && api_messages.len() > 1 {
+        let instruction_tokens = estimate_api_message_tokens(
+            api_messages
+                .last()
+                .expect("instruction message should remain present"),
+        );
+        let available = max_input_tokens.saturating_sub(instruction_tokens).max(64);
+        truncate_api_message_to_fit(&mut api_messages[0], available);
+        if estimate_api_message_tokens(&api_messages[0]) <= available {
+            break;
+        }
+        api_messages.remove(0);
+    }
+}
+
+fn truncate_api_message_to_fit(message: &mut ApiMessage, max_tokens: usize) {
+    message.tool_call_id = None;
+    message.name = None;
+    message.tool_calls = None;
+
+    let ApiContent::Text(text) = &mut message.content else {
+        return;
+    };
+    if text.chars().count() <= max_tokens {
+        return;
+    }
+
+    let available = max_tokens.saturating_sub(COMPACTION_MESSAGE_TRUNCATION_NOTICE.chars().count());
+    let suffix = text
+        .chars()
+        .rev()
+        .take(available)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    *text = format!("{}{}", COMPACTION_MESSAGE_TRUNCATION_NOTICE, suffix);
 }
 
 impl AgentEngine {
@@ -1151,7 +1268,11 @@ impl AgentEngine {
         target_tokens: usize,
     ) -> Result<String> {
         let transport = select_compaction_transport(provider_id, provider_config);
-        let api_messages = build_llm_compaction_messages(messages, target_tokens);
+        let api_messages = build_llm_compaction_messages(
+            messages,
+            target_tokens,
+            llm_compaction_input_budget(provider_id, provider_config),
+        );
         self.check_circuit_breaker(provider_id).await?;
 
         let mut stream = send_completion_request(

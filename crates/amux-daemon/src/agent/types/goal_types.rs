@@ -129,6 +129,16 @@ pub struct GoalRun {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub awaiting_approval_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_expires_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub containment_scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compensation_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compensation_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub active_task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,

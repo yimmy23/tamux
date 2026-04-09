@@ -407,7 +407,7 @@ impl TuiModel {
                             }
                             "snapshot_max_count" => {
                                 if let Ok(n) = value.parse::<u32>() {
-                                    self.config.snapshot_max_count = n.clamp(1, 100);
+                                    self.config.snapshot_max_count = n.clamp(0, 100);
                                 }
                             }
                             "snapshot_max_size_mb" => {

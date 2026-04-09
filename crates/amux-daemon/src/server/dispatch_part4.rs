@@ -72,18 +72,25 @@ if matches!(
 
                 ClientMessage::AgentGetThread { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let detail = agent.get_thread_capped_for_ipc(&thread_id, false).await;
-                    if detail.as_ref().is_some_and(|detail| detail.messages_truncated) {
-                        tracing::warn!(
-                            thread_id = %thread_id,
-                            "truncated agent thread detail to fit IPC frame limit"
-                        );
-                    }
-                    let thread = detail.map(|detail| detail.thread);
+                    let thread = agent.get_thread(&thread_id).await;
                     let json = serde_json::to_string(&thread).unwrap_or_default();
-                    framed
-                        .send(DaemonMessage::AgentThreadDetail { thread_json: json })
-                        .await?;
+                    if thread_detail_fits_single_ipc_frame(&json) {
+                        framed
+                            .send(DaemonMessage::AgentThreadDetail { thread_json: json })
+                            .await?;
+                    } else {
+                        let chunks = thread_detail_chunks_for_ipc(&json).collect::<Vec<_>>();
+                        let total_chunks = chunks.len();
+                        for (index, chunk) in chunks.into_iter().enumerate() {
+                            framed
+                                .send(DaemonMessage::AgentThreadDetailChunk {
+                                    thread_id: thread_id.clone(),
+                                    thread_json_chunk: chunk.to_vec(),
+                                    done: index + 1 == total_chunks,
+                                })
+                                .await?;
+                        }
+                    }
                 }
 
                 ClientMessage::AgentDeleteThread { thread_id } => {

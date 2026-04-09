@@ -223,6 +223,15 @@ impl AgentEngine {
                             }
                         })
                         .collect::<Vec<_>>();
+                    let (total_input_tokens, total_output_tokens) =
+                        messages
+                            .iter()
+                            .fold((0u64, 0u64), |(input_acc, output_acc), message| {
+                                (
+                                    input_acc.saturating_add(message.input_tokens),
+                                    output_acc.saturating_add(message.output_tokens),
+                                )
+                            });
 
                     threads.insert(
                         thread_id.clone(),
@@ -241,8 +250,8 @@ impl AgentEngine {
                             upstream_assistant_id: thread_metadata.upstream_assistant_id,
                             created_at: thread_row.created_at as u64,
                             updated_at: thread_row.updated_at as u64,
-                            total_input_tokens: 0,
-                            total_output_tokens: 0,
+                            total_input_tokens,
+                            total_output_tokens,
                         },
                     );
                     handoff_states.insert(thread_id, handoff_state);
@@ -544,6 +553,7 @@ impl AgentEngine {
 
         // Seed built-in skill documents into ~/.tamux/skills/
         seed_builtin_skills(&self.data_dir);
+        self.schedule_builtin_skill_catalog_sync();
 
         // Restore HeuristicStore from persistence (D-10)
         let heuristic_path = self.data_dir.join("heuristics.json");
@@ -857,6 +867,22 @@ impl AgentEngine {
                 (updated_at == latest_updated_at).then_some(repo_root)
             })
             .collect()
+    }
+
+    fn schedule_builtin_skill_catalog_sync(self: &Arc<Self>) {
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            let skills_root = super::skills_dir(&engine.data_dir);
+            if let Err(error) =
+                super::skill_recommendation::sync_skill_catalog(&engine.history, &skills_root).await
+            {
+                tracing::warn!(
+                    skills_root = %skills_root.display(),
+                    %error,
+                    "background built-in skill catalog sync failed after hydrate"
+                );
+            }
+        });
     }
 
     fn schedule_aline_startup_reconciliation(self: &Arc<Self>, repo_root: String) {

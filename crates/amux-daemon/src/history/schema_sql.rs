@@ -109,12 +109,25 @@ pub(super) fn base_schema_sql() -> &'static str {
                 scheduled_at         INTEGER,
                 blocked_reason       TEXT,
                 awaiting_approval_id TEXT,
+                policy_fingerprint   TEXT,
+                approval_expires_at  INTEGER,
+                containment_scope    TEXT,
+                compensation_status  TEXT,
+                compensation_summary TEXT,
                 lane_id              TEXT,
                 last_error           TEXT,
                 override_provider    TEXT,
                 override_model       TEXT,
                 override_system_prompt TEXT,
-                sub_agent_def_id     TEXT
+                sub_agent_def_id     TEXT,
+                tool_whitelist_json  TEXT,
+                tool_blacklist_json  TEXT,
+                context_budget_tokens INTEGER,
+                context_overflow_action TEXT,
+                termination_conditions TEXT,
+                success_criteria     TEXT,
+                max_duration_secs    INTEGER,
+                supervisor_config_json TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status, priority, created_at DESC);
             CREATE TABLE IF NOT EXISTS agent_task_dependencies (
@@ -179,7 +192,23 @@ pub(super) fn base_schema_sql() -> &'static str {
                 memory_updates_json TEXT NOT NULL DEFAULT '[]',
                 generated_skill_path TEXT,
                 last_error          TEXT,
-                child_task_ids_json TEXT NOT NULL DEFAULT '[]'
+                failure_cause       TEXT,
+                child_task_ids_json TEXT NOT NULL DEFAULT '[]',
+                child_task_count    INTEGER NOT NULL DEFAULT 0,
+                approval_count      INTEGER NOT NULL DEFAULT 0,
+                awaiting_approval_id TEXT,
+                policy_fingerprint  TEXT,
+                approval_expires_at INTEGER,
+                containment_scope   TEXT,
+                compensation_status TEXT,
+                compensation_summary TEXT,
+                active_task_id      TEXT,
+                duration_ms         INTEGER,
+                total_prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                total_completion_tokens INTEGER NOT NULL DEFAULT 0,
+                estimated_cost_usd  REAL,
+                autonomy_level      TEXT NOT NULL DEFAULT 'aware',
+                authorship_tag      TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
             CREATE TABLE IF NOT EXISTS goal_run_steps (
@@ -279,6 +308,45 @@ pub(super) fn base_schema_sql() -> &'static str {
             );
             CREATE INDEX IF NOT EXISTS idx_execution_traces_task_type ON execution_traces(task_type, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_execution_traces_goal_run ON execution_traces(goal_run_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS approval_records (
+                approval_id         TEXT PRIMARY KEY,
+                run_id              TEXT,
+                task_id             TEXT,
+                goal_run_id         TEXT,
+                thread_id           TEXT,
+                transition_kind     TEXT NOT NULL,
+                stage_id            TEXT,
+                scope_summary       TEXT,
+                target_scope_json   TEXT NOT NULL DEFAULT '[]',
+                constraints_json    TEXT NOT NULL DEFAULT '[]',
+                risk_class          TEXT NOT NULL,
+                rationale_json      TEXT NOT NULL DEFAULT '[]',
+                policy_fingerprint  TEXT NOT NULL,
+                requested_at        INTEGER NOT NULL,
+                resolved_at         INTEGER,
+                expires_at          INTEGER,
+                resolution          TEXT,
+                invalidated_at      INTEGER,
+                invalidation_reason TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_approval_records_requested_at ON approval_records(requested_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_approval_records_policy ON approval_records(policy_fingerprint, requested_at DESC);
+
+            CREATE TABLE IF NOT EXISTS governance_evaluations (
+                id                 TEXT PRIMARY KEY,
+                run_id             TEXT,
+                task_id            TEXT,
+                goal_run_id        TEXT,
+                thread_id          TEXT,
+                transition_kind    TEXT NOT NULL,
+                input_json         TEXT NOT NULL,
+                verdict_json       TEXT NOT NULL,
+                policy_fingerprint TEXT NOT NULL,
+                created_at         INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_governance_evaluations_created_at ON governance_evaluations(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_governance_evaluations_policy ON governance_evaluations(policy_fingerprint, created_at DESC);
 
     "#
 }

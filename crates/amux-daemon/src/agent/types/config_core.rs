@@ -46,6 +46,26 @@ impl AgentBackend {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SnapshotRetentionSettings {
+    #[serde(default)]
+    pub max_snapshots: usize,
+    #[serde(default = "default_snapshot_max_total_size_mb")]
+    pub max_total_size_mb: u64,
+    #[serde(default)]
+    pub auto_cleanup: bool,
+}
+
+impl Default for SnapshotRetentionSettings {
+    fn default() -> Self {
+        Self {
+            max_snapshots: 0,
+            max_total_size_mb: default_snapshot_max_total_size_mb(),
+            auto_cleanup: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     #[serde(default)]
@@ -134,6 +154,8 @@ pub struct AgentConfig {
     /// Gateway configuration for chat platform connections.
     #[serde(default)]
     pub gateway: GatewayConfig,
+    #[serde(default)]
+    pub snapshot_retention: SnapshotRetentionSettings,
     /// Agent backend: daemon (built-in LLM), openclaw, hermes, or legacy.
     #[serde(default)]
     pub agent_backend: AgentBackend,

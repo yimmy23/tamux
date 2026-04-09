@@ -4,7 +4,7 @@ mod types;
 
 use crate::agent::skill_registry::{to_community_entry, RegistryClient};
 use crate::agent::types::SkillRecommendationConfig;
-use crate::history::HistoryStore;
+use crate::history::{derive_skill_metadata, HistoryStore, SkillVariantRecord};
 use anyhow::{Context, Result};
 use base64::Engine;
 use ranking::rank_skill_candidates;
@@ -29,31 +29,19 @@ pub(crate) async fn discover_local_skills(
     limit: usize,
     cfg: &SkillRecommendationConfig,
 ) -> Result<SkillDiscoveryResult> {
-    sync_skill_catalog(history, skills_root).await?;
-
-    let mut candidates = Vec::new();
-    for record in history.list_skill_variants(None, 512).await? {
-        if matches!(record.status.as_str(), "archived" | "merged" | "draft") {
-            continue;
+    let records = history.list_skill_variants(None, 512).await?;
+    let candidates = if records.is_empty() {
+        schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
+        collect_filesystem_skill_candidates(skills_root)?
+    } else {
+        let candidates = collect_registered_skill_candidates(skills_root, records)?;
+        if candidates.is_empty() {
+            schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
+            collect_filesystem_skill_candidates(skills_root)?
+        } else {
+            candidates
         }
-        if !should_include_skill_relative_path(&record.relative_path) {
-            continue;
-        }
-
-        let (skill_path, metadata_relative_path) =
-            resolve_skill_document_path(skills_root, &record.relative_path);
-        let content = std::fs::read_to_string(&skill_path).with_context(|| {
-            format!(
-                "failed to read skill recommendation file {}",
-                skill_path.display()
-            )
-        })?;
-        candidates.push(SkillCandidateInput {
-            metadata: extract_skill_metadata(&metadata_relative_path, &content),
-            excerpt: excerpt_skill(&content),
-            record,
-        });
-    }
+    };
 
     Ok(rank_skill_candidates(
         candidates,
@@ -62,6 +50,18 @@ pub(crate) async fn discover_local_skills(
         limit,
         cfg,
     ))
+}
+
+fn schedule_background_skill_catalog_sync(history: HistoryStore, skills_root: PathBuf) {
+    tokio::spawn(async move {
+        if let Err(error) = sync_skill_catalog(&history, &skills_root).await {
+            tracing::warn!(
+                %error,
+                skills_root = %skills_root.display(),
+                "background skill catalog sync failed during discovery"
+            );
+        }
+    });
 }
 
 pub(crate) async fn sync_skill_catalog(history: &HistoryStore, skills_root: &Path) -> Result<()> {
@@ -221,6 +221,93 @@ fn should_include_skill_relative_path(relative_path: &str) -> bool {
             && path
                 .components()
                 .any(|component| component.as_os_str() == "generated"))
+}
+
+fn collect_registered_skill_candidates(
+    skills_root: &Path,
+    records: Vec<SkillVariantRecord>,
+) -> Result<Vec<SkillCandidateInput>> {
+    let mut candidates = Vec::new();
+    for record in records {
+        if matches!(record.status.as_str(), "archived" | "merged" | "draft") {
+            continue;
+        }
+        if !should_include_skill_relative_path(&record.relative_path) {
+            continue;
+        }
+
+        let (skill_path, metadata_relative_path) =
+            resolve_skill_document_path(skills_root, &record.relative_path);
+        let content = std::fs::read_to_string(&skill_path).with_context(|| {
+            format!(
+                "failed to read skill recommendation file {}",
+                skill_path.display()
+            )
+        })?;
+        candidates.push(SkillCandidateInput {
+            metadata: extract_skill_metadata(&metadata_relative_path, &content),
+            excerpt: excerpt_skill(&content),
+            record,
+        });
+    }
+    Ok(candidates)
+}
+
+fn collect_filesystem_skill_candidates(skills_root: &Path) -> Result<Vec<SkillCandidateInput>> {
+    let mut files = Vec::new();
+    collect_skill_documents(skills_root, &mut files)?;
+
+    let mut candidates = Vec::new();
+    for path in files {
+        let relative_path = path
+            .strip_prefix(skills_root)
+            .unwrap_or(path.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let content = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "failed to read skill recommendation file {}",
+                path.display()
+            )
+        })?;
+        let derived = derive_skill_metadata(&relative_path, &content);
+        candidates.push(SkillCandidateInput {
+            metadata: extract_skill_metadata(&relative_path, &content),
+            excerpt: excerpt_skill(&content),
+            record: synthetic_skill_variant_record(&relative_path, &derived),
+        });
+    }
+
+    Ok(candidates)
+}
+
+fn synthetic_skill_variant_record(
+    relative_path: &str,
+    derived: &crate::history::DerivedSkillMetadata,
+) -> SkillVariantRecord {
+    let normalized = relative_path.replace('\\', "/");
+    let now = crate::history::now_ts();
+
+    SkillVariantRecord {
+        variant_id: format!("fs:{normalized}"),
+        skill_name: if derived.skill_name.is_empty() {
+            "skill".to_string()
+        } else {
+            derived.skill_name.clone()
+        },
+        variant_name: derived.variant_name.clone(),
+        relative_path: normalized,
+        parent_variant_id: None,
+        version: "v1.0".to_string(),
+        context_tags: derived.context_tags.clone(),
+        use_count: 0,
+        success_count: 0,
+        failure_count: 0,
+        status: "active".to_string(),
+        last_used_at: None,
+        created_at: now,
+        updated_at: now,
+    }
 }
 
 pub(super) fn page_public_discovery_result(

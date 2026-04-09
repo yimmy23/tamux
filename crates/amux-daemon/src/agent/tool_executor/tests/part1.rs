@@ -2,13 +2,14 @@
         build_list_files_script, build_write_file_command, build_write_file_script,
         command_looks_interactive, command_matches_policy_risk, command_requires_managed_state,
         daemon_tool_timeout_seconds, default_timeout_seconds_for_tool,
-        execute_apply_patch, execute_get_git_line_statuses,
+        execute_apply_patch, execute_create_file, execute_get_git_line_statuses,
         execute_fetch_url_with_runner, execute_gateway_message, execute_get_divergent_session,
         execute_headless_shell_command, execute_onecontext_search_with_runner, execute_read_file,
         execute_search_files_with_runner, execute_tool, execute_web_search_with_runner,
-        get_available_tools, managed_alias_args, parse_capture_output, parse_tool_args,
-        resolve_skill_path, run_search_files_command, should_use_linked_whatsapp_transport,
-        should_use_managed_execution, validate_read_path, validate_write_path,
+        get_available_tools, get_file_path_arg, managed_alias_args, parse_capture_output,
+        parse_tool_args, resolve_skill_path, run_search_files_command,
+        should_use_linked_whatsapp_transport, should_use_managed_execution, validate_read_path,
+        validate_write_path,
         wait_for_managed_command_outcome,
     };
     use crate::agent::{
@@ -338,6 +339,62 @@
         .expect("read file should succeed");
 
         assert_eq!(result, "line-005\nline-006\nline-007");
+    }
+
+    #[test]
+    fn get_file_path_arg_skips_blank_path_and_falls_back_to_filename() {
+        let args = serde_json::json!({
+            "path": "   ",
+            "filename": "notes.md"
+        });
+
+        assert_eq!(get_file_path_arg(&args), Some("notes.md"));
+    }
+
+    #[tokio::test]
+    async fn create_file_uses_filename_and_cwd_when_path_is_blank() {
+        let root = tempdir().expect("tempdir");
+        let file_path = root.path().join("notes.md");
+
+        let result = execute_create_file(&serde_json::json!({
+            "path": "",
+            "filename": "notes.md",
+            "cwd": root.path(),
+            "content": "hello world"
+        }))
+        .await
+        .expect("create_file should fall back to filename when path is blank");
+
+        assert!(result.contains(&file_path.display().to_string()));
+        assert_eq!(
+            tokio::fs::read_to_string(&file_path)
+                .await
+                .expect("read created file"),
+            "hello world"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_file_accepts_filename_when_it_is_already_a_path() {
+        let root = tempdir().expect("tempdir");
+        let file_path = root.path().join("nested").join("notes.md");
+
+        let result = execute_create_file(&serde_json::json!({
+            "path": "",
+            "filename": file_path,
+            "cwd": "/tmp/should-not-matter",
+            "content": "hello world"
+        }))
+        .await
+        .expect("create_file should accept a full path in filename");
+
+        assert!(result.contains(&file_path.display().to_string()));
+        assert_eq!(
+            tokio::fs::read_to_string(&file_path)
+                .await
+                .expect("read created file"),
+            "hello world"
+        );
     }
 
     #[test]

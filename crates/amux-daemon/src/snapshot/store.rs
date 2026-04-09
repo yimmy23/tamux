@@ -10,38 +10,38 @@ pub struct SnapshotRetentionConfig {
 impl Default for SnapshotRetentionConfig {
     fn default() -> Self {
         Self {
-            max_snapshots: 10,
-            max_total_size_mb: 51_200,
-            auto_cleanup: true,
+            max_snapshots: 0,
+            max_total_size_mb: 10_240,
+            auto_cleanup: false,
         }
     }
 }
 
 impl SnapshotRetentionConfig {
-    fn from_sources() -> Self {
-        let config = amux_protocol::AmuxConfig::load();
-        let mut retention = Self {
-            max_snapshots: config.snapshot_max_count.max(1),
-            max_total_size_mb: config.snapshot_max_total_size_mb.max(1024),
-            auto_cleanup: config.snapshot_auto_cleanup,
+    async fn from_history(history: &HistoryStore) -> Self {
+        let mut retention = Self::default();
+        let Ok(items) = history.list_agent_config_items().await else {
+            return retention;
         };
 
-        for path in [amux_protocol::amux_data_dir().join("settings.json")] {
-            let Some(settings) = read_settings_root(&path) else {
-                continue;
-            };
-
-            if let Some(value) = settings.get("snapshotMaxCount").and_then(|v| v.as_u64()) {
-                retention.max_snapshots = value.max(1) as usize;
-            }
-            if let Some(value) = settings.get("snapshotMaxSizeMb").and_then(|v| v.as_u64()) {
-                retention.max_total_size_mb = value.max(1024);
-            }
-            if let Some(value) = settings
-                .get("snapshotAutoCleanup")
-                .and_then(|v| v.as_bool())
-            {
-                retention.auto_cleanup = value;
+        for (key_path, value) in items {
+            match key_path.as_str() {
+                "/snapshot_retention/max_snapshots" => {
+                    if let Some(value) = value.as_u64() {
+                        retention.max_snapshots = value as usize;
+                    }
+                }
+                "/snapshot_retention/max_total_size_mb" => {
+                    if let Some(value) = value.as_u64() {
+                        retention.max_total_size_mb = value.max(1);
+                    }
+                }
+                "/snapshot_retention/auto_cleanup" => {
+                    if let Some(value) = value.as_bool() {
+                        retention.auto_cleanup = value;
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -194,7 +194,7 @@ impl SnapshotStore {
     pub fn new_with_history(history: HistoryStore) -> Self {
         Self {
             history,
-            retention: SnapshotRetentionConfig::from_sources(),
+            retention: SnapshotRetentionConfig::default(),
         }
     }
 
@@ -222,15 +222,28 @@ impl SnapshotStore {
             return Ok(None);
         }
 
+        let retention = SnapshotRetentionConfig::from_history(&self.history).await;
+        if retention.max_snapshots == 0 {
+            return Ok(None);
+        }
+
         let backend = detect_snapshot_backend(cwd, effective_snapshot_backend().as_deref());
-        let retention = SnapshotRetentionConfig::from_sources();
-        let snapshot = backend.create(
-            cwd,
-            label,
-            workspace_id.as_deref(),
-            session_id.as_ref().map(|id| id.to_string()).as_deref(),
-            command,
-        )?;
+        let cwd = cwd.to_string();
+        let label = label.to_string();
+        let workspace_id = workspace_id;
+        let session_id = session_id.map(|id| id.to_string());
+        let command = command.map(ToOwned::to_owned);
+        let snapshot = tokio::task::spawn_blocking(move || {
+            backend.create(
+                &cwd,
+                &label,
+                workspace_id.as_deref(),
+                session_id.as_deref(),
+                command.as_deref(),
+            )
+        })
+        .await
+        .context("snapshot creation task panicked")??;
 
         if snapshot_exceeds_size_limit(&snapshot, &retention) {
             let size_bytes = std::fs::metadata(&snapshot.path)
@@ -290,6 +303,7 @@ impl SnapshotStore {
 mod tests {
     use super::*;
     use amux_protocol::SnapshotIndexEntry;
+    use serde_json::json;
     use tempfile::tempdir;
 
     fn make_snapshot_entry(snapshot_id: &str, path: &Path, created_at: i64) -> SnapshotIndexEntry {
@@ -371,6 +385,72 @@ mod tests {
                 },
             ),
             "created snapshot should be rejected when it exceeds the configured size cap"
+        );
+    }
+
+    #[tokio::test]
+    async fn retention_config_reads_db_owned_snapshot_settings() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+
+        history
+            .upsert_agent_config_item("/snapshot_retention/max_snapshots", &json!(3))
+            .await
+            .expect("persist snapshot max count");
+        history
+            .upsert_agent_config_item("/snapshot_retention/max_total_size_mb", &json!(2048))
+            .await
+            .expect("persist snapshot size limit");
+        history
+            .upsert_agent_config_item("/snapshot_retention/auto_cleanup", &json!(true))
+            .await
+            .expect("persist snapshot auto cleanup");
+
+        let retention = SnapshotRetentionConfig::from_history(&history).await;
+
+        assert_eq!(retention.max_snapshots, 3);
+        assert_eq!(retention.max_total_size_mb, 2048);
+        assert!(retention.auto_cleanup);
+    }
+
+    #[tokio::test]
+    async fn create_snapshot_returns_none_when_snapshotting_is_disabled() {
+        let root = tempdir().expect("tempdir");
+        let history = HistoryStore::new_test_store(root.path())
+            .await
+            .expect("history store");
+        history
+            .upsert_agent_config_item("/snapshot_retention/max_snapshots", &json!(0))
+            .await
+            .expect("persist disabled snapshot max count");
+
+        let store = SnapshotStore::new_with_history(history.clone());
+        let workspace = tempdir().expect("workspace tempdir");
+
+        let created = store
+            .create_snapshot(
+                Some("workspace".to_string()),
+                None,
+                workspace.path().to_str(),
+                Some("echo hi"),
+                "pre-execution checkpoint",
+            )
+            .await
+            .expect("snapshot creation should return without error");
+
+        assert!(
+            created.is_none(),
+            "disabled snapshotting should skip creation"
+        );
+        assert!(
+            history
+                .list_snapshot_index(None)
+                .await
+                .expect("snapshot index should be readable")
+                .is_empty(),
+            "disabled snapshotting should not persist snapshot metadata"
         );
     }
 }

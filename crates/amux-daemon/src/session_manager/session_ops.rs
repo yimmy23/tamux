@@ -1,6 +1,224 @@
 use super::*;
 
+use crate::governance::{
+    apply_constraints_to_request, can_honor_constraints, effective_constraints,
+    evaluate_governance, governance_input_for_managed_command, ConstraintKind, GovernanceInput,
+    GovernanceVerdict, RiskClass, TransitionKind, VerdictClass,
+};
+use crate::history::{ApprovalRecordRow, GovernanceEvaluationRow};
+use amux_protocol::ApprovalPayload;
+use serde_json::json;
+
+fn transition_kind_str(kind: &TransitionKind) -> &'static str {
+    match kind {
+        TransitionKind::RunAdmission => "run_admission",
+        TransitionKind::LaneAdmission => "lane_admission",
+        TransitionKind::StageAdvance => "stage_advance",
+        TransitionKind::LaneRetry => "lane_retry",
+        TransitionKind::ResumeFromBlocked => "resume_from_blocked",
+        TransitionKind::CompensationEntry => "compensation_entry",
+        TransitionKind::FinalDisposition => "final_disposition",
+        TransitionKind::ManagedCommandDispatch => "managed_command_dispatch",
+        TransitionKind::ApprovalReuseCheck => "approval_reuse_check",
+    }
+}
+
+fn risk_class_str(risk_class: &RiskClass) -> &'static str {
+    match risk_class {
+        RiskClass::Low => "low",
+        RiskClass::Medium => "medium",
+        RiskClass::High => "high",
+        RiskClass::Critical => "critical",
+    }
+}
+
+fn constraint_kind_str(kind: &ConstraintKind) -> &'static str {
+    match kind {
+        ConstraintKind::SandboxRequired => "sandbox_required",
+        ConstraintKind::NetworkDenied => "network_denied",
+        ConstraintKind::NetworkRestricted => "network_restricted",
+        ConstraintKind::FilesystemScopeNarrowed => "filesystem_scope_narrowed",
+        ConstraintKind::TargetScopeCapped => "target_scope_capped",
+        ConstraintKind::SerialOnlyExecution => "serial_only_execution",
+        ConstraintKind::RetriesDisabled => "retries_disabled",
+        ConstraintKind::RetriesRequireFreshCheckpoint => "retries_require_fresh_checkpoint",
+        ConstraintKind::ArtifactRetentionElevated => "artifact_retention_elevated",
+        ConstraintKind::ManualResumeRequiredAfterCompletion => {
+            "manual_resume_required_after_completion"
+        }
+    }
+}
+
+fn approval_resolution_str(decision: ApprovalDecision) -> &'static str {
+    match decision {
+        ApprovalDecision::ApproveOnce => "approved_once",
+        ApprovalDecision::ApproveSession => "approved_session",
+        ApprovalDecision::Deny => "denied",
+    }
+}
+
+fn blast_radius_summary(input: &GovernanceInput) -> String {
+    format!(
+        "{} (lane: {}, stage: {})",
+        input.blast_radius.run_scope, input.blast_radius.lane_scope, input.blast_radius.stage_scope
+    )
+}
+
+fn approval_payload_from_verdict(
+    execution_id: &str,
+    request: &ManagedCommandRequest,
+    workspace_id: Option<String>,
+    input: &GovernanceInput,
+    verdict: &GovernanceVerdict,
+    expires_at: Option<u64>,
+) -> ApprovalPayload {
+    let constraints = effective_constraints(verdict);
+    let mut reasons = verdict.rationale.clone();
+    reasons.extend(constraints.iter().filter_map(|constraint| {
+        constraint.rationale.as_ref().map(|rationale| {
+            format!(
+                "constraint {}: {}",
+                constraint_kind_str(&constraint.kind),
+                rationale
+            )
+        })
+    }));
+
+    if reasons.is_empty() {
+        reasons.push(format!(
+            "governance classified this transition as {} risk",
+            risk_class_str(&verdict.risk_class)
+        ));
+    }
+
+    ApprovalPayload {
+        approval_id: format!("apr_{}", Uuid::new_v4()),
+        execution_id: execution_id.to_string(),
+        command: request.command.clone(),
+        rationale: request.rationale.clone(),
+        risk_level: risk_class_str(&verdict.risk_class).to_string(),
+        blast_radius: blast_radius_summary(input),
+        reasons,
+        workspace_id,
+        allow_network: request.allow_network,
+        transition_kind: Some(transition_kind_str(&input.transition_kind).to_string()),
+        policy_fingerprint: Some(verdict.policy_fingerprint.clone()),
+        expires_at,
+        constraints: constraints
+            .iter()
+            .map(|constraint| constraint_kind_str(&constraint.kind).to_string())
+            .collect(),
+        scope_summary: verdict
+            .approval_requirement
+            .as_ref()
+            .map(|requirement| requirement.scope_summary.clone())
+            .or_else(|| Some(blast_radius_summary(input))),
+    }
+}
+
+fn governance_rejection_message(verdict: &GovernanceVerdict) -> String {
+    let verdict_label = match verdict.verdict_class {
+        VerdictClass::Allow => "allow",
+        VerdictClass::AllowWithConstraints => "allow_with_constraints",
+        VerdictClass::RequireApproval => "require_approval",
+        VerdictClass::Defer => "defer",
+        VerdictClass::Deny => "deny",
+        VerdictClass::HaltAndIsolate => "halt_and_isolate",
+        VerdictClass::AllowOnlyWithCompensationPlan => "compensation_plan_required",
+    };
+
+    let reason = if verdict.rationale.is_empty() {
+        format!("governance returned {verdict_label} for this transition")
+    } else {
+        verdict.rationale.join("; ")
+    };
+
+    format!(
+        "managed command blocked by governance ({verdict_label}, {} risk): {reason}",
+        risk_class_str(&verdict.risk_class),
+    )
+}
+
+async fn queue_with_snapshot(
+    snapshots: &crate::snapshot::SnapshotStore,
+    session: &Arc<Mutex<PtySession>>,
+    workspace_id: Option<String>,
+    session_id: SessionId,
+    execution_id: String,
+    request: ManagedCommandRequest,
+    snapshot_reason: &str,
+) -> Result<(usize, Option<amux_protocol::SnapshotInfo>)> {
+    let snapshot = {
+        let session = session.lock().await;
+        snapshots
+            .create_snapshot(
+                workspace_id,
+                Some(session_id),
+                request.cwd.as_deref().or_else(|| session.cwd()),
+                Some(&request.command),
+                snapshot_reason,
+            )
+            .await?
+    };
+    let position =
+        session
+            .lock()
+            .await
+            .queue_managed_command(execution_id, request, snapshot.clone())?;
+    Ok((position, snapshot))
+}
+
 impl SessionManager {
+    async fn prune_expired_session_grants(&self, session_id: SessionId) {
+        let now = crate::history::now_ts();
+        let mut grants = self.session_approval_grants.write().await;
+        if let Some(entries) = grants.get_mut(&session_id) {
+            entries.retain(|grant| match grant.expires_at {
+                Some(expires_at) => expires_at > now,
+                None => true,
+            });
+            if entries.is_empty() {
+                grants.remove(&session_id);
+            }
+        }
+    }
+
+    async fn has_valid_session_grant(
+        &self,
+        session_id: SessionId,
+        policy_fingerprint: &str,
+    ) -> bool {
+        self.prune_expired_session_grants(session_id).await;
+        self.session_approval_grants
+            .read()
+            .await
+            .get(&session_id)
+            .map(|grants| {
+                grants
+                    .iter()
+                    .any(|grant| grant.policy_fingerprint == policy_fingerprint)
+            })
+            .unwrap_or(false)
+    }
+
+    async fn store_session_grant(
+        &self,
+        session_id: SessionId,
+        _approval_id: &str,
+        policy_fingerprint: &str,
+        expires_at: Option<u64>,
+    ) {
+        self.prune_expired_session_grants(session_id).await;
+        let mut grants = self.session_approval_grants.write().await;
+        let entries = grants.entry(session_id).or_default();
+        entries.retain(|grant| grant.policy_fingerprint != policy_fingerprint);
+        entries.push(SessionApprovalGrant {
+            approval_id: _approval_id.to_string(),
+            policy_fingerprint: policy_fingerprint.to_string(),
+            expires_at,
+        });
+    }
+
     pub async fn spawn(
         &self,
         shell: Option<String>,
@@ -236,6 +454,68 @@ impl SessionManager {
         Ok(String::from_utf8_lossy(&stripped).into_owned())
     }
 
+    pub async fn get_background_task_status(
+        &self,
+        background_task_id: &str,
+    ) -> Result<Option<BackgroundTaskStatus>> {
+        let sessions: Vec<(SessionId, Arc<Mutex<PtySession>>)> = self
+            .sessions
+            .read()
+            .await
+            .iter()
+            .map(|(id, session)| (*id, session.clone()))
+            .collect();
+
+        for (session_id, session) in sessions {
+            let live_status = session
+                .lock()
+                .await
+                .managed_command_status(background_task_id);
+            if let Some(live_status) = live_status {
+                let state = match live_status.state {
+                    crate::pty_session::ManagedCommandLiveState::Queued => {
+                        BackgroundTaskState::Queued
+                    }
+                    crate::pty_session::ManagedCommandLiveState::Running => {
+                        BackgroundTaskState::Running
+                    }
+                };
+                return Ok(Some(BackgroundTaskStatus {
+                    background_task_id: background_task_id.to_string(),
+                    kind: "managed_command".to_string(),
+                    state,
+                    session_id: Some(session_id.to_string()),
+                    position: Some(live_status.position),
+                    command: Some(live_status.command),
+                    exit_code: None,
+                    duration_ms: None,
+                    snapshot_path: live_status.snapshot_path,
+                }));
+            }
+        }
+
+        if let Some(finished) = self.history.get_managed_finish(background_task_id).await? {
+            let state = if finished.exit_code == Some(0) {
+                BackgroundTaskState::Completed
+            } else {
+                BackgroundTaskState::Failed
+            };
+            return Ok(Some(BackgroundTaskStatus {
+                background_task_id: background_task_id.to_string(),
+                kind: "managed_command".to_string(),
+                state,
+                session_id: None,
+                position: None,
+                command: Some(finished.command),
+                exit_code: finished.exit_code,
+                duration_ms: finished.duration_ms,
+                snapshot_path: finished.snapshot_path,
+            }));
+        }
+
+        Ok(None)
+    }
+
     pub async fn reap_dead(&self) {
         let mut sessions = self.sessions.write().await;
         let mut dead: Vec<SessionId> = Vec::new();
@@ -273,26 +553,59 @@ impl SessionManager {
 
         let workspace_id = session.lock().await.workspace_id().map(ToOwned::to_owned);
         let execution_id = format!("exec_{}", Uuid::new_v4());
+        let governance_input = governance_input_for_managed_command(
+            &execution_id,
+            &request,
+            workspace_id.clone(),
+            Some(id.to_string()),
+        );
+        let verdict = evaluate_governance(&governance_input);
+        let constraints = effective_constraints(&verdict);
 
-        match evaluate_command(execution_id.clone(), &request, workspace_id.clone()) {
-            PolicyDecision::Allow => {
-                let snapshot = {
-                    let session = session.lock().await;
-                    self.snapshots
-                        .create_snapshot(
-                            workspace_id.clone(),
-                            Some(id),
-                            request.cwd.as_deref().or_else(|| session.cwd()),
-                            Some(&request.command),
-                            "pre-execution checkpoint",
-                        )
-                        .await?
-                };
-                let position = session.lock().await.queue_managed_command(
+        self.history
+            .insert_governance_evaluation(&GovernanceEvaluationRow {
+                id: format!("gov_{}", Uuid::new_v4()),
+                run_id: governance_input.run_id.clone(),
+                task_id: governance_input.task_id.clone(),
+                goal_run_id: governance_input.goal_run_id.clone(),
+                thread_id: governance_input.thread_id.clone(),
+                transition_kind: transition_kind_str(&governance_input.transition_kind).to_string(),
+                input_json: serde_json::to_string(&governance_input)?,
+                verdict_json: serde_json::to_string(&verdict)?,
+                policy_fingerprint: verdict.policy_fingerprint.clone(),
+                created_at: crate::history::now_ts(),
+            })
+            .await?;
+
+        if !can_honor_constraints(&constraints, &request) {
+            return Ok(DaemonMessage::ManagedCommandRejected {
+                id,
+                execution_id: Some(execution_id),
+                message: format!(
+                    "managed command blocked because current runtime cannot honor governance constraints: {}",
+                    constraints
+                        .iter()
+                        .map(|constraint| constraint_kind_str(&constraint.kind))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            });
+        }
+        let mut constrained_request = request.clone();
+        apply_constraints_to_request(&mut constrained_request, &constraints);
+
+        match verdict.verdict_class {
+            VerdictClass::Allow | VerdictClass::AllowWithConstraints => {
+                let (position, snapshot) = queue_with_snapshot(
+                    &self.snapshots,
+                    &session,
+                    workspace_id.clone(),
+                    id,
                     execution_id.clone(),
-                    request,
-                    snapshot.clone(),
-                )?;
+                    constrained_request,
+                    "pre-execution checkpoint",
+                )
+                .await?;
                 Ok(DaemonMessage::ManagedCommandQueued {
                     id,
                     execution_id,
@@ -300,7 +613,82 @@ impl SessionManager {
                     snapshot,
                 })
             }
-            PolicyDecision::RequireApproval(approval) => {
+            VerdictClass::RequireApproval => {
+                let requested_at = crate::history::now_ts();
+                let expires_at = verdict
+                    .approval_requirement
+                    .as_ref()
+                    .and_then(|requirement| requirement.expires_at)
+                    .or_else(|| {
+                        verdict
+                            .freshness_window_secs
+                            .map(|window| requested_at + window)
+                    });
+
+                if self
+                    .has_valid_session_grant(id, &verdict.policy_fingerprint)
+                    .await
+                {
+                    let (position, snapshot) = queue_with_snapshot(
+                        &self.snapshots,
+                        &session,
+                        workspace_id.clone(),
+                        id,
+                        execution_id.clone(),
+                        constrained_request,
+                        "session-approved pre-execution checkpoint",
+                    )
+                    .await?;
+                    return Ok(DaemonMessage::ManagedCommandQueued {
+                        id,
+                        execution_id,
+                        position,
+                        snapshot,
+                    });
+                }
+
+                let approval = approval_payload_from_verdict(
+                    &execution_id,
+                    &request,
+                    workspace_id.clone(),
+                    &governance_input,
+                    &verdict,
+                    expires_at,
+                );
+
+                self.history
+                    .insert_approval_record(&ApprovalRecordRow {
+                        approval_id: approval.approval_id.clone(),
+                        run_id: governance_input.run_id.clone(),
+                        task_id: governance_input.task_id.clone(),
+                        goal_run_id: governance_input.goal_run_id.clone(),
+                        thread_id: governance_input.thread_id.clone(),
+                        transition_kind: transition_kind_str(&governance_input.transition_kind)
+                            .to_string(),
+                        stage_id: governance_input.stage_id.clone(),
+                        scope_summary: verdict
+                            .approval_requirement
+                            .as_ref()
+                            .map(|requirement| requirement.scope_summary.clone())
+                            .or_else(|| Some(blast_radius_summary(&governance_input))),
+                        target_scope_json: json!({
+                            "lane_ids": &governance_input.lane_ids,
+                            "target_ids": &governance_input.target_ids,
+                        })
+                        .to_string(),
+                        constraints_json: serde_json::to_string(&constraints)?,
+                        risk_class: risk_class_str(&verdict.risk_class).to_string(),
+                        rationale_json: serde_json::to_string(&verdict.rationale)?,
+                        policy_fingerprint: verdict.policy_fingerprint.clone(),
+                        requested_at,
+                        resolved_at: None,
+                        expires_at,
+                        resolution: None,
+                        invalidated_at: None,
+                        invalidation_reason: None,
+                    })
+                    .await?;
+
                 self.pending_approvals.write().await.insert(
                     approval.approval_id.clone(),
                     PendingApproval {
@@ -308,9 +696,23 @@ impl SessionManager {
                         workspace_id,
                         execution_id,
                         request,
+                        policy_fingerprint: verdict.policy_fingerprint.clone(),
+                        constraints: constraints.clone(),
+                        transition_kind: governance_input.transition_kind.clone(),
+                        expires_at,
                     },
                 );
                 Ok(DaemonMessage::ApprovalRequired { id, approval })
+            }
+            VerdictClass::Defer
+            | VerdictClass::Deny
+            | VerdictClass::HaltAndIsolate
+            | VerdictClass::AllowOnlyWithCompensationPlan => {
+                Ok(DaemonMessage::ManagedCommandRejected {
+                    id,
+                    execution_id: Some(execution_id),
+                    message: governance_rejection_message(&verdict),
+                })
             }
         }
     }
@@ -323,10 +725,55 @@ impl SessionManager {
     ) -> Result<Vec<DaemonMessage>> {
         let pending = self
             .pending_approvals
+            .read()
+            .await
+            .get(approval_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("approval not found: {approval_id}"))?;
+
+        let now = crate::history::now_ts();
+        if pending
+            .expires_at
+            .map(|expires_at| now > expires_at)
+            .unwrap_or(false)
+        {
+            self.pending_approvals.write().await.remove(approval_id);
+            self.history
+                .invalidate_approval_record(approval_id, "approval expired before resolution", now)
+                .await?;
+            anyhow::bail!("approval is stale: approval window expired before resolution");
+        }
+
+        let mut fresh_input = governance_input_for_managed_command(
+            &pending.execution_id,
+            &pending.request,
+            pending.workspace_id.clone(),
+            Some(pending.session_id.to_string()),
+        );
+        fresh_input.transition_kind = pending.transition_kind.clone();
+        let fresh_verdict = evaluate_governance(&fresh_input);
+        if fresh_verdict.policy_fingerprint != pending.policy_fingerprint {
+            self.pending_approvals.write().await.remove(approval_id);
+            self.history
+                .invalidate_approval_record(
+                    approval_id,
+                    "approval invalidated because governance conditions changed",
+                    now,
+                )
+                .await?;
+            anyhow::bail!("approval is stale: governance conditions changed since it was issued");
+        }
+
+        let pending = self
+            .pending_approvals
             .write()
             .await
             .remove(approval_id)
             .ok_or_else(|| anyhow::anyhow!("approval not found: {approval_id}"))?;
+
+        self.history
+            .resolve_approval_record(approval_id, approval_resolution_str(decision), now)
+            .await?;
 
         let mut responses = vec![DaemonMessage::ApprovalResolved {
             id,
@@ -350,23 +797,35 @@ impl SessionManager {
             .get(&pending.session_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("session not found: {}", pending.session_id))?;
-        let snapshot = {
-            let session = session.lock().await;
-            self.snapshots
-                .create_snapshot(
-                    pending.workspace_id.clone(),
-                    Some(pending.session_id),
-                    pending.request.cwd.as_deref().or_else(|| session.cwd()),
-                    Some(&pending.request.command),
-                    "approved pre-execution checkpoint",
-                )
-                .await?
-        };
-        let position = session.lock().await.queue_managed_command(
+
+        let mut request = pending.request.clone();
+        if !can_honor_constraints(&pending.constraints, &request) {
+            anyhow::bail!(
+                "managed command blocked because current runtime can no longer honor governance constraints"
+            );
+        }
+        apply_constraints_to_request(&mut request, &pending.constraints);
+
+        if matches!(decision, ApprovalDecision::ApproveSession) {
+            self.store_session_grant(
+                pending.session_id,
+                approval_id,
+                &pending.policy_fingerprint,
+                pending.expires_at,
+            )
+            .await;
+        }
+
+        let (position, snapshot) = queue_with_snapshot(
+            &self.snapshots,
+            &session,
+            pending.workspace_id.clone(),
+            pending.session_id,
             pending.execution_id.clone(),
-            pending.request,
-            snapshot.clone(),
-        )?;
+            request,
+            "approved pre-execution checkpoint",
+        )
+        .await?;
         responses.push(DaemonMessage::ManagedCommandQueued {
             id,
             execution_id: pending.execution_id,

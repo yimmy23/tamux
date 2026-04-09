@@ -331,6 +331,20 @@ where
     (value.into_iter().skip(low).collect(), true)
 }
 
+const MAX_THREAD_DETAIL_CHUNK_BYTES: usize = 64 * 1024;
+
+fn thread_detail_fits_single_ipc_frame(thread_json: &str) -> bool {
+    amux_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadDetail {
+        thread_json: thread_json.to_string(),
+    })
+}
+
+fn thread_detail_chunks_for_ipc(thread_json: &str) -> impl Iterator<Item = &[u8]> {
+    thread_json
+        .as_bytes()
+        .chunks(MAX_THREAD_DETAIL_CHUNK_BYTES)
+}
+
 fn cap_agent_thread_list_for_ipc(
     threads: Vec<crate::agent::types::AgentThread>,
 ) -> (Vec<crate::agent::types::AgentThread>, bool) {

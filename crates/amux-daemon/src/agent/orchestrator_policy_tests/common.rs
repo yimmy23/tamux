@@ -223,6 +223,11 @@ pub(super) fn goal_run_fixture(thread_id: &str) -> GoalRun {
         child_task_count: 1,
         approval_count: 0,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         active_task_id: Some("task-1".to_string()),
         duration_ms: None,
         steps: vec![GoalRunStep {
@@ -282,6 +287,11 @@ pub(super) fn task_fixture(thread_id: &str) -> AgentTask {
         scheduled_at: None,
         blocked_reason: None,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         lane_id: None,
         last_error: Some("same bash command failed again".to_string()),
         logs: vec![AgentTaskLogEntry {

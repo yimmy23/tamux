@@ -1,6 +1,6 @@
 use amux_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CUSTOM,
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_OPENAI,
 };
 
 #[test]
@@ -149,6 +149,113 @@ fn activating_message_loop_delay_starts_inline_edit() {
         Some("message_loop_delay_ms")
     );
     assert_eq!(model.settings.edit_buffer(), "500");
+}
+
+#[test]
+fn activating_compaction_weles_provider_opens_provider_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.compaction_strategy = "weles".to_string();
+    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_weles_provider");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+}
+
+#[test]
+fn activating_compaction_weles_model_opens_model_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.compaction_strategy = "weles".to_string();
+    model.config.compaction_weles_provider = PROVIDER_ID_OPENAI.to_string();
+    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_weles_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn activating_compaction_custom_provider_opens_provider_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.compaction_strategy = "custom_model".to_string();
+    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_custom_provider");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+}
+
+#[test]
+fn activating_compaction_custom_model_opens_model_picker() {
+    let (mut model, _daemon_rx) = make_model();
+    model.auth.entries = vec![crate::state::auth::ProviderAuthEntry {
+        provider_id: PROVIDER_ID_OPENAI.to_string(),
+        provider_name: "OpenAI".to_string(),
+        authenticated: true,
+        auth_source: "api_key".to_string(),
+        model: "gpt-5.4".to_string(),
+    }];
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.compaction_strategy = "custom_model".to_string();
+    model.config.compaction_custom_provider = PROVIDER_ID_OPENAI.to_string();
+    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_custom_model");
+
+    model.activate_settings_field();
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+}
+
+#[test]
+fn activating_compaction_custom_auth_source_for_openai_forces_responses_transport() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
+    model.config.compaction_strategy = "custom_model".to_string();
+    model.config.compaction_custom_provider = PROVIDER_ID_OPENAI.to_string();
+    model.config.compaction_custom_auth_source = "api_key".to_string();
+    model.config.compaction_custom_api_transport = "chat_completions".to_string();
+    focus_settings_field(&mut model, SettingsTab::Advanced, "compaction_custom_auth_source");
+
+    model.activate_settings_field();
+
+    assert_eq!(
+        model.config.compaction_custom_auth_source,
+        "chatgpt_subscription"
+    );
+    assert_eq!(model.config.compaction_custom_api_transport, "responses");
 }
 
 #[test]

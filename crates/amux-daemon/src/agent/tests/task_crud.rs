@@ -34,6 +34,11 @@ fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &st
         child_task_count: 1,
         approval_count: 0,
         awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         active_task_id: Some(task_id.to_string()),
         duration_ms: None,
         steps: vec![GoalRunStep {
@@ -98,6 +103,11 @@ async fn sample_awaiting_task(
         scheduled_at: None,
         blocked_reason: Some("awaiting supervised acknowledgment".to_string()),
         awaiting_approval_id: Some(approval_id.to_string()),
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         lane_id: None,
         last_error: None,
         logs: Vec::new(),
@@ -393,6 +403,11 @@ async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
         scheduled_at: None,
         blocked_reason: None,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         lane_id: None,
         last_error: None,
         logs: vec![AgentTaskLogEntry {
@@ -450,6 +465,11 @@ async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
         scheduled_at: None,
         blocked_reason: None,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         lane_id: None,
         last_error: None,
         logs: vec![AgentTaskLogEntry {
@@ -482,7 +502,10 @@ async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
         .iter()
         .find(|task| task.id == "task-huge")
         .expect("huge task should remain present after IPC capping");
-    assert!(huge.logs.is_empty(), "oversized task logs should be dropped to fit IPC");
+    assert!(
+        huge.logs.is_empty(),
+        "oversized task logs should be dropped to fit IPC"
+    );
 
     let tasks_json = serde_json::to_string(&tasks).expect("serialize capped task list json");
     let mut frame = BytesMut::new();

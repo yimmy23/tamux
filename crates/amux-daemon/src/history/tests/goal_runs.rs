@@ -48,6 +48,14 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
         let has_override_provider = table_has_column(conn, "agent_tasks", "override_provider")?;
         let has_override_prompt = table_has_column(conn, "agent_tasks", "override_system_prompt")?;
         let has_sub_agent_def = table_has_column(conn, "agent_tasks", "sub_agent_def_id")?;
+        let has_tool_whitelist = table_has_column(conn, "agent_tasks", "tool_whitelist_json")?;
+        let has_tool_blacklist = table_has_column(conn, "agent_tasks", "tool_blacklist_json")?;
+        let has_context_budget = table_has_column(conn, "agent_tasks", "context_budget_tokens")?;
+        let has_context_overflow = table_has_column(conn, "agent_tasks", "context_overflow_action")?;
+        let has_termination_conditions = table_has_column(conn, "agent_tasks", "termination_conditions")?;
+        let has_success_criteria = table_has_column(conn, "agent_tasks", "success_criteria")?;
+        let has_max_duration = table_has_column(conn, "agent_tasks", "max_duration_secs")?;
+        let has_supervisor_config = table_has_column(conn, "agent_tasks", "supervisor_config_json")?;
         let index_name: Option<String> = conn
             .query_row(
                 "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run'",
@@ -62,6 +70,14 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
             has_override_provider,
             has_override_prompt,
             has_sub_agent_def,
+            has_tool_whitelist,
+            has_tool_blacklist,
+            has_context_budget,
+            has_context_overflow,
+            has_termination_conditions,
+            has_success_criteria,
+            has_max_duration,
+            has_supervisor_config,
             index_name,
         ))
     }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -72,7 +88,138 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
     assert!(has_cols.3);
     assert!(has_cols.4);
     assert!(has_cols.5);
-    assert_eq!(has_cols.6.as_deref(), Some("idx_agent_tasks_goal_run"));
+    assert!(has_cols.6);
+    assert!(has_cols.7);
+    assert!(has_cols.8);
+    assert!(has_cols.9);
+    assert!(has_cols.10);
+    assert!(has_cols.11);
+    assert!(has_cols.12);
+    assert!(has_cols.13);
+    assert_eq!(has_cols.14.as_deref(), Some("idx_agent_tasks_goal_run"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn agent_task_subagent_metadata_round_trips() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let task = AgentTask {
+        id: "task-subagent-meta".to_string(),
+        title: "Persist subagent metadata".to_string(),
+        description: "Ensure task persistence keeps self-orchestration config".to_string(),
+        status: TaskStatus::InProgress,
+        priority: TaskPriority::High,
+        progress: 66,
+        created_at: 100,
+        started_at: Some(101),
+        completed_at: None,
+        error: None,
+        result: Some("partial".to_string()),
+        thread_id: Some("thread-subagent".to_string()),
+        source: "agent".to_string(),
+        notify_on_complete: true,
+        notify_channels: vec!["slack".to_string(), "discord".to_string()],
+        dependencies: vec!["dep-1".to_string(), "dep-2".to_string()],
+        command: Some("cargo test -p amux-daemon".to_string()),
+        session_id: Some("session-subagent".to_string()),
+        goal_run_id: Some("goal-77".to_string()),
+        goal_run_title: Some("Goal title".to_string()),
+        goal_step_id: Some("step-9".to_string()),
+        goal_step_title: Some("Investigate failure".to_string()),
+        parent_task_id: Some("parent-task".to_string()),
+        parent_thread_id: Some("parent-thread".to_string()),
+        runtime: "daemon".to_string(),
+        retry_count: 1,
+        max_retries: 4,
+        next_retry_at: Some(150),
+        scheduled_at: Some(140),
+        blocked_reason: Some("waiting for sibling evidence".to_string()),
+        awaiting_approval_id: Some("approval-9".to_string()),
+        policy_fingerprint: Some("policy-9".to_string()),
+        approval_expires_at: Some(999),
+        containment_scope: Some("workspace".to_string()),
+        compensation_status: Some("required".to_string()),
+        compensation_summary: Some("rollback staged".to_string()),
+        lane_id: Some("lane-7".to_string()),
+        last_error: Some("previous retry timed out".to_string()),
+        logs: vec![AgentTaskLogEntry {
+            id: "log-1".to_string(),
+            timestamp: 111,
+            level: TaskLogLevel::Warn,
+            phase: "supervisor".to_string(),
+            message: "stuck pattern detected".to_string(),
+            details: Some("tool loop A→B→A→B".to_string()),
+            attempt: 1,
+        }],
+        tool_whitelist: Some(vec!["read_file".to_string(), "search_files".to_string()]),
+        tool_blacklist: Some(vec!["bash_command".to_string()]),
+        context_budget_tokens: Some(20_000),
+        context_overflow_action: Some(crate::agent::types::ContextOverflowAction::Truncate),
+        termination_conditions: Some("timeout(300) OR error_count(3)".to_string()),
+        success_criteria: Some("All targeted tests pass".to_string()),
+        max_duration_secs: Some(600),
+        supervisor_config: Some(crate::agent::types::SupervisorConfig {
+            check_interval_secs: 45,
+            stuck_timeout_secs: 240,
+            max_retries: 5,
+            intervention_level: crate::agent::types::InterventionLevel::Aggressive,
+        }),
+        override_provider: Some("github-copilot".to_string()),
+        override_model: Some("gpt-5.4".to_string()),
+        override_system_prompt: Some("You are a focused subagent".to_string()),
+        sub_agent_def_id: Some("weles_builtin".to_string()),
+    };
+
+    store.upsert_agent_task(&task).await?;
+    let loaded = store
+        .list_agent_tasks()
+        .await?
+        .into_iter()
+        .find(|entry| entry.id == task.id)
+        .expect("persisted task should be present");
+
+    assert_eq!(loaded.dependencies, vec!["dep-1", "dep-2"]);
+    assert_eq!(loaded.notify_channels, vec!["slack", "discord"]);
+    assert_eq!(loaded.logs.len(), 1);
+    assert_eq!(loaded.logs[0].phase, "supervisor");
+    assert_eq!(
+        loaded.tool_whitelist,
+        Some(vec!["read_file".to_string(), "search_files".to_string()])
+    );
+    assert_eq!(
+        loaded.tool_blacklist,
+        Some(vec!["bash_command".to_string()])
+    );
+    assert_eq!(loaded.context_budget_tokens, Some(20_000));
+    assert_eq!(
+        loaded.context_overflow_action,
+        Some(crate::agent::types::ContextOverflowAction::Truncate)
+    );
+    assert_eq!(
+        loaded.termination_conditions.as_deref(),
+        Some("timeout(300) OR error_count(3)")
+    );
+    assert_eq!(
+        loaded.success_criteria.as_deref(),
+        Some("All targeted tests pass")
+    );
+    assert_eq!(loaded.max_duration_secs, Some(600));
+    let supervisor = loaded
+        .supervisor_config
+        .expect("supervisor config should round-trip");
+    assert_eq!(supervisor.check_interval_secs, 45);
+    assert_eq!(supervisor.stuck_timeout_secs, 240);
+    assert_eq!(supervisor.max_retries, 5);
+    assert_eq!(
+        supervisor.intervention_level,
+        crate::agent::types::InterventionLevel::Aggressive
+    );
+    assert_eq!(loaded.override_provider.as_deref(), Some("github-copilot"));
+    assert_eq!(loaded.override_model.as_deref(), Some("gpt-5.4"));
+    assert_eq!(loaded.sub_agent_def_id.as_deref(), Some("weles_builtin"));
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -110,6 +257,11 @@ async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
         child_task_count: 0,
         approval_count: 0,
         awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
         active_task_id: None,
         duration_ms: None,
         steps: vec![GoalRunStep {
@@ -161,6 +313,196 @@ async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
     assert_eq!(loaded.events[0].step_index, Some(0));
     assert_eq!(loaded.events[0].todo_snapshot.len(), 1);
     assert_eq!(loaded.events[0].todo_snapshot[0].content, "Inspect state");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_extended_metadata_round_trips() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let goal_run = GoalRun {
+        id: "goal-meta".to_string(),
+        title: "Goal metadata".to_string(),
+        goal: "Verify all spec metadata persists".to_string(),
+        client_request_id: Some("client-1".to_string()),
+        status: GoalRunStatus::AwaitingApproval,
+        priority: TaskPriority::High,
+        created_at: 10,
+        updated_at: 20,
+        started_at: Some(11),
+        completed_at: Some(99),
+        thread_id: Some("thread-2".to_string()),
+        session_id: Some("session-2".to_string()),
+        current_step_index: 0,
+        current_step_title: Some("Execute safely".to_string()),
+        current_step_kind: Some(GoalRunStepKind::Command),
+        replan_count: 1,
+        max_replans: 3,
+        plan_summary: Some("Plan summary".to_string()),
+        reflection_summary: Some("Reflection summary".to_string()),
+        memory_updates: vec!["remember this".to_string()],
+        generated_skill_path: Some("skills/generated/goal-meta.md".to_string()),
+        last_error: Some("waiting for approval".to_string()),
+        failure_cause: Some("policy gate".to_string()),
+        child_task_ids: vec!["task-1".to_string(), "task-2".to_string()],
+        child_task_count: 2,
+        approval_count: 1,
+        awaiting_approval_id: Some("approval-1".to_string()),
+        policy_fingerprint: Some("fingerprint-1".to_string()),
+        approval_expires_at: Some(12345),
+        containment_scope: Some("workspace".to_string()),
+        compensation_status: Some("required".to_string()),
+        compensation_summary: Some("rollback pending".to_string()),
+        active_task_id: Some("task-2".to_string()),
+        duration_ms: Some(888),
+        steps: vec![GoalRunStep {
+            id: "step-meta".to_string(),
+            position: 0,
+            title: "Execute safely".to_string(),
+            instructions: "Run guarded command".to_string(),
+            kind: GoalRunStepKind::Command,
+            success_criteria: "Command finished".to_string(),
+            session_id: Some("session-2".to_string()),
+            status: GoalRunStepStatus::InProgress,
+            task_id: Some("task-2".to_string()),
+            summary: Some("waiting".to_string()),
+            error: None,
+            started_at: Some(11),
+            completed_at: None,
+        }],
+        events: vec![],
+        total_prompt_tokens: 123,
+        total_completion_tokens: 456,
+        estimated_cost_usd: Some(0.42),
+        autonomy_level: crate::agent::AutonomyLevel::Supervised,
+        authorship_tag: Some(crate::agent::AuthorshipTag::Joint),
+    };
+
+    store.upsert_goal_run(&goal_run).await?;
+    let loaded = store
+        .get_goal_run("goal-meta")
+        .await?
+        .expect("goal run should exist after upsert");
+
+    assert_eq!(loaded.completed_at, Some(99));
+    assert_eq!(loaded.current_step_title.as_deref(), Some("Execute safely"));
+    assert_eq!(loaded.current_step_kind, Some(GoalRunStepKind::Command));
+    assert_eq!(loaded.failure_cause.as_deref(), Some("policy gate"));
+    assert_eq!(loaded.child_task_ids, vec!["task-1", "task-2"]);
+    assert_eq!(loaded.child_task_count, 2);
+    assert_eq!(loaded.approval_count, 1);
+    assert_eq!(loaded.awaiting_approval_id.as_deref(), Some("approval-1"));
+    assert_eq!(loaded.policy_fingerprint.as_deref(), Some("fingerprint-1"));
+    assert_eq!(loaded.approval_expires_at, Some(12345));
+    assert_eq!(loaded.containment_scope.as_deref(), Some("workspace"));
+    assert_eq!(loaded.compensation_status.as_deref(), Some("required"));
+    assert_eq!(
+        loaded.compensation_summary.as_deref(),
+        Some("rollback pending")
+    );
+    assert_eq!(loaded.active_task_id.as_deref(), Some("task-2"));
+    assert_eq!(loaded.duration_ms, Some(888));
+    assert_eq!(loaded.total_prompt_tokens, 123);
+    assert_eq!(loaded.total_completion_tokens, 456);
+    assert_eq!(loaded.estimated_cost_usd, Some(0.42));
+    assert_eq!(
+        loaded.autonomy_level,
+        crate::agent::AutonomyLevel::Supervised
+    );
+    assert_eq!(
+        loaded.authorship_tag,
+        Some(crate::agent::AuthorshipTag::Joint)
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute_batch("DROP TABLE IF EXISTS goal_runs")?;
+            conn.execute_batch(
+                "
+            CREATE TABLE goal_runs (
+                id                  TEXT PRIMARY KEY,
+                title               TEXT NOT NULL,
+                goal                TEXT NOT NULL,
+                client_request_id   TEXT,
+                status              TEXT NOT NULL,
+                priority            TEXT NOT NULL,
+                created_at          INTEGER NOT NULL,
+                updated_at          INTEGER NOT NULL,
+                started_at          INTEGER,
+                completed_at        INTEGER,
+                thread_id           TEXT,
+                session_id          TEXT,
+                current_step_index  INTEGER NOT NULL DEFAULT 0,
+                replan_count        INTEGER NOT NULL DEFAULT 0,
+                max_replans         INTEGER NOT NULL DEFAULT 2,
+                plan_summary        TEXT,
+                reflection_summary  TEXT,
+                memory_updates_json TEXT NOT NULL DEFAULT '[]',
+                generated_skill_path TEXT,
+                last_error          TEXT,
+                child_task_ids_json TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE INDEX IF NOT EXISTS idx_goal_runs_status ON goal_runs(status, updated_at DESC);
+            ",
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    store.init_schema().await?;
+
+    let cols = store
+        .conn
+        .call(|conn| {
+            Ok((
+                table_has_column(conn, "goal_runs", "failure_cause")?,
+                table_has_column(conn, "goal_runs", "child_task_count")?,
+                table_has_column(conn, "goal_runs", "approval_count")?,
+                table_has_column(conn, "goal_runs", "awaiting_approval_id")?,
+                table_has_column(conn, "goal_runs", "policy_fingerprint")?,
+                table_has_column(conn, "goal_runs", "approval_expires_at")?,
+                table_has_column(conn, "goal_runs", "containment_scope")?,
+                table_has_column(conn, "goal_runs", "compensation_status")?,
+                table_has_column(conn, "goal_runs", "compensation_summary")?,
+                table_has_column(conn, "goal_runs", "active_task_id")?,
+                table_has_column(conn, "goal_runs", "duration_ms")?,
+                table_has_column(conn, "goal_runs", "total_prompt_tokens")?,
+                table_has_column(conn, "goal_runs", "total_completion_tokens")?,
+                table_has_column(conn, "goal_runs", "estimated_cost_usd")?,
+                table_has_column(conn, "goal_runs", "autonomy_level")?,
+                table_has_column(conn, "goal_runs", "authorship_tag")?,
+            ))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(cols.0);
+    assert!(cols.1);
+    assert!(cols.2);
+    assert!(cols.3);
+    assert!(cols.4);
+    assert!(cols.5);
+    assert!(cols.6);
+    assert!(cols.7);
+    assert!(cols.8);
+    assert!(cols.9);
+    assert!(cols.10);
+    assert!(cols.11);
+    assert!(cols.12);
+    assert!(cols.13);
+    assert!(cols.14);
+    assert!(cols.15);
 
     fs::remove_dir_all(root)?;
     Ok(())

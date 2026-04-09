@@ -402,12 +402,9 @@ fn render_compact(
                 // Show arguments
                 if let Some(args) = &msg.tool_arguments {
                     if !args.is_empty() {
-                        if let Some(diff_lines) = render_tool_edit_diff(
-                            name,
-                            args,
-                            theme,
-                            detail_width.max(1),
-                        ) {
+                        if let Some(diff_lines) =
+                            render_tool_edit_diff(name, args, theme, detail_width.max(1))
+                        {
                             lines.push(Line::from(vec![Span::styled("changes:", theme.fg_dim)]));
                             lines.extend(diff_lines);
                         } else if let Some(structured_args) = render_tool_structured_json(

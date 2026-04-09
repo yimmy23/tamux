@@ -385,6 +385,12 @@ pub struct DaemonClient {
     request_rx: Mutex<Option<mpsc::UnboundedReceiver<ClientMessage>>>,
 }
 
+#[derive(Debug, Default)]
+struct ThreadDetailChunkBuffer {
+    thread_id: Option<String>,
+    bytes: Vec<u8>,
+}
+
 include!("impl_part1.rs");
 include!("impl_part2.rs");
 include!("impl_part3.rs");

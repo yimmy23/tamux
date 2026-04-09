@@ -118,6 +118,18 @@ impl TuiModel {
         &mut self,
         threads: Vec<crate::wire::AgentThread>,
     ) {
+        let active_thread_id = self.chat.active_thread_id().map(str::to_string);
+        let should_refresh_active_thread = active_thread_id.as_ref().is_some_and(|thread_id| {
+            threads.iter().any(|thread| {
+                thread.id == *thread_id
+                    && !thread.id.starts_with("handoff:")
+                    && !thread
+                        .title
+                        .trim()
+                        .to_ascii_lowercase()
+                        .starts_with("handoff ")
+            })
+        });
         let threads = threads
             .into_iter()
             .filter(|thread| {
@@ -134,6 +146,13 @@ impl TuiModel {
         self.chat
             .reduce(chat::ChatAction::ThreadListReceived(threads));
         self.sync_pending_approvals_from_tasks();
+        if let Some(thread_id) = active_thread_id.filter(|_| should_refresh_active_thread) {
+            self.begin_thread_loading(thread_id.clone());
+            self.send_daemon_command(DaemonCommand::RequestThread(thread_id));
+        }
+        if self.chat.active_thread().is_none() {
+            self.thread_loading_id = None;
+        }
     }
 
     pub(in crate::app) fn handle_thread_detail_event(&mut self, thread: crate::wire::AgentThread) {
@@ -150,6 +169,7 @@ impl TuiModel {
         self.anticipatory
             .reduce(crate::state::AnticipatoryAction::Clear);
         let thread_id = thread.id.clone();
+        self.finish_thread_loading(&thread_id);
         let should_select_thread = self.chat.active_thread_id().is_none();
         if self.chat.active_thread_id() == Some(thread_id.as_str()) {
             self.clear_chat_drag_selection();
@@ -211,6 +231,7 @@ impl TuiModel {
         {
             return;
         }
+        self.begin_thread_loading(thread_id.clone());
         self.send_daemon_command(DaemonCommand::RequestThread(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));

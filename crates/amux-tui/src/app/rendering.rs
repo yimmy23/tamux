@@ -234,6 +234,26 @@ impl TuiModel {
             return;
         }
 
+        if self.should_show_thread_loading() {
+            let label = self
+                .chat
+                .active_thread()
+                .map(|thread| thread.title.trim())
+                .filter(|title| !title.is_empty())
+                .unwrap_or("thread");
+            let block = ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(self.theme.fg_dim)
+                .title(" Loading ");
+            let text = format!("Loading {label}...");
+            let paragraph = ratatui::widgets::Paragraph::new(text)
+                .block(block)
+                .style(self.theme.fg_active)
+                .alignment(ratatui::layout::Alignment::Center);
+            frame.render_widget(paragraph, area);
+            return;
+        }
+
         let mouse_selection = self
             .chat_drag_anchor_point
             .zip(self.chat_drag_current_point)

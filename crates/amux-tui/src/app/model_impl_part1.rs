@@ -62,6 +62,7 @@ impl TuiModel {
             operator_question: None,
             cancelled_thread_id: None,
             pending_new_thread_target_agent: None,
+            thread_loading_id: None,
             ignore_pending_concierge_welcome: false,
             gateway_statuses: Vec::new(),
             weles_health: None,
@@ -251,6 +252,34 @@ impl TuiModel {
         {
             self.input_notice = None;
         }
+    }
+
+    fn begin_thread_loading(&mut self, thread_id: impl Into<String>) {
+        let thread_id = thread_id.into();
+        self.thread_loading_id = Some(thread_id.clone());
+        self.status_line = match self.chat.active_thread() {
+            Some(thread) if !thread.title.trim().is_empty() => {
+                format!("Loading thread: {}", thread.title.trim())
+            }
+            _ => format!("Loading thread: {thread_id}"),
+        };
+    }
+
+    fn finish_thread_loading(&mut self, thread_id: &str) {
+        if self.thread_loading_id.as_deref() == Some(thread_id) {
+            self.thread_loading_id = None;
+        }
+    }
+
+    fn should_show_thread_loading(&self) -> bool {
+        self.thread_loading_id
+            .as_deref()
+            .is_some_and(|thread_id| self.chat.active_thread_id() == Some(thread_id))
+            && self
+                .chat
+                .active_thread()
+                .is_some_and(|thread| thread.messages.is_empty())
+            && !self.chat.is_streaming()
     }
 
     fn clear_pending_stop(&mut self) {

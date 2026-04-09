@@ -2,7 +2,7 @@
 async fn daemon_collaboration_sessions_reply_emits_client_event() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
 
-    let should_continue = DaemonClient::handle_daemon_message(
+    let should_continue = handle_daemon_message_for_test(
         DaemonMessage::AgentCollaborationSessions {
             sessions_json: serde_json::json!([
                 {
@@ -36,7 +36,7 @@ async fn daemon_collaboration_sessions_reply_emits_client_event() {
 async fn daemon_generated_tools_reply_emits_client_event() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
 
-    let should_continue = DaemonClient::handle_daemon_message(
+    let should_continue = handle_daemon_message_for_test(
         DaemonMessage::AgentGeneratedTools {
             tools_json: serde_json::json!([
                 {
@@ -66,7 +66,7 @@ async fn daemon_generated_tools_reply_emits_client_event() {
 async fn daemon_collaboration_vote_result_reply_emits_client_event() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
 
-    let should_continue = DaemonClient::handle_daemon_message(
+    let should_continue = handle_daemon_message_for_test(
         DaemonMessage::AgentCollaborationVoteResult {
             report_json: serde_json::json!({
                 "session_id": "session-1",

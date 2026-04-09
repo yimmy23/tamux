@@ -229,6 +229,7 @@ impl DaemonClient {
         ping_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut last_inbound_at = Instant::now();
         let mut awaiting_pong_since: Option<Instant> = None;
+        let mut thread_detail_chunks = None;
 
         for request in [
             ClientMessage::AgentSubscribe,
@@ -265,7 +266,13 @@ impl DaemonClient {
                         Some(Ok(message)) => {
                             last_inbound_at = Instant::now();
                             awaiting_pong_since = None;
-                            if !Self::handle_daemon_message(message, &event_tx).await {
+                            if !Self::handle_daemon_message(
+                                message,
+                                &event_tx,
+                                &mut thread_detail_chunks,
+                            )
+                            .await
+                            {
                                 break;
                             }
                         }
@@ -325,11 +332,13 @@ impl DaemonClient {
     async fn handle_daemon_message(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
+        thread_detail_chunks: &mut Option<ThreadDetailChunkBuffer>,
     ) -> bool {
         match message {
             message @ (DaemonMessage::AgentEvent { .. }
             | DaemonMessage::AgentThreadList { .. }
             | DaemonMessage::AgentThreadDetail { .. }
+            | DaemonMessage::AgentThreadDetailChunk { .. }
             | DaemonMessage::AgentTaskList { .. }
             | DaemonMessage::AgentGoalRunList { .. }
             | DaemonMessage::AgentGoalRunStarted { .. }
@@ -348,7 +357,7 @@ impl DaemonClient {
             | DaemonMessage::SessionSpawned { .. }
             | DaemonMessage::ApprovalRequired { .. }
             | DaemonMessage::ApprovalResolved { .. }) => {
-                Self::handle_daemon_message_part1(message, event_tx).await
+                Self::handle_daemon_message_part1(message, event_tx, thread_detail_chunks).await
             }
             message @ (DaemonMessage::AgentProviderAuthStates { .. }
             | DaemonMessage::AgentOpenAICodexAuthStatus { .. }

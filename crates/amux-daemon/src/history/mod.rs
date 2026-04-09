@@ -61,6 +61,14 @@ pub struct ManagedHistoryRecord {
     pub snapshot_path: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ManagedCommandFinishedRecord {
+    pub command: String,
+    pub exit_code: Option<i32>,
+    pub duration_ms: Option<u64>,
+    pub snapshot_path: Option<String>,
+}
+
 pub struct MemoryProvenanceRecord<'a> {
     pub id: &'a str,
     pub target: &'a str,
@@ -242,6 +250,43 @@ pub struct GatewayHealthSnapshotRow {
     pub platform: String,
     pub state_json: String,
     pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApprovalRecordRow {
+    pub approval_id: String,
+    pub run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub goal_run_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub transition_kind: String,
+    pub stage_id: Option<String>,
+    pub scope_summary: Option<String>,
+    pub target_scope_json: String,
+    pub constraints_json: String,
+    pub risk_class: String,
+    pub rationale_json: String,
+    pub policy_fingerprint: String,
+    pub requested_at: u64,
+    pub resolved_at: Option<u64>,
+    pub expires_at: Option<u64>,
+    pub resolution: Option<String>,
+    pub invalidated_at: Option<u64>,
+    pub invalidation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GovernanceEvaluationRow {
+    pub id: String,
+    pub run_id: Option<String>,
+    pub task_id: Option<String>,
+    pub goal_run_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub transition_kind: String,
+    pub input_json: String,
+    pub verdict_json: String,
+    pub policy_fingerprint: String,
+    pub created_at: u64,
 }
 
 pub struct ProvenanceEventRecord<'a> {
@@ -460,6 +505,7 @@ mod context_archive;
 mod core;
 mod gateway_state;
 mod goal_runs;
+mod governance;
 mod integrity_helpers;
 mod operator_profile;
 mod provenance;
@@ -472,6 +518,8 @@ mod schema_sql_extra;
 mod skill_generation;
 pub(crate) use skill_generation::page_skill_variants;
 mod skill_metadata;
+pub(crate) use skill_metadata::{derive_skill_metadata, DerivedSkillMetadata};
+mod skill_tagging;
 mod skill_variants;
 mod task_enums;
 mod tasks;
@@ -481,6 +529,7 @@ use integrity_helpers::*;
 use row_mapping::*;
 use schema_helpers::*;
 use skill_metadata::*;
+use skill_tagging::*;
 use task_enums::*;
 
 pub(crate) fn now_ts() -> u64 {

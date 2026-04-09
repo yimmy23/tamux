@@ -1,5 +1,6 @@
-use amux_protocol::{ClientMessage, DaemonMessage};
+use amux_protocol::{ClientMessage, DaemonMessage, OperationStatusSnapshot};
 use anyhow::Result;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use super::connection::{connect, roundtrip};
@@ -136,10 +137,35 @@ pub async fn send_thread_list_query() -> Result<Vec<AgentThreadRecord>> {
 }
 
 pub async fn send_thread_get_query(thread_id: String) -> Result<Option<AgentThreadRecord>> {
-    match roundtrip(ClientMessage::AgentGetThread { thread_id }).await? {
-        DaemonMessage::AgentThreadDetail { thread_json } => Ok(serde_json::from_str(&thread_json)?),
-        DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
-        other => anyhow::bail!("unexpected response: {other:?}"),
+    let mut framed = connect().await?;
+    framed
+        .send(ClientMessage::AgentGetThread { thread_id })
+        .await?;
+
+    let mut thread_detail_bytes = Vec::new();
+    loop {
+        let response = framed
+            .next()
+            .await
+            .ok_or_else(super::connection::closed_connection_error)??;
+        match response {
+            DaemonMessage::AgentThreadDetail { thread_json } => {
+                return Ok(serde_json::from_str(&thread_json)?);
+            }
+            DaemonMessage::AgentThreadDetailChunk {
+                thread_id: _,
+                thread_json_chunk,
+                done,
+            } => {
+                thread_detail_bytes.extend(thread_json_chunk);
+                if done {
+                    let thread_json = String::from_utf8(thread_detail_bytes)?;
+                    return Ok(serde_json::from_str(&thread_json)?);
+                }
+            }
+            DaemonMessage::Error { message } => anyhow::bail!("daemon error: {message}"),
+            other => anyhow::bail!("unexpected response: {other:?}"),
+        }
     }
 }
 
@@ -172,6 +198,12 @@ pub async fn send_prompt_query(agent_id: Option<String>) -> Result<AgentPromptIn
     }
 }
 
+pub async fn send_operation_status_query(operation_id: String) -> Result<OperationStatusSnapshot> {
+    parse_operation_status_response(
+        roundtrip(ClientMessage::AgentGetOperationStatus { operation_id }).await?,
+    )
+}
+
 pub async fn send_config_get() -> Result<serde_json::Value> {
     match roundtrip(ClientMessage::AgentGetConfig).await? {
         DaemonMessage::AgentConfigResponse { config_json } => {
@@ -198,6 +230,18 @@ pub(crate) fn parse_config_set_response(msg: DaemonMessage) -> Result<()> {
         DaemonMessage::OperationAccepted { .. } | DaemonMessage::AgentConfigResponse { .. } => {
             Ok(())
         }
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub(crate) fn parse_operation_status_response(
+    msg: DaemonMessage,
+) -> Result<OperationStatusSnapshot> {
+    match msg {
+        DaemonMessage::OperationStatus { snapshot } => Ok(snapshot),
         DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
             anyhow::bail!("daemon error: {message}")
         }

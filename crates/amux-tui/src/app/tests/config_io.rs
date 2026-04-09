@@ -3,7 +3,9 @@ use amux_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
     PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
 };
+use rusqlite::Connection;
 use std::sync::mpsc;
+use tempfile::tempdir;
 use tokio::sync::mpsc::unbounded_channel;
 
 fn make_model() -> TuiModel {
@@ -425,6 +427,77 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
 }
 
 #[test]
+fn build_config_patch_value_round_trips_disabled_snapshot_retention() {
+    let mut model = make_model();
+    model.config.snapshot_max_count = 0;
+    model.config.snapshot_max_size_mb = 10_240;
+    model.config.snapshot_auto_cleanup = false;
+
+    let json = model.build_config_patch_value();
+
+    assert_eq!(json["snapshot_retention"]["max_snapshots"], 0);
+    assert_eq!(json["snapshot_retention"]["auto_cleanup"], false);
+
+    let mut reloaded = make_model();
+    reloaded.apply_config_json(&json);
+
+    assert_eq!(reloaded.config.snapshot_max_count, 0);
+    assert_eq!(reloaded.config.snapshot_max_size_mb, 10_240);
+    assert!(!reloaded.config.snapshot_auto_cleanup);
+}
+
+#[test]
+fn refresh_snapshot_stats_reads_daemon_snapshot_index_db() {
+    let home = tempdir().expect("tempdir");
+    let tamux_dir = home.path().join(".tamux");
+    let history_dir = tamux_dir.join("history");
+    std::fs::create_dir_all(&history_dir).expect("create history dir");
+
+    let snap_a = tamux_dir.join("snap-a.tar.gz");
+    let snap_b = tamux_dir.join("snap-b.tar.gz");
+    std::fs::write(&snap_a, vec![b'a'; 128]).expect("write snapshot a");
+    std::fs::write(&snap_b, vec![b'b'; 256]).expect("write snapshot b");
+
+    let db_path = history_dir.join("command-history.db");
+    let conn = Connection::open(&db_path).expect("open sqlite db");
+    conn.execute(
+        "CREATE TABLE snapshot_index (snapshot_id TEXT PRIMARY KEY, path TEXT NOT NULL)",
+        [],
+    )
+    .expect("create snapshot index table");
+    conn.execute(
+        "INSERT INTO snapshot_index (snapshot_id, path) VALUES (?1, ?2)",
+        rusqlite::params!["snap-a", snap_a.to_string_lossy().to_string()],
+    )
+    .expect("insert snapshot a");
+    conn.execute(
+        "INSERT INTO snapshot_index (snapshot_id, path) VALUES (?1, ?2)",
+        rusqlite::params!["snap-b", snap_b.to_string_lossy().to_string()],
+    )
+    .expect("insert snapshot b");
+
+    let original_home = std::env::var("HOME").ok();
+    unsafe {
+        std::env::set_var("HOME", home.path());
+    }
+
+    let mut model = make_model();
+    model.load_saved_settings();
+
+    assert_eq!(model.config.snapshot_count, 2);
+    assert_eq!(model.config.snapshot_total_size_bytes, 384);
+
+    match original_home {
+        Some(value) => unsafe {
+            std::env::set_var("HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("HOME");
+        },
+    }
+}
+
+#[test]
 fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport() {
     let mut model = make_model();
 
@@ -443,6 +516,27 @@ fn apply_config_json_prefers_active_provider_transport_over_stale_root_transport
 
     assert_eq!(model.config.provider, PROVIDER_ID_GITHUB_COPILOT);
     assert_eq!(model.config.api_transport, "responses");
+}
+
+#[test]
+fn apply_config_json_prefers_active_provider_auth_source_over_stale_root_auth_source() {
+    let mut model = make_model();
+
+    model.apply_config_json(&serde_json::json!({
+        "provider": PROVIDER_ID_GITHUB_COPILOT,
+        "auth_source": "api_key",
+        "providers": {
+            "github-copilot": {
+                "base_url": "https://api.githubcopilot.com",
+                "model": "gpt-5.4",
+                "api_transport": "responses",
+                "auth_source": "github_copilot"
+            }
+        }
+    }));
+
+    assert_eq!(model.config.provider, PROVIDER_ID_GITHUB_COPILOT);
+    assert_eq!(model.config.auth_source, "github_copilot");
 }
 
 #[test]

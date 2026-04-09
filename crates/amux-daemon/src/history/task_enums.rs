@@ -60,6 +60,44 @@ pub(super) fn parse_task_log_level(value: &str) -> TaskLogLevel {
     }
 }
 
+pub(super) fn context_overflow_action_to_str(
+    value: crate::agent::types::ContextOverflowAction,
+) -> &'static str {
+    match value {
+        crate::agent::types::ContextOverflowAction::Compress => "compress",
+        crate::agent::types::ContextOverflowAction::Truncate => "truncate",
+        crate::agent::types::ContextOverflowAction::Error => "error",
+    }
+}
+
+pub(super) fn parse_context_overflow_action(
+    value: &str,
+) -> crate::agent::types::ContextOverflowAction {
+    match value {
+        "truncate" => crate::agent::types::ContextOverflowAction::Truncate,
+        "error" => crate::agent::types::ContextOverflowAction::Error,
+        _ => crate::agent::types::ContextOverflowAction::Compress,
+    }
+}
+
+pub(super) fn intervention_level_to_str(
+    value: crate::agent::types::InterventionLevel,
+) -> &'static str {
+    match value {
+        crate::agent::types::InterventionLevel::Passive => "passive",
+        crate::agent::types::InterventionLevel::Normal => "normal",
+        crate::agent::types::InterventionLevel::Aggressive => "aggressive",
+    }
+}
+
+pub(super) fn parse_intervention_level(value: &str) -> crate::agent::types::InterventionLevel {
+    match value {
+        "passive" => crate::agent::types::InterventionLevel::Passive,
+        "aggressive" => crate::agent::types::InterventionLevel::Aggressive,
+        _ => crate::agent::types::InterventionLevel::Normal,
+    }
+}
+
 pub(super) fn goal_run_status_to_str(value: GoalRunStatus) -> &'static str {
     match value {
         GoalRunStatus::Queued => "queued",
@@ -130,5 +168,33 @@ pub(super) fn parse_goal_run_step_status(value: &str) -> GoalRunStepStatus {
         "failed" => GoalRunStepStatus::Failed,
         "skipped" => GoalRunStepStatus::Skipped,
         _ => GoalRunStepStatus::Pending,
+    }
+}
+
+pub(super) fn autonomy_level_to_str(value: crate::agent::AutonomyLevel) -> &'static str {
+    match value {
+        crate::agent::AutonomyLevel::Autonomous => "autonomous",
+        crate::agent::AutonomyLevel::Aware => "aware",
+        crate::agent::AutonomyLevel::Supervised => "supervised",
+    }
+}
+
+pub(super) fn parse_autonomy_level(value: &str) -> crate::agent::AutonomyLevel {
+    crate::agent::AutonomyLevel::from_str_or_default(value)
+}
+
+pub(super) fn authorship_tag_to_str(value: crate::agent::AuthorshipTag) -> &'static str {
+    match value {
+        crate::agent::AuthorshipTag::Operator => "operator",
+        crate::agent::AuthorshipTag::Agent => "agent",
+        crate::agent::AuthorshipTag::Joint => "joint",
+    }
+}
+
+pub(super) fn parse_authorship_tag(value: &str) -> crate::agent::AuthorshipTag {
+    match value {
+        "operator" => crate::agent::AuthorshipTag::Operator,
+        "agent" => crate::agent::AuthorshipTag::Agent,
+        _ => crate::agent::AuthorshipTag::Joint,
     }
 }

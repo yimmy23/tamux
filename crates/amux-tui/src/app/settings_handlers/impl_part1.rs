@@ -26,15 +26,6 @@ impl TuiModel {
         self.sync_config_to_daemon();
     }
 
-    pub(super) fn cycle_provider_id(current: &str) -> String {
-        let providers = providers::PROVIDERS;
-        let current_idx = providers
-            .iter()
-            .position(|provider| provider.id == current)
-            .unwrap_or(0);
-        providers[(current_idx + 1) % providers.len()].id.to_string()
-    }
-
     pub(super) fn apply_compaction_custom_provider(&mut self, provider_id: &str) {
         self.config.compaction_custom_provider = provider_id.to_string();
         self.config.compaction_custom_base_url = providers::find_by_id(provider_id)
@@ -56,11 +47,72 @@ impl TuiModel {
         self.config.compaction_custom_assistant_id.clear();
     }
 
+    pub(super) fn normalize_compaction_custom_transport(&mut self) {
+        self.config.compaction_custom_api_transport = self.provider_transport_snapshot(
+            &self.config.compaction_custom_provider,
+            &self.config.compaction_custom_auth_source,
+            &self.config.compaction_custom_model,
+            &self.config.compaction_custom_api_transport,
+        );
+    }
+
+    pub(super) fn open_provider_picker(&mut self, target: SettingsPickerTarget) {
+        self.settings_picker_target = Some(target);
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
+        self.modal.set_picker_item_count(
+            widgets::provider_picker::available_provider_defs(&self.auth).len(),
+        );
+    }
+
+    pub(super) fn open_compaction_weles_model_picker(&mut self) {
+        let provider_id = self.config.compaction_weles_provider.clone();
+        let (_, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
+        let models = providers::known_models_for_provider_auth(&provider_id, &auth_source);
+        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        if providers::supports_model_fetch_for(&provider_id) {
+            let base_url = providers::find_by_id(&provider_id)
+                .map(|provider| provider.default_base_url.to_string())
+                .unwrap_or_default();
+            self.send_daemon_command(DaemonCommand::FetchModels {
+                provider_id,
+                base_url,
+                api_key,
+            });
+        }
+        self.settings_picker_target = Some(SettingsPickerTarget::CompactionWelesModel);
+        let count = widgets::model_picker::available_models(&self.config).len() + 1;
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.modal.set_picker_item_count(count);
+    }
+
+    pub(super) fn open_compaction_custom_model_picker(&mut self) {
+        let provider_id = self.config.compaction_custom_provider.clone();
+        let models = providers::known_models_for_provider_auth(
+            &provider_id,
+            &self.config.compaction_custom_auth_source,
+        );
+        self.config.reduce(config::ConfigAction::ModelsFetched(models));
+        if providers::supports_model_fetch_for(&provider_id) {
+            self.send_daemon_command(DaemonCommand::FetchModels {
+                provider_id,
+                base_url: self.config.compaction_custom_base_url.clone(),
+                api_key: self.config.compaction_custom_api_key.clone(),
+            });
+        }
+        self.settings_picker_target = Some(SettingsPickerTarget::CompactionCustomModel);
+        let count = widgets::model_picker::available_models(&self.config).len() + 1;
+        self.modal
+            .reduce(modal::ModalAction::Push(modal::ModalKind::ModelPicker));
+        self.modal.set_picker_item_count(count);
+    }
+
     fn whatsapp_linking_allowed(&self) -> bool {
         amux_protocol::has_whatsapp_allowed_contacts(&self.config.whatsapp_allowed_contacts)
     }
 
-    fn provider_auth_snapshot(&self, provider_id: &str) -> (String, String, String) {
+    pub(super) fn provider_auth_snapshot(&self, provider_id: &str) -> (String, String, String) {
         let mut base_url = providers::find_by_id(provider_id)
             .map(|def| def.default_base_url.to_string())
             .unwrap_or_default();
@@ -75,29 +127,75 @@ impl TuiModel {
             );
         }
 
-        if let Some(raw) = &self.config.agent_config_raw {
-            if let Some(provider_config) = raw.get(provider_id) {
-                if let Some(value) =
-                    TuiModel::provider_field_str(provider_config, "base_url", "base_url")
-                {
-                    if !value.is_empty() {
-                        base_url = value.to_string();
-                    }
+        if let Some(provider_config) = self.saved_provider_config(provider_id) {
+            if let Some(value) = TuiModel::provider_field_str(provider_config, "base_url", "base_url")
+            {
+                if !value.is_empty() {
+                    base_url = value.to_string();
                 }
-                if let Some(value) =
-                    TuiModel::provider_field_str(provider_config, "api_key", "api_key")
-                {
-                    api_key = value.to_string();
-                }
-                if let Some(value) =
-                    TuiModel::provider_field_str(provider_config, "auth_source", "auth_source")
-                {
-                    auth_source = value.to_string();
-                }
+            }
+            if let Some(value) = TuiModel::provider_field_str(provider_config, "api_key", "api_key")
+            {
+                api_key = value.to_string();
+            }
+            if let Some(value) =
+                TuiModel::provider_field_str(provider_config, "auth_source", "auth_source")
+            {
+                auth_source = value.to_string();
             }
         }
 
         (base_url, api_key, auth_source)
+    }
+
+    pub(super) fn provider_transport_snapshot(
+        &self,
+        provider_id: &str,
+        auth_source: &str,
+        model: &str,
+        fallback_transport: &str,
+    ) -> String {
+        let mut api_transport = fallback_transport.to_string();
+
+        if self.config.provider == provider_id {
+            api_transport = self.config.api_transport.clone();
+        } else if let Some(provider_config) = self.saved_provider_config(provider_id) {
+            if let Some(value) =
+                TuiModel::provider_field_str(provider_config, "api_transport", "api_transport")
+            {
+                api_transport = value.to_string();
+            }
+        }
+
+        self.normalize_provider_transport_for_state(provider_id, auth_source, model, &api_transport)
+    }
+
+    fn normalize_provider_transport_for_state(
+        &self,
+        provider_id: &str,
+        auth_source: &str,
+        model: &str,
+        api_transport: &str,
+    ) -> String {
+        if provider_id == PROVIDER_ID_OPENAI && auth_source == "chatgpt_subscription" {
+            return "responses".to_string();
+        }
+        if providers::uses_fixed_anthropic_messages(provider_id, model) {
+            return "chat_completions".to_string();
+        }
+        if providers::supported_transports_for(provider_id).contains(&api_transport) {
+            api_transport.to_string()
+        } else {
+            providers::default_transport_for(provider_id).to_string()
+        }
+    }
+
+    fn saved_provider_config(&self, provider_id: &str) -> Option<&serde_json::Value> {
+        self.config.agent_config_raw.as_ref().and_then(|raw| {
+            raw.get("providers")
+                .and_then(|providers| providers.get(provider_id))
+                .or_else(|| raw.get(provider_id))
+        })
     }
 
     fn upsert_saved_provider_api_key(&mut self, provider_id: &str, api_key: &str) {

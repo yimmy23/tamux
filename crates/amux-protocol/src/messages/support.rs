@@ -415,6 +415,16 @@ pub struct ApprovalPayload {
     pub reasons: Vec<String>,
     pub workspace_id: Option<WorkspaceId>,
     pub allow_network: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_fingerprint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

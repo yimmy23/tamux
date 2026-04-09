@@ -956,6 +956,57 @@ fn hidden_handoff_threads_are_filtered_from_thread_list() {
 }
 
 #[test]
+fn thread_list_requests_detail_for_selected_thread_with_only_summary_data() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.chat.reduce(chat::ChatAction::ThreadListReceived(vec![
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            ..Default::default()
+        },
+    ]));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.handle_client_event(ClientEvent::ThreadList(vec![crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        ..Default::default()
+    }]));
+
+    assert_eq!(model.thread_loading_id.as_deref(), Some("thread-user"));
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThread(thread_id)) => assert_eq!(thread_id, "thread-user"),
+        other => panic!("expected thread detail request, got {other:?}"),
+    }
+}
+
+#[test]
+fn thread_detail_clears_loading_state() {
+    let mut model = make_model();
+    model.thread_loading_id = Some("thread-user".to_string());
+
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::Assistant,
+            content: "Loaded".to_string(),
+            timestamp: 1,
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    })));
+
+    assert!(model.thread_loading_id.is_none());
+}
+
+#[test]
 fn internal_dm_threads_are_retained_in_thread_list_for_internal_picker() {
     let mut model = make_model();
 

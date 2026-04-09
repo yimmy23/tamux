@@ -1,4 +1,4 @@
-use super::agent_api::parse_config_set_response;
+use super::agent_api::{parse_config_set_response, parse_operation_status_response};
 use super::agent_bridge::handle_message_for_test as handle_bridge_message;
 use super::agent_bridge::initial_bridge_messages;
 use super::agent_protocol::AgentBridgeCommand;
@@ -499,6 +499,28 @@ fn config_set_response_accepts_operation_acceptance() {
         revision: 1,
     })
     .expect("operation acceptance should be treated as success");
+}
+
+#[test]
+fn operation_status_response_extracts_snapshot() {
+    let snapshot = parse_operation_status_response(DaemonMessage::OperationStatus {
+        snapshot: amux_protocol::OperationStatusSnapshot {
+            operation_id: "op-status-1".to_string(),
+            kind: "managed_command".to_string(),
+            dedup: Some("managed:exec-1".to_string()),
+            state: amux_protocol::OperationLifecycleState::Started,
+            revision: 2,
+        },
+    })
+    .expect("operation status should parse");
+
+    assert_eq!(snapshot.operation_id, "op-status-1");
+    assert_eq!(snapshot.kind, "managed_command");
+    assert!(matches!(
+        snapshot.state,
+        amux_protocol::OperationLifecycleState::Started
+    ));
+    assert_eq!(snapshot.revision, 2);
 }
 
 #[tokio::test]

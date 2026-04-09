@@ -28,28 +28,21 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
 
     let arguments = message.tool_arguments.as_deref()?;
     let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
-    let path = value
-        .get("path")
-        .or_else(|| value.get("filePath"))
-        .or_else(|| value.get("file_path"))
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string())
-        .or_else(|| {
-            if tool_name == "apply_patch" {
-                first_apply_patch_path(arguments)
-            } else {
-                None
-            }
-        })?;
-    let label = if tool_name == "read_file" {
-        Path::new(&path)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .filter(|value| !value.is_empty())
-            .unwrap_or(path.as_str())
-            .to_string()
+    let (path, label) = if tool_name == "apply_patch" {
+        apply_patch_result_chip(message.content.as_str()).or_else(|| {
+            first_apply_patch_path(arguments).map(|path| {
+                let label = file_name_label(&path);
+                (path, label)
+            })
+        })?
     } else {
-        path.clone()
+        let path = nonblank_path_arg(&value)?;
+        let label = if tool_name == "read_file" {
+            file_name_label(&path)
+        } else {
+            path.clone()
+        };
+        (path, label)
     };
 
     Some(ToolFileChip {
@@ -57,6 +50,55 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
         label,
         tool_name: tool_name.to_string(),
     })
+}
+
+fn nonblank_path_arg(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("path")
+        .or_else(|| value.get("filePath"))
+        .or_else(|| value.get("file_path"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+fn file_name_label(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn apply_patch_result_chip(content: &str) -> Option<(String, String)> {
+    let paths = apply_patch_result_paths(content);
+    let path = paths.first()?.clone();
+    let label = paths
+        .iter()
+        .map(|path| file_name_label(path))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some((path, label))
+}
+
+fn apply_patch_result_paths(content: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for line in content.lines() {
+        let path = line
+            .strip_prefix("Updated file ")
+            .or_else(|| line.strip_prefix("Added file "))
+            .or_else(|| line.strip_prefix("Deleted file "))
+            .map(str::trim)
+            .filter(|path| !path.is_empty());
+        if let Some(path) = path {
+            if !paths.iter().any(|existing| existing == path) {
+                paths.push(path.to_string());
+            }
+        }
+    }
+    paths
 }
 
 pub(crate) fn append_tool_file_chip(
@@ -269,7 +311,21 @@ pub(crate) fn message_action_targets(
     } else {
         "[Copy]".to_string()
     };
-    let mut actions = vec![(copy_label, ChatHitTarget::CopyMessage(msg_index))];
+    let mut actions = Vec::new();
+
+    if msg.role == MessageRole::Tool
+        && msg.tool_name.is_some()
+        && matches!(chat.transcript_mode(), TranscriptMode::Compact)
+    {
+        let toggle_label = if chat.expanded_tools().contains(&msg_index) {
+            "[Collapse]"
+        } else {
+            "[Expand]"
+        };
+        actions.push((toggle_label.to_string(), ChatHitTarget::ToolToggle(msg_index)));
+    }
+
+    actions.push((copy_label, ChatHitTarget::CopyMessage(msg_index)));
     match msg.role {
         MessageRole::User => {
             actions.push((

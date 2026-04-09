@@ -29,7 +29,66 @@ pub(super) fn apply_schema_migrations(connection: &Connection) -> rusqlite::Resu
     ensure_column(connection, "agent_tasks", "override_model", "TEXT")?;
     ensure_column(connection, "agent_tasks", "override_system_prompt", "TEXT")?;
     ensure_column(connection, "agent_tasks", "sub_agent_def_id", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "tool_whitelist_json", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "tool_blacklist_json", "TEXT")?;
+    ensure_column(
+        connection,
+        "agent_tasks",
+        "context_budget_tokens",
+        "INTEGER",
+    )?;
+    ensure_column(connection, "agent_tasks", "context_overflow_action", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "termination_conditions", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "success_criteria", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "max_duration_secs", "INTEGER")?;
+    ensure_column(connection, "agent_tasks", "supervisor_config_json", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "policy_fingerprint", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "approval_expires_at", "INTEGER")?;
+    ensure_column(connection, "agent_tasks", "containment_scope", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "compensation_status", "TEXT")?;
+    ensure_column(connection, "agent_tasks", "compensation_summary", "TEXT")?;
     ensure_column(connection, "goal_runs", "client_request_id", "TEXT")?;
+    ensure_column(connection, "goal_runs", "failure_cause", "TEXT")?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "child_task_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "approval_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(connection, "goal_runs", "awaiting_approval_id", "TEXT")?;
+    ensure_column(connection, "goal_runs", "policy_fingerprint", "TEXT")?;
+    ensure_column(connection, "goal_runs", "approval_expires_at", "INTEGER")?;
+    ensure_column(connection, "goal_runs", "containment_scope", "TEXT")?;
+    ensure_column(connection, "goal_runs", "compensation_status", "TEXT")?;
+    ensure_column(connection, "goal_runs", "compensation_summary", "TEXT")?;
+    ensure_column(connection, "goal_runs", "active_task_id", "TEXT")?;
+    ensure_column(connection, "goal_runs", "duration_ms", "INTEGER")?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "total_prompt_tokens",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "total_completion_tokens",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(connection, "goal_runs", "estimated_cost_usd", "REAL")?;
+    ensure_column(
+        connection,
+        "goal_runs",
+        "autonomy_level",
+        "TEXT NOT NULL DEFAULT 'aware'",
+    )?;
+    ensure_column(connection, "goal_runs", "authorship_tag", "TEXT")?;
     ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
     ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
     // BEAT-09: user_action column for dismissal tracking in action_audit.
