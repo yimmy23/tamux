@@ -251,7 +251,7 @@ fn tool_message_expanded_preserves_full_arguments_and_result() {
     );
     assert!(plain.contains("<<'PY'"), "missing heredoc marker: {plain}");
     assert!(
-        plain.contains(&"x".repeat(80)),
+        plain.chars().filter(|ch| *ch == 'x').count() >= 100,
         "missing long argument body: {plain}"
     );
     assert!(

@@ -613,7 +613,11 @@ impl ChatState {
 
             ChatAction::SelectThread(thread_id) => {
                 self.pinned_message_top = None;
-                self.active_thread_id = Some(thread_id);
+                self.active_thread_id = if thread_id.is_empty() {
+                    None
+                } else {
+                    Some(thread_id)
+                };
                 self.scroll_offset = 0;
                 self.scroll_locked = false;
             }

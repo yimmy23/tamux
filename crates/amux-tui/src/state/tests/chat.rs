@@ -211,6 +211,21 @@ fn thread_created_moves_new_thread_to_front() {
 }
 
 #[test]
+fn select_thread_with_empty_id_clears_active_selection() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.reduce(ChatAction::SelectThread(String::new()));
+
+    assert_eq!(state.active_thread_id(), None);
+    assert!(state.active_thread().is_none());
+}
+
+#[test]
 fn tool_call_tracks_running_tool() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
