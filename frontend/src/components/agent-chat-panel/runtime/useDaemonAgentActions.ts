@@ -6,6 +6,57 @@ import { startGoalRun, goalRunSupportAvailable, type GoalRun } from "@/lib/goalR
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import { appendDaemonSystemMessage, normalizeBridgePayload } from "./daemonHelpers";
 
+type AgentDirective =
+  | { kind: "internal_delegate"; agentAlias: string; body: string }
+  | { kind: "participant_upsert"; agentAlias: string; body: string }
+  | { kind: "participant_deactivate"; agentAlias: string };
+
+function isKnownAgentAlias(agentAlias: string, knownAgentAliases: string[]): boolean {
+  const normalized = agentAlias.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return knownAgentAliases.some((candidate) => candidate.trim().toLowerCase() === normalized);
+}
+
+function parseLeadingAgentDirective(
+  text: string,
+  knownAgentAliases: string[],
+): AgentDirective | null {
+  const trimmed = text.trimStart();
+  const prefix = trimmed[0];
+  if (prefix !== "!" && prefix !== "@") {
+    return null;
+  }
+
+  const tokenMatch = /^([!@])([^\s]+)(?:\s+([\s\S]+))?$/.exec(trimmed);
+  if (!tokenMatch) {
+    return null;
+  }
+
+  const [, directivePrefix, agentAliasRaw, bodyRaw = ""] = tokenMatch;
+  const agentAlias = agentAliasRaw.trim();
+  const body = bodyRaw.trim();
+  if (!isKnownAgentAlias(agentAlias, knownAgentAliases) || !body) {
+    return null;
+  }
+
+  if (directivePrefix === "!") {
+    return { kind: "internal_delegate", agentAlias, body };
+  }
+
+  switch (body.toLowerCase()) {
+    case "leave":
+    case "stop":
+    case "done":
+    case "return":
+      return { kind: "participant_deactivate", agentAlias };
+    default:
+      return { kind: "participant_upsert", agentAlias, body };
+  }
+}
+
 export function useDaemonAgentActions({
   activePaneId,
   activeThreadId,
@@ -118,6 +169,68 @@ export function useDaemonAgentActions({
             currentThreadId,
           );
         }
+        return;
+      }
+
+      const knownAgentAliases = [
+        "main",
+        "svarog",
+        "swarog",
+        "weles",
+        "rarog",
+        ...useAgentStore.getState().subAgents.flatMap((agent) => [agent.id, agent.name]),
+      ].filter(Boolean);
+      const directive = parseLeadingAgentDirective(text, knownAgentAliases);
+      if (directive) {
+        const daemonThreadId = daemonThreadIdRef.current;
+        if (directive.kind === "internal_delegate") {
+          if (!amux.agentInternalDelegate) {
+            appendDaemonSystemMessage("Internal delegation is not available in this runtime.", currentThreadId);
+            return;
+          }
+          const response = await amux.agentInternalDelegate(
+            daemonThreadId ?? null,
+            directive.agentAlias,
+            directive.body,
+            null,
+          );
+          const payload = normalizeBridgePayload(response);
+          appendDaemonSystemMessage(
+            payload?.ok === false && typeof payload?.error === "string"
+              ? `Failed to delegate to ${directive.agentAlias}: ${payload.error}`
+              : `Delegated internally to ${directive.agentAlias}.`,
+            currentThreadId,
+          );
+          return;
+        }
+
+        if (!daemonThreadId) {
+          appendDaemonSystemMessage(
+            "Participant commands require a daemon-linked thread.",
+            currentThreadId,
+          );
+          return;
+        }
+        if (!amux.agentThreadParticipantCommand) {
+          appendDaemonSystemMessage("Thread participants are not available in this runtime.", currentThreadId);
+          return;
+        }
+        const response = await amux.agentThreadParticipantCommand({
+          threadId: daemonThreadId,
+          targetAgentId: directive.agentAlias,
+          action: directive.kind === "participant_deactivate" ? "deactivate" : "upsert",
+          instruction: directive.kind === "participant_upsert" ? directive.body : null,
+          sessionId: null,
+        });
+        const payload = normalizeBridgePayload(response);
+        appendDaemonSystemMessage(
+          payload?.ok === false && typeof payload?.error === "string"
+            ? `Failed to update participant ${directive.agentAlias}: ${payload.error}`
+            : directive.kind === "participant_deactivate"
+              ? `Participant ${directive.agentAlias} stopped.`
+              : `Participant ${directive.agentAlias} updated.`,
+          currentThreadId,
+        );
         return;
       }
 

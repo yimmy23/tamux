@@ -24,6 +24,20 @@ pub struct TabCompletionOutcome {
     pub replacement: Option<ReferenceEdit>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LeadingAgentDirectiveKind {
+    InternalDelegate,
+    ParticipantUpsert,
+    ParticipantDeactivate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeadingAgentDirective {
+    pub kind: LeadingAgentDirectiveKind,
+    pub agent_alias: String,
+    pub body: String,
+}
+
 pub fn active_at_token(buffer: &str, cursor: usize) -> Option<ActiveToken> {
     let cursor = cursor.min(buffer.len());
     let mut start = None;
@@ -78,6 +92,21 @@ pub fn complete_active_at_token(buffer: &str, cursor: usize, cwd: &Path) -> TabC
     complete_active_at_token_with_home(buffer, cursor, cwd, home_dir().as_deref())
 }
 
+pub fn complete_active_at_token_with_agents(
+    buffer: &str,
+    cursor: usize,
+    cwd: &Path,
+    agent_aliases: &[String],
+) -> TabCompletionOutcome {
+    complete_active_at_token_with_home_and_agents(
+        buffer,
+        cursor,
+        cwd,
+        home_dir().as_deref(),
+        agent_aliases,
+    )
+}
+
 pub fn resolved_referenced_files(buffer: &str, cwd: &Path) -> Vec<PathBuf> {
     let mut resolved = Vec::new();
     let mut seen = HashSet::new();
@@ -114,6 +143,52 @@ pub fn append_referenced_files_footer(buffer: &str, cwd: &Path) -> String {
     );
 
     format!("{buffer}\n\n{footer}")
+}
+
+pub fn parse_leading_agent_directive(
+    buffer: &str,
+    known_agent_aliases: &[String],
+) -> Option<LeadingAgentDirective> {
+    let trimmed = buffer.trim_start();
+    let first_char = trimmed.chars().next()?;
+    if !matches!(first_char, '!' | '@') {
+        return None;
+    }
+
+    let token_end = trimmed
+        .find(char::is_whitespace)
+        .unwrap_or(trimmed.len());
+    let token = &trimmed[..token_end];
+    let agent_alias = token[1..].trim();
+    if !is_known_agent_alias(agent_alias, known_agent_aliases) {
+        return None;
+    }
+
+    let remainder = trimmed[token_end..].trim();
+    if remainder.is_empty() {
+        return None;
+    }
+
+    if first_char == '!' {
+        return Some(LeadingAgentDirective {
+            kind: LeadingAgentDirectiveKind::InternalDelegate,
+            agent_alias: agent_alias.to_string(),
+            body: remainder.to_string(),
+        });
+    }
+
+    let kind = match remainder.to_ascii_lowercase().as_str() {
+        "leave" | "stop" | "done" | "return" => {
+            LeadingAgentDirectiveKind::ParticipantDeactivate
+        }
+        _ => LeadingAgentDirectiveKind::ParticipantUpsert,
+    };
+
+    Some(LeadingAgentDirective {
+        kind,
+        agent_alias: agent_alias.to_string(),
+        body: remainder.to_string(),
+    })
 }
 
 pub(crate) fn complete_active_at_token_with_home(
@@ -156,6 +231,98 @@ pub(crate) fn complete_active_at_token_with_home(
             text: completed_text,
         }),
     }
+}
+
+pub(crate) fn complete_active_at_token_with_home_and_agents(
+    buffer: &str,
+    cursor: usize,
+    cwd: &Path,
+    home: Option<&Path>,
+    agent_aliases: &[String],
+) -> TabCompletionOutcome {
+    let Some(token) = active_at_token(buffer, cursor) else {
+        return TabCompletionOutcome {
+            consumed: false,
+            notice: None,
+            replacement: None,
+        };
+    };
+
+    if is_first_token(buffer, token.range.start) {
+        if let Some(outcome) = complete_agent_alias_token(&token, agent_aliases) {
+            return outcome;
+        }
+    }
+
+    complete_active_at_token_with_home(buffer, cursor, cwd, home)
+}
+
+fn complete_agent_alias_token(
+    token: &ActiveToken,
+    agent_aliases: &[String],
+) -> Option<TabCompletionOutcome> {
+    let raw = token.path.trim();
+    if raw.is_empty()
+        || raw.contains('/')
+        || raw.contains('\\')
+        || raw.starts_with('.')
+        || raw.starts_with('~')
+    {
+        return None;
+    }
+
+    let typed = raw.to_ascii_lowercase();
+    let mut matches = agent_aliases
+        .iter()
+        .filter_map(|candidate| {
+            let trimmed = candidate.trim();
+            (!trimmed.is_empty() && trimmed.to_ascii_lowercase().starts_with(&typed))
+                .then(|| trimmed.to_string())
+        })
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+    if matches.is_empty() {
+        return None;
+    }
+
+    let completed_text = if matches.len() == 1 {
+        format!("@{} ", matches[0])
+    } else {
+        format!("@{}", common_prefix(&matches))
+    };
+    let notice = (matches.len() > 1).then(|| {
+        format!(
+            "Multiple matches: {}",
+            matches.into_iter().take(5).collect::<Vec<_>>().join(", ")
+        )
+    });
+    if completed_text == token.text {
+        return Some(TabCompletionOutcome {
+            consumed: true,
+            notice,
+            replacement: None,
+        });
+    }
+
+    Some(TabCompletionOutcome {
+        consumed: true,
+        notice,
+        replacement: Some(ReferenceEdit {
+            range: token.range.clone(),
+            text: completed_text,
+        }),
+    })
+}
+
+fn is_first_token(buffer: &str, token_start: usize) -> bool {
+    buffer[..token_start].trim().is_empty()
+}
+
+fn is_known_agent_alias(alias: &str, known_agent_aliases: &[String]) -> bool {
+    known_agent_aliases
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(alias))
 }
 
 fn complete_reference_path(raw_path: &str, cwd: &Path, home: Option<&Path>) -> Option<String> {

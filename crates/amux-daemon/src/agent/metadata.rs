@@ -12,6 +12,8 @@ pub(super) struct ParsedMessageMetadata {
     pub response_id: Option<String>,
     pub upstream_message: Option<CompletionUpstreamMessage>,
     pub provider_final_result: Option<CompletionProviderFinalResult>,
+    pub author_agent_id: Option<String>,
+    pub author_agent_name: Option<String>,
     pub message_kind: AgentMessageKind,
     pub compaction_strategy: Option<CompactionStrategy>,
     pub compaction_payload: Option<String>,
@@ -27,6 +29,8 @@ pub(super) struct ParsedThreadMetadata {
     pub upstream_model: Option<String>,
     pub upstream_assistant_id: Option<String>,
     pub handoff_state: Option<ThreadHandoffState>,
+    pub thread_participants: Vec<ThreadParticipantState>,
+    pub thread_participant_suggestions: Vec<ThreadParticipantSuggestion>,
     pub latest_skill_discovery_state: Option<LatestSkillDiscoveryState>,
 }
 
@@ -95,6 +99,10 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         response_id: get_str("response_id"),
         upstream_message,
         provider_final_result,
+        author_agent_id: get_str("author_agent_id")
+            .or_else(|| get_str("authorAgentId")),
+        author_agent_name: get_str("author_agent_name")
+            .or_else(|| get_str("authorAgentName")),
         message_kind,
         compaction_strategy,
         compaction_payload: get_str("compaction_payload"),
@@ -136,6 +144,19 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
         upstream_provider: get_str("upstream_provider"),
         upstream_model: get_str("upstream_model"),
         upstream_assistant_id: get_str("upstream_assistant_id"),
+        thread_participants: metadata
+            .as_ref()
+            .and_then(|value| value.get("thread_participants"))
+            .and_then(|value| serde_json::from_value::<Vec<ThreadParticipantState>>(value.clone()).ok())
+            .map(normalize_thread_participants)
+            .unwrap_or_default(),
+        thread_participant_suggestions: metadata
+            .as_ref()
+            .and_then(|value| value.get("thread_participant_suggestions"))
+            .and_then(|value| {
+                serde_json::from_value::<Vec<ThreadParticipantSuggestion>>(value.clone()).ok()
+            })
+            .unwrap_or_default(),
         latest_skill_discovery_state: metadata
             .as_ref()
             .and_then(|value| value.get("latest_skill_discovery_state"))
@@ -185,6 +206,10 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "response_id": message.response_id,
         "upstream_message": message.upstream_message,
         "provider_final_result": message.provider_final_result,
+        "author_agent_id": message.author_agent_id,
+        "authorAgentId": message.author_agent_id,
+        "author_agent_name": message.author_agent_name,
+        "authorAgentName": message.author_agent_name,
         "message_kind": message.message_kind,
         "compaction_strategy": message.compaction_strategy,
         "compaction_payload": message.compaction_payload,
@@ -200,6 +225,8 @@ pub(super) fn build_thread_metadata_json(
     thread: &AgentThread,
     client_surface: Option<amux_protocol::ClientSurface>,
     handoff_state: Option<&ThreadHandoffState>,
+    thread_participants: &[ThreadParticipantState],
+    thread_participant_suggestions: &[ThreadParticipantSuggestion],
     latest_skill_discovery_state: Option<&LatestSkillDiscoveryState>,
 ) -> Option<String> {
     serde_json::to_string(&serde_json::json!({
@@ -220,6 +247,8 @@ pub(super) fn build_thread_metadata_json(
         "handoff_stack": handoff_state.map(|state| state.responder_stack.clone()),
         "handoff_events": handoff_state.map(|state| state.events.clone()),
         "pending_handoff_approval_id": handoff_state.and_then(|state| state.pending_approval_id.clone()),
+        "thread_participants": thread_participants,
+        "thread_participant_suggestions": thread_participant_suggestions,
         "latest_skill_discovery_state": latest_skill_discovery_state,
     }))
     .ok()

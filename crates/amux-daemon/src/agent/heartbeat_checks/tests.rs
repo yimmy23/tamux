@@ -110,6 +110,8 @@ async fn make_test_engine(
         history,
         threads: RwLock::new(HashMap::new()),
         thread_handoff_states: RwLock::new(HashMap::new()),
+        thread_participants: RwLock::new(HashMap::new()),
+        thread_participant_suggestions: RwLock::new(HashMap::new()),
         thread_client_surfaces: RwLock::new(HashMap::new()),
         thread_skill_discovery_states: RwLock::new(HashMap::new()),
         thread_structural_memories: RwLock::new(HashMap::new()),

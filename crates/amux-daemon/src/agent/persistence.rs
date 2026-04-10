@@ -159,6 +159,8 @@ impl AgentEngine {
             Ok(thread_rows) if !thread_rows.is_empty() => {
                 let mut threads = HashMap::new();
                 let mut handoff_states = HashMap::new();
+                let mut thread_participants = HashMap::new();
+                let mut thread_participant_suggestions = HashMap::new();
                 let mut thread_client_surfaces = HashMap::new();
                 let mut thread_skill_discovery_states = HashMap::new();
                 let mut thread_structural_memories = HashMap::new();
@@ -175,6 +177,18 @@ impl AgentEngine {
                     {
                         thread_skill_discovery_states
                             .insert(thread_id.clone(), latest_skill_discovery_state);
+                    }
+                    if !thread_metadata.thread_participants.is_empty() {
+                        thread_participants.insert(
+                            thread_id.clone(),
+                            thread_metadata.thread_participants.clone(),
+                        );
+                    }
+                    if !thread_metadata.thread_participant_suggestions.is_empty() {
+                        thread_participant_suggestions.insert(
+                            thread_id.clone(),
+                            thread_metadata.thread_participant_suggestions.clone(),
+                        );
                     }
                     let handoff_state = normalized_thread_handoff_state(
                         &thread_id,
@@ -276,6 +290,9 @@ impl AgentEngine {
                 }
                 *self.threads.write().await = threads;
                 *self.thread_handoff_states.write().await = handoff_states;
+                *self.thread_participants.write().await = thread_participants;
+                *self.thread_participant_suggestions.write().await =
+                    thread_participant_suggestions;
                 *self.thread_client_surfaces.write().await = thread_client_surfaces;
                 *self.thread_skill_discovery_states.write().await = thread_skill_discovery_states;
                 *self.thread_structural_memories.write().await = thread_structural_memories;

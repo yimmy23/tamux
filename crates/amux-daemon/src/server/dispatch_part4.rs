@@ -72,8 +72,7 @@ if matches!(
 
                 ClientMessage::AgentGetThread { thread_id } => {
                     client_agent_threads.insert(thread_id.clone());
-                    let thread = agent.get_thread(&thread_id).await;
-                    let json = serde_json::to_string(&thread).unwrap_or_default();
+                    let json = agent.agent_thread_detail_json(&thread_id).await;
                     if thread_detail_fits_single_ipc_frame(&json) {
                         framed
                             .send(DaemonMessage::AgentThreadDetail { thread_json: json })

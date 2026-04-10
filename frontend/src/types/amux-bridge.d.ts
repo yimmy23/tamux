@@ -304,6 +304,25 @@ declare global {
         stopTerminalSession?: (paneId: string, killSession?: boolean) => Promise<boolean>;
         executeManagedCommand?: (paneId: string | null, payload: unknown) => Promise<boolean | { output?: string }>;
         agentSendMessage?: (threadId: string | null, content: string, sessionId?: string | null, contextMessages?: unknown[]) => Promise<{ ok?: boolean; error?: string } | unknown>;
+        agentInternalDelegate?: (threadId: string | null, targetAgentId: string, content: string, sessionId?: string | null) => Promise<{ ok?: boolean; error?: string } | unknown>;
+        agentThreadParticipantCommand?: (payload: {
+            threadId: string;
+            targetAgentId: string;
+            action: string;
+            instruction?: string | null;
+            sessionId?: string | null;
+        }) => Promise<{ ok?: boolean; error?: string } | unknown>;
+        agentSendParticipantSuggestion?: (payload: {
+            threadId: string;
+            targetAgentId: string;
+            instruction: string;
+            sessionId?: string | null;
+        }) => Promise<{ ok?: boolean; error?: string } | unknown>;
+        agentDismissParticipantSuggestion?: (payload: {
+            threadId: string;
+            suggestionId: string;
+            sessionId?: string | null;
+        }) => Promise<{ ok?: boolean; error?: string } | unknown>;
         agentListThreads?: () => Promise<unknown[]>;
         agentGetThread?: (threadId: string) => Promise<unknown | null>;
         openAICodexAuthStatus?: (options?: { refresh?: boolean }) => Promise<AmuxOpenAICodexAuthStatus>;

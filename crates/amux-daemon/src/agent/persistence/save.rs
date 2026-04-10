@@ -67,6 +67,20 @@ impl AgentEngine {
     async fn persist_thread_snapshot(&self, thread: &AgentThread) {
         let client_surface = self.get_thread_client_surface(&thread.id).await;
         let handoff_state = self.thread_handoff_state(&thread.id).await;
+        let thread_participants = self
+            .thread_participants
+            .read()
+            .await
+            .get(&thread.id)
+            .cloned()
+            .unwrap_or_default();
+        let thread_participant_suggestions = self
+            .thread_participant_suggestions
+            .read()
+            .await
+            .get(&thread.id)
+            .cloned()
+            .unwrap_or_default();
         let latest_skill_discovery_state = self.get_thread_skill_discovery_state(&thread.id).await;
         let thread_row = amux_protocol::AgentDbThread {
             id: thread.id.clone(),
@@ -91,6 +105,8 @@ impl AgentEngine {
                 thread,
                 client_surface,
                 handoff_state.as_ref(),
+                &thread_participants,
+                &thread_participant_suggestions,
                 latest_skill_discovery_state.as_ref(),
             ),
         };
