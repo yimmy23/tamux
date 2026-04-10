@@ -767,56 +767,6 @@ impl TuiModel {
             return false;
         }
 
-        if kind == modal::ModalKind::OperatorQuestionOverlay {
-            if let Some(question) = self.operator_question.as_mut() {
-                match code {
-                    KeyCode::Esc => {}
-                    KeyCode::Left | KeyCode::Char('h') => {
-                        if question.selected_index > 0 {
-                            question.selected_index -= 1;
-                        }
-                    }
-                    KeyCode::Right | KeyCode::Char('l') => {
-                        if question.selected_index + 1 < question.options.len() {
-                            question.selected_index += 1;
-                        }
-                    }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
-                        if let Some(answer) = question.options.get(question.selected_index).cloned()
-                        {
-                            let question_id = question.question_id.clone();
-                            self.send_daemon_command(
-                                crate::state::DaemonCommand::AnswerOperatorQuestion {
-                                    question_id,
-                                    answer,
-                                },
-                            );
-                        }
-                    }
-                    KeyCode::Char(c) => {
-                        let token = c.to_string();
-                        if let Some(index) = question
-                            .options
-                            .iter()
-                            .position(|option| option.eq_ignore_ascii_case(&token))
-                        {
-                            question.selected_index = index;
-                            let question_id = question.question_id.clone();
-                            let answer = question.options[index].clone();
-                            self.send_daemon_command(
-                                crate::state::DaemonCommand::AnswerOperatorQuestion {
-                                    question_id,
-                                    answer,
-                                },
-                            );
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            return false;
-        }
-
         if kind == modal::ModalKind::ApprovalCenter {
             match code {
                 KeyCode::Esc => self.close_top_modal(),

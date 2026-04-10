@@ -192,14 +192,6 @@ struct OperatorProfileQuestionVm {
 }
 
 #[derive(Clone, Debug)]
-struct OperatorQuestionVm {
-    question_id: String,
-    content: String,
-    options: Vec<String>,
-    selected_index: usize,
-}
-
-#[derive(Clone, Debug)]
 struct OperatorProfileProgressVm {
     answered: u32,
     remaining: u32,
@@ -300,7 +292,6 @@ pub struct TuiModel {
     queued_prompt_action: QueuedPromptAction,
 
     operator_profile: OperatorProfileOnboardingState,
-    operator_question: Option<OperatorQuestionVm>,
 
     // Thread ID whose stream was cancelled via double-Esc (ignore further events)
     cancelled_thread_id: Option<String>,

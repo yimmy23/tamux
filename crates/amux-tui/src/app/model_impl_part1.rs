@@ -59,7 +59,6 @@ impl TuiModel {
             queued_prompts: Vec::new(),
             queued_prompt_action: QueuedPromptAction::SendNow,
             operator_profile: OperatorProfileOnboardingState::default(),
-            operator_question: None,
             cancelled_thread_id: None,
             pending_new_thread_target_agent: None,
             thread_loading_id: None,

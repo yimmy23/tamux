@@ -370,18 +370,31 @@ impl TuiModel {
         question_id: String,
         content: String,
         options: Vec<String>,
+        thread_id: Option<String>,
     ) {
-        self.operator_question = Some(super::OperatorQuestionVm {
-            question_id,
-            content,
-            options,
-            selected_index: 0,
+        let target_thread_id = thread_id.or_else(|| self.chat.active_thread_id().map(str::to_string));
+        let Some(target_thread_id) = target_thread_id else {
+            return;
+        };
+
+        self.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: target_thread_id.clone(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                content,
+                is_operator_question: true,
+                operator_question_id: Some(question_id.clone()),
+                actions: options
+                    .into_iter()
+                    .map(|option| chat::MessageAction {
+                        label: option.clone(),
+                        action_type: format!("operator_question_answer:{question_id}:{option}"),
+                        thread_id: Some(target_thread_id.clone()),
+                    })
+                    .collect(),
+                ..Default::default()
+            },
         });
-        if self.modal.top() != Some(crate::state::modal::ModalKind::OperatorQuestionOverlay) {
-            self.modal.reduce(crate::state::modal::ModalAction::Push(
-                crate::state::modal::ModalKind::OperatorQuestionOverlay,
-            ));
-        }
         self.status_line = "Operator question ready".to_string();
     }
 
@@ -390,15 +403,10 @@ impl TuiModel {
         question_id: String,
         answer: String,
     ) {
-        let should_clear = self
-            .operator_question
-            .as_ref()
-            .is_some_and(|question| question.question_id == question_id);
-        if should_clear {
-            self.operator_question = None;
-            if self.modal.top() == Some(crate::state::modal::ModalKind::OperatorQuestionOverlay) {
-                self.close_top_modal();
-            }
+        if self
+            .chat
+            .resolve_operator_question_answer(&question_id, answer.clone())
+        {
             self.status_line = format!("Operator question answered: {answer}");
         }
     }

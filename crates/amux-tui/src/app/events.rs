@@ -396,9 +396,9 @@ impl TuiModel {
                 content,
                 options,
                 session_id: _,
-                thread_id: _,
+                thread_id,
             } => {
-                self.handle_operator_question_event(question_id, content, options);
+                self.handle_operator_question_event(question_id, content, options, thread_id);
             }
             ClientEvent::OperatorQuestionResolved {
                 question_id,
