@@ -92,6 +92,47 @@
     }
 
     #[test]
+    fn thread_loading_renders_dedicated_rarog_animation() {
+        let mut model = build_model();
+        model.width = 100;
+        model.height = 40;
+        model.focus = FocusArea::Chat;
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+        });
+        model
+            .chat
+            .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+        model.thread_loading_id = Some("thread-1".to_string());
+
+        let backend = TestBackend::new(model.width, model.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| model.render(frame))
+            .expect("thread loading render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..model.height)
+            .map(|y| {
+                (0..model.width)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            rendered.contains("Rarog is threading a welcome"),
+            "thread loading should reuse the dedicated concierge loading animation"
+        );
+        assert!(
+            !rendered.contains("Loading Thread"),
+            "thread loading should stop rendering the old placeholder paragraph"
+        );
+    }
+
+    #[test]
     fn anticipatory_banner_is_suppressed_while_concierge_welcome_is_active() {
         let mut model = build_model();
         model
