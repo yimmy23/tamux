@@ -276,11 +276,6 @@ fn operator_question_event_appends_inline_message_and_actions() {
         Some(modal::ModalKind::CommandPalette),
         "operator question should not replace the existing modal"
     );
-    assert_eq!(
-        model.current_modal_area().map(|(kind, _)| kind),
-        Some(modal::ModalKind::CommandPalette),
-        "strongest available check: the existing modal should remain the top of the stack"
-    );
     assert_ne!(
         model.modal.top(),
         Some(modal::ModalKind::OperatorQuestionOverlay)

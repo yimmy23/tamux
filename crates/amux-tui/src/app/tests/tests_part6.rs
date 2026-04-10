@@ -193,28 +193,34 @@ fn clicking_bottom_action_bar_submits_operator_question_answer() {
     model.chat.select_message(Some(0));
 
     let input_start_row = model.height.saturating_sub(model.input_height() + 1);
-    let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
-    let action_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+    let concierge_height = if model.chat.active_actions().is_empty() {
+        0
+    } else {
+        1
+    };
+    let concierge_area = Rect::new(
+        0,
+        input_start_row.saturating_sub(concierge_height),
+        model.width,
+        concierge_height,
+    );
+    let action_pos = (concierge_area.y..concierge_area.y.saturating_add(concierge_area.height))
         .find_map(|row| {
-            (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
+            (concierge_area.x..concierge_area.x.saturating_add(concierge_area.width)).find_map(|column| {
                 let pos = Position::new(column, row);
-                if widgets::chat::hit_test(
-                    chat_area,
-                    &model.chat,
-                    &model.theme,
-                    model.tick_counter,
+                if widgets::concierge::hit_test(
+                    concierge_area,
+                    model.chat.active_actions(),
+                    model.concierge.selected_action,
                     pos,
-                ) == Some(chat::ChatHitTarget::MessageAction {
-                    message_index: 0,
-                    action_index: 0,
-                }) {
+                ) == Some(widgets::concierge::ConciergeHitTarget::Action(0)) {
                     Some(pos)
                 } else {
                     None
                 }
             })
         })
-        .expect("operator question should expose a clickable bottom action bar");
+        .expect("operator question should expose a clickable concierge action bar");
 
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
