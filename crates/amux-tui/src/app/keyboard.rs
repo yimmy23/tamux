@@ -99,10 +99,7 @@ impl TuiModel {
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
 
-        if !self.chat.active_actions().is_empty()
-            && self.chat.active_thread_id() == Some("concierge")
-            && self.focus == FocusArea::Chat
-        {
+        if !self.chat.active_actions().is_empty() && self.focus == FocusArea::Chat {
             match code {
                 KeyCode::Left | KeyCode::Up => {
                     self.navigate_visible_concierge_action(-1);

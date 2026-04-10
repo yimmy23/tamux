@@ -231,6 +231,19 @@ impl TuiModel {
     }
 
     fn run_concierge_action(&mut self, action: crate::state::ConciergeActionVm) {
+        if let Some((question_id, answer)) =
+            action.action_type.strip_prefix("operator_question_answer:").and_then(|rest| {
+                let (question_id, answer) = rest.split_once(':')?;
+                Some((question_id.to_string(), answer.to_string()))
+            })
+        {
+            self.send_daemon_command(DaemonCommand::AnswerOperatorQuestion {
+                question_id,
+                answer,
+            });
+            return;
+        }
+
         match action.action_type.as_str() {
             "continue_session" => {
                 if let Some(thread_id) = action.thread_id {
