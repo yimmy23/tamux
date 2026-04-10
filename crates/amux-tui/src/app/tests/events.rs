@@ -241,6 +241,9 @@ fn collaboration_sessions_event_surfaces_escalation_notice() {
 #[test]
 fn operator_question_event_appends_inline_message_and_actions() {
     let mut model = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "thread-1".to_string(),
         title: "Thread".to_string(),
@@ -268,6 +271,16 @@ fn operator_question_event_appends_inline_message_and_actions() {
     assert_eq!(message.operator_question_id.as_deref(), Some("oq-1"));
     assert_eq!(message.content, "Approve this slice?\nA - proceed\nB - revise");
     assert_eq!(message.actions.len(), 2);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::CommandPalette),
+        "operator question should not replace the existing modal"
+    );
+    assert_eq!(
+        model.current_modal_area().map(|(kind, _)| kind),
+        Some(modal::ModalKind::CommandPalette),
+        "strongest available check: the existing modal should remain the top of the stack"
+    );
     assert_ne!(
         model.modal.top(),
         Some(modal::ModalKind::OperatorQuestionOverlay)

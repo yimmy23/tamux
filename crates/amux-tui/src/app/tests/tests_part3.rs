@@ -105,7 +105,7 @@
     }
 
     #[test]
-    fn operator_question_uses_bottom_action_bar_for_keyboard_submission() {
+    fn operator_question_event_uses_keyboard_submission_from_inline_actions() {
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();
         let mut model = TuiModel::new(daemon_rx, cmd_tx);
@@ -118,30 +118,14 @@
         model
             .chat
             .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
-        model.chat.reduce(chat::ChatAction::AppendMessage {
-            thread_id: "thread-1".to_string(),
-            message: chat::AgentMessage {
-                role: chat::MessageRole::Assistant,
-                is_operator_question: true,
-                operator_question_id: Some("oq-1".to_string()),
-                content: "Approve this slice?\nA - proceed\nB - revise".to_string(),
-                actions: vec![
-                    chat::MessageAction {
-                        label: "A".to_string(),
-                        action_type: "answer_operator_question".to_string(),
-                        thread_id: None,
-                    },
-                    chat::MessageAction {
-                        label: "B".to_string(),
-                        action_type: "answer_operator_question".to_string(),
-                        thread_id: None,
-                    },
-                ],
-                ..Default::default()
-            },
+        model.handle_client_event(ClientEvent::OperatorQuestion {
+            question_id: "oq-1".to_string(),
+            content: "Approve this slice?\nA - proceed\nB - revise".to_string(),
+            options: vec!["A".to_string(), "B".to_string()],
+            session_id: None,
+            thread_id: Some("thread-1".to_string()),
         });
         model.chat.select_message(Some(0));
-        model.chat.select_message_action(0);
 
         let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 

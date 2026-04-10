@@ -183,27 +183,12 @@ fn clicking_bottom_action_bar_submits_operator_question_answer() {
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
-    model.chat.reduce(chat::ChatAction::AppendMessage {
-        thread_id: "thread-1".to_string(),
-        message: chat::AgentMessage {
-            role: chat::MessageRole::Assistant,
-            is_operator_question: true,
-            operator_question_id: Some("oq-1".to_string()),
-            content: "Approve this slice?\nA - proceed\nB - revise".to_string(),
-            actions: vec![
-                chat::MessageAction {
-                    label: "A".to_string(),
-                    action_type: "answer_operator_question".to_string(),
-                    thread_id: None,
-                },
-                chat::MessageAction {
-                    label: "B".to_string(),
-                    action_type: "answer_operator_question".to_string(),
-                    thread_id: None,
-                },
-            ],
-            ..Default::default()
-        },
+    model.handle_client_event(ClientEvent::OperatorQuestion {
+        question_id: "oq-1".to_string(),
+        content: "Approve this slice?\nA - proceed\nB - revise".to_string(),
+        options: vec!["A".to_string(), "B".to_string()],
+        session_id: None,
+        thread_id: Some("thread-1".to_string()),
     });
     model.chat.select_message(Some(0));
 
