@@ -297,6 +297,11 @@ fn operator_question_event_does_not_replace_existing_modal() {
     });
 
     let thread = model.chat.active_thread().expect("thread should exist");
+    assert_eq!(
+        thread.messages.len(),
+        1,
+        "operator question should append an inline transcript message"
+    );
     let message = thread.messages.last().expect("question message should exist");
     assert!(message.is_operator_question);
     assert_eq!(message.operator_question_id.as_deref(), Some("oq-1"));
