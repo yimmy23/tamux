@@ -234,6 +234,8 @@ const bridgeApi = {
 
     // Agent engine (daemon-side)
     agentSendMessage: (threadId, content, sessionId, contextMessages) => ipcRenderer.invoke('agent-send-message', threadId, content, sessionId, contextMessages),
+    agentInternalDelegate: (threadId, targetAgentId, content, sessionId) => ipcRenderer.invoke('agent-internal-delegate', threadId, targetAgentId, content, sessionId),
+    agentThreadParticipantCommand: (payload) => ipcRenderer.invoke('agent-thread-participant-command', payload),
     agentStopStream: (threadId) => ipcRenderer.invoke('agent-stop-stream', threadId),
     agentListThreads: () => ipcRenderer.invoke('agent-list-threads'),
     agentGetThread: (threadId) => ipcRenderer.invoke('agent-get-thread', threadId),

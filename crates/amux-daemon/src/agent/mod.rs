@@ -79,6 +79,7 @@ mod task_prompt;
 mod task_scheduler;
 mod thread_crud;
 mod thread_handoffs;
+mod thread_participants;
 mod tool_synthesis;
 pub(crate) mod weles_governance;
 mod weles_health;
@@ -136,6 +137,7 @@ use system_prompt::*;
 use task_prompt::*;
 use task_scheduler::*;
 use thread_handoffs::*;
+use thread_participants::*;
 
 // Imports needed by child modules via `use super::*;`.
 use std::collections::{HashMap, HashSet, VecDeque};

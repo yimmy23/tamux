@@ -133,6 +133,8 @@ impl AgentEngine {
     ) {
         let mut threads = self.threads.write().await;
         if let Some(thread) = threads.get_mut(thread_id) {
+            let author_agent_id = current_agent_scope_id();
+            let author_agent_name = canonical_agent_name(&author_agent_id).to_string();
             thread.messages.push(AgentMessage {
                 id: generate_message_id(),
                 role: MessageRole::Assistant,
@@ -151,6 +153,8 @@ impl AgentEngine {
                 response_id,
                 upstream_message,
                 provider_final_result,
+                author_agent_id: Some(author_agent_id),
+                author_agent_name: Some(author_agent_name),
                 reasoning,
                 message_kind: AgentMessageKind::Normal,
                 compaction_strategy: None,

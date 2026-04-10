@@ -73,6 +73,19 @@ pub enum DaemonCommand {
         session_id: Option<String>,
         target_agent_id: Option<String>,
     },
+    InternalDelegate {
+        thread_id: Option<String>,
+        target_agent_id: String,
+        content: String,
+        session_id: Option<String>,
+    },
+    ThreadParticipantCommand {
+        thread_id: String,
+        target_agent_id: String,
+        action: String,
+        instruction: Option<String>,
+        session_id: Option<String>,
+    },
     StopStream {
         thread_id: String,
     },

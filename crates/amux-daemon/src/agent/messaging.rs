@@ -355,6 +355,8 @@ impl AgentEngine {
                     response_id: metadata.response_id,
                     upstream_message: metadata.upstream_message,
                     provider_final_result: metadata.provider_final_result,
+                    author_agent_id: metadata.author_agent_id,
+                    author_agent_name: metadata.author_agent_name,
                     reasoning: msg.reasoning,
                     message_kind: metadata.message_kind,
                     compaction_strategy: metadata.compaction_strategy,

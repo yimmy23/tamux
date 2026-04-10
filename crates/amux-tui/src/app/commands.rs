@@ -6,6 +6,24 @@ use std::path::{Path, PathBuf};
 mod goal_targets;
 
 impl TuiModel {
+    pub(super) fn known_agent_directive_aliases(&self) -> Vec<String> {
+        let mut aliases = vec![
+            "main".to_string(),
+            "svarog".to_string(),
+            "swarog".to_string(),
+            "weles".to_string(),
+            amux_protocol::AGENT_ID_RAROG.to_string(),
+            amux_protocol::AGENT_NAME_RAROG.to_string(),
+        ];
+        for entry in &self.subagents.entries {
+            aliases.push(entry.id.clone());
+            aliases.push(entry.name.clone());
+        }
+        aliases.sort();
+        aliases.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+        aliases
+    }
+
     fn resolve_preview_path(path: &str) -> PathBuf {
         let raw = PathBuf::from(path);
         if raw.is_absolute() {
@@ -482,6 +500,77 @@ impl TuiModel {
             parts.join("\n\n")
         };
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let known_agent_aliases = self.known_agent_directive_aliases();
+        if let Some(directive) = input_refs::parse_leading_agent_directive(
+            &content_with_attachments,
+            &known_agent_aliases,
+        ) {
+            let directive_content =
+                input_refs::append_referenced_files_footer(&directive.body, &cwd);
+            match directive.kind {
+                input_refs::LeadingAgentDirectiveKind::InternalDelegate => {
+                    self.send_daemon_command(DaemonCommand::InternalDelegate {
+                        thread_id: self.chat.active_thread_id().map(String::from),
+                        target_agent_id: directive.agent_alias.clone(),
+                        content: directive_content,
+                        session_id: None,
+                    });
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.status_line =
+                        format!("Delegated internally to {}", directive.agent_alias);
+                    self.agent_activity = None;
+                    self.error_active = false;
+                    return;
+                }
+                input_refs::LeadingAgentDirectiveKind::ParticipantUpsert => {
+                    let Some(thread_id) = self.chat.active_thread_id().map(String::from) else {
+                        self.status_line =
+                            "Participant commands require an active thread".to_string();
+                        return;
+                    };
+                    self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
+                        thread_id,
+                        target_agent_id: directive.agent_alias.clone(),
+                        action: "upsert".to_string(),
+                        instruction: Some(directive_content),
+                        session_id: None,
+                    });
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.status_line =
+                        format!("Participant {} updated", directive.agent_alias);
+                    self.agent_activity = None;
+                    self.error_active = false;
+                    return;
+                }
+                input_refs::LeadingAgentDirectiveKind::ParticipantDeactivate => {
+                    let Some(thread_id) = self.chat.active_thread_id().map(String::from) else {
+                        self.status_line =
+                            "Participant commands require an active thread".to_string();
+                        return;
+                    };
+                    self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
+                        thread_id,
+                        target_agent_id: directive.agent_alias.clone(),
+                        action: "deactivate".to_string(),
+                        instruction: None,
+                        session_id: None,
+                    });
+                    self.main_pane_view = MainPaneView::Conversation;
+                    self.focus = FocusArea::Chat;
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.status_line =
+                        format!("Participant {} stopped", directive.agent_alias);
+                    self.agent_activity = None;
+                    self.error_active = false;
+                    return;
+                }
+            }
+        }
+
         let final_content =
             input_refs::append_referenced_files_footer(&content_with_attachments, &cwd);
 

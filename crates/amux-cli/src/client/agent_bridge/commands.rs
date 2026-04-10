@@ -40,6 +40,40 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::InternalDelegate {
+            thread_id,
+            target_agent_id,
+            content,
+            session_id,
+        } => {
+            framed
+                .send(ClientMessage::AgentInternalDelegate {
+                    thread_id,
+                    target_agent_id,
+                    content,
+                    session_id,
+                    client_surface: Some(amux_protocol::ClientSurface::Electron),
+                })
+                .await?;
+        }
+        AgentBridgeCommand::ThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            instruction,
+            session_id,
+        } => {
+            framed
+                .send(ClientMessage::AgentThreadParticipantCommand {
+                    thread_id,
+                    target_agent_id,
+                    action,
+                    instruction,
+                    session_id,
+                    client_surface: Some(amux_protocol::ClientSurface::Electron),
+                })
+                .await?;
+        }
         AgentBridgeCommand::StopStream { thread_id } => {
             framed
                 .send(ClientMessage::AgentStopStream { thread_id })
@@ -645,6 +679,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn internal_delegate_command_deserializes() {
+        let command: AgentBridgeCommand = serde_json::from_str(
+            r#"{"type":"internal-delegate","thread_id":"thread-1","target_agent_id":"weles","content":"verify this","session_id":null}"#,
+        )
+        .expect("internal-delegate command should deserialize");
+
+        match command {
+            AgentBridgeCommand::InternalDelegate {
+                thread_id,
+                target_agent_id,
+                content,
+                session_id,
+            } => {
+                assert_eq!(thread_id.as_deref(), Some("thread-1"));
+                assert_eq!(target_agent_id, "weles");
+                assert_eq!(content, "verify this");
+                assert!(session_id.is_none());
+            }
+            other => panic!("expected InternalDelegate command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thread_participant_command_deserializes() {
+        let command: AgentBridgeCommand = serde_json::from_str(
+            r#"{"type":"thread-participant-command","thread_id":"thread-1","target_agent_id":"weles","action":"upsert","instruction":"verify claims","session_id":null}"#,
+        )
+        .expect("thread-participant-command should deserialize");
+
+        match command {
+            AgentBridgeCommand::ThreadParticipantCommand {
+                thread_id,
+                target_agent_id,
+                action,
+                instruction,
+                session_id,
+            } => {
+                assert_eq!(thread_id, "thread-1");
+                assert_eq!(target_agent_id, "weles");
+                assert_eq!(action, "upsert");
+                assert_eq!(instruction.as_deref(), Some("verify claims"));
+                assert!(session_id.is_none());
+            }
+            other => panic!("expected ThreadParticipantCommand, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn send_message_command_emits_agent_send_message_frame() {
         let message = emitted_client_message(
@@ -669,6 +751,58 @@ mod tests {
                 assert!(target_agent_id.is_none());
             }
             other => panic!("expected AgentSendMessage, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn internal_delegate_command_emits_internal_delegate_frame() {
+        let message = emitted_client_message(
+            r#"{"type":"internal-delegate","thread_id":"thread-1","target_agent_id":"weles","content":"verify this","session_id":null}"#,
+        )
+        .await;
+
+        match message {
+            ClientMessage::AgentInternalDelegate {
+                thread_id,
+                target_agent_id,
+                content,
+                session_id,
+                client_surface,
+            } => {
+                assert_eq!(thread_id.as_deref(), Some("thread-1"));
+                assert_eq!(target_agent_id, "weles");
+                assert_eq!(content, "verify this");
+                assert!(session_id.is_none());
+                assert_eq!(client_surface, Some(amux_protocol::ClientSurface::Electron));
+            }
+            other => panic!("expected AgentInternalDelegate, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn participant_command_emits_thread_participant_frame() {
+        let message = emitted_client_message(
+            r#"{"type":"thread-participant-command","thread_id":"thread-1","target_agent_id":"weles","action":"upsert","instruction":"verify claims","session_id":null}"#,
+        )
+        .await;
+
+        match message {
+            ClientMessage::AgentThreadParticipantCommand {
+                thread_id,
+                target_agent_id,
+                action,
+                instruction,
+                session_id,
+                client_surface,
+            } => {
+                assert_eq!(thread_id, "thread-1");
+                assert_eq!(target_agent_id, "weles");
+                assert_eq!(action, "upsert");
+                assert_eq!(instruction.as_deref(), Some("verify claims"));
+                assert!(session_id.is_none());
+                assert_eq!(client_surface, Some(amux_protocol::ClientSurface::Electron));
+            }
+            other => panic!("expected AgentThreadParticipantCommand, got {other:?}"),
         }
     }
 

@@ -1457,6 +1457,86 @@ fn follow_up_prompt_after_cancel_keeps_processing_new_events_on_same_thread() {
 }
 
 #[test]
+fn leading_internal_delegate_prompt_routes_to_internal_command() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("!weles verify the auth regression".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::InternalDelegate {
+            thread_id,
+            target_agent_id,
+            content,
+            ..
+        }) => {
+            assert_eq!(thread_id.as_deref(), Some("thread-1"));
+            assert_eq!(target_agent_id, "weles");
+            assert_eq!(content, "verify the auth regression");
+        }
+        other => panic!("expected internal delegate command, got {:?}", other),
+    }
+    assert!(
+        model
+            .chat
+            .active_thread()
+            .expect("thread should remain selected")
+            .messages
+            .is_empty(),
+        "internal delegation should not append a visible user turn"
+    );
+}
+
+#[test]
+fn leading_participant_prompt_routes_to_participant_command() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_prompt("@weles verify claims before answering".to_string());
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::ThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            instruction,
+            ..
+        }) => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(target_agent_id, "weles");
+            assert_eq!(action, "upsert");
+            assert_eq!(instruction.as_deref(), Some("verify claims before answering"));
+        }
+        other => panic!("expected participant command, got {:?}", other),
+    }
+    assert!(
+        model
+            .chat
+            .active_thread()
+            .expect("thread should remain selected")
+            .messages
+            .is_empty(),
+        "participant registration should not append a visible user turn"
+    );
+}
+
+#[test]
 fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, mut daemon_rx) = unbounded_channel();

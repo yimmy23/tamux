@@ -358,7 +358,9 @@ impl TuiModel {
             }
             KeyCode::Tab => {
                 if self.focus == FocusArea::Input {
-                    let completion = self.input.complete_active_at_token();
+                    let completion = self
+                        .input
+                        .complete_active_at_token_with_agents(&self.known_agent_directive_aliases());
                     if let Some(notice) = completion.notice {
                         self.status_line = notice.clone();
                         self.show_input_notice(notice, InputNoticeKind::Warning, 40, true);

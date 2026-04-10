@@ -39,6 +39,40 @@ impl DaemonClient {
         self.send(ClientMessage::AgentStopStream { thread_id })
     }
 
+    pub fn send_internal_delegate(
+        &self,
+        thread_id: Option<String>,
+        target_agent_id: String,
+        content: String,
+        session_id: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentInternalDelegate {
+            thread_id,
+            target_agent_id,
+            content,
+            session_id,
+            client_surface: Some(amux_protocol::ClientSurface::Tui),
+        })
+    }
+
+    pub fn send_thread_participant_command(
+        &self,
+        thread_id: String,
+        target_agent_id: String,
+        action: String,
+        instruction: Option<String>,
+        session_id: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            instruction,
+            session_id,
+            client_surface: Some(amux_protocol::ClientSurface::Tui),
+        })
+    }
+
     pub fn retry_stream_now(&self, thread_id: String) -> Result<()> {
         self.send(ClientMessage::AgentRetryStreamNow { thread_id })
     }
