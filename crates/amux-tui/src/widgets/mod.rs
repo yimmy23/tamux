@@ -14,6 +14,7 @@ pub mod goal_picker;
 pub mod header;
 pub mod landing;
 pub mod message;
+pub mod message_operator_question;
 pub mod model_picker;
 pub mod notifications;
 pub mod onboarding;

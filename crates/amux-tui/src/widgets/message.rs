@@ -9,6 +9,7 @@ use markdown_table::{is_markdown_table_row, is_markdown_table_start, render_mark
 
 use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
 use crate::theme::ThemeTokens;
+use crate::widgets::message_operator_question::render_operator_question_message;
 use crate::widgets::tool_diff::{
     render_tool_edit_diff, render_tool_structured_json, ToolStructuredValueSource,
 };
@@ -364,6 +365,13 @@ fn render_compact(
             "------------------------",
             theme.fg_dim,
         )));
+        return;
+    }
+
+    if let Some(operator_question_lines) =
+        render_operator_question_message(msg, theme, content_width)
+    {
+        lines.extend(operator_question_lines);
         return;
     }
 

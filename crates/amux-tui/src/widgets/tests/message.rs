@@ -584,6 +584,48 @@ fn tool_message_expanded_shows_weles_rationale_and_degraded_state() {
 }
 
 #[test]
+fn operator_question_message_renders_pending_state_and_option_legend() {
+    let msg = AgentMessage {
+        role: MessageRole::Assistant,
+        content: "Approve this slice?\nA - proceed\nB - revise".into(),
+        is_operator_question: true,
+        operator_question_id: Some("oq-1".into()),
+        ..Default::default()
+    };
+
+    let lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &empty_tools(),
+    );
+
+    let plain = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        plain.contains("awaiting answer"),
+        "expected pending state marker, got: {plain}"
+    );
+    assert!(plain.contains("A"), "expected option label, got: {plain}");
+    assert!(
+        plain.contains("proceed"),
+        "expected option text, got: {plain}"
+    );
+}
+
+#[test]
 fn reasoning_before_content() {
     let msg = AgentMessage {
         role: MessageRole::Assistant,
