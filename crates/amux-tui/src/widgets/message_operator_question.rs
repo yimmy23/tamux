@@ -79,10 +79,10 @@ fn parse_option_line(line: &str) -> Option<OperatorQuestionOption> {
 
 fn is_option_label(label: &str) -> bool {
     !label.is_empty()
-        && label.len() <= 8
+        && label.len() <= 4
         && label
             .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
 }
 
 fn render_operator_question(
@@ -108,47 +108,40 @@ fn render_operator_question(
         _ => "awaiting answer".to_string(),
     };
 
-    lines.push(Line::from(vec![
-        Span::styled("operator question", theme.accent_secondary),
-        Span::raw(" "),
-        Span::styled(answer_summary, theme.fg_dim),
-    ]));
+    push_wrapped_text(
+        &mut lines,
+        &format!("operator question {answer_summary}"),
+        theme.fg_dim,
+        width,
+    );
 
     if let Some(title) = parsed
         .title
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     {
-        for line in wrap_text(title, width) {
-            lines.push(Line::from(vec![Span::styled(line, theme.fg_active)]));
-        }
+        push_wrapped_text(&mut lines, title, theme.fg_active, width);
     }
 
     for body_line in &parsed.body_lines {
-        for line in wrap_text(body_line, width) {
-            lines.push(Line::from(vec![Span::styled(line, theme.fg_active)]));
-        }
+        push_wrapped_text(&mut lines, body_line, theme.fg_active, width);
     }
 
     if !parsed.options.is_empty() {
         lines.push(Line::from(vec![Span::styled("options", theme.fg_dim)]));
         for option in &parsed.options {
             let selected = answer.is_some_and(|answer| option_matches_answer(option, answer));
-            let label_style = if selected {
+            let option_style = if selected {
                 theme.accent_secondary
             } else {
-                theme.fg_dim
+                theme.fg_active
             };
-            let mut spans = vec![
-                Span::styled(format!("[{}]", option.label), label_style),
-                Span::raw(" "),
-                Span::styled(option.text.clone(), theme.fg_active),
-            ];
-            if selected {
-                spans.push(Span::raw(" "));
-                spans.push(Span::styled("selected", theme.fg_dim));
-            }
-            lines.push(Line::from(spans));
+            push_wrapped_text(
+                &mut lines,
+                &format!("[{}] {}", option.label, option.text),
+                option_style,
+                width,
+            );
         }
     }
 
@@ -159,6 +152,17 @@ fn render_operator_question(
     }
 
     lines
+}
+
+fn push_wrapped_text(
+    lines: &mut Vec<Line<'static>>,
+    text: &str,
+    style: ratatui::style::Style,
+    width: usize,
+) {
+    for line in wrap_text(text, width.max(1)) {
+        lines.push(Line::from(vec![Span::styled(line, style)]));
+    }
 }
 
 fn option_matches_answer(option: &OperatorQuestionOption, answer: &str) -> bool {
