@@ -199,7 +199,7 @@ fn dashscope_openai_uses_enable_thinking(provider: &str, model: &str) -> bool {
     matches!(provider, PROVIDER_ID_QWEN | PROVIDER_ID_ALIBABA_CODING_PLAN)
         && matches!(
             model,
-            "qwen3.5-plus" | "qwen3-max-2026-01-23" | "glm-4.7" | "glm-5"
+            "qwen3.6-plus" | "qwen3.5-plus" | "qwen3-max-2026-01-23" | "glm-4.7" | "glm-5"
         )
 }
 

@@ -30,7 +30,7 @@ fn alibaba_coding_plan_uses_openai_by_default() {
     assert_eq!(
         get_provider_api_type(
             "alibaba-coding-plan",
-            "qwen3.5-plus",
+            "qwen3.6-plus",
             "https://coding-intl.dashscope.aliyuncs.com/v1"
         ),
         ApiType::OpenAI
@@ -42,7 +42,7 @@ fn alibaba_coding_plan_switches_to_anthropic_for_anthropic_base_url() {
     assert_eq!(
         get_provider_api_type(
             "alibaba-coding-plan",
-            "qwen3.5-plus",
+            "qwen3.6-plus",
             "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
         ),
         ApiType::Anthropic

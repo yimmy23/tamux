@@ -36,7 +36,7 @@ fn alibaba_coding_plan_uses_openai_compatible_base_url() {
         p.default_base_url,
         "https://coding-intl.dashscope.aliyuncs.com/v1"
     );
-    assert_eq!(p.default_model, "qwen3.5-plus");
+    assert_eq!(p.default_model, "qwen3.6-plus");
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn anthropic_message_providers_are_detected() {
     assert!(!uses_fixed_anthropic_messages(QWEN_PROVIDER.id, "qwen-max"));
     assert!(!uses_fixed_anthropic_messages(
         PROVIDER_ID_ALIBABA_CODING_PLAN,
-        "qwen3.5-plus"
+        "qwen3.6-plus"
     ));
 }
 

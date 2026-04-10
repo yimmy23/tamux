@@ -737,7 +737,7 @@ fn model_command_skips_remote_fetch_for_static_provider_catalogs() {
     let (mut model, mut daemon_rx) = make_model();
     model.config.provider = PROVIDER_ID_ALIBABA_CODING_PLAN.to_string();
     model.config.base_url = "https://coding-intl.dashscope.aliyuncs.com/v1".to_string();
-    model.config.model = "qwen3.5-plus".to_string();
+    model.config.model = "qwen3.6-plus".to_string();
     model.config.auth_source = "api_key".to_string();
     model.config.api_key = "dashscope-key".to_string();
 
@@ -759,7 +759,7 @@ fn provider_picker_skips_remote_fetch_for_static_provider_catalogs() {
         provider_name: "Alibaba Coding Plan".to_string(),
         authenticated: true,
         auth_source: "api_key".to_string(),
-        model: "qwen3.5-plus".to_string(),
+        model: "qwen3.6-plus".to_string(),
     }];
 
     let alibaba_index = widgets::provider_picker::available_provider_defs(&model.auth)
@@ -812,7 +812,7 @@ fn selecting_compaction_weles_provider_updates_provider_and_opens_model_picker()
             provider_name: "Alibaba Coding Plan".to_string(),
             authenticated: true,
             auth_source: "api_key".to_string(),
-            model: "qwen3.5-plus".to_string(),
+            model: "qwen3.6-plus".to_string(),
         },
     ];
 
@@ -904,7 +904,7 @@ fn selecting_compaction_custom_provider_updates_provider_and_opens_model_picker(
             provider_name: "Alibaba Coding Plan".to_string(),
             authenticated: true,
             auth_source: "api_key".to_string(),
-            model: "qwen3.5-plus".to_string(),
+            model: "qwen3.6-plus".to_string(),
         },
     ];
 

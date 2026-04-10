@@ -282,7 +282,7 @@ mod tests {
         let resolved = resolve_provider_config_for(
             &config,
             PROVIDER_ID_ALIBABA_CODING_PLAN,
-            Some("qwen3.5-plus"),
+            Some("qwen3.6-plus"),
         )
         .expect("provider should resolve");
 
@@ -290,7 +290,7 @@ mod tests {
             resolved.base_url,
             "https://coding-intl.dashscope.aliyuncs.com/v1"
         );
-        assert_eq!(resolved.model, "qwen3.5-plus");
+        assert_eq!(resolved.model, "qwen3.6-plus");
         assert_eq!(resolved.api_key, "dashscope-key");
         assert_eq!(resolved.reasoning_effort, "high");
         assert_eq!(resolved.assistant_id, "assistant-root");
@@ -334,11 +334,11 @@ mod tests {
         let resolved = resolve_provider_config_for(
             &config,
             PROVIDER_ID_ALIBABA_CODING_PLAN,
-            Some("qwen3.5-plus"),
+            Some("qwen3.6-plus"),
         )
         .expect("provider should resolve");
 
-        assert_eq!(resolved.model, "qwen3.5-plus");
+        assert_eq!(resolved.model, "qwen3.6-plus");
     }
 
     #[test]

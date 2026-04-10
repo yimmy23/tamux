@@ -903,7 +903,7 @@ fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
 fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
     let mut model = make_model();
     model.concierge.provider = Some("alibaba-coding-plan".to_string());
-    model.concierge.model = Some("qwen3.5-plus".to_string());
+    model.concierge.model = Some("qwen3.6-plus".to_string());
     model.concierge.reasoning_effort = Some("none".to_string());
 
     model.handle_client_event(ClientEvent::ThreadCreated {

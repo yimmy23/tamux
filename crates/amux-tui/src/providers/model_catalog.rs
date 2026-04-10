@@ -161,6 +161,7 @@ pub(super) fn known_models_for_provider_auth(
         PROVIDER_ID_ALIBABA_CODING_PLAN => &[
             ("qwen3-coder-plus", "Qwen3 Coder Plus", 997_952),
             ("qwen3-coder-next", "Qwen3 Coder Next", 204_800),
+            ("qwen3.6-plus", "Qwen3.6 Plus", 983_616),
             ("qwen3.5-plus", "Qwen3.5 Plus", 983_616),
             ("glm-5", "GLM-5", 202_752),
             ("kimi-k2.5", "Kimi K2.5", 262_144),

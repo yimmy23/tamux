@@ -12,8 +12,8 @@ pub const ALIBABA_CODING_MODELS: &[ModelDefinition] = &[
         modalities: TEXT_ONLY,
     },
     ModelDefinition {
-        id: "qwen3.5-plus",
-        name: "Qwen3.5 Plus",
+        id: "qwen3.6-plus",
+        name: "Qwen3.6 Plus",
         context_window: 983616,
         modalities: TEXT_ONLY,
     },

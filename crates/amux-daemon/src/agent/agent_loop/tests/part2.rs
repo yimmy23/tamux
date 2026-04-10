@@ -824,7 +824,7 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
-    config.concierge.model = Some("qwen3.5-plus".to_string());
+    config.concierge.model = Some("qwen3.6-plus".to_string());
     config.concierge.reasoning_effort = Some("medium".to_string());
 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -848,7 +848,7 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
         .find(|request| request.contains("POST /v1/chat/completions"))
         .expect("expected targeted Rarog thread to hit concierge provider request");
     assert!(
-        request.contains("\"model\":\"qwen3.5-plus\""),
+        request.contains("\"model\":\"qwen3.6-plus\""),
         "targeted Rarog request should carry concierge.model override"
     );
 }

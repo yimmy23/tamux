@@ -178,7 +178,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_ALIBABA_CODING_PLAN,
         name: "Alibaba Coding Plan",
         default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
-        default_model: "qwen3.5-plus",
+        default_model: "qwen3.6-plus",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
