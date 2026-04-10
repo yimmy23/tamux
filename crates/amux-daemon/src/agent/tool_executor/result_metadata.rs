@@ -7,6 +7,13 @@ where
     F: FnOnce(OnecontextSearchRequest) -> Fut,
     Fut: Future<Output = Result<std::process::Output>>,
 {
+    let display_query = args
+        .get("query")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_string();
     let request = onecontext_search_request(args)?;
 
     if !aline_available {
@@ -37,7 +44,7 @@ where
     if trimmed.is_empty() {
         return Ok(format!(
             "No OneContext matches for \"{}\" in {} scope.",
-            request.bounded_query, request.scope
+            display_query, request.scope
         ));
     }
 
@@ -57,7 +64,7 @@ where
 
     Ok(format!(
         "OneContext results for \"{}\" ({} scope):\n\n{output_text}",
-        request.bounded_query, request.scope
+        display_query, request.scope
     ))
 }
 

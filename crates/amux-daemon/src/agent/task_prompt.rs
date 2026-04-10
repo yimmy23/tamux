@@ -223,6 +223,11 @@ pub(super) fn memory_paths_for_scope(
 }
 
 pub(super) fn skills_dir(agent_data_dir: &std::path::Path) -> std::path::PathBuf {
+    let local_skills = agent_data_dir.join("skills");
+    if local_skills.exists() {
+        return local_skills;
+    }
+
     agent_data_dir
         .parent()
         .unwrap_or(std::path::Path::new("."))

@@ -70,15 +70,18 @@ async fn execute_tool_guarded_call_uses_weles_runtime_structured_block_verdict()
         .iter()
         .any(|reason| reason.contains("runtime policy denied browser reconfiguration")));
 
-    let recorded = recorded_bodies
-        .lock()
-        .expect("lock recorded assistant bodies");
-    let request = recorded
-        .iter()
-        .find(|body: &&String| body.contains("## WELES Governance Core"))
-        .expect("guarded execution should invoke WELES runtime");
-    assert!(request.contains("tool_name: setup_web_browsing"));
-    assert!(request.contains("security_level: moderate"));
+    let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        crate::agent::agent_identity::WELES_AGENT_ID,
+    );
+    let threads = engine.threads.read().await;
+    let dm_thread = threads
+        .get(&dm_thread_id)
+        .expect("guarded execution should invoke WELES runtime over internal dm");
+    assert!(dm_thread.messages.iter().any(|message| {
+        message.role == crate::agent::types::MessageRole::Assistant
+            && message.content.contains("audit-weles-runtime-block")
+    }));
 
     let config = engine.config.read().await;
     assert_eq!(
@@ -156,14 +159,18 @@ async fn execute_tool_guarded_call_uses_weles_runtime_structured_allow_metadata(
         reason.contains("runtime review approved controlled browser reconfiguration")
     }));
 
-    let recorded = recorded_bodies
-        .lock()
-        .expect("lock recorded assistant bodies");
-    let request = recorded
-        .iter()
-        .find(|body: &&String| body.contains("## WELES Governance Core"))
-        .expect("guarded execution should invoke WELES runtime");
-    assert!(request.contains("tool_name: setup_web_browsing"));
+    let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        crate::agent::agent_identity::WELES_AGENT_ID,
+    );
+    let threads = engine.threads.read().await;
+    let dm_thread = threads
+        .get(&dm_thread_id)
+        .expect("guarded execution should invoke WELES runtime over internal dm");
+    assert!(dm_thread.messages.iter().any(|message| {
+        message.role == crate::agent::types::MessageRole::Assistant
+            && message.content.contains("audit-weles-runtime-allow")
+    }));
 }
 
 #[tokio::test]

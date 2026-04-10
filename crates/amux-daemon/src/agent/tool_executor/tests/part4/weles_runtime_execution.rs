@@ -168,15 +168,18 @@ async fn execute_tool_suspicious_shell_python_uses_weles_runtime_structured_bloc
         .iter()
         .any(|reason| reason.contains("runtime rejected suspicious shell python command")));
 
-    let recorded = recorded_bodies
-        .lock()
-        .expect("lock recorded assistant bodies");
-    let request = recorded
-        .iter()
-        .find(|body: &&String| body.contains("## WELES Governance Core"))
-        .expect("suspicious shell python should invoke WELES runtime");
-    assert!(request.contains("tool_name: bash_command"));
-    assert!(request.contains("shell command requests network access"));
+    let dm_thread_id = crate::agent::agent_identity::internal_dm_thread_id(
+        crate::agent::agent_identity::MAIN_AGENT_ID,
+        crate::agent::agent_identity::WELES_AGENT_ID,
+    );
+    let threads = engine.threads.read().await;
+    let dm_thread = threads
+        .get(&dm_thread_id)
+        .expect("suspicious shell python should invoke WELES runtime over internal dm");
+    assert!(dm_thread.messages.iter().any(|message| {
+        message.role == crate::agent::types::MessageRole::Assistant
+            && message.content.contains("audit-weles-shell-python-block")
+    }));
 }
 
 #[tokio::test]

@@ -402,8 +402,6 @@
             .filter(|value| !value.is_empty())
             .expect("auto-background response should expose a background_task_id handle");
 
-        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
-
         let status_call = ToolCall::with_default_weles_review(
             "tool-background-status".to_string(),
             ToolFunction {
@@ -415,28 +413,44 @@
             },
         );
 
-        let status = execute_tool(
-            &status_call,
-            &engine,
-            "thread-bash-auto-background",
-            None,
-            &manager,
-            None,
-            &event_tx,
-            root.path(),
-            &engine.http_client,
-            None,
-        )
-        .await;
+        let mut payload = serde_json::Value::Null;
+        let mut completed = false;
+        for _ in 0..20 {
+            let status = execute_tool(
+                &status_call,
+                &engine,
+                "thread-bash-auto-background",
+                None,
+                &manager,
+                None,
+                &event_tx,
+                root.path(),
+                &engine.http_client,
+                None,
+            )
+            .await;
+
+            assert!(
+                !status.is_error,
+                "background task status lookup should succeed: {}",
+                status.content
+            );
+
+            payload = serde_json::from_str(&status.content)
+                .expect("status payload should be valid JSON");
+            if payload["state"] == "completed" {
+                completed = true;
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
 
         assert!(
-            !status.is_error,
-            "background task status lookup should succeed: {}",
-            status.content
+            completed,
+            "background task should complete within the polling window: {}",
+            payload
         );
-
-        let payload: serde_json::Value =
-            serde_json::from_str(&status.content).expect("status payload should be valid JSON");
         assert_eq!(payload["background_task_id"], background_task_id);
         assert_eq!(payload["state"], "completed");
         assert_eq!(payload["exit_code"], 0);

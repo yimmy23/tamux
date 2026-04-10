@@ -10,7 +10,7 @@ This design introduces two separate operator-facing agent command families in th
 - `!agent ...` for hidden internal delegation
 - `@agent ...` for visible resident thread participants
 
-The current main thread owner remains unchanged when participants are added. Participants watch the thread continuously, decide when their assigned task is relevant, and contribute through the existing queued-message flow so the operator can use the current `send now` behavior to interrupt the main agent when needed.
+The current main thread owner remains unchanged when participants are added. Participants watch the thread continuously, decide when their assigned task is relevant, and contribute through a staged suggestion queue so the operator can use the existing `send now` behavior to interrupt the main agent when needed. Participants can also mark a suggestion as forced to preempt the main stream immediately.
 
 ## Goals
 
@@ -18,7 +18,8 @@ The current main thread owner remains unchanged when participants are added. Par
 - Add `@agent` as a persistent in-thread participant registration mechanism.
 - Allow multiple active participants per thread.
 - Preserve the current main thread owner and its ongoing work.
-- Reuse the existing queued-message and `send now` flow for participant contributions.
+- Stage participant contributions through a per-thread suggestion queue with `send now`.
+- Allow participants to force-send a suggestion when they believe interruption is required.
 - Make the command behavior discoverable in dedicated documentation and from `README.md`.
 
 ## Non-Goals
@@ -51,7 +52,8 @@ Expected behavior:
 - Creates or updates a participant assignment for the named agent.
 - The participant remains active until explicitly removed.
 - The participant continuously observes thread activity and decides whether to contribute based on its assigned task.
-- When the participant decides to contribute, its message enters the thread through the existing queued-message path.
+- When the participant decides to contribute, it produces a staged suggestion that the operator can send or dismiss.
+- If the suggestion is marked forced, it should interrupt the main agent and post immediately.
 
 Example:
 
@@ -82,6 +84,12 @@ Rules:
 - All later `@...` tokens in the prompt continue to participate in file-reference parsing.
 - If the leading `@token` is not a known agent alias, preserve current file-reference behavior.
 
+Known-agent alias resolution:
+
+- Use the daemon-provided agent registry (same list used today for `!agent` completion).
+- Aliases are case-insensitive and normalized to lowercase for lookup.
+- If multiple aliases map to the same agent, the canonical agent name is stored on the participant record.
+
 Example:
 
 ```text
@@ -111,6 +119,27 @@ Suggested participant fields:
 
 This registry should live in daemon-managed thread metadata and persist across reloads.
 
+### Participant Suggestion Queue
+
+Each thread should also maintain a suggestion queue for participant contributions. Suggested fields:
+
+- `suggestion_id`
+- `thread_id`
+- `participant_agent_id`
+- `participant_agent_name`
+- `content`
+- `created_at`
+- `force_send` (boolean)
+- `status` (queued, sent, dismissed, failed)
+
+Suggestions are not thread messages until they are sent (either by operator action or force-send). They should be persisted in the daemon (preferably via agent events) so they survive reconnects.
+
+Arbitration order:
+
+- Forced suggestions preempt any active main-agent stream and post immediately.
+- Normal queued suggestions are FIFO and only posted via operator `send now`.
+- If multiple forced suggestions arrive at once, process them in arrival order.
+
 ## Runtime Behavior
 
 ### Thread Owner
@@ -124,11 +153,22 @@ This registry should live in daemon-managed thread metadata and persist across r
 - Each participant evaluates whether the conversation is relevant to its assigned task.
 - Participants should be allowed to remain silent unless they judge their contribution useful.
 
+Visibility scope:
+
+- Participants receive the same thread message stream as the main agent, excluding hidden internal delegation content and system-only audit events.
+- Participant suggestions are not fed back into other participants unless they are sent and become normal thread messages.
+
 ### Participant Contribution Path
 
-- Participant contributions should appear as direct, visible agent messages in the main thread.
-- Contributions should enter through the existing queued-message mechanism.
-- The operator should retain the current `send now` option to preempt the main agent if the queued participant contribution is more urgent.
+- Participants emit staged suggestions that appear in the queue, not immediately as thread messages.
+- The operator can `send now` or dismiss queued suggestions.
+- If a suggestion is marked `force_send`, it should interrupt the main agent stream and post immediately as that participant.
+- Posted messages must record the participant as the author, not the main thread owner.
+
+Force-send semantics:
+
+- If a participant marks `force_send`, the daemon cancels the current main-agent stream (same mechanism as `send now`) and immediately posts the participant message.
+- If no stream is active, the suggestion posts immediately without cancellation.
 
 ### Deactivation
 
@@ -138,19 +178,21 @@ This registry should live in daemon-managed thread metadata and persist across r
 
 ## Daemon Responsibilities
 
-- Parse and normalize thread participant commands coming from the TUI.
+- Validate and apply thread participant commands coming from clients.
 - Maintain per-thread participant state.
 - Fan out thread activity to active participants.
-- Accept participant-originated queued contributions into the main thread queue.
-- Reuse current queue arbitration and `send now` behavior.
+- Accept participant-originated suggestions into the per-thread queue.
+- Reuse current queue arbitration and `send now` behavior for staged suggestions.
+- Allow participants to flag a suggestion as forced and interrupt the main stream.
 - Keep `!agent` internal delegation on its existing hidden path.
 
 ## TUI Responsibilities
 
 - Detect leading `@agent` and `!agent` directives.
 - Preserve current file-reference behavior for non-leading `@...` tokens.
-- Display participant contributions as normal queued thread contributions.
-- Add future discoverability affordances if needed, but no new UI is required for the first implementation beyond command parsing and existing queue rendering.
+- Display participant suggestions in the queue with agent name and force-send indicator.
+- Allow `send now` and dismiss for queued participant suggestions.
+- Add future discoverability affordances if needed, but no new UI is required for the first implementation beyond command parsing and queue rendering updates.
 
 ## React And Electron Responsibilities
 
@@ -174,9 +216,9 @@ The desktop frontend should support the same behavior model as the TUI, not a se
 
 ### Contribution UX
 
-- Participant contributions should render as normal queued thread contributions in the existing chat timeline.
-- The current `send now` mechanism should work the same way for participant-originated queued messages as it does for any other queued thread message.
-- If the main agent is streaming and a participant contribution is queued, the React UI should surface the same interruption affordance the TUI already exposes conceptually.
+- Participant contributions should render as staged suggestions in the queue with agent name and force-send indicator.
+- The current `send now` mechanism should work the same way for participant-originated queued suggestions as it does for any other queued message.
+- If the main agent is streaming and a participant suggestion is queued, the React UI should surface the same interruption affordance the TUI already exposes conceptually.
 
 ### Transport
 
@@ -204,12 +246,23 @@ Participant state should survive:
 
 This implies storing participant metadata alongside existing thread metadata or in a closely related persisted structure.
 
+Participant suggestions should survive reconnects and daemon restarts by persisting the queue in agent events or adjacent durable storage.
+
+Durability guarantee: suggestions and participant state should be recoverable after a daemon restart and visible to clients after reconnect without requiring operator re-entry.
+
 ## Error Handling
 
 - Unknown leading agent alias: fall back to current plain prompt or file-reference behavior.
 - `@agent leave` for an inactive or missing participant: return a non-fatal status message.
 - Duplicate `@agent ...` registration: update the participant’s instruction rather than creating duplicates.
 - If participant execution fails internally, surface it through existing queue or audit paths rather than silently mutating thread ownership.
+- If suggestion posting fails, keep it queued and mark it failed with a retry affordance.
+- If force-send fails, downgrade it to a failed queued suggestion and allow manual retry.
+
+## Authorization
+
+- Adding/removing participants and sending suggestions requires the same operator permissions as normal message sending.
+- Participants can force-send regardless of operator interruption preferences.
 
 ## Testing
 
@@ -221,8 +274,9 @@ Add tests for:
 - participant update semantics on repeated `@agent ...`
 - participant deactivation phrases
 - persistence and reload of participant metadata
-- participant contributions entering the normal queued-message path
-- `send now` still interrupting the main agent correctly when a participant contribution is queued
+- participant contributions entering the normal staged suggestion path
+- `send now` still interrupting the main agent correctly when a participant suggestion is queued
+- force-send suggestions interrupting the main agent stream
 - React composer parsing and intent normalization for `@agent` and `!agent`
 - Electron IPC transport coverage for participant commands
 - React thread UI rendering of active participants and participant contributions
@@ -243,7 +297,7 @@ This design document is the implementation reference; the follow-up user-facing 
 3. Add TUI parsing for leading `@agent` and keep `!agent` on the internal path.
 4. Add React/Electron composer parsing and IPC transport for the same command intents.
 5. Register and deactivate participants from both TUI and React flows.
-6. Wire participant observation and queued contributions.
+6. Wire participant observation and staged suggestions.
 7. Add participant display in the React thread UI.
 8. Add documentation and `README.md` pin.
 9. Run targeted tests for TUI parsing, React parsing, persistence, IPC transport, and queue behavior.
